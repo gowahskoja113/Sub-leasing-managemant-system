@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Setter
@@ -24,4 +26,12 @@ public class OperationManagement {
 
     @Column(name = "start_at")
     private LocalDateTime startAt;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "manager_zones", // Tên bảng trung gian đồng bộ với file md thiết kế
+            joinColumns = @JoinColumn(name = "manager_id", referencedColumnName = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "zone_id")
+    )
+    private List<Zone> zones = new ArrayList<>();
 }

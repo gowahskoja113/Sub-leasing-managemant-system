@@ -12,11 +12,11 @@ import java.util.UUID;
 @Setter
 @Getter
 @Entity
-@Table(name = "`User`") // Bọc trong dấu backtick vì 'User' là từ khóa bảo mật của một số DB
+@Table(name = "`User`")
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID) // Đã sửa thành UUID chuẩn Hibernate 6+
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false)

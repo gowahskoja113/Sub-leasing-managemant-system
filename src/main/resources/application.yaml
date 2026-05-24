@@ -9,6 +9,7 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   jpa:
+    generate-ddl: true
     hibernate:
       ddl-auto: update # Tự động tạo hoặc cập nhật cấu trúc bảng từ Entity xuống DB
     show-sql: true     # In các câu lệnh SQL ra Console để tiện debug
@@ -17,7 +18,7 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-# 🔐 Cấu hình bảo mật JWT tập trung tại đây
+# Cấu hình bảo mật JWT
 jwt:
   secret: IGtr+uHjE2NDtJR7x37IqqEFAG0oj4LAcWaQlcPAoSqW05g3MtQC3ZaQDKmSme/0X72eAuLPpNfVbBYdmAd23Q==
-  expiration: 86400000 # Thời gian sống của Token (86400000 ms = 24 giờ)
+  expiration: 86400000
