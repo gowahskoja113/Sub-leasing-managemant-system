@@ -39,11 +39,10 @@ public class PropertyServiceImpl implements PropertyService {
 
     @Override
     @Transactional
-    public PropertyResponse createProperty(PropertyRequest request, UUID managerId) {
-        // 1. Kiểm tra phân quyền chéo xem Manager có quyền trên Zone này không
-        check(managerId, request.getZoneId());
+    public PropertyResponse createProperty(PropertyRequest request) {
+        // 🚀 BƯỚC 1 CHECK PHÂN QUYỀN CỦA MANAGER ĐÃ ĐƯỢC XÓA BỎ VÌ ĐÂY LÀ ADMIN TẠO
 
-        // 2. Tìm kiếm Zone, không thấy thì quăng lỗi (Đã loại bỏ gọi OwnerRepository)
+        // 2. Tìm kiếm Zone xem có tồn tại không, không thấy thì quăng lỗi
         Zone zone = zoneRepository.findById(request.getZoneId())
                 .orElseThrow(() -> new RuntimeException("Zone không tồn tại"));
 
@@ -111,7 +110,6 @@ public class PropertyServiceImpl implements PropertyService {
         Zone zone = zoneRepository.findById(request.getZoneId())
                 .orElseThrow(() -> new RuntimeException("Zone không tồn tại"));
 
-        // Cập nhật các trường cơ bản (bao gồm cả authorizedOwnerName mới từ request)
         propertyMapper.updateEntityFromRequest(request, property);
         property.setZone(zone);
 

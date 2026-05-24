@@ -19,12 +19,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/properties")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('MANAGER')")
 public class PropertyController {
 
     private final PropertyService propertyService;
 
     // 📊 API phục vụ dashboard hiển thị số lượng theo loại hình nhà của từng Zone
+    @PreAuthorize("hasRole('OWNER')")
     @GetMapping("/dashboard-summary")
     public ResponseEntity<List<ZoneSummaryProjection>> getDashboardSummary(
             @AuthenticationPrincipal CustomUserDetails userDetails) {
@@ -32,11 +32,12 @@ public class PropertyController {
     }
 
     // ➕ API Tạo mới Bất động sản
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
     public ResponseEntity<PropertyResponse> createProperty(
             @RequestBody PropertyRequest request,
             @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return ResponseEntity.ok(propertyService.createProperty(request, userDetails.getId()));
+        return ResponseEntity.ok(propertyService.createProperty(request));
     }
 
     // 🔍 API Lấy danh sách BĐS theo phân quyền của Manager đang đăng nhập

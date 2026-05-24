@@ -19,4 +19,6 @@ public interface ZoneRepository extends JpaRepository<Zone, UUID> {
             "WHERE m.id = :managerId " +
             "GROUP BY z.id, z.name")
     List<ZoneSummaryProjection> getZoneSummaryByManager(@Param("managerId") UUID managerId);
+    boolean existsByName(String name);
+    boolean existsByNameAndIdNot(String name, UUID id);
 }

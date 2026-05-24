@@ -11,7 +11,7 @@ import java.util.UUID;
 
 public interface PropertyService {
     public List<ZoneSummaryProjection> getManagerDashboard(UUID managerId);
-    public PropertyResponse createProperty(PropertyRequest request, UUID managerId);
+    public PropertyResponse createProperty(PropertyRequest request);
     public Page<PropertyResponse> getPropertiesForManager(UUID managerId, Pageable pageable);
     public PropertyResponse updateProperty(UUID id, PropertyRequest request, UUID managerId);
     public void deleteProperty(UUID id, UUID managerId);
