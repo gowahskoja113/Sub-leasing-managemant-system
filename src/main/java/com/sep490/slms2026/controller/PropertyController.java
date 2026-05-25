@@ -23,24 +23,24 @@ public class PropertyController {
 
     private final PropertyService propertyService;
 
-    // 📊 API phục vụ dashboard hiển thị số lượng theo loại hình nhà của từng Zone
-    @PreAuthorize("hasRole('OWNER')")
+    // 📊 Thống kê Dashboard đổi lại role cho đúng đối tượng thụ hưởng là Manager/Admin
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @GetMapping("/dashboard-summary")
     public ResponseEntity<List<ZoneSummaryProjection>> getDashboardSummary(
             @AuthenticationPrincipal CustomUserDetails userDetails) {
         return ResponseEntity.ok(propertyService.getManagerDashboard(userDetails.getId()));
     }
 
-    // ➕ API Tạo mới Bất động sản
-    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<PropertyResponse> createProperty(
             @RequestBody PropertyRequest request,
             @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return ResponseEntity.ok(propertyService.createProperty(request));
+        return ResponseEntity.ok(propertyService.createProperty(request, userDetails.getId()));
     }
 
-    // 🔍 API Lấy danh sách BĐS theo phân quyền của Manager đang đăng nhập
+    // 🔍 Lấy danh sách BĐS phân trang theo vùng được quản lý
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @GetMapping
     public ResponseEntity<Page<PropertyResponse>> getProperties(
             @AuthenticationPrincipal CustomUserDetails userDetails,
@@ -48,7 +48,8 @@ public class PropertyController {
         return ResponseEntity.ok(propertyService.getPropertiesForManager(userDetails.getId(), pageable));
     }
 
-    // api update property information
+    // ✏️ Cập nhật thông tin BĐS
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @PutMapping("/{id}")
     public ResponseEntity<PropertyResponse> updateProperty(
             @PathVariable UUID id,
@@ -57,7 +58,8 @@ public class PropertyController {
         return ResponseEntity.ok(propertyService.updateProperty(id, request, userDetails.getId()));
     }
 
-    // apit delete property
+    // ❌ Xóa BĐS
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProperty(
             @PathVariable UUID id,

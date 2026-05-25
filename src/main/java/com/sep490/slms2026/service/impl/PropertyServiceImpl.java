@@ -7,8 +7,8 @@ import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.mapper.PropertyMapper;
 import com.sep490.slms2026.repository.OperationManagementRepository;
-import com.sep490.slms2026.repository.OwnerRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
+import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
 import com.sep490.slms2026.service.PropertyService;
 import lombok.RequiredArgsConstructor;
@@ -27,9 +27,10 @@ public class PropertyServiceImpl implements PropertyService {
 
     private final OperationManagementRepository operationManagementRepository;
     private final ZoneRepository zoneRepository;
-    private final OwnerRepository ownerRepository;
     private final PropertyRepository propertyRepository;
     private final PropertyMapper propertyMapper;
+    private final UserRepository userRepository;
+
 
     @Override
     @Transactional(readOnly = true)
@@ -39,53 +40,30 @@ public class PropertyServiceImpl implements PropertyService {
 
     @Override
     @Transactional
-    public PropertyResponse createProperty(PropertyRequest request) {
-        // 🚀 BƯỚC 1 CHECK PHÂN QUYỀN CỦA MANAGER ĐÃ ĐƯỢC XÓA BỎ VÌ ĐÂY LÀ ADMIN TẠO
+    public PropertyResponse createProperty(PropertyRequest request, UUID managerId) {
+        Zone propertyZone = zoneRepository.findById(request.getZoneId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Vùng (Zone) đã chọn cho Bất động sản!"));
 
-        // 2. Tìm kiếm Zone xem có tồn tại không, không thấy thì quăng lỗi
-        Zone zone = zoneRepository.findById(request.getZoneId())
-                .orElseThrow(() -> new RuntimeException("Zone không tồn tại"));
-
-        // 3. Map từ DTO Request sang Entity bằng MapStruct
-        Property property = propertyMapper.toEntity(request);
-        property.setZone(zone);
-
-        // 4. Xử lý Business Logic dựa theo hình thức thuê (isWholeHouse)
-        if (request.isWholeHouse()) {
-            if (request.getRooms() == null || request.getRooms().isEmpty()) {
-                throw new RuntimeException("Vui lòng nhập đầy đủ thông tin giá thuê và diện tích cho nhà nguyên căn!");
-            }
-
-            // Thuê nguyên căn: Tự sinh ra 1 Room đại diện duy nhất
-            Room wholeRoom = new Room();
-            wholeRoom.setRoomNumber("Nguyên Căn");
-            wholeRoom.setPrice(request.getRooms().get(0).getPrice());
-            wholeRoom.setDeposit(request.getRooms().get(0).getDeposit());
-            wholeRoom.setArea(request.getRooms().get(0).getArea());
-            wholeRoom.setStatus(RoomStatus.AVAILABLE);
-            wholeRoom.setProperty(property);
-
-            property.getRooms().add(wholeRoom);
-            property.setTotalRooms(1);
-        } else {
-            // Thuê theo phòng: Duyệt qua danh sách và nạp toàn bộ list phòng con từ request vào
-            if (request.getRooms() != null) {
-                request.getRooms().forEach(roomReq -> {
-                    Room room = new Room();
-                    room.setRoomNumber(roomReq.getRoomNumber());
-                    room.setPrice(roomReq.getPrice());
-                    room.setDeposit(roomReq.getDeposit());
-                    room.setArea(roomReq.getArea());
-                    room.setStatus(RoomStatus.AVAILABLE);
-                    room.setProperty(property);
-
-                    property.getRooms().add(room);
-                });
-                property.setTotalRooms(request.getRooms().size());
-            }
+        if (propertyZone.getLevel() != 3) {
+            throw new RuntimeException("Lỗi cấu trúc địa chỉ: Địa chỉ Bất động sản bắt buộc phải chọn chi tiết đến cấp Phường/Xã (Level 3)!");
         }
 
-        // 5. Lưu vào Database và map kết quả trả về DTO Response
+        checkPermissionByZoneTree(managerId, propertyZone);
+
+        // 1. Map từ DTO sang Entity như bình thường
+        Property property = propertyMapper.toEntity(request);
+        property.setZone(propertyZone);
+
+        // 🔥 BƯỚC QUAN TRỌNG: Diệt tận gốc mối quan hệ 2 chiều của các Room rác do MapStruct tự map
+        if (property.getRooms() != null) {
+            property.getRooms().forEach(room -> room.setProperty(null)); // Chặt đứt liên kết ngược
+            property.getRooms().clear(); // Xoá sạch list xuôi
+        }
+
+        // 2. Xử lý nạp Room sạch dựa theo hình thức thuê (isWholeHouse)
+        processRoomsLogic(request, property);
+
+        // 3. Lưu vào Database và map kết quả trả về
         Property savedProperty = propertyRepository.save(property);
         return propertyMapper.toResponse(savedProperty);
     }
@@ -103,31 +81,92 @@ public class PropertyServiceImpl implements PropertyService {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản này"));
 
-        // Kiểm tra xem Manager cũ có quyền quản lý vùng này không, và vùng mới định đổi có hợp lệ không
-        check(managerId, property.getZone().getId());
-        check(managerId, request.getZoneId());
+        Zone newZone = zoneRepository.findById(request.getZoneId())
+                .orElseThrow(() -> new RuntimeException("Zone mới không tồn tại"));
 
-        Zone zone = zoneRepository.findById(request.getZoneId())
-                .orElseThrow(() -> new RuntimeException("Zone không tồn tại"));
+        if (newZone.getLevel() != 3) {
+            throw new RuntimeException("Lỗi cấu trúc địa chỉ: Địa chỉ định đổi bắt buộc phải thuộc cấp Phường/Xã (Level 3)!");
+        }
+
+        // Kiểm tra quyền trên cả vùng cũ của BĐS lẫn vùng mới định cập nhật
+        checkPermissionByZoneTree(managerId, property.getZone());
+        checkPermissionByZoneTree(managerId, newZone);
 
         propertyMapper.updateEntityFromRequest(request, property);
-        property.setZone(zone);
+        property.setZone(newZone);
 
-        // Đổi cấu trúc phòng: Xóa sạch room cũ để orphanRemoval tự kích hoạt kích hoạt xóa ngầm dưới DB
-        property.getRooms().clear();
+        // Clear toàn bộ phòng cũ kích hoạt orphanRemoval xóa ngầm tự động
+        // Tìm đoạn này trong hàm updateProperty và sửa lại:
+        propertyMapper.updateEntityFromRequest(request, property);
+        property.setZone(newZone);
 
-        // Nạp lại cấu trúc phòng mới tương tự như hàm Create
+        if (property.getRooms() != null) {
+            property.getRooms().forEach(room -> room.setProperty(null));
+            property.getRooms().clear();
+        }
+
+        return propertyMapper.toResponse(propertyRepository.save(property));
+    }
+
+    @Override
+    @Transactional
+    public void deleteProperty(UUID id, UUID managerId) {
+        Property property = propertyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản này"));
+
+        checkPermissionByZoneTree(managerId, property.getZone());
+        propertyRepository.delete(property);
+    }
+
+    /**
+     * KIỂM TRA PHÂN QUYỀN THEO CÂY ĐỆ QUY (Zone Tree Verification)
+     * Đảm bảo nếu quản lý cấp Tỉnh hoặc Quận vẫn có quyền thao tác trên các Phường con/cháu.
+     */
+    private void checkPermissionByZoneTree(UUID managerId, Zone targetZone) {
+        // Tìm thông tin User để xác định Role
+        var user = userRepository.findById(managerId)
+                .orElseThrow(() -> new AccessDeniedException("Tài khoản không tồn tại trên hệ thống!"));
+
+        // BƯỚC ĐỆM: Nếu là ADMIN thì luôn luôn có quyền, bypass qua tất cả các tầng check địa lý bên dưới
+        if ("ROLE_ADMIN".equals(user.getRole().name())) {
+            return;
+        }
+
+        // Nếu không phải ADMIN (tức là MANAGER), tiến hành check theo cây phân cấp địa lý như cũ
+        OperationManagement op = operationManagementRepository.findById(managerId)
+                .orElseThrow(() -> new AccessDeniedException("Tài khoản không có quyền quản lý vận hành!"));
+
+        List<Zone> managerZones = op.getZones();
+        Zone currentZone = targetZone;
+        boolean hasPermission = false;
+
+        while (currentZone != null) {
+            final UUID currentId = currentZone.getId();
+            if (managerZones.stream().anyMatch(mz -> mz.getId().equals(currentId))) {
+                hasPermission = true;
+                break;
+            }
+            currentZone = currentZone.getParent();
+        }
+
+        if (!hasPermission) {
+            throw new AccessDeniedException("Bạn không có quyền thao tác trên Khu Vực địa lý này! [403]");
+        }
+    }
+
+    private void processRoomsLogic(PropertyRequest request, Property property) {
         if (request.isWholeHouse()) {
             if (request.getRooms() == null || request.getRooms().isEmpty()) {
                 throw new RuntimeException("Vui lòng nhập đầy đủ thông tin giá thuê và diện tích cho nhà nguyên căn!");
             }
             Room wholeRoom = new Room();
-            wholeRoom.setRoomNumber("Nguyên Căn");
+            wholeRoom.setRoomNumber("Nguyên Căn"); // Có chữ này thì DB sẽ không bao giờ báo lỗi null nữa
             wholeRoom.setPrice(request.getRooms().get(0).getPrice());
             wholeRoom.setDeposit(request.getRooms().get(0).getDeposit());
             wholeRoom.setArea(request.getRooms().get(0).getArea());
             wholeRoom.setStatus(RoomStatus.AVAILABLE);
             wholeRoom.setProperty(property);
+
             property.getRooms().add(wholeRoom);
             property.setTotalRooms(1);
         } else {
@@ -144,30 +183,6 @@ public class PropertyServiceImpl implements PropertyService {
                 });
                 property.setTotalRooms(request.getRooms().size());
             }
-        }
-
-        return propertyMapper.toResponse(propertyRepository.save(property));
-    }
-
-    @Override
-    @Transactional
-    public void deleteProperty(UUID id, UUID managerId) {
-        Property property = propertyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản này"));
-
-        check(managerId, property.getZone().getId());
-        propertyRepository.delete(property);
-    }
-
-    private void check(UUID managerId, UUID zoneId) {
-        OperationManagement op = operationManagementRepository.findById(managerId)
-                .orElseThrow(() -> new AccessDeniedException("Tài khoản không có quyền quản lý vận hành!"));
-
-        boolean hasPermission = op.getZones().stream()
-                .anyMatch(zone -> zone.getId().equals(zoneId));
-
-        if (!hasPermission) {
-            throw new AccessDeniedException("Bồ không có quyền thao tác trên Khu Vực (Zone) này! [403]");
         }
     }
 }
