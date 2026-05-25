@@ -3,22 +3,21 @@ server:
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/slms2026_db
-    username: postgres
-    password: 12345678
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
     generate-ddl: true
     hibernate:
-      ddl-auto: update # Tự động tạo hoặc cập nhật cấu trúc bảng từ Entity xuống DB
-    show-sql: true     # In các câu lệnh SQL ra Console để tiện debug
+      ddl-auto: update
+    show-sql: true
     properties:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-# Cấu hình bảo mật JWT
 jwt:
-  secret: IGtr+uHjE2NDtJR7x37IqqEFAG0oj4LAcWaQlcPAoSqW05g3MtQC3ZaQDKmSme/0X72eAuLPpNfVbBYdmAd23Q==
+  secret: ${JWT_SECRET}
   expiration: 86400000
