@@ -39,7 +39,7 @@ public class RoomServiceImpl implements RoomService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản chỉ định!"));
 
-        if (property.isWholeHouse()) {
+        if (property.getIsWholeHouse()) {
             throw new RuntimeException("Bất động sản này thuê theo hình thức Nguyên Căn, không thể thêm phòng lẻ!");
         }
 
@@ -88,7 +88,7 @@ public class RoomServiceImpl implements RoomService {
         Property property = room.getProperty();
         checkPermissionByZoneTree(managerId, property.getZone());
 
-        if (property.isWholeHouse()) {
+        if (property.getIsWholeHouse()) {
             // Đối với nhà nguyên căn, không cho đổi số phòng bậy bạ
             request.setRoomNumber("Nguyên Căn");
         } else {
@@ -110,7 +110,7 @@ public class RoomServiceImpl implements RoomService {
         Property property = room.getProperty();
         checkPermissionByZoneTree(managerId, property.getZone());
 
-        if (property.isWholeHouse()) {
+        if (property.getIsWholeHouse()) {
             throw new RuntimeException("Không thể xóa phòng của hình thức nhà Nguyên Căn! (Bắt buộc phải xóa toàn bộ Property)");
         }
 

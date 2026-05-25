@@ -24,7 +24,7 @@ public class PropertyController {
     private final PropertyService propertyService;
 
     // 📊 Thống kê Dashboard đổi lại role cho đúng đối tượng thụ hưởng là Manager/Admin
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @GetMapping("/dashboard-summary")
     public ResponseEntity<List<ZoneSummaryProjection>> getDashboardSummary(
             @AuthenticationPrincipal CustomUserDetails userDetails) {
@@ -32,7 +32,7 @@ public class PropertyController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<PropertyResponse> createProperty(
             @RequestBody PropertyRequest request,
             @AuthenticationPrincipal CustomUserDetails userDetails) {
@@ -40,7 +40,7 @@ public class PropertyController {
     }
 
     // 🔍 Lấy danh sách BĐS phân trang theo vùng được quản lý
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @GetMapping
     public ResponseEntity<Page<PropertyResponse>> getProperties(
             @AuthenticationPrincipal CustomUserDetails userDetails,
@@ -49,7 +49,7 @@ public class PropertyController {
     }
 
     // ✏️ Cập nhật thông tin BĐS
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @PutMapping("/{id}")
     public ResponseEntity<PropertyResponse> updateProperty(
             @PathVariable UUID id,
@@ -59,7 +59,7 @@ public class PropertyController {
     }
 
     // ❌ Xóa BĐS
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProperty(
             @PathVariable UUID id,

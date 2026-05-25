@@ -2,6 +2,7 @@ package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.ZoneSummaryProjection;
 import com.sep490.slms2026.dto.request.PropertyRequest;
+import com.sep490.slms2026.dto.request.RoomRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -95,15 +96,12 @@ public class PropertyServiceImpl implements PropertyService {
         propertyMapper.updateEntityFromRequest(request, property);
         property.setZone(newZone);
 
-        // Clear toàn bộ phòng cũ kích hoạt orphanRemoval xóa ngầm tự động
-        // Tìm đoạn này trong hàm updateProperty và sửa lại:
-        propertyMapper.updateEntityFromRequest(request, property);
-        property.setZone(newZone);
-
         if (property.getRooms() != null) {
             property.getRooms().forEach(room -> room.setProperty(null));
             property.getRooms().clear();
         }
+
+        processRoomsLogic(request, property);
 
         return propertyMapper.toResponse(propertyRepository.save(property));
     }
@@ -128,7 +126,7 @@ public class PropertyServiceImpl implements PropertyService {
                 .orElseThrow(() -> new AccessDeniedException("Tài khoản không tồn tại trên hệ thống!"));
 
         // BƯỚC ĐỆM: Nếu là ADMIN thì luôn luôn có quyền, bypass qua tất cả các tầng check địa lý bên dưới
-        if ("ROLE_ADMIN".equals(user.getRole().name())) {
+        if (com.sep490.slms2026.enums.Role.ROLE_ADMIN.equals(user.getRole())) {
             return;
         }
 
@@ -156,33 +154,46 @@ public class PropertyServiceImpl implements PropertyService {
 
     private void processRoomsLogic(PropertyRequest request, Property property) {
         if (request.isWholeHouse()) {
+            // Nha nguyen can: chi can price, deposit, area - roomNumber tu dong = "Nguyen Can"
             if (request.getRooms() == null || request.getRooms().isEmpty()) {
-                throw new RuntimeException("Vui lòng nhập đầy đủ thông tin giá thuê và diện tích cho nhà nguyên căn!");
+                throw new RuntimeException("Vui long nhap gia thue, tien coc va dien tich cho nha nguyen can!");
+            }
+            RoomRequest wholeRoomReq = request.getRooms().get(0);
+            if (wholeRoomReq.getPrice() == null || wholeRoomReq.getDeposit() == null || wholeRoomReq.getArea() == null) {
+                throw new RuntimeException("Gia thue, tien coc va dien tich khong duoc de trong!");
             }
             Room wholeRoom = new Room();
-            wholeRoom.setRoomNumber("Nguyên Căn"); // Có chữ này thì DB sẽ không bao giờ báo lỗi null nữa
-            wholeRoom.setPrice(request.getRooms().get(0).getPrice());
-            wholeRoom.setDeposit(request.getRooms().get(0).getDeposit());
-            wholeRoom.setArea(request.getRooms().get(0).getArea());
+            wholeRoom.setRoomNumber("Nguyen Can");
+            wholeRoom.setPrice(wholeRoomReq.getPrice());
+            wholeRoom.setDeposit(wholeRoomReq.getDeposit());
+            wholeRoom.setArea(wholeRoomReq.getArea());
             wholeRoom.setStatus(RoomStatus.AVAILABLE);
             wholeRoom.setProperty(property);
-
             property.getRooms().add(wholeRoom);
             property.setTotalRooms(1);
         } else {
-            if (request.getRooms() != null) {
-                request.getRooms().forEach(roomReq -> {
-                    Room room = new Room();
-                    room.setRoomNumber(roomReq.getRoomNumber());
-                    room.setPrice(roomReq.getPrice());
-                    room.setDeposit(roomReq.getDeposit());
-                    room.setArea(roomReq.getArea());
-                    room.setStatus(RoomStatus.AVAILABLE);
-                    room.setProperty(property);
-                    property.getRooms().add(room);
-                });
-                property.setTotalRooms(request.getRooms().size());
+            // Cho thue phong: bat buoc phai co roomNumber cho tung phong
+            if (request.getRooms() == null || request.getRooms().isEmpty()) {
+                throw new RuntimeException("Vui long them it nhat 1 phong cho bat dong san cho thue theo phong!");
             }
+            for (int i = 0; i < request.getRooms().size(); i++) {
+                RoomRequest roomReq = request.getRooms().get(i);
+                if (roomReq.getRoomNumber() == null || roomReq.getRoomNumber().isBlank()) {
+                    throw new RuntimeException("Phong thu " + (i + 1) + " chua co so phong (roomNumber)!");
+                }
+                if (roomReq.getPrice() == null || roomReq.getDeposit() == null || roomReq.getArea() == null) {
+                    throw new RuntimeException("Phong \"" + roomReq.getRoomNumber() + "\": gia thue, tien coc va dien tich khong duoc de trong!");
+                }
+                Room room = new Room();
+                room.setRoomNumber(roomReq.getRoomNumber());
+                room.setPrice(roomReq.getPrice());
+                room.setDeposit(roomReq.getDeposit());
+                room.setArea(roomReq.getArea());
+                room.setStatus(RoomStatus.AVAILABLE);
+                room.setProperty(property);
+                property.getRooms().add(room);
+            }
+            property.setTotalRooms(request.getRooms().size());
         }
     }
 }
