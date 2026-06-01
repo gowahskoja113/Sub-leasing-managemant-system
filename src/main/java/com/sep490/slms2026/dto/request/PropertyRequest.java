@@ -12,14 +12,18 @@ public class PropertyRequest {
     private String title;
     private String description;
     private String address;
-    private boolean isWholeHouse;
-    private Integer totalRooms;
+
+    private Boolean wholeHouse;
     private BigDecimal electricityPrice;
     private BigDecimal waterPrice;
     private String imageUrls;
     private UUID zoneId;
-
     private String authorizedOwnerName;
+
+    // 🔥 Nhóm trường CHỈ dùng cho Nhà Nguyên Căn
+    private BigDecimal defaultPrice;
+    private BigDecimal defaultDeposit;
+    private Double defaultArea;
 
     private List<RoomRequest> rooms;
 }

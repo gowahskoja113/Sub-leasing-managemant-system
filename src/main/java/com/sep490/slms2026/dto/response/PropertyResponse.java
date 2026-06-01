@@ -19,7 +19,7 @@ public class PropertyResponse {
     private BigDecimal waterPrice;
     private String imageUrls;
     private UUID zoneId;
-    private String zoneName;
+    private String zoneFullName;
     private UUID ownerId;
     private List<RoomResponse> rooms;
 }
