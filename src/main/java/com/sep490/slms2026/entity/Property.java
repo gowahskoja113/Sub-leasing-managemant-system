@@ -27,7 +27,7 @@ public class Property {
     private String address;
 
     @Column(name = "is_whole_house", nullable = false)
-    private Boolean isWholeHouse = true;
+    private Boolean wholeHouse;
 
     @Column(name = "total_rooms", nullable = false)
     private Integer totalRooms;

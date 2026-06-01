@@ -6,6 +6,7 @@ import com.sep490.slms2026.dto.request.RoomRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.RoomType;
 import com.sep490.slms2026.mapper.PropertyMapper;
 import com.sep490.slms2026.repository.OperationManagementRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
@@ -32,7 +33,6 @@ public class PropertyServiceImpl implements PropertyService {
     private final PropertyMapper propertyMapper;
     private final UserRepository userRepository;
 
-
     @Override
     @Transactional(readOnly = true)
     public List<ZoneSummaryProjection> getManagerDashboard(UUID managerId) {
@@ -42,6 +42,10 @@ public class PropertyServiceImpl implements PropertyService {
     @Override
     @Transactional
     public PropertyResponse createProperty(PropertyRequest request, UUID managerId) {
+        if (propertyRepository.existsByAddressIgnoreCase(request.getAddress().trim())) {
+            throw new RuntimeException("Địa chỉ bất động sản này đã tồn tại trên hệ thống!");
+        }
+
         Zone propertyZone = zoneRepository.findById(request.getZoneId())
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Vùng (Zone) đã chọn cho Bất động sản!"));
 
@@ -51,20 +55,16 @@ public class PropertyServiceImpl implements PropertyService {
 
         checkPermissionByZoneTree(managerId, propertyZone);
 
-        // 1. Map từ DTO sang Entity như bình thường
         Property property = propertyMapper.toEntity(request);
         property.setZone(propertyZone);
 
-        // 🔥 BƯỚC QUAN TRỌNG: Diệt tận gốc mối quan hệ 2 chiều của các Room rác do MapStruct tự map
         if (property.getRooms() != null) {
-            property.getRooms().forEach(room -> room.setProperty(null)); // Chặt đứt liên kết ngược
-            property.getRooms().clear(); // Xoá sạch list xuôi
+            property.getRooms().forEach(room -> room.setProperty(null));
+            property.getRooms().clear();
         }
 
-        // 2. Xử lý nạp Room sạch dựa theo hình thức thuê (isWholeHouse)
         processRoomsLogic(request, property);
 
-        // 3. Lưu vào Database và map kết quả trả về
         Property savedProperty = propertyRepository.save(property);
         return propertyMapper.toResponse(savedProperty);
     }
@@ -79,6 +79,10 @@ public class PropertyServiceImpl implements PropertyService {
     @Override
     @Transactional
     public PropertyResponse updateProperty(UUID id, PropertyRequest request, UUID managerId) {
+        if (propertyRepository.existsByAddressIgnoreCaseAndIdNot(request.getAddress().trim(), id)) {
+            throw new RuntimeException("Địa chỉ này đã bị trùng với một bất động sản khác trên hệ thống!");
+        }
+
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản này"));
 
@@ -89,19 +93,11 @@ public class PropertyServiceImpl implements PropertyService {
             throw new RuntimeException("Lỗi cấu trúc địa chỉ: Địa chỉ định đổi bắt buộc phải thuộc cấp Phường/Xã (Level 3)!");
         }
 
-        // Kiểm tra quyền trên cả vùng cũ của BĐS lẫn vùng mới định cập nhật
         checkPermissionByZoneTree(managerId, property.getZone());
         checkPermissionByZoneTree(managerId, newZone);
 
         propertyMapper.updateEntityFromRequest(request, property);
         property.setZone(newZone);
-
-        if (property.getRooms() != null) {
-            property.getRooms().forEach(room -> room.setProperty(null));
-            property.getRooms().clear();
-        }
-
-        processRoomsLogic(request, property);
 
         return propertyMapper.toResponse(propertyRepository.save(property));
     }
@@ -116,21 +112,14 @@ public class PropertyServiceImpl implements PropertyService {
         propertyRepository.delete(property);
     }
 
-    /**
-     * KIỂM TRA PHÂN QUYỀN THEO CÂY ĐỆ QUY (Zone Tree Verification)
-     * Đảm bảo nếu quản lý cấp Tỉnh hoặc Quận vẫn có quyền thao tác trên các Phường con/cháu.
-     */
     private void checkPermissionByZoneTree(UUID managerId, Zone targetZone) {
-        // Tìm thông tin User để xác định Role
         var user = userRepository.findById(managerId)
                 .orElseThrow(() -> new AccessDeniedException("Tài khoản không tồn tại trên hệ thống!"));
 
-        // BƯỚC ĐỆM: Nếu là ADMIN thì luôn luôn có quyền, bypass qua tất cả các tầng check địa lý bên dưới
         if (com.sep490.slms2026.enums.Role.ROLE_ADMIN.equals(user.getRole())) {
             return;
         }
 
-        // Nếu không phải ADMIN (tức là MANAGER), tiến hành check theo cây phân cấp địa lý như cũ
         OperationManagement op = operationManagementRepository.findById(managerId)
                 .orElseThrow(() -> new AccessDeniedException("Tài khoản không có quyền quản lý vận hành!"));
 
@@ -153,46 +142,62 @@ public class PropertyServiceImpl implements PropertyService {
     }
 
     private void processRoomsLogic(PropertyRequest request, Property property) {
-        if (request.isWholeHouse()) {
-            // Nha nguyen can: chi can price, deposit, area - roomNumber tu dong = "Nguyen Can"
-            if (request.getRooms() == null || request.getRooms().isEmpty()) {
-                throw new RuntimeException("Vui long nhap gia thue, tien coc va dien tich cho nha nguyen can!");
+        if (Boolean.TRUE.equals(request.getWholeHouse())) {
+            // 🔥 XỬ LÝ NHÀ NGUYÊN CĂN
+            if (request.getDefaultPrice() == null || request.getDefaultDeposit() == null || request.getDefaultArea() == null) {
+                throw new RuntimeException("Vui lòng nhập giá thuê (defaultPrice), tiền cọc (defaultDeposit) và diện tích (defaultArea) cho nhà nguyên căn!");
             }
-            RoomRequest wholeRoomReq = request.getRooms().get(0);
-            if (wholeRoomReq.getPrice() == null || wholeRoomReq.getDeposit() == null || wholeRoomReq.getArea() == null) {
-                throw new RuntimeException("Gia thue, tien coc va dien tich khong duoc de trong!");
-            }
+
             Room wholeRoom = new Room();
-            wholeRoom.setRoomNumber("Nguyen Can");
-            wholeRoom.setPrice(wholeRoomReq.getPrice());
-            wholeRoom.setDeposit(wholeRoomReq.getDeposit());
-            wholeRoom.setArea(wholeRoomReq.getArea());
+            wholeRoom.setRoomType(RoomType.WHOLE_HOUSE);
+
+            String roomName = (request.getTitle() != null && !request.getTitle().isBlank())
+                    ? request.getTitle()
+                    : "Nguyên Căn";
+            wholeRoom.setRoomNumber(roomName);
+
+            wholeRoom.setPrice(request.getDefaultPrice());
+            wholeRoom.setDeposit(request.getDefaultDeposit());
+            wholeRoom.setArea(request.getDefaultArea());
             wholeRoom.setStatus(RoomStatus.AVAILABLE);
             wholeRoom.setProperty(property);
+
             property.getRooms().add(wholeRoom);
             property.setTotalRooms(1);
+
         } else {
-            // Cho thue phong: bat buoc phai co roomNumber cho tung phong
+            // 🔥 XỬ LÝ NHÀ CHO THUÊ THEO PHÒNG
             if (request.getRooms() == null || request.getRooms().isEmpty()) {
-                throw new RuntimeException("Vui long them it nhat 1 phong cho bat dong san cho thue theo phong!");
+                throw new RuntimeException(
+                        "Hình thức cho thuê theo phòng (wholeHouse = false) yêu cầu phải có danh sách phòng (rooms). "
+                                + "Vui lòng bổ sung mảng 'rooms' vào request. "
+                                + "Nếu muốn tạo nhà nguyên căn, hãy đặt 'wholeHouse = true' "
+                                + "và truyền defaultPrice, defaultDeposit, defaultArea thay vì rooms."
+                );
             }
+
             for (int i = 0; i < request.getRooms().size(); i++) {
                 RoomRequest roomReq = request.getRooms().get(i);
+
                 if (roomReq.getRoomNumber() == null || roomReq.getRoomNumber().isBlank()) {
-                    throw new RuntimeException("Phong thu " + (i + 1) + " chua co so phong (roomNumber)!");
+                    throw new RuntimeException("Phòng thứ " + (i + 1) + " chưa có số phòng (roomNumber)!");
                 }
                 if (roomReq.getPrice() == null || roomReq.getDeposit() == null || roomReq.getArea() == null) {
-                    throw new RuntimeException("Phong \"" + roomReq.getRoomNumber() + "\": gia thue, tien coc va dien tich khong duoc de trong!");
+                    throw new RuntimeException("Phòng \"" + roomReq.getRoomNumber() + "\": giá thuê, tiền cọc và diện tích không được để trống!");
                 }
+
                 Room room = new Room();
+                room.setRoomType(RoomType.INDIVIDUAL_ROOM);
                 room.setRoomNumber(roomReq.getRoomNumber());
                 room.setPrice(roomReq.getPrice());
                 room.setDeposit(roomReq.getDeposit());
                 room.setArea(roomReq.getArea());
                 room.setStatus(RoomStatus.AVAILABLE);
                 room.setProperty(property);
+
                 property.getRooms().add(room);
             }
+
             property.setTotalRooms(request.getRooms().size());
         }
     }

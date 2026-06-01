@@ -39,7 +39,8 @@ public class RoomServiceImpl implements RoomService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản chỉ định!"));
 
-        if (property.getIsWholeHouse()) {
+        // Đã sửa thành getWholeHouse() và check null-safe
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
             throw new RuntimeException("Bất động sản này thuê theo hình thức Nguyên Căn, không thể thêm phòng lẻ!");
         }
 
@@ -82,13 +83,37 @@ public class RoomServiceImpl implements RoomService {
     @Override
     @Transactional
     public RoomResponse updateRoom(UUID roomId, RoomRequest request, UUID managerId) {
+        // 1. Validate: Bắt buộc fill đầy đủ các trường của Room
+        if (request.getRoomNumber() == null || request.getRoomNumber().trim().isEmpty()) {
+            throw new RuntimeException("Số phòng không được để trống khi cập nhật!");
+        }
+        if (request.getPrice() == null) {
+            throw new RuntimeException("Giá phòng không được để trống khi cập nhật!");
+        }
+        if (request.getDeposit() == null) {
+            throw new RuntimeException("Tiền cọc không được để trống khi cập nhật!");
+        }
+        if (request.getArea() == null) {
+            throw new RuntimeException("Diện tích không được để trống khi cập nhật!");
+        }
+
+        // Ghi chú: Trường imageUrls trong Entity không có nullable = false,
+        // nhưng nếu bạn muốn bắt buộc fill luôn cả ảnh thì bỏ comment đoạn dưới đây:
+        /*
+        if (request.getImageUrls() == null || request.getImageUrls().trim().isEmpty()) {
+            throw new RuntimeException("Hình ảnh phòng không được để trống khi cập nhật!");
+        }
+        */
+
+        // 2. Tìm kiếm phòng và kiểm tra quyền
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy phòng trọ cần cập nhật!"));
 
         Property property = room.getProperty();
         checkPermissionByZoneTree(managerId, property.getZone());
 
-        if (property.getIsWholeHouse()) {
+        // 3. Xử lý logic nhà Nguyên Căn và check trùng lặp số phòng
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
             // Đối với nhà nguyên căn, không cho đổi số phòng bậy bạ
             request.setRoomNumber("Nguyên Căn");
         } else {
@@ -97,6 +122,7 @@ public class RoomServiceImpl implements RoomService {
             }
         }
 
+        // 4. Map data và lưu vào DB
         roomMapper.updateEntityFromRequest(request, room);
         return roomMapper.toResponse(roomRepository.save(room));
     }
@@ -110,7 +136,8 @@ public class RoomServiceImpl implements RoomService {
         Property property = room.getProperty();
         checkPermissionByZoneTree(managerId, property.getZone());
 
-        if (property.getIsWholeHouse()) {
+        // Đã sửa thành getWholeHouse() và check null-safe
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
             throw new RuntimeException("Không thể xóa phòng của hình thức nhà Nguyên Căn! (Bắt buộc phải xóa toàn bộ Property)");
         }
 

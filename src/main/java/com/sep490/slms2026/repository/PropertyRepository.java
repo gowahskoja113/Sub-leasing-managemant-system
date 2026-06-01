@@ -19,4 +19,8 @@ public interface PropertyRepository extends JpaRepository<Property, UUID> {
             "              WHERE om.id = :managerId AND " +
             "              (mz.id = z.id OR mz.id = parent.id OR mz.id = grandparent.id))")
     Page<Property> findAllByManagerZones(@Param("managerId") UUID managerId, Pageable pageable);
+
+    boolean existsByAddressIgnoreCase(String address);
+
+    boolean existsByAddressIgnoreCaseAndIdNot(String address, UUID id);
 }

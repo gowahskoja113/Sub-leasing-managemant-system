@@ -16,11 +16,9 @@ import java.util.function.Function;
 @Component
 public class JwtUtil {
 
-    // 🚀 Tự động đọc chuỗi bí mật từ file application.yaml
     @Value("${jwt.secret}")
     private String secretKey;
 
-    // 🚀 Tự động đọc thời gian hết hạn từ file application.yaml
     @Value("${jwt.expiration}")
     private long expirationTime;
 
