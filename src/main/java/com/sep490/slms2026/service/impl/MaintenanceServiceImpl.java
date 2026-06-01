@@ -31,7 +31,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     @Transactional
-    public MaintenanceResponse submitRequest(MaintenanceRequestDto dto, UUID tenantId) {
+    public MaintenanceResponse submitRequest(MaintenanceResponse dto, UUID tenantId) {
         User tenant = userRepository.findById(tenantId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản tenant!"));
 
