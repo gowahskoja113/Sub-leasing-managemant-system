@@ -11,37 +11,48 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/zones")
+@RequestMapping("/api/v2/zones")
 @RequiredArgsConstructor
 public class ZoneController {
 
     private final ZoneService zoneService;
 
-    // ➕ Tạo mới Zone (Chỉ Admin hoặc Manager được phép)
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ZoneResponse> createZone(@Valid @RequestBody ZoneRequest request) {
         return new ResponseEntity<>(zoneService.createZone(request), HttpStatus.CREATED);
     }
 
-    // 🔍 Lấy tất cả danh sách Zone (Tất cả user đã đăng nhập đều xem được để chọn khi làm việc)
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Page<ZoneResponse>> getAllZones(Pageable pageable) {
         return ResponseEntity.ok(zoneService.getAllZones(pageable));
     }
 
-    // 🔍 Lấy chi tiết một Zone bằng ID
+    // ➕ API: Lấy danh sách các tỉnh/thành phố (Level 1)
+    @GetMapping("/root")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ZoneResponse>> getRootZones() {
+        return ResponseEntity.ok(zoneService.getRootZones());
+    }
+
+    // ➕ API: Lấy danh sách các khu vực con thuộc ID cha (Tỉnh -> Quận, Quận -> Phường)
+    @GetMapping("/{parentId}/children")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ZoneResponse>> getChildrenZones(@PathVariable UUID parentId) {
+        return ResponseEntity.ok(zoneService.getChildrenZones(parentId));
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ZoneResponse> getZoneById(@PathVariable UUID id) {
         return ResponseEntity.ok(zoneService.getZoneById(id));
     }
 
-    // ✏️ Cập nhật thông tin Zone (Chỉ Admin hoặc Manager)
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ZoneResponse> updateZone(
@@ -50,7 +61,6 @@ public class ZoneController {
         return ResponseEntity.ok(zoneService.updateZone(id, request));
     }
 
-    // ❌ Xóa một Zone (Chỉ Admin mới có quyền xóa danh mục hệ thống)
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteZone(@PathVariable UUID id) {

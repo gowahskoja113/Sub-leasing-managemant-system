@@ -1,6 +1,7 @@
 package com.sep490.slms2026.entity;
 
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.RoomType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -34,6 +35,10 @@ public class Room {
 
     @Column(name = "image_urls", columnDefinition = "TEXT")
     private String imageUrls;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "room_type", nullable = false)
+    private RoomType roomType;
 
     // Nhiều Room thuộc về 1 Property
     @ManyToOne(fetch = FetchType.LAZY)

@@ -10,4 +10,8 @@ public class ZoneResponse {
     private UUID id;
     private String name;
     private String description;
+    private Integer level;
+    private UUID parentId;
+    private String parentName;
+    private String fullName;
 }
