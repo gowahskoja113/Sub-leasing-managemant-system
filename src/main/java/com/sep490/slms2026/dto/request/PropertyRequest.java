@@ -19,6 +19,8 @@ public class PropertyRequest {
     private String imageUrls;
     private UUID zoneId;
     private String authorizedOwnerName;
+    private Integer defaultMaxOccupants; // Số người tối đa cho nguyên căn
+    private String structureDescription;
 
     // 🔥 Nhóm trường CHỈ dùng cho Nhà Nguyên Căn
     private BigDecimal defaultPrice;

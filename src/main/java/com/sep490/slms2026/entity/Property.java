@@ -38,6 +38,10 @@ public class Property {
     @Column(name = "water_price", nullable = false)
     private BigDecimal waterPrice;
 
+    // Tiền thu được từ BĐS này (cộng dồn từ các hóa đơn đã thanh toán)
+    @Column(name = "total_revenue", nullable = false)
+    private BigDecimal totalRevenue = BigDecimal.ZERO;
+
     @Column(name = "image_urls", columnDefinition = "TEXT")
     private String imageUrls;
 
