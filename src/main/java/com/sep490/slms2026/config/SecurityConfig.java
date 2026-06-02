@@ -26,7 +26,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(); // Mã hóa Hash Password bằng thuật toán BCrypt
+        return new BCryptPasswordEncoder();
     }
 
     @Bean
@@ -37,16 +37,15 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(AbstractHttpConfigurer::disable) // Tắt CSRF vì xài Stateless JWT
+                .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/**").permitAll() // Cho phép tự do Đăng ký / Đăng nhập
-                        .anyRequest().authenticated() // Các API còn lại bắt buộc phải có token mới gọi được
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS) // Không dùng HTTP Session, hoàn toàn dùng Token
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 );
 
-        // Chèn bộ lọc JwtFilter vào trước UsernamePasswordAuthenticationFilter mặc định
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
