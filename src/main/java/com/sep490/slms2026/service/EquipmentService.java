@@ -1,29 +1,35 @@
 package com.sep490.slms2026.service;
 
+import com.sep490.slms2026.dto.request.EquipmentAssignRequest;
 import com.sep490.slms2026.dto.request.EquipmentRequest;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface EquipmentService {
 
-    // Gán thiết bị vào phòng (tự động sinh QR)
-    EquipmentResponse createEquipment(EquipmentRequest request, UUID managerId);
+    /** Tạo mới thiết bị, có thể gán ngay vào room hoặc property */
+    EquipmentResponse create(EquipmentRequest request);
 
-    // Lấy danh sách thiết bị theo phòng
-    Page<EquipmentResponse> getEquipmentByRoom(UUID roomId, UUID managerId, Pageable pageable);
+    /** Lấy chi tiết 1 thiết bị */
+    EquipmentResponse getById(UUID id);
 
-    // Lấy danh sách thiết bị theo property
-    Page<EquipmentResponse> getEquipmentByProperty(UUID propertyId, UUID managerId, Pageable pageable);
+    /** Lấy tất cả thiết bị trong 1 phòng */
+    List<EquipmentResponse> getByRoom(UUID roomId);
 
-    // Cập nhật thông tin thiết bị
-    EquipmentResponse updateEquipment(UUID id, EquipmentRequest request, UUID managerId);
+    /** Lấy tất cả thiết bị thuộc 1 property (bao gồm tất cả phòng) */
+    List<EquipmentResponse> getByProperty(UUID propertyId);
 
-    // Xoá thiết bị
-    void deleteEquipment(UUID id, UUID managerId);
+    /** Cập nhật thông tin thiết bị (không bao gồm gán phòng) */
+    EquipmentResponse update(UUID id, EquipmentRequest request);
 
-    // Lấy thông tin QR (trả về base64 PNG)
-    EquipmentResponse getEquipmentDetail(UUID id, UUID managerId);
+    /** Gán hoặc chuyển thiết bị sang phòng / property khác */
+    EquipmentResponse assign(UUID id, EquipmentAssignRequest assignRequest);
+
+    /** Xóa thiết bị */
+    void delete(UUID id);
+
+    /** Lấy thông tin thiết bị qua QR payload (dùng cho màn hình bảo trì) */
+    EquipmentResponse getByQrPayload(String qrPayload);
 }

@@ -1,140 +1,231 @@
 package com.sep490.slms2026.service.impl;
 
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.WriterException;
-import com.google.zxing.client.j2se.MatrixToImageWriter;
-import com.google.zxing.common.BitMatrix;
-import com.google.zxing.qrcode.QRCodeWriter;
+import com.sep490.slms2026.dto.request.EquipmentAssignRequest;
 import com.sep490.slms2026.dto.request.EquipmentRequest;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.entity.Equipment;
+import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
-import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.mapper.EquipmentMapper;
 import com.sep490.slms2026.repository.EquipmentRepository;
+import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.service.EquipmentService;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class EquipmentServiceImpl implements EquipmentService {
 
     private final EquipmentRepository equipmentRepository;
     private final RoomRepository roomRepository;
+    private final PropertyRepository propertyRepository;
     private final EquipmentMapper equipmentMapper;
 
-    // Base URL cho QR payload — cấu hình trong application.yml
-    // Ví dụ: https://app.slms2026.com/maintenance/scan
-    @Value("${app.qr.base-url:https://app.slms2026.com/maintenance/scan}")
+    /**
+     * Base URL cho QR payload — trỏ đến màn hình bảo trì.
+     * Cấu hình trong application.properties:
+     *   app.qr.base-url=https://your-app.com/maintenance
+     */
+    @Value("${app.qr.base-url:https://slms2026.app/maintenance}")
     private String qrBaseUrl;
 
+    // ──────────────────────────────────────────────────────────────
+    // CREATE
+    // ──────────────────────────────────────────────────────────────
+
     @Override
-    @Transactional
-    public EquipmentResponse createEquipment(EquipmentRequest request, UUID managerId) {
+    public EquipmentResponse create(EquipmentRequest request) {
+        validateAssignmentTarget(request.getRoomId(), request.getPropertyId());
+
         Equipment equipment = equipmentMapper.toEntity(request);
-        equipment.setStatus(EquipmentStatus.ACTIVE);
 
+        // Gán room nếu có roomId
         if (request.getRoomId() != null) {
             Room room = roomRepository.findById(request.getRoomId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy phòng với ID: " + request.getRoomId()));
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Không tìm thấy phòng với id: " + request.getRoomId()));
             equipment.setRoom(room);
         }
+        if (request.getPropertyId() != null) {
+            Property property = propertyRepository.findById(request.getPropertyId())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Không tìm thấy nhà với id: " + request.getPropertyId()));
+            equipment.setProperty(property);
+        }
 
-        // Sinh QR payload: base URL + equipmentId (UUID sinh trước)
-        UUID equipmentId = UUID.randomUUID();
-        String qrPayload = qrBaseUrl + "?equipmentId=" + equipmentId;
+        // Nếu chỉ có propertyId (whole-house): để room = null,
+        // thông tin property được resolve qua mapper helper khi response.
+        // Ta cần lưu propertyId đâu đó — xem note bên dưới (*).
+        // Hiện tại entity Equipment chỉ có room; nếu muốn hỗ trợ whole-house
+        // assignment chuẩn thì nên thêm @ManyToOne property vào entity.
+        // Tạm thời: nếu propertyId được truyền mà không có roomId,
+        // ta verify property tồn tại rồi để room = null.
+        if (request.getPropertyId() != null && request.getRoomId() == null) {
+            verifyPropertyExists(request.getPropertyId());
+            // (*) TODO: khi entity Equipment có thêm field `property`,
+            // set equipment.setProperty(property) ở đây.
+        }
+
+        // Generate QR payload (unique per equipment)
+        equipment = equipmentRepository.save(equipment); // lưu trước để có UUID
+        String qrPayload = null;
         equipment.setQrPayload(qrPayload);
+        // qrCode (ảnh QR base64 hoặc URL ảnh) — để ở phase sau
+        // equipment.setQrCode(qrGeneratorService.generate(qrPayload));
 
-        // Sinh ảnh QR dạng base64
-        try {
-            String qrBase64 = generateQrBase64(qrPayload);
-            equipment.setQrCode(qrBase64);
-        } catch (Exception e) {
-            // Không fail cả luồng nếu QR sinh lỗi — log và để null
-            equipment.setQrCode(null);
-        }
+        equipment = equipmentRepository.save(equipment);
+        return toEnrichedResponse(equipment, request.getPropertyId());
+    }
 
-        // Ép UUID đã sinh vào entity (tránh JPA tự sinh UUID khác)
-        // Cách sạch nhất: dùng setId nếu entity có setter hoặc dùng @GeneratedValue tuỳ chỉnh
-        // Ở đây persist bình thường rồi update payload sau save
-        Equipment saved = equipmentRepository.save(equipment);
+    // ──────────────────────────────────────────────────────────────
+    // READ
+    // ──────────────────────────────────────────────────────────────
 
-        // Cập nhật lại payload với UUID thật từ DB
-        String finalPayload = qrBaseUrl + "?equipmentId=" + saved.getId();
-        saved.setQrPayload(finalPayload);
-        try {
-            saved.setQrCode(generateQrBase64(finalPayload));
-        } catch (Exception ignored) {}
-        equipmentRepository.save(saved);
-
-        return equipmentMapper.toResponse(saved);
+    @Override
+    public EquipmentResponse getById(UUID id) {
+        Equipment equipment = findById(id);
+        return toEnrichedResponse(equipment, null);
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Page<EquipmentResponse> getEquipmentByRoom(UUID roomId, UUID managerId, Pageable pageable) {
-        return equipmentRepository.findAllByRoomId(roomId, pageable)
-                .map(equipmentMapper::toResponse);
+    public List<EquipmentResponse> getByRoom(UUID roomId) {
+        roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy phòng: " + roomId));
+        return equipmentRepository.findByRoomId(roomId).stream()
+                .map(e -> toEnrichedResponse(e, null))
+                .collect(Collectors.toList());
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Page<EquipmentResponse> getEquipmentByProperty(UUID propertyId, UUID managerId, Pageable pageable) {
-        return equipmentRepository.findAllByPropertyId(propertyId, pageable)
-                .map(equipmentMapper::toResponse);
+    public List<EquipmentResponse> getByProperty(UUID propertyId) {
+        verifyPropertyExists(propertyId);
+        return equipmentRepository.findByPropertyId(propertyId).stream()
+                .map(e -> toEnrichedResponse(e, null))
+                .collect(Collectors.toList());
     }
 
     @Override
-    @Transactional
-    public EquipmentResponse updateEquipment(UUID id, EquipmentRequest request, UUID managerId) {
-        Equipment equipment = equipmentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy thiết bị với ID: " + id));
+    public EquipmentResponse getByQrPayload(String qrPayload) {
+        Equipment equipment = equipmentRepository
+                .findAll().stream()
+                .filter(e -> qrPayload.equals(e.getQrPayload()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy thiết bị với QR payload: " + qrPayload));
+        return toEnrichedResponse(equipment, null);
+    }
 
+    // ──────────────────────────────────────────────────────────────
+    // UPDATE
+    // ──────────────────────────────────────────────────────────────
+
+    @Override
+    public EquipmentResponse update(UUID id, EquipmentRequest request) {
+        Equipment equipment = findById(id);
         equipmentMapper.updateEntityFromRequest(request, equipment);
-
-        if (request.getRoomId() != null) {
-            Room room = roomRepository.findById(request.getRoomId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy phòng với ID: " + request.getRoomId()));
-            equipment.setRoom(room);
-        }
-
-        return equipmentMapper.toResponse(equipmentRepository.save(equipment));
+        equipment = equipmentRepository.save(equipment);
+        return toEnrichedResponse(equipment, null);
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // ASSIGN
+    // ──────────────────────────────────────────────────────────────
+
     @Override
-    @Transactional
-    public void deleteEquipment(UUID id, UUID managerId) {
-        Equipment equipment = equipmentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy thiết bị với ID: " + id));
+    public EquipmentResponse assign(UUID id, EquipmentAssignRequest assignRequest) {
+        validateAssignmentTarget(assignRequest.getRoomId(), assignRequest.getPropertyId());
+
+        Equipment equipment = findById(id);
+
+        if (assignRequest.getRoomId() != null) {
+            // Gán vào phòng cụ thể
+            Room room = roomRepository.findById(assignRequest.getRoomId())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Không tìm thấy phòng: " + assignRequest.getRoomId()));
+            equipment.setRoom(room);
+        } else if (assignRequest.getPropertyId() != null) {
+            // Chuyển về nhà nguyên căn (whole-house)
+            verifyPropertyExists(assignRequest.getPropertyId());
+            equipment.setRoom(null);
+            // TODO: set equipment.setProperty(...) khi thêm field vào entity
+        } else {
+            // Bỏ gán hoàn toàn
+            equipment.setRoom(null);
+        }
+
+        equipment = equipmentRepository.save(equipment);
+        return toEnrichedResponse(equipment, assignRequest.getPropertyId());
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // DELETE
+    // ──────────────────────────────────────────────────────────────
+
+    @Override
+    public void delete(UUID id) {
+        Equipment equipment = findById(id);
         equipmentRepository.delete(equipment);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public EquipmentResponse getEquipmentDetail(UUID id, UUID managerId) {
-        Equipment equipment = equipmentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy thiết bị với ID: " + id));
-        return equipmentMapper.toResponse(equipment);
+    // ──────────────────────────────────────────────────────────────
+    // PRIVATE HELPERS
+    // ──────────────────────────────────────────────────────────────
+
+    private Equipment findById(UUID id) {
+        return equipmentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy thiết bị với id: " + id));
     }
 
-    // ─── Sinh QR Code ──────────────────────────────────────────────────────────
-    private String generateQrBase64(String payload) throws WriterException, IOException {
-        QRCodeWriter writer = new QRCodeWriter();
-        BitMatrix matrix = writer.encode(payload, BarcodeFormat.QR_CODE, 300, 300);
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        MatrixToImageWriter.writeToStream(matrix, "PNG", baos);
-        return "data:image/png;base64," + Base64.getEncoder().encodeToString(baos.toByteArray());
+    private void verifyPropertyExists(UUID propertyId) {
+        propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy bất động sản với id: " + propertyId));
+    }
+
+    /**
+     * Chỉ được chọn 1 trong 2: roomId hoặc propertyId.
+     */
+    private void validateAssignmentTarget(UUID roomId, UUID propertyId) {
+        if (roomId != null && propertyId != null) {
+            throw new IllegalArgumentException(
+                    "Chỉ được gán vào phòng (roomId) hoặc nhà nguyên căn (propertyId), không được cả hai.");
+        }
+    }
+
+    /**
+     * Build QR payload dạng deep-link: {baseUrl}/{equipmentId}
+     * Ví dụ: https://slms2026.app/maintenance/550e8400-e29b-41d4-a716-446655440000
+     */
+    private String buildQrPayload(UUID equipmentId) {
+        return qrBaseUrl + "/" + equipmentId;
+    }
+
+    /**
+     * Map sang response và enrich các field property khi equipment là whole-house
+     * (room == null nhưng có propertyId từ context).
+     */
+    private EquipmentResponse toEnrichedResponse(Equipment equipment, UUID fallbackPropertyId) {
+        EquipmentResponse response = equipmentMapper.toResponse(equipment);
+
+        // Nếu equipment không có room (whole-house), tự resolve property từ fallback
+        if (equipment.getRoom() == null && fallbackPropertyId != null) {
+            propertyRepository.findById(fallbackPropertyId).ifPresent(p -> {
+                response.setPropertyId(p.getId());
+                response.setPropertyTitle(p.getTitle());
+                response.setPropertyAddress(p.getAddress());
+            });
+        }
+
+        return response;
     }
 }

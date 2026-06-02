@@ -27,6 +27,10 @@ public class Equipment {
     @JoinColumn(name = "room_id", nullable = true)
     private Room room;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "property_id", nullable = true)
+    private Property property;
+
     @Column(nullable = false)
     private String name;
 
@@ -52,7 +56,7 @@ public class Equipment {
     private String qrCode;
 
     // Nội dung QR trỏ đến (ví dụ: deep link app hoặc URL gửi request)
-    @Column(name = "qr_payload", nullable = false)
+    @Column(name = "qr_payload")
     private String qrPayload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -60,9 +64,6 @@ public class Equipment {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-
-    @OneToMany(mappedBy = "equipment", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private List<MaintenanceRequest> maintenanceRequests = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {

@@ -1,5 +1,8 @@
 package com.sep490.slms2026.dto.request;
 
+import com.sep490.slms2026.enums.EquipmentStatus;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -11,11 +14,14 @@ import java.util.UUID;
 @Setter
 public class EquipmentRequest {
 
-    private UUID roomId;        // nullable — có thể gán sau
+    @NotBlank(message = "Tên thiết bị không được để trống")
+    private String name;
 
-    private String name;        // Tên thiết bị
+    @NotBlank(message = "Danh mục thiết bị không được để trống")
+    private String category;
 
-    private String category;    // Loại: ELECTRICAL, PLUMBING, FURNITURE, HVAC, OTHER
+    @NotNull(message = "Trạng thái thiết bị không được để trống")
+    private EquipmentStatus status;
 
     private LocalDate installedDate;
 
@@ -23,5 +29,12 @@ public class EquipmentRequest {
 
     private String description;
 
-    // qrCode và qrPayload sẽ được sinh tự động ở service — không nhận từ client
+    /**
+     * Nếu property là whole-house (isWholeHouse = true) thì chỉ cần propertyId.
+     * Nếu property có rooms thì cần roomId để gán vào phòng cụ thể.
+     * Chỉ được cung cấp một trong hai.
+     */
+    private UUID roomId;
+
+    private UUID propertyId;
 }
