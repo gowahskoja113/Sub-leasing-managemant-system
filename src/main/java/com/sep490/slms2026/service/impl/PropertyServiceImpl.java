@@ -140,65 +140,66 @@ public class PropertyServiceImpl implements PropertyService {
             throw new AccessDeniedException("Bạn không có quyền thao tác trên Khu Vực địa lý này! [403]");
         }
     }
-
+    // Hàm gọi chính khi Create Property
     private void processRoomsLogic(PropertyRequest request, Property property) {
         if (Boolean.TRUE.equals(request.getWholeHouse())) {
-            // 🔥 XỬ LÝ NHÀ NGUYÊN CĂN
-            if (request.getDefaultPrice() == null || request.getDefaultDeposit() == null || request.getDefaultArea() == null) {
-                throw new RuntimeException("Vui lòng nhập giá thuê (defaultPrice), tiền cọc (defaultDeposit) và diện tích (defaultArea) cho nhà nguyên căn!");
-            }
-
-            Room wholeRoom = new Room();
-            wholeRoom.setRoomType(RoomType.WHOLE_HOUSE);
-
-            String roomName = (request.getTitle() != null && !request.getTitle().isBlank())
-                    ? request.getTitle()
-                    : "Nguyên Căn";
-            wholeRoom.setRoomNumber(roomName);
-
-            wholeRoom.setPrice(request.getDefaultPrice());
-            wholeRoom.setDeposit(request.getDefaultDeposit());
-            wholeRoom.setArea(request.getDefaultArea());
-            wholeRoom.setStatus(RoomStatus.AVAILABLE);
-            wholeRoom.setProperty(property);
-
-            property.getRooms().add(wholeRoom);
-            property.setTotalRooms(1);
-
+            setupWholeHouse(request, property);
         } else {
-            // 🔥 XỬ LÝ NHÀ CHO THUÊ THEO PHÒNG
-            if (request.getRooms() == null || request.getRooms().isEmpty()) {
-                throw new RuntimeException(
-                        "Hình thức cho thuê theo phòng (wholeHouse = false) yêu cầu phải có danh sách phòng (rooms). "
-                                + "Vui lòng bổ sung mảng 'rooms' vào request. "
-                                + "Nếu muốn tạo nhà nguyên căn, hãy đặt 'wholeHouse = true' "
-                                + "và truyền defaultPrice, defaultDeposit, defaultArea thay vì rooms."
-                );
-            }
-
-            for (int i = 0; i < request.getRooms().size(); i++) {
-                RoomRequest roomReq = request.getRooms().get(i);
-
-                if (roomReq.getRoomNumber() == null || roomReq.getRoomNumber().isBlank()) {
-                    throw new RuntimeException("Phòng thứ " + (i + 1) + " chưa có số phòng (roomNumber)!");
-                }
-                if (roomReq.getPrice() == null || roomReq.getDeposit() == null || roomReq.getArea() == null) {
-                    throw new RuntimeException("Phòng \"" + roomReq.getRoomNumber() + "\": giá thuê, tiền cọc và diện tích không được để trống!");
-                }
-
-                Room room = new Room();
-                room.setRoomType(RoomType.INDIVIDUAL_ROOM);
-                room.setRoomNumber(roomReq.getRoomNumber());
-                room.setPrice(roomReq.getPrice());
-                room.setDeposit(roomReq.getDeposit());
-                room.setArea(roomReq.getArea());
-                room.setStatus(RoomStatus.AVAILABLE);
-                room.setProperty(property);
-
-                property.getRooms().add(room);
-            }
-
-            property.setTotalRooms(request.getRooms().size());
+            setupIndividualRooms(request, property);
         }
+    }
+
+    // 🏠 LOGIC 1: Setup Nhà Nguyên Căn
+    private void setupWholeHouse(PropertyRequest request, Property property) {
+        if (request.getDefaultPrice() == null || request.getDefaultDeposit() == null || request.getDefaultArea() == null) {
+            throw new RuntimeException("Vui lòng nhập giá thuê, tiền cọc và diện tích cho nhà nguyên căn!");
+        }
+
+        Room wholeRoom = new Room();
+        wholeRoom.setRoomType(RoomType.WHOLE_HOUSE);
+        wholeRoom.setRoomNumber((request.getTitle() != null && !request.getTitle().isBlank()) ? request.getTitle() : "Nguyên Căn");
+
+        wholeRoom.setPrice(request.getDefaultPrice());
+        wholeRoom.setDeposit(request.getDefaultDeposit());
+        wholeRoom.setArea(request.getDefaultArea());
+        wholeRoom.setMaxOccupants(request.getDefaultMaxOccupants()); // Số người ở
+        wholeRoom.setStructureDescription(request.getStructureDescription()); // Gồm những phòng nào
+        wholeRoom.setStatus(RoomStatus.AVAILABLE);
+        wholeRoom.setProperty(property);
+
+        property.getRooms().add(wholeRoom);
+        property.setTotalRooms(1);
+    }
+
+    // 🚪 LOGIC 2: Setup Cho Thuê Phòng Lẻ
+    private void setupIndividualRooms(PropertyRequest request, Property property) {
+        if (request.getRooms() == null || request.getRooms().isEmpty()) {
+            throw new RuntimeException("Hình thức cho thuê theo phòng yêu cầu phải có danh sách phòng (rooms).");
+        }
+
+        for (int i = 0; i < request.getRooms().size(); i++) {
+            RoomRequest roomReq = request.getRooms().get(i);
+
+            if (roomReq.getRoomNumber() == null || roomReq.getRoomNumber().isBlank()) {
+                throw new RuntimeException("Phòng thứ " + (i + 1) + " chưa có số phòng!");
+            }
+            if (roomReq.getPrice() == null || roomReq.getDeposit() == null || roomReq.getArea() == null) {
+                throw new RuntimeException("Phòng \"" + roomReq.getRoomNumber() + "\": giá thuê, cọc và diện tích không được trống!");
+            }
+
+            Room room = new Room();
+            room.setRoomType(RoomType.INDIVIDUAL_ROOM);
+            room.setRoomNumber(roomReq.getRoomNumber());
+            room.setPrice(roomReq.getPrice());
+            room.setDeposit(roomReq.getDeposit());
+            room.setArea(roomReq.getArea());
+            room.setMaxOccupants(roomReq.getMaxOccupants()); // Số người ở
+            room.setStatus(RoomStatus.AVAILABLE);
+            room.setProperty(property);
+
+            property.getRooms().add(room);
+        }
+
+        property.setTotalRooms(request.getRooms().size());
     }
 }

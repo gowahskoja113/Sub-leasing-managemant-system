@@ -11,4 +11,5 @@ public class RoomRequest {
     private BigDecimal price;
     private BigDecimal deposit;
     private Double area;
+    private Integer maxOccupants;
 }

@@ -7,6 +7,7 @@ import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.RoomType;
 import com.sep490.slms2026.mapper.RoomMapper;
 import com.sep490.slms2026.repository.OperationManagementRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
@@ -39,7 +40,6 @@ public class RoomServiceImpl implements RoomService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản chỉ định!"));
 
-        // Đã sửa thành getWholeHouse() và check null-safe
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
             throw new RuntimeException("Bất động sản này thuê theo hình thức Nguyên Căn, không thể thêm phòng lẻ!");
         }
@@ -54,6 +54,12 @@ public class RoomServiceImpl implements RoomService {
         Room room = roomMapper.toEntity(request);
         room.setStatus(RoomStatus.AVAILABLE);
         room.setProperty(property);
+
+        // 🔥 THÊM 2 DÒNG NÀY ĐỂ FIX LỖI SQL constraint
+        room.setRoomType(RoomType.INDIVIDUAL_ROOM); // Mặc định thêm phòng vào tòa nhà thì phải là phòng lẻ
+        if (room.getTotalRevenue() == null) {
+            room.setTotalRevenue(java.math.BigDecimal.ZERO); // Đề phòng DB không tự lấy default
+        }
 
         // Tăng tổng số lượng phòng tự động của tòa nhà lên 1
         property.setTotalRooms(property.getTotalRooms() + 1);

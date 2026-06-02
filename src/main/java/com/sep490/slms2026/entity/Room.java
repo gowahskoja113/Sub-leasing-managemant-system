@@ -33,6 +33,17 @@ public class Room {
     @Column(nullable = false)
     private RoomStatus status; // AVAILABLE, RENTED, MAINTENANCE
 
+    @Column(name = "max_occupants")
+    private Integer maxOccupants; // Số người ở tối đa trong 1 phòng/căn
+
+    // Chỉ dùng cho nhà nguyên căn: Khai báo cấu trúc bên trong (vd: "3 Phòng ngủ, 1 Bếp, 2 WC")
+    @Column(name = "structure_description", columnDefinition = "TEXT")
+    private String structureDescription;
+
+    // Tiền thu được từ phòng này (cộng dồn từ các hóa đơn)
+    @Column(name = "total_revenue", nullable = false)
+    private BigDecimal totalRevenue = BigDecimal.ZERO;
+
     @Column(name = "image_urls", columnDefinition = "TEXT")
     private String imageUrls;
 
