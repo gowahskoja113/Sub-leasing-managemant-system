@@ -18,7 +18,7 @@ public class ZoneRequest {
 
     @NotNull(message = "Cấp độ (Level) không được để trống")
     @Min(value = 1, message = "Level nhỏ nhất là 1 (Tỉnh/Thành phố)")
-    @Max(value = 3, message = "Level lớn nhất là 3 (Phường/Xã)")
+    @Max(value = 2, message = "Level lớn nhất là 2 (Quận/Huyện)")
     private Integer level;
 
     private UUID parentId;

@@ -23,12 +23,11 @@ public interface ZoneMapper {
     }
 
     default String buildFullName(Zone zone) {
-        StringBuilder sb = new StringBuilder(zone.getName());
-        Zone currentParent = zone.getParent();
-        while (currentParent != null) {
-            sb.append(", ").append(currentParent.getName());
-            currentParent = currentParent.getParent();
+        if (zone.getParent() != null) {
+            // Level 2: "Tỉnh/Thành phố, Quận/Huyện"
+            return zone.getParent().getName() + ", " + zone.getName();
         }
-        return sb.toString();
+        // Level 1: chỉ có tên tỉnh/thành phố
+        return zone.getName();
     }
 }

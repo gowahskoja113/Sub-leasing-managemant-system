@@ -125,17 +125,19 @@ public class ZoneServiceImpl implements ZoneService {
     private void validateZoneHierarchy(Integer level, UUID parentId) {
         if (level == 1) {
             if (parentId != null) {
-                throw new RuntimeException("Khu vực cấp 1 (Tỉnh/Thành phố) không được phép có vùng cha (parentId phải là null)!");
+                throw new RuntimeException("Khu vực cấp 1 (Tỉnh/Thành phố) không được phép có vùng cha!");
             }
-        } else {
+        } else if (level == 2) {
             if (parentId == null) {
-                throw new RuntimeException("Khu vực cấp " + level + " bắt buộc phải có một vùng cha (parentId)!");
+                throw new RuntimeException("Khu vực cấp 2 (Quận/Huyện) bắt buộc phải có vùng cha (Tỉnh/Thành phố)!");
             }
             Zone parent = zoneRepository.findById(parentId)
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy Vùng cha chỉ định!"));
-            if (!parent.getLevel().equals(level - 1)) {
-                throw new RuntimeException("Mối quan hệ phân cấp không hợp lệ! Vùng cha phải có cấp độ (level) là: " + (level - 1));
+            if (!parent.getLevel().equals(1)) {
+                throw new RuntimeException("Mối quan hệ phân cấp không hợp lệ! Vùng cha của cấp 2 phải là cấp 1 (Tỉnh/Thành phố)!");
             }
+        } else {
+            throw new RuntimeException("Cấp độ không hợp lệ! Chỉ hỗ trợ cấp 1 (Tỉnh/Thành phố) và cấp 2 (Quận/Huyện).");
         }
     }
 }
