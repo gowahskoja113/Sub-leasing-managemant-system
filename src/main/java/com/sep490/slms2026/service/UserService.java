@@ -1,5 +1,7 @@
 package com.sep490.slms2026.service;
 
+import com.sep490.slms2026.dto.request.TenantCreationRequest;
+import com.sep490.slms2026.dto.response.TenantResponse;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.UserStatus;
 import java.util.List;
@@ -11,4 +13,5 @@ public interface UserService {
     User getUserById(UUID id);
     User updateUser(UUID id, User userDetails);
     User changeUserStatus(UUID id, UserStatus newStatus);
+    public TenantResponse createTenant(TenantCreationRequest request);
 }

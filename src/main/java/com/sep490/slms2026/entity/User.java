@@ -54,6 +54,10 @@ public class User {
     @JsonIgnore
     private Owner ownerProfile;
 
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
+    private Tenant tenantProfile;
+
     @PrePersist
     protected void onCreate() {
         this.createAt = LocalDateTime.now();
