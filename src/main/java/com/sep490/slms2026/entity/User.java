@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
 import jakarta.persistence.*;
@@ -38,16 +39,19 @@ public class User {
     private Role role;
 
     @Enumerated(EnumType.STRING)
-    private UserStatus status;
+    private UserStatus status = UserStatus.INACTIVE;
 
     // Mối quan hệ 1-1 quay ngược lại các bảng Profile
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
     private Admin adminProfile;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
     private OperationManagement operationManagementProfile;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
     private Owner ownerProfile;
 
     @PrePersist
