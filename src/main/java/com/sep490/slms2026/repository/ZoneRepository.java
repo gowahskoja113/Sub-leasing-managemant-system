@@ -15,8 +15,7 @@ public interface ZoneRepository extends JpaRepository<Zone, UUID> {
             "SUM(CASE WHEN p.wholeHouse = false THEN 1 ELSE 0 END) AS roomBasedCount " +
             "FROM Zone mz JOIN mz.managers m " +
             "LEFT JOIN Zone child ON child.parent.id = mz.id " +
-            "LEFT JOIN Zone grandchild ON grandchild.parent.id = child.id " +
-            "LEFT JOIN Property p ON (p.zone.id = mz.id OR p.zone.id = child.id OR p.zone.id = grandchild.id) " +
+            "LEFT JOIN Property p ON (p.zone.id = mz.id OR p.zone.id = child.id) " +
             "WHERE m.id = :managerId " +
             "GROUP BY mz.id, mz.name")
     List<ZoneSummaryProjection> getZoneSummaryByManager(@Param("managerId") UUID managerId);

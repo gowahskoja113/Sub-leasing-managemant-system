@@ -33,14 +33,14 @@ public class ZoneController {
         return ResponseEntity.ok(zoneService.getAllZones(pageable));
     }
 
-    // ➕ API: Lấy danh sách các tỉnh/thành phố (Level 1)
+    // API: Lấy danh sách các tỉnh/thành phố (Level 1)
     @GetMapping("/root")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ZoneResponse>> getRootZones() {
         return ResponseEntity.ok(zoneService.getRootZones());
     }
 
-    // ➕ API: Lấy danh sách các khu vực con thuộc ID cha (Tỉnh -> Quận, Quận -> Phường)
+    // API: Lấy danh sách các quận/huyện thuộc tỉnh/thành phố cha (Level 1 -> Level 2)
     @GetMapping("/{parentId}/children")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ZoneResponse>> getChildrenZones(@PathVariable UUID parentId) {
