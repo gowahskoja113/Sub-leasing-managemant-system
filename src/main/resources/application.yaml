@@ -22,6 +22,11 @@ app:
   qr:
     base-url: https://localhost:8080/maintenance/scan
 
+payos:
+    client-id: ${CLIENT_ID}
+    api-key: ${YOUR_API_KEY}
+    checksum-key: ${CHECKSUM_KEY}
+
 jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000
