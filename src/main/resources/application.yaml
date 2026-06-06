@@ -27,6 +27,22 @@ payos:
     api-key: ${YOUR_API_KEY}
     checksum-key: ${CHECKSUM_KEY}
 
+esms:
+  # builtin = mau co san eSMS (Brandname Baotrixemay, khong can dang ky template)
+  mode: ${ESMS_MODE:builtin}
+  api-key: ${ESMS_API_KEY}
+  secret-key: ${ESMS_SECRET_KEY}
+  sms-type: ${ESMS_SMS_TYPE:2}
+  brandname: ${ESMS_BRANDNAME:Baotrixemay}
+  is-unicode: ${ESMS_IS_UNICODE:0}
+  sandbox: ${ESMS_SANDBOX:0}
+  code-length: ${ESMS_CODE_LENGTH:6}
+  # registration | password-reset | thank-you
+  builtin-template: ${ESMS_BUILTIN_TEMPLATE:registration}
+  # Chi dung khi ESMS_MODE=custom (SmsType 8 + template da dang ky tren portal)
+  content-template: ${ESMS_CONTENT_TEMPLATE:}
+  callback-url: ${ESMS_CALLBACK_URL:}
+
 jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000

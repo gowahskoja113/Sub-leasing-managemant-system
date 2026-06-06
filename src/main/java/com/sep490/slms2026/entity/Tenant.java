@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Setter
@@ -33,4 +34,22 @@ public class Tenant {
 
     @Column(name = "room_rental_status")
     private String roomRentalStatus;
+
+    // Gán phòng đơn (wholeHouse = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "room_id", nullable = true)
+    @JsonIgnore
+    private Room room;
+
+    // Gán nguyên căn (wholeHouse = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "property_id", nullable = true)
+    @JsonIgnore
+    private Property property;
+
+    @Column(name = "start_date")
+    private LocalDate startDate;      // Ngày bắt đầu thuê
+
+    @Column(name = "end_date")
+    private LocalDate endDate;        // Ngày hết hạn hợp đồng (nullable, set khi ký HĐ)
 }
