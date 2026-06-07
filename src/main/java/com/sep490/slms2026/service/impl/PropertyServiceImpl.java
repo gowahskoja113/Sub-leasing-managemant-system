@@ -6,7 +6,7 @@ import com.sep490.slms2026.dto.request.RoomRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.RoomStatus;
-import com.sep490.slms2026.enums.RoomType;
+import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.mapper.PropertyMapper;
 import com.sep490.slms2026.repository.OperationManagementRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
@@ -156,7 +156,7 @@ public class PropertyServiceImpl implements PropertyService {
         }
 
         Room wholeRoom = new Room();
-        wholeRoom.setRoomType(RoomType.WHOLE_HOUSE);
+        wholeRoom.setPropertyType(PropertyType.WHOLE_HOUSE);
         wholeRoom.setRoomNumber((request.getTitle() != null && !request.getTitle().isBlank()) ? request.getTitle() : "Nguyên Căn");
 
         wholeRoom.setPrice(request.getDefaultPrice());
@@ -188,7 +188,7 @@ public class PropertyServiceImpl implements PropertyService {
             }
 
             Room room = new Room();
-            room.setRoomType(RoomType.INDIVIDUAL_ROOM);
+            room.setPropertyType(PropertyType.INDIVIDUAL_ROOM);
             room.setRoomNumber(roomReq.getRoomNumber());
             room.setPrice(roomReq.getPrice());
             room.setDeposit(roomReq.getDeposit());

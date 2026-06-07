@@ -2,77 +2,41 @@ package com.sep490.slms2026.entity;
 
 import com.sep490.slms2026.enums.EquipmentStatus;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
 
+@Entity
+@Table(name = "equipments")
 @Getter
 @Setter
-@Entity
-@Table(name = "Equipment")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Equipment {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
-
-    // Gán vào Room (nullable — có thể chưa gán hoặc gán vào nhà nguyên căn qua Property)
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id", nullable = true)
-    private Room room;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "property_id", nullable = true)
+    @JoinColumn(name = "property_id", nullable = false)
     private Property property;
 
     @Column(nullable = false)
-    private String name;
+    private String name; // Tivi, Tủ lạnh, Máy lạnh...
 
-    // Loại thiết bị: ELECTRICAL, PLUMBING, FURNITURE, HVAC, OTHER...
-    @Column(nullable = false)
-    private String category;
+    @Column(name = "serial_number")
+    private String serialNumber;
+
+    @Column(name = "purchase_price", nullable = false)
+    private BigDecimal purchasePrice = BigDecimal.ZERO; // Bàn giao ban đầu = 0, mua thêm > 0
+
+    @Column(name = "installation_date")
+    private LocalDate installationDate;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private EquipmentStatus status;
-
-    @Column(name = "installed_date")
-    private LocalDate installedDate;
-
-    @Column(name = "purchase_cost", precision = 15, scale = 2)
-    private BigDecimal purchaseCost;
-
-    @Column(columnDefinition = "TEXT")
-    private String description;
-
-    // QR Code lưu dạng URL hoặc base64 string
-    @Column(name = "qr_code", columnDefinition = "TEXT")
-    private String qrCode;
-
-    // Nội dung QR trỏ đến (ví dụ: deep link app hoặc URL gửi request)
-    @Column(name = "qr_payload")
-    private String qrPayload;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    @PrePersist
-    protected void onCreate() {
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
-    }
+    private EquipmentStatus condition = EquipmentStatus.NEW;
 }
