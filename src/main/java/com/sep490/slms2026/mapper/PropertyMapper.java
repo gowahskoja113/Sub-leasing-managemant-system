@@ -1,27 +1,47 @@
 package com.sep490.slms2026.mapper;
 
-import com.sep490.slms2026.dto.request.PropertyRequest;
+import com.sep490.slms2026.dto.request.PropertyCreateRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
-import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
-import org.mapstruct.MappingTarget;
-import org.mapstruct.ReportingPolicy;
+import com.sep490.slms2026.entity.Zone;
+import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", uses = {ZoneMapper.class}, unmappedTargetPolicy = ReportingPolicy.IGNORE)
+@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface PropertyMapper {
 
     @Mapping(target = "zoneId", source = "zone.id")
-    @Mapping(target = "zoneFullName", source = "zone")
+    @Mapping(target = "zoneName", source = "zone", qualifiedByName = "getOnlyZoneName")
+    @Mapping(target = "fullAddress", source = "address")
+    @Mapping(target = "shortAddress", source = "property", qualifiedByName = "extractShortAddress")
     PropertyResponse toResponse(Property property);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "zone", ignore = true)
-    @Mapping(target = "rooms", ignore = true) // 🔥 KHÓA CHẶT: Không cho tự map tự động mảng room tránh sinh rác bị null roomNumber
-    Property toEntity(PropertyRequest request);
+    @Mapping(target = "inboundContract", ignore = true)
+    @Mapping(target = "utilityReadings", ignore = true)
+    Property toEntity(PropertyCreateRequest request);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "zone", ignore = true)
-    @Mapping(target = "rooms", ignore = true)
-    void updateEntityFromRequest(PropertyRequest request, @MappingTarget Property property);
+    @Mapping(target = "inboundContract", ignore = true)
+    @Mapping(target = "utilityReadings", ignore = true)
+    void updateEntityFromRequest(PropertyCreateRequest request, @MappingTarget Property property);
+
+    @Named("getOnlyZoneName")
+    default String resolveZoneName(Zone zone) {
+        if (zone == null) return null;
+        return zone.getName();
+    }
+
+    @Named("extractShortAddress")
+    default String resolveShortAddress(Property property) {
+        if (property == null || property.getAddress() == null) return null;
+        if (property.getZone() == null) return property.getAddress();
+
+        String zoneFullName = property.getZone().getParent() != null
+                ? property.getZone().getName() + ", " + property.getZone().getParent().getName()
+                : property.getZone().getName();
+
+        return property.getAddress().replace(", " + zoneFullName, "");
+    }
 }

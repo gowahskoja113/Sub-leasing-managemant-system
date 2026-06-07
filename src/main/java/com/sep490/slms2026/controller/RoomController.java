@@ -26,7 +26,7 @@ public class RoomController {
     @PostMapping("/property/{propertyId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<RoomResponse> addRoom(
-            @PathVariable UUID propertyId,
+            @PathVariable Long propertyId,
             @RequestBody RoomRequest request,
             @AuthenticationPrincipal CustomUserDetails userDetails) {
         return new ResponseEntity<>(roomService.addRoomToProperty(propertyId, request, userDetails.getId()), HttpStatus.CREATED);
@@ -36,7 +36,7 @@ public class RoomController {
     @GetMapping("/property/{propertyId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<Page<RoomResponse>> getRoomsByProperty(
-            @PathVariable UUID propertyId,
+            @PathVariable Long propertyId,
             Pageable pageable) {
         return ResponseEntity.ok(roomService.getRoomsByProperty(propertyId, pageable));
     }

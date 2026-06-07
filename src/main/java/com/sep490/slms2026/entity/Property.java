@@ -1,57 +1,63 @@
 package com.sep490.slms2026.entity;
-
+import com.sep490.slms2026.enums.PropertyStatus;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import java.math.BigDecimal;
-import java.util.ArrayList;
+import lombok.*;
+import java.io.Serializable;
 import java.util.List;
-import java.util.UUID;
 
+@Entity
+@Table(name = "properties")
 @Getter
 @Setter
-@Entity
-@Table(name = "Property")
-public class Property {
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Property implements Serializable {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(nullable = false)
-    private String title;
-
-    @Column(columnDefinition = "TEXT")
-    private String description;
+    @Column(name = "property_name", nullable = false)
+    private String propertyName;
 
     @Column(nullable = false)
     private String address;
-
-    @Column(name = "is_whole_house", nullable = false)
-    private Boolean wholeHouse;
-
-    @Column(name = "total_rooms", nullable = false)
-    private Integer totalRooms;
-
-    @Column(name = "electricity_price", nullable = false)
-    private BigDecimal electricityPrice;
-
-    @Column(name = "water_price", nullable = false)
-    private BigDecimal waterPrice;
-
-    // Tiền thu được từ BĐS này (cộng dồn từ các hóa đơn đã thanh toán)
-    @Column(name = "total_revenue", nullable = false)
-    private BigDecimal totalRevenue = BigDecimal.ZERO;
-
-    @Column(name = "image_urls", columnDefinition = "TEXT")
-    private String imageUrls;
-
-    @Column(name = "authorized_owner_name", nullable = false)
-    private String authorizedOwnerName;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "zone_id", nullable = false)
     private Zone zone;
 
-    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private List<Room> rooms = new ArrayList<>();
+    @Column(name = "area_size")
+    private Double areaSize;
+
+    @Column(name = "is_whole_house", nullable = false)
+    private Boolean wholeHouse;
+
+    @Column(name = "total_rooms")
+    private Integer totalRooms;
+
+    @ElementCollection
+    @CollectionTable(name = "property_images", joinColumns = @JoinColumn(name = "property_id"))
+    @Column(name = "image_url")
+    private List<String> imageUrls;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private PropertyStatus status = PropertyStatus.DRAFT;
+
+    @Column(name = "managed_by", nullable = false)
+    private Long managedBy;
+
+    @Column(name = "descriptions", nullable = false)
+    private String descriptions;
+
+    @OneToOne(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private InboundContract inboundContract;
+
+//    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+//    private List<Equipment> equipments;
+
+    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<MonthlyReading> utilityReadings;
 }

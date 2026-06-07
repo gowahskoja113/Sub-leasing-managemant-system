@@ -7,7 +7,7 @@ import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.enums.RoomStatus;
-import com.sep490.slms2026.enums.RoomType;
+import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.mapper.RoomMapper;
 import com.sep490.slms2026.repository.OperationManagementRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
@@ -36,7 +36,7 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     @Transactional
-    public RoomResponse addRoomToProperty(UUID propertyId, RoomRequest request, UUID managerId) {
+    public RoomResponse addRoomToProperty(Long propertyId, RoomRequest request, UUID managerId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản chỉ định!"));
 
@@ -56,7 +56,7 @@ public class RoomServiceImpl implements RoomService {
         room.setProperty(property);
 
         // 🔥 THÊM 2 DÒNG NÀY ĐỂ FIX LỖI SQL constraint
-        room.setRoomType(RoomType.INDIVIDUAL_ROOM); // Mặc định thêm phòng vào tòa nhà thì phải là phòng lẻ
+        room.setPropertyType(PropertyType.INDIVIDUAL_ROOM); // Mặc định thêm phòng vào tòa nhà thì phải là phòng lẻ
         if (room.getTotalRevenue() == null) {
             room.setTotalRevenue(java.math.BigDecimal.ZERO); // Đề phòng DB không tự lấy default
         }
@@ -70,7 +70,7 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<RoomResponse> getRoomsByProperty(UUID propertyId, Pageable pageable) {
+    public Page<RoomResponse> getRoomsByProperty(Long propertyId, Pageable pageable) {
         // Kiểm tra xem tòa nhà có tồn tại không
         if (!propertyRepository.existsById(propertyId)) {
             throw new RuntimeException("Không tìm thấy Bất động sản!");
