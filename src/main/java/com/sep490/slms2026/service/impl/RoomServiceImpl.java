@@ -36,7 +36,7 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     @Transactional
-    public RoomResponse addRoomToProperty(UUID propertyId, RoomRequest request, UUID managerId) {
+    public RoomResponse addRoomToProperty(Long propertyId, RoomRequest request, UUID managerId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy Bất động sản chỉ định!"));
 
@@ -70,7 +70,7 @@ public class RoomServiceImpl implements RoomService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<RoomResponse> getRoomsByProperty(UUID propertyId, Pageable pageable) {
+    public Page<RoomResponse> getRoomsByProperty(Long propertyId, Pageable pageable) {
         // Kiểm tra xem tòa nhà có tồn tại không
         if (!propertyRepository.existsById(propertyId)) {
             throw new RuntimeException("Không tìm thấy Bất động sản!");

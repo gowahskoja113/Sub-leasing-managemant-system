@@ -1,20 +1,15 @@
 package com.sep490.slms2026.controller;
 
-import com.sep490.slms2026.dto.request.PropertyRequest;
+import com.sep490.slms2026.dto.request.PropertyCreateRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
-import com.sep490.slms2026.dto.ZoneSummaryProjection;
-import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.service.PropertyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/properties")
@@ -23,48 +18,34 @@ public class PropertyController {
 
     private final PropertyService propertyService;
 
-    // 📊 Thống kê Dashboard đổi lại role cho đúng đối tượng thụ hưởng là Manager/Admin
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
-    @GetMapping("/dashboard-summary")
-    public ResponseEntity<List<ZoneSummaryProjection>> getDashboardSummary(
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return ResponseEntity.ok(propertyService.getManagerDashboard(userDetails.getId()));
-    }
-
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
-    public ResponseEntity<PropertyResponse> createProperty(
-            @RequestBody PropertyRequest request,
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return ResponseEntity.ok(propertyService.createProperty(request, userDetails.getId()));
+    public ResponseEntity<PropertyResponse> createProperty(@RequestBody PropertyCreateRequest request) {
+        return new ResponseEntity<>(propertyService.createProperty(request), HttpStatus.CREATED);
     }
 
-    // 🔍 Lấy danh sách BĐS phân trang theo vùng được quản lý
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @GetMapping("/{id}")
+    public ResponseEntity<PropertyResponse> getPropertyById(@PathVariable Long id) {
+        return ResponseEntity.ok(propertyService.getPropertyById(id));
+    }
+
     @GetMapping
-    public ResponseEntity<Page<PropertyResponse>> getProperties(
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            Pageable pageable) {
-        return ResponseEntity.ok(propertyService.getPropertiesForManager(userDetails.getId(), pageable));
+    public ResponseEntity<Page<PropertyResponse>> getAllProperties(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(propertyService.getAllProperties(pageable));
     }
 
-    // ✏️ Cập nhật thông tin BĐS
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @PutMapping("/{id}")
     public ResponseEntity<PropertyResponse> updateProperty(
-            @PathVariable UUID id,
-            @RequestBody PropertyRequest request,
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
-        return ResponseEntity.ok(propertyService.updateProperty(id, request, userDetails.getId()));
+            @PathVariable Long id,
+            @RequestBody PropertyCreateRequest request) {
+        return ResponseEntity.ok(propertyService.updateProperty(id, request));
     }
 
-    // ❌ Xóa BĐS
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProperty(
-            @PathVariable UUID id,
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
-        propertyService.deleteProperty(id, userDetails.getId());
+    public ResponseEntity<Void> deleteProperty(@PathVariable Long id) {
+        propertyService.deleteProperty(id);
         return ResponseEntity.noContent().build();
     }
 }

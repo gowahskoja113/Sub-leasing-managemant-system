@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.UUID;
 
-public interface PropertyRepository extends JpaRepository<Property, UUID> {
+public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     @Query("SELECT DISTINCT p FROM Property p " +
             "JOIN p.zone z " +

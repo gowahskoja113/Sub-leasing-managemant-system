@@ -8,8 +8,8 @@ import org.springframework.data.domain.Pageable;
 import java.util.UUID;
 
 public interface RoomService {
-    RoomResponse addRoomToProperty(UUID propertyId, RoomRequest request, UUID managerId);
-    Page<RoomResponse> getRoomsByProperty(UUID propertyId, Pageable pageable);
+    RoomResponse addRoomToProperty(Long propertyId, RoomRequest request, UUID managerId);
+    Page<RoomResponse> getRoomsByProperty(Long propertyId, Pageable pageable);
     RoomResponse getRoomDetail(UUID roomId);
     RoomResponse updateRoom(UUID roomId, RoomRequest request, UUID managerId);
     void deleteRoom(UUID roomId, UUID managerId);

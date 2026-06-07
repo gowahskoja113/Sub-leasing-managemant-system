@@ -12,11 +12,11 @@ import java.util.UUID;
 public interface RoomRepository extends JpaRepository<Room, UUID> {
 
     // Tìm kiếm danh sách phòng phân trang thuộc một Bất động sản
-    Page<Room> findAllByPropertyId(UUID propertyId, Pageable pageable);
+    Page<Room> findAllByPropertyId(Long propertyId, Pageable pageable);
 
     // Kiểm tra trùng số phòng trong cùng một tòa nhà khi thêm mới
-    boolean existsByRoomNumberAndPropertyId(String roomNumber, UUID propertyId);
+    boolean existsByRoomNumberAndPropertyId(String roomNumber, Long propertyId);
 
     // Kiểm tra trùng số phòng trong cùng một tòa nhà khi cập nhật
-    boolean existsByRoomNumberAndPropertyIdAndIdNot(String roomNumber, UUID propertyId, UUID roomId);
+    boolean existsByRoomNumberAndPropertyIdAndIdNot(String roomNumber, Long propertyId, UUID roomId);
 }

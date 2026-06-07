@@ -24,38 +24,40 @@ public class Property implements Serializable {
     @Column(nullable = false)
     private String address;
 
-    private String zone; // Khu vực/Quận/Huyện
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "zone_id", nullable = false)
+    private Zone zone;
 
     @Column(name = "area_size")
-    private Double areaSize; // Diện tích căn nhà (m2)
+    private Double areaSize;
 
     @Column(name = "is_whole_house", nullable = false)
-    private Boolean wholeHouse = true;
+    private Boolean wholeHouse;
 
     @Column(name = "total_rooms")
-    private Integer totalRooms; // Bằng null hoặc chỉ số phòng dự kiến nếu wholeHouse = false
+    private Integer totalRooms;
 
     @ElementCollection
     @CollectionTable(name = "property_images", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "image_url")
-    private List<String> imageUrls; // Danh sách hình ảnh của tòa nhà
+    private List<String> imageUrls;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private PropertyStatus status = PropertyStatus.DRAFT; // DRAFT, ACTIVE, INACTIVE
+    private PropertyStatus status = PropertyStatus.DRAFT;
 
     @Column(name = "managed_by", nullable = false)
-    private Long managedBy; // ID của User/Staff quản lý tòa nhà này
+    private Long managedBy;
 
-    // Mối quan hệ 1-1 với Hợp đồng gốc
+    @Column(name = "descriptions", nullable = false)
+    private String descriptions;
+
     @OneToOne(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private InboundContract inboundContract;
 
-    // Danh sách thiết bị (Equipment ban đầu và mua thêm)
-    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Equipment> equipments;
+//    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+//    private List<Equipment> equipments;
 
-    // Chỉ số điện nước đầu vào (Lưu theo kỳ hoặc chỉ số bàn giao ban đầu)
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<MonthlyReading> utilityReadings;
 }
