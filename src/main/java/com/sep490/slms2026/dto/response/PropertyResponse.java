@@ -15,6 +15,7 @@ public class PropertyResponse {
     private String descriptions;
     private UUID zoneId;
     private String zoneName;
+    private Double areaSize;
     private Boolean wholeHouse;
     private Integer totalRooms;
     private String status;

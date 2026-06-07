@@ -153,6 +153,7 @@ public class PropertyServiceImpl implements PropertyService {
         response.setZoneName(property.getZone().getName());
         response.setWholeHouse(property.getWholeHouse());
         response.setTotalRooms(property.getTotalRooms());
+        response.setAreaSize(property.getAreaSize());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         return response;
