@@ -13,12 +13,14 @@ public interface PropertyMapper {
     @Mapping(target = "zoneName", source = "zone", qualifiedByName = "getOnlyZoneName")
     @Mapping(target = "fullAddress", source = "address")
     @Mapping(target = "shortAddress", source = "property", qualifiedByName = "extractShortAddress")
+    @Mapping(target = "areaSize", source = "areaSize")
     PropertyResponse toResponse(Property property);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "zone", ignore = true)
     @Mapping(target = "inboundContract", ignore = true)
     @Mapping(target = "utilityReadings", ignore = true)
+    @Mapping(target = "areaSize", source = "areaSize")
     Property toEntity(PropertyCreateRequest request);
 
     @Mapping(target = "id", ignore = true)

@@ -1,0 +1,83 @@
+package com.sep490.slms2026.service.impl;
+
+import com.sep490.slms2026.dto.request.CreateInboundContractRequest;
+import com.sep490.slms2026.dto.response.InboundContractResponse;
+import com.sep490.slms2026.entity.InboundContract;
+import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.PropertyStatus;
+import com.sep490.slms2026.exception.BusinessException;
+import com.sep490.slms2026.exception.ResourceNotFoundException;
+import com.sep490.slms2026.repository.InboundContractRepository;
+import com.sep490.slms2026.repository.PropertyRepository;
+import com.sep490.slms2026.service.InboundContractService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+public class InboundContractServiceImpl implements InboundContractService {
+
+    private final InboundContractRepository inboundContractRepository;
+    private final PropertyRepository propertyRepository;
+
+    @Override
+    @Transactional
+    public InboundContractResponse signContract(Long propertyId, CreateInboundContractRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy tòa nhà với ID: " + propertyId));
+
+        if (property.getStatus() != PropertyStatus.DRAFT) {
+            throw new BusinessException("Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT");
+        }
+
+        if (inboundContractRepository.existsByPropertyId(propertyId)) {
+            throw new BusinessException("Tòa nhà này đã có hợp đồng inbound");
+        }
+
+        if (!request.getEndDate().isAfter(request.getStartDate())) {
+            throw new BusinessException("Ngày kết thúc hợp đồng phải sau ngày bắt đầu");
+        }
+
+        InboundContract contract = InboundContract.builder()
+                .property(property)
+                .contractCode(request.getContractCode())
+                .ownerName(request.getOwnerName())
+                .baseRentPrice(request.getBaseRentPrice())
+                .depositAmount(request.getDepositAmount())
+                .startDate(request.getStartDate())
+                .endDate(request.getEndDate())
+                .contractScanUrl(request.getContractScanUrl())
+                .status(ContractStatus.ACTIVE)
+                .build();
+
+        InboundContract saved = inboundContractRepository.save(contract);
+        return toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public InboundContractResponse getContractByProperty(Long propertyId) {
+        InboundContract contract = inboundContractRepository.findByPropertyId(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng inbound cho tòa nhà ID: " + propertyId));
+        return toResponse(contract);
+    }
+
+    private InboundContractResponse toResponse(InboundContract contract) {
+        return InboundContractResponse.builder()
+                .id(contract.getId())
+                .propertyId(contract.getProperty().getId())
+                .contractCode(contract.getContractCode())
+                .ownerName(contract.getOwnerName())
+                .baseRentPrice(contract.getBaseRentPrice())
+                .depositAmount(contract.getDepositAmount())
+                .startDate(contract.getStartDate())
+                .endDate(contract.getEndDate())
+                .contractScanUrl(contract.getContractScanUrl())
+                .status(contract.getStatus())
+                .build();
+    }
+}

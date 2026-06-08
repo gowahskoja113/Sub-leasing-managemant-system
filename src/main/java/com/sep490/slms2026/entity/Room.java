@@ -1,48 +1,48 @@
 package com.sep490.slms2026.entity;
 
-import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.PropertyType;
+import com.sep490.slms2026.enums.RoomStatus;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import java.math.BigDecimal;
-import java.util.UUID;
+import lombok.*;
 
+import java.io.Serializable;
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = "rooms")
 @Getter
 @Setter
-@Entity
-@Table(name = "Room")
-public class Room {
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Room implements Serializable {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "property_id", nullable = false)
+    private Property property;
 
     @Column(name = "room_number", nullable = false)
-    private String roomNumber; // Ví dụ: "101", "202" hoặc "Nguyên Căn"
+    private String roomNumber;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private BigDecimal price;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private BigDecimal deposit;
 
     @Column(nullable = false)
     private Double area;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private RoomStatus status; // AVAILABLE, RENTED, MAINTENANCE
-
     @Column(name = "max_occupants")
-    private Integer maxOccupants; // Số người ở tối đa trong 1 phòng/căn
+    private Integer maxOccupants;
 
-    // Chỉ dùng cho nhà nguyên căn: Khai báo cấu trúc bên trong (vd: "3 Phòng ngủ, 1 Bếp, 2 WC")
+    // Dùng cho wholehouse: mô tả cấu trúc bên trong ("3PN, 1 bếp, 2WC")
     @Column(name = "structure_description", columnDefinition = "TEXT")
     private String structureDescription;
-
-    // Tiền thu được từ phòng này (cộng dồn từ các hóa đơn)
-    @Column(name = "total_revenue", nullable = false)
-    private BigDecimal totalRevenue = BigDecimal.ZERO;
 
     @Column(name = "image_urls", columnDefinition = "TEXT")
     private String imageUrls;
@@ -51,8 +51,14 @@ public class Room {
     @Column(name = "room_type", nullable = false)
     private PropertyType propertyType;
 
-    // Nhiều Room thuộc về 1 Property
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "property_id", nullable = false)
-    private Property property;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private RoomStatus status = RoomStatus.DRAFT;
+
+    // Null nếu tòa dùng đồng hồ chung, có giá trị nếu phòng có đồng hồ riêng
+    @Column(name = "electric_meter_code")
+    private String electricMeterCode;
+
+    @Column(name = "water_meter_code")
+    private String waterMeterCode;
 }
