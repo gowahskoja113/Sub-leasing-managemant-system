@@ -2,7 +2,9 @@ package com.sep490.slms2026.entity;
 import com.sep490.slms2026.enums.PropertyStatus;
 import jakarta.persistence.*;
 import lombok.*;
+
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.List;
 
 @Entity
@@ -52,11 +54,21 @@ public class Property implements Serializable {
     @Column(name = "descriptions", nullable = false)
     private String descriptions;
 
+    // Chỉ dùng cho nhà nguyên căn (wholeHouse = true)
+    @Column
+    private BigDecimal price;
+
+    @Column
+    private BigDecimal deposit;
+
     @OneToOne(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private InboundContract inboundContract;
 
-//    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-//    private List<Equipment> equipments;
+    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Equipment> equipments;
+
+    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Renovation> renovations;
 
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<MonthlyReading> utilityReadings;

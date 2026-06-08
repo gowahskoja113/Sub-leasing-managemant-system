@@ -2,6 +2,8 @@ package com.sep490.slms2026.dto.response;
 
 import lombok.Getter;
 import lombok.Setter;
+
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,4 +21,6 @@ public class PropertyResponse {
     private Boolean wholeHouse;
     private Integer totalRooms;
     private String status;
+    private BigDecimal price;
+    private BigDecimal deposit;
 }

@@ -156,6 +156,8 @@ public class PropertyServiceImpl implements PropertyService {
         response.setAreaSize(property.getAreaSize());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
+        response.setPrice(property.getPrice());
+        response.setDeposit(property.getDeposit());
         return response;
     }
 }

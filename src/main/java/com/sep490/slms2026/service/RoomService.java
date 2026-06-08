@@ -1,16 +1,29 @@
 package com.sep490.slms2026.service;
 
-import com.sep490.slms2026.dto.request.RoomRequest;
+import com.sep490.slms2026.dto.request.AddRoomRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
-import java.util.UUID;
+import java.util.List;
 
 public interface RoomService {
-    RoomResponse addRoomToProperty(Long propertyId, RoomRequest request, UUID managerId);
-    Page<RoomResponse> getRoomsByProperty(Long propertyId, Pageable pageable);
-    RoomResponse getRoomDetail(UUID roomId);
-    RoomResponse updateRoom(UUID roomId, RoomRequest request, UUID managerId);
-    void deleteRoom(UUID roomId, UUID managerId);
+
+    /**
+     * Thêm phòng vào tòa nhà.
+     * Chỉ cho phép khi property.wholeHouse = false.
+     *
+     * @param propertyId ID của tòa nhà
+     * @param request    Thông tin phòng cần tạo
+     * @return RoomResponse phòng vừa tạo
+     */
+    RoomResponse addRoom(Long propertyId, AddRoomRequest request);
+
+    /**
+     * Lấy danh sách tất cả phòng của 1 tòa nhà.
+     */
+    List<RoomResponse> getRoomsByProperty(Long propertyId);
+
+    /**
+     * Lấy chi tiết 1 phòng theo ID, validate thuộc đúng tòa.
+     */
+    RoomResponse getRoomById(Long propertyId, Long roomId);
 }
