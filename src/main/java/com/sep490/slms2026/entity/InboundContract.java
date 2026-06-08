@@ -30,11 +30,8 @@ public class InboundContract implements Serializable {
     @Column(name = "owner_name", nullable = false)
     private String ownerName; // Tên chủ nhà gốc
 
-    @Column(name = "base_rent_price", nullable = false)
-    private BigDecimal baseRentPrice; // Giá thuê gốc/tháng
-
-    @Column(name = "deposit_amount", nullable = false)
-    private BigDecimal depositAmount; // Tiền cọc gốc trả cho chủ nhà
+    @Column(name = "total_rent_amount", nullable = false)
+    private BigDecimal totalRentAmount; // Tổng tiền thuê trả chủ gốc trong cả kỳ HĐ
 
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;

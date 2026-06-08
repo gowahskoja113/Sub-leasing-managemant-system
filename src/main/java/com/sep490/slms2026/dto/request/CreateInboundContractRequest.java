@@ -21,13 +21,9 @@ public class CreateInboundContractRequest {
     @NotBlank(message = "Tên chủ nhà không được để trống")
     private String ownerName;
 
-    @NotNull(message = "Giá thuê gốc không được để trống")
-    @DecimalMin(value = "0.0", inclusive = false, message = "Giá thuê gốc phải lớn hơn 0")
-    private BigDecimal baseRentPrice;
-
-    @NotNull(message = "Tiền cọc không được để trống")
-    @DecimalMin(value = "0.0", inclusive = false, message = "Tiền cọc phải lớn hơn 0")
-    private BigDecimal depositAmount;
+    @NotNull(message = "Tổng tiền thuê không được để trống")
+    @DecimalMin(value = "0.0", inclusive = false, message = "Tổng tiền thuê phải lớn hơn 0")
+    private BigDecimal totalRentAmount;
 
     @NotNull(message = "Ngày bắt đầu không được để trống")
     private LocalDate startDate;

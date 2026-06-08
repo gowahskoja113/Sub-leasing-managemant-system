@@ -35,28 +35,25 @@ public class DepreciationResult {
     @Column(name = "total_equipment_cost", nullable = false)
     private BigDecimal totalEquipmentCost;      // tổng thiết bị mua mới (source=PURCHASED)
 
-    @Column(name = "original_deposit", nullable = false)
-    private BigDecimal originalDeposit;         // cọc trả cho chủ gốc
+    @Column(name = "total_rent_amount", nullable = false)
+    private BigDecimal totalRentAmount;         // phần tổng tiền thuê HĐ (phân bổ theo phòng nếu chia phòng)
 
     @Column(name = "total_investment", nullable = false)
-    private BigDecimal totalInvestment;         // = renovation + equipment + deposit
+    private BigDecimal totalInvestment;         // = totalRentAmount + renovation + equipment
 
     // ===== Kết quả tính khấu hao =====
     @Column(name = "contract_months", nullable = false)
     private Integer contractMonths;             // số tháng hợp đồng gốc
 
     @Column(name = "monthly_depreciation", nullable = false)
-    private BigDecimal monthlyDepreciation;     // = totalInvestment / contractMonths
+    private BigDecimal monthlyDepreciation;     // = totalInvestment / contractMonths (giá hoàn vốn/tháng)
 
     // ===== Gợi ý giá thuê =====
-    @Column(name = "base_rent", nullable = false)
-    private BigDecimal baseRent;                // giá thuê gốc/tháng từ InboundContract
-
-    @Column(name = "monthly_operating_cost")
-    private BigDecimal monthlyOperatingCost;    // chi phí vận hành (điện chung, internet...)
-
     @Column(name = "suggested_min_price", nullable = false)
-    private BigDecimal suggestedMinPrice;       // = baseRent + depreciation + operatingCost
+    private BigDecimal suggestedMinPrice;       // = monthlyDepreciation (hoàn vốn, chưa lời)
+
+    @Column(name = "suggested_price_with_profit", nullable = false)
+    private BigDecimal suggestedPriceWithProfit; // = suggestedMinPrice × 1.10
 
     @Column(name = "calculated_at", nullable = false)
     private LocalDateTime calculatedAt;

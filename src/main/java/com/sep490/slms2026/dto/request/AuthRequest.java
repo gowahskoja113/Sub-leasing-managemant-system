@@ -16,5 +16,6 @@ public class AuthRequest {
     private String password;
 
     private String phoneNumber; // Dùng thêm khi Đăng ký
+    private String fullName;
     private String role;        // Dùng thêm khi Đăng ký (Ví dụ: ROLE_TENANT)
 }

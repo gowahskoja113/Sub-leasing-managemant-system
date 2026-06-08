@@ -42,55 +42,46 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Số điện thoại này đã được đăng ký!");
         }
 
-        User user = new User();
-        user.setUsername(request.getUsername());
-        // Mã hóa Hash mật khẩu trước khi lưu xuống DB
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setPhoneNumber(request.getPhoneNumber());
-        user.setStatus(UserStatus.ACTIVE);
-
-        // Mặc định gán Role nếu request gửi lên trống hoặc sai enum
+        // Xác định Role đăng ký công khai (mặc định cho Khách/Tenant/Owner tùy bạn thiết kế public)
         Role userRole;
         try {
             userRole = Role.valueOf(request.getRole().toUpperCase());
         } catch (Exception e) {
             userRole = Role.ROLE_TENANT;
         }
+
+        // CHẶN: Không cho phép tự đăng ký tài khoản nội bộ qua cổng public này
+//        if (userRole == Role.ROLE_ADMIN || userRole == Role.ROLE_MANAGER) {
+//            throw new RuntimeException("Không có quyền tự đăng ký tài khoản cấp quản trị viên/quản lý!");
+//        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setPhoneNumber(request.getPhoneNumber());
+        user.setFullName(request.getFullName()); // <-- Bổ sung field fullName từ Request gửi lên
+        user.setStatus(UserStatus.ACTIVE);
         user.setRole(userRole);
 
-        // Khởi tạo thực thể Profile tương ứng dựa vào Role để tránh lỗi khi thao tác chức năng khác
-        if (userRole == Role.ROLE_ADMIN) {
-            Admin adminProfile = new Admin();
-            adminProfile.setUser(user);
-            adminProfile.setStartAt(LocalDateTime.now());
-            user.setAdminProfile(adminProfile);
-        } else if (userRole == Role.ROLE_MANAGER) {
-            OperationManagement managerProfile = new OperationManagement();
-            managerProfile.setUser(user);
-            managerProfile.setStartAt(LocalDateTime.now());
-            user.setOperationManagementProfile(managerProfile);
-        } else if (userRole == Role.ROLE_OWNER) {
+        // Khởi tạo thực thể Profile tương ứng (Bây giờ luồng này chỉ tạo profile cho Owner/Tenant...)
+        if (userRole == Role.ROLE_OWNER) {
             Owner ownerProfile = new Owner();
             ownerProfile.setUser(user);
             user.setOwnerProfile(ownerProfile);
         }
 
-        // CascadeType.ALL cấu hình ở thực thể User sẽ tự động lưu bản ghi Profile đi kèm xuống DB
         userRepository.save(user);
         return "Đăng ký tài khoản thành công!";
     }
 
     @Override
     public AuthResponse login(AuthRequest request) {
-        // Thực hiện kiểm tra tài khoản, mật khẩu tự động qua AuthenticationManager
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
 
-        // Nếu không văng exception (nghĩa là đúng pass), tiến hành cấp mã Token
         final UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
         final String jwt = jwtUtil.generateToken(userDetails);
-
         String roleName = userDetails.getAuthorities().iterator().next().getAuthority();
 
         return new AuthResponse(jwt, userDetails.getUsername(), roleName);

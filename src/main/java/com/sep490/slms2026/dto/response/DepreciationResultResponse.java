@@ -21,12 +21,11 @@ public class DepreciationResultResponse {
     private String roomNumber;
     private BigDecimal totalRenovationCost;
     private BigDecimal totalEquipmentCost;
-    private BigDecimal originalDeposit;
+    private BigDecimal totalRentAmount;
     private BigDecimal totalInvestment;
     private Integer contractMonths;
-    private BigDecimal monthlyDepreciation;
-    private BigDecimal baseRent;
-    private BigDecimal monthlyOperatingCost;
+    private BigDecimal monthlyBreakEven;
     private BigDecimal suggestedMinPrice;
+    private BigDecimal suggestedPriceWithProfit;
     private LocalDateTime calculatedAt;
 }

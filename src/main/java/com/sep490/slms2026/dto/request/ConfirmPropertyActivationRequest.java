@@ -26,9 +26,6 @@ public class ConfirmPropertyActivationRequest {
     @Valid
     private List<RoomPriceConfirm> roomPrices;
 
-    // true nếu còn hạng mục cải tạo chưa xong → chuyển MAINTENANCE
-    private Boolean hasOngoingRenovation;
-
     @Getter
     @Setter
     @NoArgsConstructor

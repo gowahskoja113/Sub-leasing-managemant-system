@@ -15,14 +15,12 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.DepreciationResultRepository;
 import com.sep490.slms2026.repository.InboundContractRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
-import com.sep490.slms2026.repository.RenovationRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.service.PropertyActivationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +35,6 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
     private final RoomRepository roomRepository;
     private final DepreciationResultRepository depreciationResultRepository;
     private final InboundContractRepository inboundContractRepository;
-    private final RenovationRepository renovationRepository;
 
     @Override
     @Transactional
@@ -55,19 +52,15 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
             throw new BusinessException("Phải ký hợp đồng inbound trước khi confirm giá");
         }
 
-        boolean ongoingRenovation = Boolean.TRUE.equals(request.getHasOngoingRenovation())
-                || renovationRepository.existsByPropertyIdAndCompletedFalse(propertyId);
-
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return confirmWholeHouse(property, propertyId, request, ongoingRenovation);
+            return confirmWholeHouse(property, propertyId, request);
         }
-        return confirmRooms(property, propertyId, request, ongoingRenovation);
+        return confirmRooms(property, propertyId, request);
     }
 
     private PropertyActivationResponse confirmWholeHouse(Property property,
                                                          Long propertyId,
-                                                         ConfirmPropertyActivationRequest request,
-                                                         boolean ongoingRenovation) {
+                                                         ConfirmPropertyActivationRequest request) {
         if (request.getPropertyPrice() == null || request.getPropertyDeposit() == null) {
             throw new BusinessException(
                     "Nhà nguyên căn phải gửi propertyPrice và propertyDeposit khi confirm giá");
@@ -81,8 +74,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
                 .orElseThrow(() -> new BusinessException(
                         "Phải tính khấu hao cấp nhà nguyên căn trước khi confirm giá"));
 
-        if (!ongoingRenovation
-                && request.getPropertyPrice().compareTo(depreciation.getSuggestedMinPrice()) < 0) {
+        if (request.getPropertyPrice().compareTo(depreciation.getSuggestedMinPrice()) < 0) {
             throw new BusinessException(
                     "Giá thuê xác nhận (" + request.getPropertyPrice()
                             + ") thấp hơn giá tối thiểu gợi ý ("
@@ -91,7 +83,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
 
         property.setPrice(request.getPropertyPrice());
         property.setDeposit(request.getPropertyDeposit());
-        property.setStatus(ongoingRenovation ? PropertyStatus.MAINTENANCE : PropertyStatus.ACTIVE);
+        property.setStatus(PropertyStatus.ACTIVE);
         propertyRepository.save(property);
 
         return PropertyActivationResponse.builder()
@@ -106,8 +98,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
 
     private PropertyActivationResponse confirmRooms(Property property,
                                                     Long propertyId,
-                                                    ConfirmPropertyActivationRequest request,
-                                                    boolean ongoingRenovation) {
+                                                    ConfirmPropertyActivationRequest request) {
         if (request.getPropertyPrice() != null || request.getPropertyDeposit() != null) {
             throw new BusinessException(
                     "Nhà chia phòng không confirm giá ở cấp tòa — dùng roomPrices");
@@ -141,8 +132,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
                     .orElseThrow(() -> new BusinessException(
                             "Phòng " + room.getRoomNumber() + " chưa có kết quả khấu hao — hãy tính lại"));
 
-            if (!ongoingRenovation
-                    && priceConfirm.getPrice().compareTo(roomDepreciation.getSuggestedMinPrice()) < 0) {
+            if (priceConfirm.getPrice().compareTo(roomDepreciation.getSuggestedMinPrice()) < 0) {
                 throw new BusinessException(
                         "Phòng " + room.getRoomNumber() + ": giá xác nhận ("
                                 + priceConfirm.getPrice() + ") thấp hơn giá tối thiểu gợi ý ("
@@ -151,7 +141,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
 
             room.setPrice(priceConfirm.getPrice());
             room.setDeposit(priceConfirm.getDeposit());
-            room.setStatus(ongoingRenovation ? RoomStatus.MAINTENANCE : RoomStatus.AVAILABLE);
+            room.setStatus(RoomStatus.AVAILABLE);
 
             activatedRooms.add(ActivatedRoom.builder()
                     .roomId(room.getId())
@@ -163,7 +153,7 @@ public class PropertyActivationServiceImpl implements PropertyActivationService 
                     .build());
         }
 
-        property.setStatus(ongoingRenovation ? PropertyStatus.MAINTENANCE : PropertyStatus.ACTIVE);
+        property.setStatus(PropertyStatus.ACTIVE);
         propertyRepository.save(property);
         roomRepository.saveAll(draftRooms);
 

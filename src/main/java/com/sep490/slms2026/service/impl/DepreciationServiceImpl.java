@@ -34,6 +34,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DepreciationServiceImpl implements DepreciationService {
 
+    private static final BigDecimal PROFIT_MARGIN = new BigDecimal("1.10");
+
     private final DepreciationResultRepository depreciationResultRepository;
     private final InboundContractRepository inboundContractRepository;
     private final PropertyRepository propertyRepository;
@@ -50,9 +52,9 @@ public class DepreciationServiceImpl implements DepreciationService {
         depreciationResultRepository.deleteByPropertyId(propertyId);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return calculateWholeHouse(property, contract, request);
+            return calculateWholeHouse(property, contract);
         }
-        return calculatePerRoom(property, contract, request);
+        return calculatePerRoom(property, contract);
     }
 
     @Override
@@ -91,31 +93,22 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .build();
     }
 
-    private DepreciationCalculationResponse calculateWholeHouse(Property property,
-                                                                InboundContract contract,
-                                                                CalculateDepreciationRequest request) {
+    private DepreciationCalculationResponse calculateWholeHouse(Property property, InboundContract contract) {
         Long propertyId = property.getId();
         validateNoRoomLevelCosts(propertyId);
         validatePurchasedEquipmentHasPrice(propertyId);
+        validateRenovationHasCost(propertyId);
 
         BigDecimal totalRenovationCost = renovationRepository.sumCostByPropertyIdAndRoomIsNull(propertyId);
         BigDecimal totalEquipmentCost = equipmentRepository
                 .sumPurchasePriceByPropertyIdAndRoomIsNullAndSource(propertyId, EquipmentSource.PURCHASED);
-        BigDecimal originalDeposit = contract.getDepositAmount();
-        BigDecimal totalInvestment = totalRenovationCost.add(totalEquipmentCost).add(originalDeposit);
+        BigDecimal totalRentAmount = contract.getTotalRentAmount();
 
-        int contractMonths = resolveContractMonths(contract);
-        BigDecimal monthlyDepreciation = totalInvestment
-                .divide(BigDecimal.valueOf(contractMonths), 2, RoundingMode.HALF_UP);
-        BigDecimal monthlyOperatingCost = resolveOperatingCost(request);
-        BigDecimal suggestedMinPrice = contract.getBaseRentPrice()
-                .add(monthlyDepreciation)
-                .add(monthlyOperatingCost);
+        PricingBreakdown breakdown = computePricing(
+                totalRentAmount, totalRenovationCost, totalEquipmentCost, resolveContractMonths(contract));
 
         DepreciationResult saved = depreciationResultRepository.save(buildResult(
-                contract, null, totalRenovationCost, totalEquipmentCost, originalDeposit,
-                totalInvestment, contractMonths, monthlyDepreciation,
-                contract.getBaseRentPrice(), monthlyOperatingCost, suggestedMinPrice));
+                contract, null, totalRenovationCost, totalEquipmentCost, totalRentAmount, breakdown));
 
         return DepreciationCalculationResponse.builder()
                 .propertyId(propertyId)
@@ -124,9 +117,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .build();
     }
 
-    private DepreciationCalculationResponse calculatePerRoom(Property property,
-                                                             InboundContract contract,
-                                                             CalculateDepreciationRequest request) {
+    private DepreciationCalculationResponse calculatePerRoom(Property property, InboundContract contract) {
         Long propertyId = property.getId();
         List<Room> rooms = roomRepository.findByPropertyId(propertyId);
         if (rooms.isEmpty()) {
@@ -134,6 +125,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         }
 
         validatePurchasedEquipmentHasPrice(propertyId);
+        validateRenovationHasCost(propertyId);
 
         double totalArea = rooms.stream().mapToDouble(Room::getArea).sum();
         if (totalArea <= 0) {
@@ -143,7 +135,6 @@ public class DepreciationServiceImpl implements DepreciationService {
         BigDecimal sharedRenovation = renovationRepository.sumCostByPropertyIdAndRoomIsNull(propertyId);
         BigDecimal sharedEquipment = equipmentRepository
                 .sumPurchasePriceByPropertyIdAndRoomIsNullAndSource(propertyId, EquipmentSource.PURCHASED);
-        BigDecimal monthlyOperatingCost = resolveOperatingCost(request);
         int contractMonths = resolveContractMonths(contract);
 
         List<DepreciationResultResponse> roomResults = new ArrayList<>();
@@ -160,25 +151,17 @@ public class DepreciationServiceImpl implements DepreciationService {
                     .setScale(2, RoundingMode.HALF_UP);
             BigDecimal allocatedSharedEquipment = sharedEquipment.multiply(areaRatio)
                     .setScale(2, RoundingMode.HALF_UP);
-            BigDecimal allocatedDeposit = contract.getDepositAmount().multiply(areaRatio)
-                    .setScale(2, RoundingMode.HALF_UP);
-            BigDecimal allocatedBaseRent = contract.getBaseRentPrice().multiply(areaRatio)
-                    .setScale(2, RoundingMode.HALF_UP);
-            BigDecimal allocatedOperating = monthlyOperatingCost.multiply(areaRatio)
+            BigDecimal allocatedTotalRent = contract.getTotalRentAmount().multiply(areaRatio)
                     .setScale(2, RoundingMode.HALF_UP);
 
             BigDecimal totalRenovationCost = roomRenovation.add(allocatedSharedRenovation);
             BigDecimal totalEquipmentCost = roomEquipment.add(allocatedSharedEquipment);
-            BigDecimal originalDeposit = allocatedDeposit;
-            BigDecimal totalInvestment = totalRenovationCost.add(totalEquipmentCost).add(originalDeposit);
-            BigDecimal monthlyDepreciation = totalInvestment
-                    .divide(BigDecimal.valueOf(contractMonths), 2, RoundingMode.HALF_UP);
-            BigDecimal suggestedMinPrice = allocatedBaseRent.add(monthlyDepreciation).add(allocatedOperating);
+
+            PricingBreakdown breakdown = computePricing(
+                    allocatedTotalRent, totalRenovationCost, totalEquipmentCost, contractMonths);
 
             DepreciationResult saved = depreciationResultRepository.save(buildResult(
-                    contract, room, totalRenovationCost, totalEquipmentCost, originalDeposit,
-                    totalInvestment, contractMonths, monthlyDepreciation,
-                    allocatedBaseRent, allocatedOperating, suggestedMinPrice));
+                    contract, room, totalRenovationCost, totalEquipmentCost, allocatedTotalRent, breakdown));
 
             roomResults.add(toResponse(saved, PricingScope.ROOM));
         }
@@ -190,29 +173,37 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .build();
     }
 
+    private PricingBreakdown computePricing(BigDecimal totalRentAmount,
+                                            BigDecimal totalRenovationCost,
+                                            BigDecimal totalEquipmentCost,
+                                            int contractMonths) {
+        BigDecimal totalInvestment = totalRentAmount.add(totalRenovationCost).add(totalEquipmentCost);
+        BigDecimal monthlyBreakEven = totalInvestment
+                .divide(BigDecimal.valueOf(contractMonths), 2, RoundingMode.HALF_UP);
+        BigDecimal suggestedPriceWithProfit = monthlyBreakEven.multiply(PROFIT_MARGIN)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new PricingBreakdown(
+                totalInvestment, contractMonths, monthlyBreakEven, monthlyBreakEven, suggestedPriceWithProfit);
+    }
+
     private DepreciationResult buildResult(InboundContract contract,
                                            Room room,
                                            BigDecimal totalRenovationCost,
                                            BigDecimal totalEquipmentCost,
-                                           BigDecimal originalDeposit,
-                                           BigDecimal totalInvestment,
-                                           int contractMonths,
-                                           BigDecimal monthlyDepreciation,
-                                           BigDecimal baseRent,
-                                           BigDecimal monthlyOperatingCost,
-                                           BigDecimal suggestedMinPrice) {
+                                           BigDecimal totalRentAmount,
+                                           PricingBreakdown breakdown) {
         return DepreciationResult.builder()
                 .inboundContract(contract)
                 .room(room)
                 .totalRenovationCost(totalRenovationCost)
                 .totalEquipmentCost(totalEquipmentCost)
-                .originalDeposit(originalDeposit)
-                .totalInvestment(totalInvestment)
-                .contractMonths(contractMonths)
-                .monthlyDepreciation(monthlyDepreciation)
-                .baseRent(baseRent)
-                .monthlyOperatingCost(monthlyOperatingCost)
-                .suggestedMinPrice(suggestedMinPrice)
+                .totalRentAmount(totalRentAmount)
+                .totalInvestment(breakdown.totalInvestment())
+                .contractMonths(breakdown.contractMonths())
+                .monthlyDepreciation(breakdown.monthlyBreakEven())
+                .suggestedMinPrice(breakdown.suggestedMinPrice())
+                .suggestedPriceWithProfit(breakdown.suggestedPriceWithProfit())
                 .calculatedAt(LocalDateTime.now())
                 .build();
     }
@@ -254,10 +245,12 @@ public class DepreciationServiceImpl implements DepreciationService {
         }
     }
 
-    private BigDecimal resolveOperatingCost(CalculateDepreciationRequest request) {
-        return request.getMonthlyOperatingCost() != null
-                ? request.getMonthlyOperatingCost()
-                : BigDecimal.ZERO;
+    private void validateRenovationHasCost(Long propertyId) {
+        boolean missingCost = renovationRepository.findByPropertyId(propertyId).stream()
+                .anyMatch(r -> r.getCost() == null);
+        if (missingCost) {
+            throw new BusinessException("Cải tạo phải có cost trước khi tính khấu hao");
+        }
     }
 
     private int resolveContractMonths(InboundContract contract) {
@@ -276,13 +269,12 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .pricingScope(scope)
                 .totalRenovationCost(result.getTotalRenovationCost())
                 .totalEquipmentCost(result.getTotalEquipmentCost())
-                .originalDeposit(result.getOriginalDeposit())
+                .totalRentAmount(result.getTotalRentAmount())
                 .totalInvestment(result.getTotalInvestment())
                 .contractMonths(result.getContractMonths())
-                .monthlyDepreciation(result.getMonthlyDepreciation())
-                .baseRent(result.getBaseRent())
-                .monthlyOperatingCost(result.getMonthlyOperatingCost())
+                .monthlyBreakEven(result.getMonthlyDepreciation())
                 .suggestedMinPrice(result.getSuggestedMinPrice())
+                .suggestedPriceWithProfit(result.getSuggestedPriceWithProfit())
                 .calculatedAt(result.getCalculatedAt());
 
         if (result.getRoom() != null) {
@@ -290,5 +282,13 @@ public class DepreciationServiceImpl implements DepreciationService {
                     .roomNumber(result.getRoom().getRoomNumber());
         }
         return builder.build();
+    }
+
+    private record PricingBreakdown(
+            BigDecimal totalInvestment,
+            int contractMonths,
+            BigDecimal monthlyBreakEven,
+            BigDecimal suggestedMinPrice,
+            BigDecimal suggestedPriceWithProfit) {
     }
 }

@@ -17,8 +17,7 @@ public class InboundContractResponse {
     private Long propertyId;
     private String contractCode;
     private String ownerName;
-    private BigDecimal baseRentPrice;
-    private BigDecimal depositAmount;
+    private BigDecimal totalRentAmount;
     private LocalDate startDate;
     private LocalDate endDate;
     private String contractScanUrl;

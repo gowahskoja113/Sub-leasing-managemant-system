@@ -29,6 +29,9 @@ public class User {
     @Column(nullable = false, unique = true)
     private String phoneNumber;
 
+    @Column(nullable = false, unique = true)
+    private String fullName;
+
     @Column(name = "create_at", nullable = false, updatable = false)
     private LocalDateTime createAt;
 
