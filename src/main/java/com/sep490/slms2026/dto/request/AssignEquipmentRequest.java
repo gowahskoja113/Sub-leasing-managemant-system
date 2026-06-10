@@ -1,5 +1,6 @@
 package com.sep490.slms2026.dto.request;
 
+import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import jakarta.validation.constraints.Min;
@@ -20,6 +21,9 @@ public class AssignEquipmentRequest {
 
     @NotNull
     private EquipmentStatus status;
+
+    @NotNull
+    private EquipmentSource source;
 
     private Long roomId;
 

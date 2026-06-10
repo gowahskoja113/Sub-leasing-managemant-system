@@ -3,7 +3,6 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.*;
 import com.sep490.slms2026.entity.*;
-import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PricingScope;
 import com.sep490.slms2026.enums.PropertyStatus;
@@ -165,7 +164,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .catalog(manifest.getCatalog())
                     .manifest(manifest)
                     .houseArea(request.getHouseArea())
-                    .source(EquipmentSource.INITIAL_HANDOVER)
+                    .source(request.getSource())
                     .status(request.getStatus())
                     .build());
         }
