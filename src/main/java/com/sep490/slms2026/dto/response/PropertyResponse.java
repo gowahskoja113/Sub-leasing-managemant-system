@@ -4,7 +4,6 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -12,15 +11,20 @@ import java.util.UUID;
 public class PropertyResponse {
     private Long id;
     private String propertyName;
-    private String shortAddress; // Số nhà, tên đường
-    private String fullAddress;  // Số nhà + Tên Quận + Tên Tỉnh
+    private String shortAddress;
+    private String fullAddress;
     private String descriptions;
     private UUID zoneId;
     private String zoneName;
     private Double areaSize;
     private Boolean wholeHouse;
+    private Boolean hasRenovation;
+    private Integer floorCount;
+    private Integer roomsPerFloor;
     private Integer totalRooms;
     private String status;
     private BigDecimal price;
-    private BigDecimal deposit;
+    private Long createdBy;
+    private Long operationManagerId;
+    private boolean renovationCompleted;
 }

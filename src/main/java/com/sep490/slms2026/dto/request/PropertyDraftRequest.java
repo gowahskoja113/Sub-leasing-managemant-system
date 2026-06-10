@@ -1,5 +1,8 @@
 package com.sep490.slms2026.dto.request;
 
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -8,18 +11,32 @@ import java.util.UUID;
 
 @Getter
 @Setter
-public class PropertyCreateRequest {
+public class PropertyDraftRequest {
+
+    @NotBlank
     private String propertyName;
+
+    @NotBlank
     private String address;
+
+    @NotBlank
     private String descriptions;
+
+    @NotNull
     private UUID zoneId;
-    private Boolean wholeHouse;
+
     private Double areaSize;
+
+    @NotNull
+    @Min(1)
     private Integer floorCount;
+
+    @NotNull
+    @Min(1)
     private Integer roomsPerFloor;
-    private Integer totalRooms;
+
+    @NotNull
     private Long createdBy;
-    /** @deprecated dùng createdBy */
-    private Long managedBy;
+
     private List<String> imageUrls;
 }

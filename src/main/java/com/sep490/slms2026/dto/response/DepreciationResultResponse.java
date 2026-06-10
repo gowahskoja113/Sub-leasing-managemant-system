@@ -26,6 +26,5 @@ public class DepreciationResultResponse {
     private Integer contractMonths;
     private BigDecimal monthlyBreakEven;
     private BigDecimal suggestedMinPrice;
-    private BigDecimal suggestedPriceWithProfit;
     private LocalDateTime calculatedAt;
 }
