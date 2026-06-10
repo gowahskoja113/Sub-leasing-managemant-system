@@ -18,13 +18,10 @@ public class PropertyActivationResponse {
     private Long propertyId;
     private PricingScope pricingScope;
     private PropertyStatus propertyStatus;
-
-    // WHOLE_HOUSE
     private BigDecimal propertyPrice;
-    private BigDecimal propertyDeposit;
-    private BigDecimal suggestedMinPrice;
-
-    // ROOM
+    private BigDecimal adminSuggestedPrice;
+    private BigDecimal hostContingencyPercent;
+    private Long operationManagerId;
     private List<ActivatedRoom> rooms;
 
     @Getter
@@ -36,8 +33,7 @@ public class PropertyActivationResponse {
         private Long roomId;
         private String roomNumber;
         private BigDecimal price;
-        private BigDecimal deposit;
-        private BigDecimal suggestedMinPrice;
+        private BigDecimal adminSuggestedPrice;
         private RoomStatus status;
     }
 }

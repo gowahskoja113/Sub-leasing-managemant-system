@@ -7,13 +7,13 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "renovations")
+@Table(name = "renovation_lines")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Renovation implements Serializable {
+public class RenovationLine implements Serializable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,16 +24,12 @@ public class Renovation implements Serializable {
     private Property property;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id")
-    private Room room;
+    @JoinColumn(name = "category_id", nullable = false)
+    private RenovationCategory category;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String description;
-
-    // Null khi mới tạo — cập nhật khi có báo giá thực tế
-    @Column
+    @Column(nullable = false)
     private BigDecimal cost;
 
-    @Column(name = "is_completed", nullable = false)
-    private boolean completed = false;
+    @Column(columnDefinition = "TEXT")
+    private String note;
 }

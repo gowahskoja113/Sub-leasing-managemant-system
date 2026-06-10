@@ -4,15 +4,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/**
- * Hibernate ddl-auto=update thêm cột mới nhưng không xóa cột cũ.
- * Migration này drop các cột legacy sau khi đổi schema inbound/khấu hao.
- */
 @Slf4j
 @Component
+@Order(0)
 @RequiredArgsConstructor
 public class DatabaseSchemaMigration implements ApplicationRunner {
 
@@ -25,6 +23,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropColumnIfExists("depreciation_results", "monthly_operating_cost");
         dropColumnIfExists("inbound_contracts", "base_rent_price");
         dropColumnIfExists("inbound_contracts", "deposit_amount");
+        dropColumnIfExists("properties", "deposit");
+        dropColumnIfExists("equipments", "name");
+        dropColumnIfExists("equipments", "purchase_price");
+        dropTableIfExists("renovations");
     }
 
     private void dropColumnIfExists(String table, String column) {
@@ -44,6 +46,24 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         if (Boolean.TRUE.equals(exists)) {
             jdbcTemplate.execute("ALTER TABLE " + table + " DROP COLUMN " + column);
             log.info("Dropped legacy column {}.{}", table, column);
+        }
+    }
+
+    private void dropTableIfExists(String table) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = ?
+                )
+                """,
+                Boolean.class,
+                table);
+
+        if (Boolean.TRUE.equals(exists)) {
+            jdbcTemplate.execute("DROP TABLE " + table + " CASCADE");
+            log.info("Dropped legacy table {}", table);
         }
     }
 }

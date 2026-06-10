@@ -9,12 +9,12 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RenovationResponse {
+public class RenovationLineResponse {
 
     private Long id;
-    private Long propertyId;
-    private Long roomId;
-    private String description;
+    private Long categoryId;
+    private String categoryCode;
+    private String categoryName;
     private BigDecimal cost;
-    private boolean completed;
+    private String note;
 }

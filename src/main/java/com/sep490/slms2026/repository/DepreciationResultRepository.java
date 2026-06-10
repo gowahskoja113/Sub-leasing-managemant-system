@@ -26,4 +26,8 @@ public interface DepreciationResultRepository extends JpaRepository<Depreciation
     boolean existsByInboundContractPropertyIdAndRoomIsNull(Long propertyId);
 
     boolean existsByInboundContractPropertyIdAndRoomIsNotNull(Long propertyId);
+
+    @Query("SELECT CASE WHEN COUNT(d) > 0 THEN true ELSE false END FROM DepreciationResult d "
+            + "WHERE d.inboundContract.property.id = :propertyId")
+    boolean existsByPropertyId(@Param("propertyId") Long propertyId);
 }
