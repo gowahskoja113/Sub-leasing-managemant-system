@@ -56,7 +56,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .totalFloor(request.getTotalFloor())
                 .totalRooms(request.getTotalRooms())
                 .imageUrls(request.getImageUrls())
-                .createdBy(request.getCreatedBy())
                 .status(PropertyStatus.DRAFT)
                 .build();
 

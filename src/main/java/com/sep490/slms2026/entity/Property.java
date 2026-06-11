@@ -57,7 +57,7 @@ public class Property implements Serializable {
     @Column(nullable = false)
     private PropertyStatus status = PropertyStatus.DRAFT;
 
-    @Column(name = "created_by", nullable = false)
+    @Column(name = "created_by")
     private Long createdBy;
 
     @Column(name = "operation_manager_id")

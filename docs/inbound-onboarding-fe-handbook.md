@@ -184,7 +184,6 @@ Authorization: Bearer <token>
   "areaSize": 120.5,
   "totalFloor": 3,
   "totalRooms": 12,
-  "createdBy": 1,
   "imageUrls": ["https://cdn.example.com/nha1.jpg"]
 }
 ```

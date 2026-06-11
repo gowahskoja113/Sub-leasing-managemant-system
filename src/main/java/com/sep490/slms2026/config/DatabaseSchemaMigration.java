@@ -29,6 +29,29 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropTableIfExists("renovations");
         renameColumnIfExists("properties", "floor_count", "total_floor");
         dropColumnIfExists("properties", "rooms_per_floor");
+        dropNotNullIfExists("properties", "created_by");
+    }
+
+    private void dropNotNullIfExists(String table, String column) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = ?
+                      AND column_name = ?
+                      AND is_nullable = 'NO'
+                )
+                """,
+                Boolean.class,
+                table,
+                column);
+
+        if (Boolean.TRUE.equals(exists)) {
+            jdbcTemplate.execute(
+                    "ALTER TABLE " + table + " ALTER COLUMN " + column + " DROP NOT NULL");
+            log.info("Dropped NOT NULL on {}.{}", table, column);
+        }
     }
 
     private void renameColumnIfExists(String table, String oldColumn, String newColumn) {

@@ -35,8 +35,5 @@ public class PropertyDraftRequest {
     @Min(1)
     private Integer totalRooms;
 
-    @NotNull
-    private Long createdBy;
-
     private List<String> imageUrls;
 }

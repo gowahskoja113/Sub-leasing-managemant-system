@@ -2,7 +2,7 @@
   "description": "Kịch bản test: manifest có 2 dòng cùng catalogId nhưng khác status (NEW vs GOOD) — assign phải match đúng từng dòng",
   "baseUrl": "http://localhost:8080/api/v1",
   "auth": "Authorization: Bearer <token>",
-  "prerequisite": "Đã có zoneId, createdBy, equipment catalog id 1 (Điều hòa)",
+  "prerequisite": "Đã có zoneId, equipment catalog id 1 (Điều hòa)",
   "steps": [
     {
       "step": 1,
@@ -17,7 +17,6 @@
         "areaSize": 80,
         "totalFloor": 2,
         "totalRooms": 4,
-        "createdBy": 1,
         "imageUrls": []
       },
       "saveFromResponse": { "propertyId": "$.id" }

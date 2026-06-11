@@ -160,7 +160,6 @@ Content-Type: application/json
   "areaSize": 120.5,
   "totalFloor": 3,
   "totalRooms": 12,
-  "createdBy": 1,
   "imageUrls": ["https://cdn.example.com/nha1.jpg"]
 }
 ```
@@ -182,7 +181,6 @@ Content-Type: application/json
   "totalRooms": 12,
   "status": "DRAFT",
   "price": null,
-  "createdBy": 1,
   "operationManagerId": null,
   "renovationCompleted": false
 }
