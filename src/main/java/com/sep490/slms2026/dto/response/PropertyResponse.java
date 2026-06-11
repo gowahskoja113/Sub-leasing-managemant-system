@@ -25,7 +25,7 @@ public class PropertyResponse {
     private String status;
     private BigDecimal price;
     private Long createdBy;
-    private Long operationManagerId;
+    private UUID operationManagerId;
     private boolean renovationCompleted;
     private List<String> imageUrls;
 }

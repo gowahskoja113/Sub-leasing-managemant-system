@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -39,6 +40,20 @@ public class GlobalExceptionHandler {
         body.put("message", ex.getMessage());
 
         return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleJsonParse(HttpMessageNotReadableException ex) {
+        String message = "JSON không hợp lệ — kiểm tra kiểu dữ liệu (VD: operationManagerId phải là UUID)";
+        if (ex.getCause() != null && ex.getCause().getMessage() != null) {
+            message = ex.getCause().getMessage();
+        }
+        return ResponseEntity.badRequest()
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error(message)
+                        .build());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

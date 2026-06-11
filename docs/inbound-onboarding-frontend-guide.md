@@ -571,7 +571,7 @@ Content-Type: application/json
 **Điều kiện:**
 - `status = PENDING_HOST_REVIEW`
 - Cải tạo đã xong (hoặc không có cải tạo)
-- Bắt buộc `operationManagerId`
+- Bắt buộc `operationManagerId` — kiểu **UUID** (lấy từ `GET /api/v1/user/managers`, field `id`)
 
 #### Nhà nguyên căn
 
@@ -579,7 +579,7 @@ Content-Type: application/json
 ```json
 {
   "contingencyPercent": 110,
-  "operationManagerId": 42
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042"
 }
 ```
 
@@ -588,7 +588,7 @@ Content-Type: application/json
 {
   "contingencyPercent": 110,
   "propertyPrice": 12000000,
-  "operationManagerId": 42
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042"
 }
 ```
 
@@ -600,7 +600,7 @@ Host đặt **từng phòng tùy ý** — không ràng buộc tổng.
 ```json
 {
   "contingencyPercent": 110,
-  "operationManagerId": 42,
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042",
   "roomPrices": [
     { "roomId": 5, "price": 3500000 },
     { "roomId": 6, "price": 2800000 },
@@ -618,7 +618,7 @@ Host đặt **từng phòng tùy ý** — không ràng buộc tổng.
   "pricingScope": "ROOM",
   "propertyStatus": "ACTIVE",
   "hostContingencyPercent": 110,
-  "operationManagerId": 42,
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042",
   "rooms": [
     {
       "roomId": 5,
@@ -729,6 +729,8 @@ flowchart LR
 | `Chỉ có thể xác nhận khi nhà ở trạng thái PENDING_HOST_REVIEW` | Host confirm sớm | Disable nút confirm khi `UNDER_RENOVATION` |
 | `Phải hoàn tất cải tạo trước khi host xác nhận giá` | CT chưa complete | Hiện trạng thái chờ admin hoàn tất CT |
 | `Trạng thái thiết bị inbound chỉ chấp nhận NEW hoặc GOOD` | Gửi DAMAGED/BROKEN | Chỉ 2 option trên UI |
+| `Không tìm thấy Operation Manager ID=...` | UUID manager sai / không tồn tại | Dùng `id` từ `GET /user/managers` |
+| `Chỉ có thể xác nhận khi nhà ở trạng thái PENDING_HOST_REVIEW` | Gọi `host-confirm` khi còn DRAFT | Chờ admin `submit-to-host` trước |
 
 ---
 

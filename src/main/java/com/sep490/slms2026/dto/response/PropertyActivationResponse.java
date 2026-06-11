@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -21,7 +22,7 @@ public class PropertyActivationResponse {
     private BigDecimal propertyPrice;
     private BigDecimal adminSuggestedPrice;
     private BigDecimal hostContingencyPercent;
-    private Long operationManagerId;
+    private UUID operationManagerId;
     private List<ActivatedRoom> rooms;
 
     @Getter

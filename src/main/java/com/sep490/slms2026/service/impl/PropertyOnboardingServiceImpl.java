@@ -6,7 +6,9 @@ import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PricingScope;
 import com.sep490.slms2026.enums.PropertyStatus;
+import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
@@ -22,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -40,6 +43,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final InboundContractRepository inboundContractRepository;
     private final DepreciationResultRepository depreciationResultRepository;
     private final DepreciationService depreciationService;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
@@ -273,9 +277,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chưa có kết quả tính giá — admin phải gửi host trước");
         }
 
+        UUID managerId = request.getOperationManagerId();
+        validateOperationManager(managerId);
+
         property.setHostContingencyPercent(request.getContingencyPercent());
-        property.setOperationManagerId(request.getOperationManagerId());
-        property.setManagedBy(request.getOperationManagerId());
+        property.setOperationManagerId(managerId);
+        property.setManagedBy(managerId);
         property.setStatus(PropertyStatus.ACTIVE);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
@@ -524,6 +531,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private void validateEquipmentStatus(EquipmentStatus status) {
         if (status != EquipmentStatus.NEW && status != EquipmentStatus.GOOD) {
             throw new BusinessException("Trạng thái thiết bị inbound chỉ chấp nhận NEW hoặc GOOD");
+        }
+    }
+
+    private void validateOperationManager(UUID managerId) {
+        User manager = userRepository.findById(managerId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy Operation Manager ID=" + managerId));
+        if (manager.getRole() != Role.ROLE_MANAGER) {
+            throw new BusinessException("User ID=" + managerId + " không phải Operation Manager");
+        }
+        if (manager.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessException("Operation Manager ID=" + managerId + " chưa được kích hoạt");
         }
     }
 

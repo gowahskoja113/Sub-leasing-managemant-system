@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "properties")
@@ -61,10 +62,10 @@ public class Property implements Serializable {
     private Long createdBy;
 
     @Column(name = "operation_manager_id")
-    private Long operationManagerId;
+    private UUID operationManagerId;
 
     @Column(name = "managed_by")
-    private Long managedBy;
+    private UUID managedBy;
 
     @Column(name = "descriptions", nullable = false)
     private String descriptions;

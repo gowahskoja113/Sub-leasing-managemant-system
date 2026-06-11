@@ -412,7 +412,7 @@ POST http://localhost:8080/api/v1/properties/1/host-confirm
 ```json
 {
   "contingencyPercent": 110,
-  "operationManagerId": 42
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042"
 }
 ```
 
@@ -420,7 +420,7 @@ POST http://localhost:8080/api/v1/properties/1/host-confirm
 ```json
 {
   "contingencyPercent": 110,
-  "operationManagerId": 42,
+  "operationManagerId": "550e8400-e29b-41d4-a716-446655440042",
   "roomPrices": [
     { "roomId": 5, "price": 3500000 },
     { "roomId": 6, "price": 2800000 }

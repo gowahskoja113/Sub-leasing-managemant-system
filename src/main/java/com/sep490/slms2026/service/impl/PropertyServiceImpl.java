@@ -31,7 +31,9 @@ public class PropertyServiceImpl implements PropertyService {
         Property property = new Property();
         property.setPropertyName(request.getPropertyName());
         property.setZone(zone);
-        property.setCreatedBy(request.getCreatedBy() != null ? request.getCreatedBy() : request.getManagedBy());
+        if (request.getCreatedBy() != null) {
+            property.setCreatedBy(request.getCreatedBy());
+        }
         property.setAreaSize(request.getAreaSize());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
@@ -84,8 +86,6 @@ public class PropertyServiceImpl implements PropertyService {
         property.setPropertyName(request.getPropertyName());
         if (request.getCreatedBy() != null) {
             property.setCreatedBy(request.getCreatedBy());
-        } else if (request.getManagedBy() != null) {
-            property.setCreatedBy(request.getManagedBy());
         }
         property.setAreaSize(request.getAreaSize());
         property.setImageUrls(request.getImageUrls());

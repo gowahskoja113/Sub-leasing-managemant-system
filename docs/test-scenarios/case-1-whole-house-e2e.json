@@ -81,7 +81,7 @@
       "url": "{{baseUrl}}/properties/{{propertyId}}/host-confirm",
       "body": {
         "contingencyPercent": 110,
-        "operationManagerId": 42
+        "operationManagerId": "<manager-uuid-from-GET-user-managers>"
       },
       "expectedPropertyStatus": "ACTIVE"
     }

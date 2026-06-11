@@ -8,6 +8,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Slf4j
 @Component
 @Order(0)
@@ -30,6 +32,33 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         renameColumnIfExists("properties", "floor_count", "total_floor");
         dropColumnIfExists("properties", "rooms_per_floor");
         dropNotNullIfExists("properties", "created_by");
+        alterColumnToUuidIfBigint("properties", "operation_manager_id");
+        alterColumnToUuidIfBigint("properties", "managed_by");
+    }
+
+    private void alterColumnToUuidIfBigint(String table, String column) {
+        List<String> types = jdbcTemplate.queryForList(
+                """
+                SELECT data_type FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = ?
+                  AND column_name = ?
+                """,
+                String.class,
+                table,
+                column);
+
+        if (types.isEmpty()) {
+            return;
+        }
+
+        String dataType = types.get(0);
+        if ("bigint".equals(dataType)) {
+            jdbcTemplate.execute(
+                    "ALTER TABLE " + table + " ALTER COLUMN " + column
+                            + " TYPE uuid USING NULL");
+            log.info("Converted {}.{} from bigint to uuid", table, column);
+        }
     }
 
     private void dropNotNullIfExists(String table, String column) {
