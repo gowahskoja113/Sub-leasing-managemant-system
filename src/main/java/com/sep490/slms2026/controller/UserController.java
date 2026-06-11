@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/user")
-@CrossOrigin(origins = "*") // Hỗ trợ dev đa nền tảng không lo lỗi CORS
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class UserController {
 

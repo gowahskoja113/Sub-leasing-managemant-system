@@ -155,6 +155,7 @@ public class PropertyServiceImpl implements PropertyService {
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
         response.setRenovationCompleted(property.isRenovationCompleted());
+        response.setImageUrls(property.getImageUrls());
         return response;
     }
 }
