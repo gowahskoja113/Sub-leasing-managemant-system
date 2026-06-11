@@ -28,6 +28,10 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     List<Room> findByPropertyIdWithProperty(@Param("propertyId") Long propertyId);
 
     Optional<Room> findByIdAndPropertyId(Long id, Long propertyId);
+
+    @Query("SELECT r FROM Room r JOIN FETCH r.property WHERE r.id = :roomId AND r.property.id = :propertyId")
+    Optional<Room> findByIdAndPropertyIdWithProperty(
+            @Param("roomId") Long roomId, @Param("propertyId") Long propertyId);
     @Query("""
        SELECT z.name, COUNT(r)
        FROM Room r

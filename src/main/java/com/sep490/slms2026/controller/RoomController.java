@@ -1,6 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.AddRoomRequest;
+import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.service.RoomService;
 import jakarta.validation.Valid;
@@ -49,5 +50,18 @@ public class RoomController {
             @PathVariable Long propertyId,
             @PathVariable Long roomId) {
         return ResponseEntity.ok(roomService.getRoomById(propertyId, roomId));
+    }
+
+    /**
+     * PATCH /api/v1/properties/{propertyId}/rooms/{roomId}/status
+     * Cập nhật trạng thái phòng: AVAILABLE (trống) hoặc MAINTENANCE (bảo trì).
+     * Không cho phép khi phòng đang RENTED.
+     */
+    @PatchMapping("/{roomId}/status")
+    public ResponseEntity<RoomResponse> updateRoomStatus(
+            @PathVariable Long propertyId,
+            @PathVariable Long roomId,
+            @Valid @RequestBody UpdateRoomStatusRequest request) {
+        return ResponseEntity.ok(roomService.updateRoomStatus(propertyId, roomId, request));
     }
 }

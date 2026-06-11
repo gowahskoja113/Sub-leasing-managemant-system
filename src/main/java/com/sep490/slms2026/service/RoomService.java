@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.AddRoomRequest;
+import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 
 import java.util.List;
@@ -26,4 +27,10 @@ public interface RoomService {
      * Lấy chi tiết 1 phòng theo ID, validate thuộc đúng tòa.
      */
     RoomResponse getRoomById(Long propertyId, Long roomId);
+
+    /**
+     * Cập nhật trạng thái phòng (AVAILABLE / MAINTENANCE).
+     * Không cho phép khi phòng đang RENTED.
+     */
+    RoomResponse updateRoomStatus(Long propertyId, Long roomId, UpdateRoomStatusRequest request);
 }

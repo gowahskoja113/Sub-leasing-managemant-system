@@ -33,6 +33,8 @@ public interface PropertyOnboardingService {
 
     PropertyActivationResponse assignOperationManager(Long propertyId, AssignOperationManagerRequest request);
 
+    PropertyResponse changeOperationManager(Long propertyId, AssignOperationManagerRequest request);
+
     PropertyResponse disableProperty(Long propertyId);
 
     OnboardingSummaryResponse getOnboardingSummary(Long propertyId);

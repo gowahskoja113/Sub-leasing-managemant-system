@@ -65,7 +65,7 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER')")
     public ResponseEntity<List<UserResponse>> getAllManagers() {
         // Lấy danh sách entity từ repository
-        List<User> managers = userRepository.findByRole(Role.ROLE_MANAGER);
+        List<User> managers = userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE);
 
         // Map sang UserResponse DTO
         List<UserResponse> response = managers.stream()

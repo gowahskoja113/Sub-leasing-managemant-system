@@ -104,6 +104,20 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.assignOperationManager(propertyId, request));
     }
 
+    @PostMapping("/properties/{propertyId}/operation-manager")
+    public ResponseEntity<PropertyActivationResponse> assignOperationManagerPost(
+            @PathVariable Long propertyId,
+            @Valid @RequestBody AssignOperationManagerRequest request) {
+        return ResponseEntity.ok(propertyOnboardingService.assignOperationManager(propertyId, request));
+    }
+
+    @PutMapping("/properties/{propertyId}/operation-manager")
+    public ResponseEntity<PropertyResponse> changeOperationManager(
+            @PathVariable Long propertyId,
+            @Valid @RequestBody AssignOperationManagerRequest request) {
+        return ResponseEntity.ok(propertyOnboardingService.changeOperationManager(propertyId, request));
+    }
+
     @PostMapping("/properties/{propertyId}/disable")
     public ResponseEntity<PropertyResponse> disableProperty(@PathVariable Long propertyId) {
         return ResponseEntity.ok(propertyOnboardingService.disableProperty(propertyId));

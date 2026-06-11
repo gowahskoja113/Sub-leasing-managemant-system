@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.AddRoomRequest;
+import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
@@ -90,5 +91,48 @@ public class RoomServiceImpl implements RoomService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
         return roomMapper.toResponse(room);
+    }
+
+    @Override
+    @Transactional
+    public RoomResponse updateRoomStatus(Long propertyId, Long roomId, UpdateRoomStatusRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy tòa nhà với ID: " + propertyId));
+
+        if (property.getStatus() != PropertyStatus.ACTIVE) {
+            throw new BusinessException(
+                    "Chỉ cập nhật trạng thái phòng khi tòa nhà đang ACTIVE");
+        }
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            throw new BusinessException(
+                    "Nhà nguyên căn không cập nhật trạng thái từng phòng — dùng trạng thái tòa nhà");
+        }
+
+        Room room = roomRepository.findByIdAndPropertyIdWithProperty(roomId, propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
+
+        if (room.getStatus() == RoomStatus.RENTED) {
+            throw new BusinessException(
+                    "Phòng " + room.getRoomNumber() + " đang cho thuê — không thể đổi trạng thái");
+        }
+        if (room.getStatus() == RoomStatus.DRAFT) {
+            throw new BusinessException(
+                    "Phòng " + room.getRoomNumber() + " chưa kích hoạt — không thể cập nhật trạng thái");
+        }
+
+        RoomStatus newStatus = request.getStatus();
+        if (newStatus != RoomStatus.AVAILABLE && newStatus != RoomStatus.MAINTENANCE) {
+            throw new BusinessException(
+                    "Chỉ cho phép cập nhật trạng thái AVAILABLE hoặc MAINTENANCE");
+        }
+
+        room.setStatus(newStatus);
+        Room saved = roomRepository.save(room);
+        log.info("Đã cập nhật trạng thái phòng {} → {} (tòa nhà ID={})",
+                saved.getRoomNumber(), newStatus, propertyId);
+
+        return roomMapper.toResponse(saved);
     }
 }

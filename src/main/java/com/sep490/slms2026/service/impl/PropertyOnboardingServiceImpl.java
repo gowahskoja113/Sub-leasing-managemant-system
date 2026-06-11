@@ -280,10 +280,17 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setHostContingencyPercent(request.getContingencyPercent());
         property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
 
+        PropertyActivationResponse response;
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return confirmWholeHouse(property, propertyId, request);
+            response = confirmWholeHouse(property, propertyId, request);
+        } else {
+            response = confirmPerRoom(property, propertyId, request);
         }
-        return confirmPerRoom(property, propertyId, request);
+
+        if (request.getOperationManagerId() != null) {
+            return finalizeActivation(property, propertyId, request.getOperationManagerId());
+        }
+        return response;
     }
 
     @Override
@@ -310,6 +317,30 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             return buildWholeHouseActivationResponse(property, propertyId);
         }
         return activatePerRoom(property, propertyId, managerId);
+    }
+
+    @Override
+    @Transactional
+    public PropertyResponse changeOperationManager(Long propertyId,
+                                                   AssignOperationManagerRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.ACTIVE) {
+            throw new BusinessException(
+                    "Chỉ có thể đổi Operation Manager khi nhà đang ở trạng thái ACTIVE");
+        }
+
+        UUID managerId = request.getOperationManagerId();
+        validateOperationManager(managerId);
+
+        if (managerId.equals(property.getOperationManagerId())) {
+            return mapPropertyResponse(property, extractShortAddress(property));
+        }
+
+        property.setOperationManagerId(managerId);
+        property.setManagedBy(managerId);
+        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
     @Override
@@ -492,6 +523,21 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(property.getOperationManagerId())
                 .build();
+    }
+
+    private PropertyActivationResponse finalizeActivation(Property property,
+                                                          Long propertyId,
+                                                          UUID managerId) {
+        validateOperationManager(managerId);
+        property.setOperationManagerId(managerId);
+        property.setManagedBy(managerId);
+        property.setStatus(PropertyStatus.ACTIVE);
+        propertyRepository.save(property);
+
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            return buildWholeHouseActivationResponse(property, propertyId);
+        }
+        return activatePerRoom(property, propertyId, managerId);
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {

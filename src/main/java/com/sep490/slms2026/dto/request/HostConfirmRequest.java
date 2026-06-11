@@ -1,5 +1,6 @@
 package com.sep490.slms2026.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
@@ -7,6 +8,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -24,6 +26,10 @@ public class HostConfirmRequest {
 
     @Valid
     private List<RoomPriceConfirm> roomPrices;
+
+    /** Tuỳ chọn — nếu gửi kèm sẽ gán OM và kích hoạt tòa nhà ngay trong cùng request */
+    @JsonAlias({"id", "managerId"})
+    private UUID operationManagerId;
 
     @Getter
     @Setter
