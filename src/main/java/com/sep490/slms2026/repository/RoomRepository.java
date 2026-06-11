@@ -28,4 +28,13 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     List<Room> findByPropertyIdWithProperty(@Param("propertyId") Long propertyId);
 
     Optional<Room> findByIdAndPropertyId(Long id, Long propertyId);
+    @Query("""
+       SELECT z.name, COUNT(r)
+       FROM Room r
+       JOIN r.property p
+       JOIN p.zone z
+       GROUP BY z.name
+       ORDER BY COUNT(r) DESC
+       """)
+    List<Object[]> getMostRoomsByZone();
 }

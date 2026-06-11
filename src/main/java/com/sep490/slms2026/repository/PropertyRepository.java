@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface PropertyRepository extends JpaRepository<Property, Long> {
@@ -23,4 +24,33 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     boolean existsByAddressIgnoreCase(String address);
 
     boolean existsByAddressIgnoreCaseAndIdNot(String address, UUID id);
+
+    @Query("""
+       SELECT z.name, COUNT(p)
+       FROM Property p
+       JOIN p.zone z
+       GROUP BY z.name
+       ORDER BY COUNT(p) DESC
+       """)
+    List<Object[]> getMostPropertiesByZone();
+
+    @Query("""
+       SELECT SUM(p.areaSize)
+       FROM Property p
+       """)
+    Double getTotalArea();
+
+    @Query("""
+       SELECT COUNT(p)
+       FROM Property p
+       WHERE p.wholeHouse = true
+       """)
+    Long countWholeHouse();
+
+    @Query("""
+       SELECT COUNT(p)
+       FROM Property p
+       WHERE p.wholeHouse = false
+       """)
+    Long countRoomBasedProperty();
 }
