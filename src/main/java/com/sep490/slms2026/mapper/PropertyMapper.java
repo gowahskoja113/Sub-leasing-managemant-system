@@ -21,12 +21,14 @@ public interface PropertyMapper {
     @Mapping(target = "inboundContract", ignore = true)
     @Mapping(target = "utilityReadings", ignore = true)
     @Mapping(target = "areaSize", source = "areaSize")
+    @Mapping(target = "managedBy", ignore = true) // <--- THÊM DÒNG NÀY: Bỏ qua lỗi lệch kiểu dữ liệu khi tạo
     Property toEntity(PropertyCreateRequest request);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "zone", ignore = true)
     @Mapping(target = "inboundContract", ignore = true)
     @Mapping(target = "utilityReadings", ignore = true)
+    @Mapping(target = "managedBy", ignore = true) // <--- THÊM DÒNG NÀY: Bỏ qua lỗi lệch kiểu dữ liệu khi update
     void updateEntityFromRequest(PropertyCreateRequest request, @MappingTarget Property property);
 
     @Named("getOnlyZoneName")
