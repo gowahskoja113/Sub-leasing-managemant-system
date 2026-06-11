@@ -7,7 +7,6 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 @Getter
 @Setter
@@ -25,9 +24,6 @@ public class HostConfirmRequest {
 
     @Valid
     private List<RoomPriceConfirm> roomPrices;
-
-    @NotNull
-    private UUID operationManagerId;
 
     @Getter
     @Setter

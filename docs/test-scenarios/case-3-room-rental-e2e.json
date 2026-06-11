@@ -109,12 +109,20 @@
       "url": "{{baseUrl}}/properties/{{propertyId}}/host-confirm",
       "body": {
         "contingencyPercent": 110,
-        "operationManagerId": "<manager-uuid-from-GET-user-managers>",
         "roomPrices": [
           { "roomId": "<roomId-P101>", "price": 3500000 },
           { "roomId": "<roomId-P102>", "price": 3200000 },
           { "roomId": "<roomId-P103>", "price": 3000000 }
         ]
+      },
+      "expectedPropertyStatus": "PENDING_OPERATION_MANAGER"
+    },
+    {
+      "step": 10,
+      "method": "PATCH",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/operation-manager",
+      "body": {
+        "operationManagerId": "<manager-uuid-from-GET-user-managers>"
       },
       "expectedPropertyStatus": "ACTIVE"
     }

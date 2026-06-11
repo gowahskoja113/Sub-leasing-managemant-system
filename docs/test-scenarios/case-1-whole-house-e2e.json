@@ -80,7 +80,15 @@
       "method": "POST",
       "url": "{{baseUrl}}/properties/{{propertyId}}/host-confirm",
       "body": {
-        "contingencyPercent": 110,
+        "contingencyPercent": 110
+      },
+      "expectedPropertyStatus": "PENDING_OPERATION_MANAGER"
+    },
+    {
+      "step": 9,
+      "method": "PATCH",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/operation-manager",
+      "body": {
         "operationManagerId": "<manager-uuid-from-GET-user-managers>"
       },
       "expectedPropertyStatus": "ACTIVE"

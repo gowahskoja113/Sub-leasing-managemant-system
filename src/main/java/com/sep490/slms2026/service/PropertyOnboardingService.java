@@ -31,6 +31,8 @@ public interface PropertyOnboardingService {
 
     PropertyActivationResponse hostConfirm(Long propertyId, HostConfirmRequest request);
 
+    PropertyActivationResponse assignOperationManager(Long propertyId, AssignOperationManagerRequest request);
+
     PropertyResponse disableProperty(Long propertyId);
 
     OnboardingSummaryResponse getOnboardingSummary(Long propertyId);
