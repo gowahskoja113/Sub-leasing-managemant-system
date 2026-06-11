@@ -11,9 +11,9 @@ public class UpdatePropertyStructureRequest {
 
     @NotNull
     @Min(1)
-    private Integer floorCount;
+    private Integer totalFloor;
 
     @NotNull
     @Min(1)
-    private Integer roomsPerFloor;
+    private Integer totalRooms;
 }

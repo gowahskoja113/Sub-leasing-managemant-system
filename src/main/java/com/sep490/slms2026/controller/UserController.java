@@ -1,8 +1,12 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.response.UserResponse;
 import com.sep490.slms2026.entity.User;
+import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.UserService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,21 +18,24 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/user")
 @CrossOrigin(origins = "*") // Hỗ trợ dev đa nền tảng không lo lỗi CORS
+@RequiredArgsConstructor
 public class UserController {
 
     @Autowired
     private UserService userService;
+    @Autowired
+    private UserRepository userRepository;
 
     // 1. API Lấy toàn bộ danh sách User
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     public ResponseEntity<List<User>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     // 2. API Lấy chi tiết User bằng ID
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     public ResponseEntity<User> getUserById(@PathVariable UUID id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
@@ -52,5 +59,27 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<User> changeStatus(@PathVariable UUID id, @RequestParam UserStatus status) {
         return ResponseEntity.ok(userService.changeUserStatus(id, status));
+    }
+
+    @GetMapping("/managers")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER')")
+    public ResponseEntity<List<UserResponse>> getAllManagers() {
+        // Lấy danh sách entity từ repository
+        List<User> managers = userRepository.findByRole(Role.ROLE_MANAGER);
+
+        // Map sang UserResponse DTO
+        List<UserResponse> response = managers.stream()
+                .map(user -> UserResponse.builder()
+                        .id(user.getId())
+                        .username(user.getUsername())
+                        .phoneNumber(user.getPhoneNumber())
+                        .fullName(user.getFullName())
+                        .role(user.getRole())
+                        .status(user.getStatus())
+                        .createAt(user.getCreateAt())
+                        .build())
+                .toList();
+
+        return ResponseEntity.ok(response);
     }
 }

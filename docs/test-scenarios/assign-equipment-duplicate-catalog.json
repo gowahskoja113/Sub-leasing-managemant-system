@@ -1,0 +1,193 @@
+{
+  "description": "Kịch bản test: manifest có 2 dòng cùng catalogId nhưng khác status (NEW vs GOOD) — assign phải match đúng từng dòng",
+  "baseUrl": "http://localhost:8080/api/v1",
+  "auth": "Authorization: Bearer <token>",
+  "prerequisite": "Đã có zoneId, createdBy, equipment catalog id 1 (Điều hòa)",
+  "steps": [
+    {
+      "step": 1,
+      "name": "Tạo nháp",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/draft",
+      "body": {
+        "propertyName": "Test Assign Duplicate Catalog",
+        "address": "99 Test St",
+        "descriptions": "2 tầng, test manifest trùng catalogId",
+        "zoneId": "<zone-uuid>",
+        "areaSize": 80,
+        "totalFloor": 2,
+        "totalRooms": 4,
+        "createdBy": 1,
+        "imageUrls": []
+      },
+      "saveFromResponse": { "propertyId": "$.id" }
+    },
+    {
+      "step": 2,
+      "name": "Manifest — 2 điều hòa NEW + 1 điều hòa GOOD (cùng catalogId=1)",
+      "method": "PUT",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipment-manifest",
+      "body": {
+        "items": [
+          { "catalogId": 1, "quantity": 2, "status": "NEW" },
+          { "catalogId": 1, "quantity": 1, "status": "GOOD" }
+        ]
+      },
+      "expectedResponse": [
+        { "catalogId": 1, "status": "NEW", "quantity": 2, "assignedCount": 0 },
+        { "catalogId": 1, "status": "GOOD", "quantity": 1, "assignedCount": 0 }
+      ]
+    },
+    {
+      "step": 3,
+      "name": "Ký HĐ inbound",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/inbound-contract",
+      "body": {
+        "contractCode": "INB-TEST-DUP-001",
+        "ownerName": "Test Owner",
+        "totalRentAmount": 1000000000,
+        "startDate": "2026-01-01",
+        "endDate": "2028-01-01",
+        "contractScanUrl": "https://cdn.example.com/test.pdf"
+      }
+    },
+    {
+      "step": 4,
+      "name": "Chọn nhà chia phòng, không cải tạo",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/onboarding-options",
+      "body": {
+        "wholeHouse": false,
+        "hasRenovation": false
+      }
+    },
+    {
+      "step": 5,
+      "name": "Tạo 4 phòng (2 tầng × 2 phòng)",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/rooms",
+      "repeat": [
+        {
+          "roomNumber": "P101",
+          "area": 15,
+          "propertyType": "INDIVIDUAL_ROOM",
+          "structureDescription": "Tầng 1 phòng 1"
+        },
+        {
+          "roomNumber": "P102",
+          "area": 15,
+          "propertyType": "INDIVIDUAL_ROOM",
+          "structureDescription": "Tầng 1 phòng 2"
+        },
+        {
+          "roomNumber": "P201",
+          "area": 15,
+          "propertyType": "INDIVIDUAL_ROOM",
+          "structureDescription": "Tầng 2 phòng 1"
+        },
+        {
+          "roomNumber": "P202",
+          "area": 15,
+          "propertyType": "INDIVIDUAL_ROOM",
+          "structureDescription": "Tầng 2 phòng 2"
+        }
+      ],
+      "note": "Không bắt buộc maxOccupants khi onboarding"
+    },
+    {
+      "step": 6,
+      "name": "Gán 1 điều hòa NEW vào P101",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipments/assign",
+      "body": {
+        "catalogId": 1,
+        "quantity": 1,
+        "status": "NEW",
+        "source": "INITIAL_HANDOVER",
+        "roomId": "<roomId-P101>"
+      },
+      "expectedStatus": 201
+    },
+    {
+      "step": 7,
+      "name": "Gán 1 điều hòa NEW vào P102",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipments/assign",
+      "body": {
+        "catalogId": 1,
+        "quantity": 1,
+        "status": "NEW",
+        "source": "INITIAL_HANDOVER",
+        "roomId": "<roomId-P102>"
+      },
+      "expectedStatus": 201
+    },
+    {
+      "step": 8,
+      "name": "Gán 1 điều hòa GOOD vào P201",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipments/assign",
+      "body": {
+        "catalogId": 1,
+        "quantity": 1,
+        "status": "GOOD",
+        "source": "INITIAL_HANDOVER",
+        "roomId": "<roomId-P201>"
+      },
+      "expectedStatus": 201
+    },
+    {
+      "step": 9,
+      "name": "GET manifest — kiểm tra assignedCount tách theo status",
+      "method": "GET",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipment-manifest",
+      "expectedResponse": [
+        { "catalogId": 1, "status": "NEW", "quantity": 2, "assignedCount": 2 },
+        { "catalogId": 1, "status": "GOOD", "quantity": 1, "assignedCount": 1 }
+      ]
+    },
+    {
+      "step": 10,
+      "name": "Submit to host — phải thành công khi đã gán đủ",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/submit-to-host",
+      "expectedStatus": 200
+    },
+    {
+      "step": 11,
+      "name": "Negative — gán thêm NEW khi đã đủ 2/2",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/{{propertyId}}/equipments/assign",
+      "note": "Chạy trước step 10 nếu muốn test lỗi trên property DRAFT khác",
+      "body": {
+        "catalogId": 1,
+        "quantity": 1,
+        "status": "NEW",
+        "source": "INITIAL_HANDOVER",
+        "roomId": "<roomId>"
+      },
+      "expectedStatus": 400,
+      "expectedMessageContains": "đã gán 2/2"
+    },
+    {
+      "step": 12,
+      "name": "Negative — nhà nguyên căn không được assign",
+      "method": "POST",
+      "url": "{{baseUrl}}/properties/<wholeHousePropertyId>/equipments/assign",
+      "body": {
+        "catalogId": 1,
+        "quantity": 1,
+        "status": "NEW",
+        "source": "INITIAL_HANDOVER",
+        "houseArea": "BEDROOM"
+      },
+      "expectedStatus": 400,
+      "expectedMessageContains": "Nhà nguyên căn không cần phân bố thiết bị"
+    }
+  ],
+  "fieldReference": {
+    "status": "NEW | GOOD — tình trạng thiết bị (manifest + assign phải khớp)",
+    "source": "INITIAL_HANDOVER (có sẵn khi nhận nhà) | PURCHASED (mua thêm trong cải tạo)"
+  }
+}

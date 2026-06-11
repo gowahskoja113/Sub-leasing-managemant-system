@@ -36,11 +36,8 @@ public class Property implements Serializable {
     @Column(name = "area_size")
     private Double areaSize;
 
-    @Column(name = "floor_count")
-    private Integer floorCount;
-
-    @Column(name = "rooms_per_floor")
-    private Integer roomsPerFloor;
+    @Column(name = "total_floor")
+    private Integer totalFloor;
 
     @Column(name = "is_whole_house")
     private Boolean wholeHouse;

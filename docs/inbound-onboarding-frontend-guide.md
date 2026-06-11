@@ -1,5 +1,7 @@
 # SLMS — Luồng Inbound Onboarding (Hướng dẫn Frontend)
 
+> **Tài liệu tổng hợp thay đổi mới + JSON test:** [`inbound-onboarding-fe-handbook.md`](inbound-onboarding-fe-handbook.md)
+
 Tài liệu mô tả luồng nghiệp vụ inbound đã implement trên backend, kèm **URL**, **JSON mẫu** và **kịch bản test** để team Frontend tích hợp.
 
 **Base URL:** `http://localhost:8080/api/v1`  
@@ -89,12 +91,15 @@ giá cuối = adminSuggested × (contingencyPercent / 100)
 
 | # | wholeHouse | hasRenovation | Luồng FE |
 |---|------------|---------------|----------|
-| **1** | `true` | `false` | Draft → manifest → HĐ → options → **gán TB theo `houseArea`** → submit → host confirm |
-| **2** | `true` | `true` | ... → options → (đổi structure nếu cần) → renovation lines + schedule → **sau CT xong** gán TB → submit → `complete` → host confirm |
-| **3** | `false` | `false` | ... → options → **tạo đủ N phòng** → gán TB theo `roomId` → submit → host confirm |
-| **4** | `false` | `true` | ... → options → (đổi structure) → renovation → tạo phòng → gán TB → submit → `complete` → host confirm |
+| **1** | `true` | `false` | Draft → manifest → HĐ → options → **tạo phòng chi tiết** (không gán TB) → submit → host confirm |
+| **2** | `true` | `true` | ... → options → (đổi structure nếu cần) → renovation lines + schedule → tạo phòng chi tiết → submit → `complete` → host confirm |
+| **3** | `false` | `false` | ... → options → **tạo đủ N phòng chi tiết** → **gán TB theo `roomId`** → submit → host confirm |
+| **4** | `false` | `true` | ... → options → (đổi structure) → renovation → tạo phòng chi tiết → gán TB → submit → `complete` → host confirm |
 
-`N = floorCount × roomsPerFloor` (tự tính trên BE, field `totalRooms`).
+**Lưu ý cấu trúc nhà:**
+- Bước draft: nhập **`totalFloor`** (số tầng) và **`totalRooms`** (tổng số phòng ước lượng).
+- Bước chi tiết (trước gán TB): nhập **từng phòng cụ thể** (số phòng, diện tích, mô tả, đồng hồ…) — giống form cho thuê theo phòng nhưng **không** bắt buộc `maxOccupants`.
+- **Phân bố thiết bị** chỉ áp dụng **nhà chia phòng** (`wholeHouse = false`). Nhà nguyên căn khai manifest nhưng **không** gọi `equipments/assign`.
 
 ---
 
@@ -153,8 +158,8 @@ Content-Type: application/json
   "descriptions": "Nhà 3 tầng, mặt tiền 5m",
   "zoneId": "550e8400-e29b-41d4-a716-446655440000",
   "areaSize": 120.5,
-  "floorCount": 3,
-  "roomsPerFloor": 4,
+  "totalFloor": 3,
+  "totalRooms": 12,
   "createdBy": 1,
   "imageUrls": ["https://cdn.example.com/nha1.jpg"]
 }
@@ -173,8 +178,7 @@ Content-Type: application/json
   "areaSize": 120.5,
   "wholeHouse": null,
   "hasRenovation": null,
-  "floorCount": 3,
-  "roomsPerFloor": 4,
+  "totalFloor": 3,
   "totalRooms": 12,
   "status": "DRAFT",
   "price": null,
@@ -208,6 +212,13 @@ Content-Type: application/json
 |---------------------------|---------|
 | `NEW` | Mới |
 | `GOOD` | Đã qua sử dụng, vẫn dùng tốt |
+
+> Có thể có **nhiều dòng cùng `catalogId`** nếu khác `status` (VD: 2 điều hòa NEW + 1 điều hòa GOOD). Khi gán TB phải gửi đúng cặp `catalogId` + `status` để BE tìm đúng dòng manifest.
+
+| `source` khi gán TB | Ý nghĩa | Mặc định FE |
+|---------------------|---------|-------------|
+| `INITIAL_HANDOVER` | Thiết bị có sẵn khi nhận nhà | Manifest / thiết bị ban đầu |
+| `PURCHASED` | Mua thêm trong đợt cải tạo | Thiết bị thêm qua renovation (category `EQUIPMENT`) |
 
 **Response:**
 ```json
@@ -316,12 +327,10 @@ Content-Type: application/json
 **Request:**
 ```json
 {
-  "floorCount": 3,
-  "roomsPerFloor": 5
+  "totalFloor": 3,
+  "totalRooms": 15
 }
 ```
-
-→ `totalRooms` tự tính = 15.
 
 ---
 
@@ -383,9 +392,9 @@ Content-Type: application/json
 
 ---
 
-### Bước 2D — Tạo phòng (chỉ khi `wholeHouse = false`)
+### Bước 2D — Tạo phòng chi tiết (tất cả nhánh — bắt buộc trước submit)
 
-Lặp cho đến khi đủ `totalRooms` phòng.
+Áp dụng **mọi** loại hình (nguyên căn và chia phòng). Lặp cho đến khi đủ `totalRooms` phòng.
 
 ```http
 POST /api/v1/properties/1/rooms
@@ -397,7 +406,6 @@ Content-Type: application/json
 {
   "roomNumber": "P101",
   "area": 18.5,
-  "maxOccupants": 2,
   "propertyType": "INDIVIDUAL_ROOM",
   "structureDescription": "1 giường, 1 WC riêng",
   "imageUrls": "https://cdn.example.com/p101.jpg",
@@ -417,9 +425,7 @@ Content-Type: application/json
 
 ---
 
-### Bước 2E — Gán thiết bị vào vị trí
-
-#### Nhà nguyên căn — gán theo khu vực (`houseArea`)
+### Bước 2E — Gán thiết bị vào phòng (chỉ khi `wholeHouse = false`)
 
 ```http
 POST /api/v1/properties/1/equipments/assign
@@ -430,41 +436,28 @@ Content-Type: application/json
 ```json
 {
   "catalogId": 1,
-  "quantity": 2,
-  "status": "NEW",
-  "houseArea": "BEDROOM"
-}
-```
-
-| `houseArea` | Ý nghĩa |
-|-------------|---------|
-| `LIVING_ROOM` | Phòng khách |
-| `BEDROOM` | Phòng ngủ |
-| `KITCHEN` | Bếp |
-| `BATHROOM` | WC |
-| `BALCONY` | Ban công |
-| `GARAGE` | Garage |
-| `OTHER` | Khác |
-
-> **Không** gửi `roomId` khi nguyên căn.
-
-#### Nhà chia phòng — gán theo phòng (`roomId`)
-
-**Request:**
-```json
-{
-  "catalogId": 1,
   "quantity": 1,
   "status": "NEW",
+  "source": "INITIAL_HANDOVER",
   "roomId": 5
 }
 ```
 
-> **Không** gửi `houseArea` khi chia phòng.
+| Field | Bắt buộc | Ghi chú |
+|-------|----------|---------|
+| `catalogId` | Có | ID danh mục TB |
+| `status` | Có | `NEW` hoặc `GOOD` — **phải khớp** dòng manifest |
+| `source` | Có | `INITIAL_HANDOVER` (có sẵn) hoặc `PURCHASED` (mua trong CT) |
+| `roomId` | Có | Phòng đích |
+| `quantity` | Có | Số lượng gán lần này (≥ 1) |
+
+> Nhà nguyên căn: **không** gọi endpoint này — BE trả 400.
 
 **GET thiết bị đã gán:** `GET /api/v1/properties/1/equipments`
 
-**Ràng buộc:** Tổng số gán theo từng `catalogId` phải **khớp chính xác** `quantity` trong manifest.
+**Ràng buộc:** Mỗi dòng manifest (`catalogId` + `status`): `assignedCount` phải **khớp** `quantity`.
+
+**Kịch bản test JSON:** [`docs/test-scenarios/assign-equipment-duplicate-catalog.json`](test-scenarios/assign-equipment-duplicate-catalog.json)
 
 ---
 
@@ -489,8 +482,7 @@ Không cần body. BE tự:
   "status": "UNDER_RENOVATION",
   "wholeHouse": false,
   "hasRenovation": true,
-  "floorCount": 3,
-  "roomsPerFloor": 4,
+  "totalFloor": 3,
   "totalRooms": 12,
   "renovationCompleted": false,
   "renovationStartDate": "2026-02-01",
@@ -528,8 +520,8 @@ Không cần body. BE tự:
 | 1 | `wholeHouse` và `hasRenovation` đã chọn |
 | 2 | Đã ký inbound contract |
 | 3 | Manifest TB không rỗng |
-| 4 | Mỗi catalog: `assignedCount == quantity` |
-| 5 | Chia phòng: `count(rooms) == totalRooms` |
+| 4 | Chia phòng: mỗi dòng manifest (`catalogId` + `status`): `assignedCount == quantity` |
+| 5 | Mọi nhánh: `count(rooms) == totalRooms` |
 | 6 | Có CT: ít nhất 1 renovation line + đã có lịch CT |
 
 **Tính giá riêng (tuỳ chọn, preview trước khi gửi):**
@@ -662,8 +654,8 @@ POST /api/v1/properties/1/disable
 2. PUT  /properties/{id}/equipment-manifest     (VD: 2 điều hòa, 1 tủ lạnh)
 3. POST /properties/{id}/inbound-contract
 4. POST /properties/{id}/onboarding-options     { wholeHouse: true, hasRenovation: false }
-5. POST /properties/{id}/equipments/assign      × N lần (gán đủ manifest, dùng houseArea)
-6. POST /properties/{id}/submit-to-host         → PENDING_HOST_REVIEW
+5. POST /properties/{id}/rooms                    × totalRooms (phòng chi tiết, không maxOccupants)
+6. POST /properties/{id}/submit-to-host         → PENDING_HOST_REVIEW  (không gán TB)
 7. GET  /properties/{id}/onboarding-summary       (host xem)
 8. POST /properties/{id}/host-confirm             → ACTIVE
 ```
@@ -676,8 +668,8 @@ POST /api/v1/properties/1/disable
 5. PUT  /properties/{id}/structure              (nếu đổi số phòng)
 6. POST /properties/{id}/renovation-lines       (nhiều dòng)
 7. PUT  /properties/{id}/renovation-schedule
-8. POST /properties/{id}/equipments/assign      (gán đủ TB)
-9. POST /properties/{id}/submit-to-host           → UNDER_RENOVATION
+8. POST /properties/{id}/rooms                    × totalRooms
+9. POST /properties/{id}/submit-to-host           → UNDER_RENOVATION  (không gán TB)
 10. POST /properties/{id}/renovation/complete     → PENDING_HOST_REVIEW
 11. POST /properties/{id}/host-confirm            → ACTIVE
 ```
@@ -733,7 +725,8 @@ flowchart LR
 | Message BE | Nguyên nhân | FE xử lý |
 |------------|-------------|----------|
 | `Chỉ chỉnh sửa onboarding khi nhà ở trạng thái DRAFT` | Gọi API setup sau khi đã submit | Khóa form sau submit |
-| `Catalog ID=X: đã gán A/B` | Gán thừa hoặc thiếu TB | Hiển thị progress `assignedCount/quantity` |
+| `Catalog ID=X (NEW): đã gán A/B` | Gán thừa/thiếu hoặc sai `status` | Hiển thị progress theo từng dòng manifest (`catalogId` + `status`) |
+| `Nhà nguyên căn không cần phân bố thiết bị` | Gọi assign khi `wholeHouse=true` | Ẩn bước gán TB cho nguyên căn |
 | `Phải tạo đủ N phòng` | Chưa tạo đủ phòng | Counter phòng vs `totalRooms` |
 | `Chỉ có thể xác nhận khi nhà ở trạng thái PENDING_HOST_REVIEW` | Host confirm sớm | Disable nút confirm khi `UNDER_RENOVATION` |
 | `Phải hoàn tất cải tạo trước khi host xác nhận giá` | CT chưa complete | Hiện trạng thái chờ admin hoàn tất CT |
@@ -756,11 +749,12 @@ flowchart LR
 ## 11. Checklist tích hợp Frontend
 
 - [ ] Load `equipment-catalog` + `renovation-categories` khi mở wizard
-- [ ] Step 1: `floorCount × roomsPerFloor` hiển thị `totalRooms` (read-only từ response)
+- [ ] Step 1: nhập `totalFloor` + `totalRooms` (ước lượng chung)
 - [ ] Manifest: hiển thị `assignedCount / quantity` realtime sau mỗi lần assign
 - [ ] Phân nhánh UI theo `wholeHouse` + `hasRenovation` (4 case)
-- [ ] Nguyên căn: form gán dùng `houseArea` enum
-- [ ] Chia phòng: form gán dùng `roomId`
+- [ ] Tạo phòng chi tiết cho mọi nhánh (không bắt buộc `maxOccupants`)
+- [ ] Chia phòng: form gán dùng `roomId` + `status` + `source`
+- [ ] Nguyên căn: **không** hiển thị bước gán TB
 - [ ] Sau submit: đọc `status` để hiện badge `UNDER_RENOVATION` / `PENDING_HOST_REVIEW`
 - [ ] Màn host: disable confirm khi `UNDER_RENOVATION`
 - [ ] Host confirm: dropdown Operation Manager + input `contingencyPercent`

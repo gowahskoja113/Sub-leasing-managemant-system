@@ -1,6 +1,7 @@
 package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.EquipmentManifest;
+import com.sep490.slms2026.enums.EquipmentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,7 +13,8 @@ public interface EquipmentManifestRepository extends JpaRepository<EquipmentMani
 
     List<EquipmentManifest> findByPropertyId(Long propertyId);
 
-    Optional<EquipmentManifest> findByPropertyIdAndCatalogId(Long propertyId, Long catalogId);
+    Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatus(
+            Long propertyId, Long catalogId, EquipmentStatus status);
 
     void deleteByPropertyId(Long propertyId);
 

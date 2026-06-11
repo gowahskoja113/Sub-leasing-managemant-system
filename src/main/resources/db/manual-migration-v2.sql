@@ -7,3 +7,6 @@ ALTER TABLE depreciation_results DROP COLUMN IF EXISTS monthly_operating_cost;
 
 ALTER TABLE inbound_contracts DROP COLUMN IF EXISTS base_rent_price;
 ALTER TABLE inbound_contracts DROP COLUMN IF EXISTS deposit_amount;
+
+ALTER TABLE properties RENAME COLUMN floor_count TO total_floor;
+ALTER TABLE properties DROP COLUMN IF EXISTS rooms_per_floor;

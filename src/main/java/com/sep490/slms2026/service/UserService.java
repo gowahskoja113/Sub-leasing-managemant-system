@@ -11,4 +11,5 @@ public interface UserService {
     User getUserById(UUID id);
     User updateUser(UUID id, User userDetails);
     User changeUserStatus(UUID id, UserStatus newStatus);
+    public List<User> getAllManagers();
 }

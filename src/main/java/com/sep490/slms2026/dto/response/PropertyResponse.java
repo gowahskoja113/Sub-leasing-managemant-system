@@ -19,8 +19,7 @@ public class PropertyResponse {
     private Double areaSize;
     private Boolean wholeHouse;
     private Boolean hasRenovation;
-    private Integer floorCount;
-    private Integer roomsPerFloor;
+    private Integer totalFloor;
     private Integer totalRooms;
     private String status;
     private BigDecimal price;

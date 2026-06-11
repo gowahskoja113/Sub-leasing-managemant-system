@@ -37,11 +37,10 @@ public class PropertyServiceImpl implements PropertyService {
         property.setDescriptions(request.getDescriptions());
         property.setAddress(request.getAddress() + ", " + buildZoneFullName(zone));
 
-        if (request.getFloorCount() != null && request.getRoomsPerFloor() != null) {
-            property.setFloorCount(request.getFloorCount());
-            property.setRoomsPerFloor(request.getRoomsPerFloor());
-            property.setTotalRooms(request.getFloorCount() * request.getRoomsPerFloor());
-        } else if (request.getTotalRooms() != null) {
+        if (request.getTotalFloor() != null) {
+            property.setTotalFloor(request.getTotalFloor());
+        }
+        if (request.getTotalRooms() != null) {
             property.setTotalRooms(request.getTotalRooms());
         }
 
@@ -101,10 +100,11 @@ public class PropertyServiceImpl implements PropertyService {
         property.setAddress(request.getAddress() + ", " + buildZoneFullName(property.getZone()));
 
         if (property.getStatus() != PropertyStatus.ACTIVE) {
-            if (request.getFloorCount() != null && request.getRoomsPerFloor() != null) {
-                property.setFloorCount(request.getFloorCount());
-                property.setRoomsPerFloor(request.getRoomsPerFloor());
-                property.setTotalRooms(request.getFloorCount() * request.getRoomsPerFloor());
+            if (request.getTotalFloor() != null) {
+                property.setTotalFloor(request.getTotalFloor());
+            }
+            if (request.getTotalRooms() != null) {
+                property.setTotalRooms(request.getTotalRooms());
             }
             if (request.getWholeHouse() != null) {
                 property.setWholeHouse(request.getWholeHouse());
@@ -146,8 +146,7 @@ public class PropertyServiceImpl implements PropertyService {
         response.setZoneName(property.getZone().getName());
         response.setWholeHouse(property.getWholeHouse());
         response.setHasRenovation(property.getHasRenovation());
-        response.setFloorCount(property.getFloorCount());
-        response.setRoomsPerFloor(property.getRoomsPerFloor());
+        response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
         response.setStatus(property.getStatus().name());

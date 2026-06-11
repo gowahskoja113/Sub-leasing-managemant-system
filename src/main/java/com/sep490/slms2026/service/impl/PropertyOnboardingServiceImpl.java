@@ -53,9 +53,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .zone(zone)
                 .descriptions(request.getDescriptions())
                 .areaSize(request.getAreaSize())
-                .floorCount(request.getFloorCount())
-                .roomsPerFloor(request.getRoomsPerFloor())
-                .totalRooms(request.getFloorCount() * request.getRoomsPerFloor())
+                .totalFloor(request.getTotalFloor())
+                .totalRooms(request.getTotalRooms())
                 .imageUrls(request.getImageUrls())
                 .createdBy(request.getCreatedBy())
                 .status(PropertyStatus.DRAFT)
@@ -86,9 +85,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional
     public PropertyResponse updateStructure(Long propertyId, UpdatePropertyStructureRequest request) {
         Property property = findEditableProperty(propertyId);
-        property.setFloorCount(request.getFloorCount());
-        property.setRoomsPerFloor(request.getRoomsPerFloor());
-        property.setTotalRooms(request.getFloorCount() * request.getRoomsPerFloor());
+        property.setTotalFloor(request.getTotalFloor());
+        property.setTotalRooms(request.getTotalRooms());
 
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
             long roomCount = roomRepository.countByPropertyId(propertyId);
@@ -139,19 +137,24 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional
     public EquipmentResponse assignEquipment(Long propertyId, AssignEquipmentRequest request) {
         Property property = findEditableProperty(propertyId);
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            throw new BusinessException("Nhà nguyên căn không cần phân bố thiết bị — chỉ áp dụng cho nhà chia phòng");
+        }
         validateEquipmentStatus(request.getStatus());
 
         EquipmentManifest manifest = equipmentManifestRepository
-                .findByPropertyIdAndCatalogId(propertyId, request.getCatalogId())
-                .orElseThrow(() -> new BusinessException(
-                        "Thiết bị catalog ID=" + request.getCatalogId() + " chưa có trong manifest"));
+                .findByPropertyIdAndCatalogIdAndStatus(
+                        propertyId, request.getCatalogId(), request.getStatus())
+                .orElseThrow(() -> new BusinessException(String.format(
+                        "Thiết bị catalog ID=%d trạng thái %s chưa có trong manifest",
+                        request.getCatalogId(), request.getStatus())));
 
-        long alreadyAssigned = equipmentRepository.countByPropertyIdAndCatalogId(
-                propertyId, request.getCatalogId());
+        long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
         if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
             throw new BusinessException(String.format(
-                    "Catalog ID=%d: đã gán %d/%d — không thể gán thêm %d",
-                    request.getCatalogId(), alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+                    "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
+                    request.getCatalogId(), request.getStatus(),
+                    alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
         }
 
         Room room = resolveRoomForAssignment(property, propertyId, request.getRoomId(), request.getHouseArea());
@@ -328,8 +331,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .status(property.getStatus())
                 .wholeHouse(property.getWholeHouse())
                 .hasRenovation(property.getHasRenovation())
-                .floorCount(property.getFloorCount())
-                .roomsPerFloor(property.getRoomsPerFloor())
+                .totalFloor(property.getTotalFloor())
                 .totalRooms(property.getTotalRooms())
                 .renovationCompleted(property.isRenovationCompleted())
                 .renovationStartDate(property.getRenovationStartDate())
@@ -477,22 +479,22 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (manifests.isEmpty()) {
             throw new BusinessException("Phải khai báo manifest thiết bị trước khi gửi host");
         }
-        for (EquipmentManifest manifest : manifests) {
-            long assigned = equipmentRepository.countByPropertyIdAndCatalogId(
-                    propertyId, manifest.getCatalog().getId());
-            if (assigned != manifest.getQuantity()) {
-                throw new BusinessException(String.format(
-                        "Thiết bị '%s': đã gán %d/%d — phải gán đủ trước khi gửi host",
-                        manifest.getCatalog().getName(), assigned, manifest.getQuantity()));
+        if (Boolean.FALSE.equals(property.getWholeHouse())) {
+            for (EquipmentManifest manifest : manifests) {
+                long assigned = equipmentRepository.countByManifestId(manifest.getId());
+                if (assigned != manifest.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "Thiết bị '%s' (%s): đã gán %d/%d — phải gán đủ trước khi gửi host",
+                            manifest.getCatalog().getName(), manifest.getStatus(),
+                            assigned, manifest.getQuantity()));
+                }
             }
         }
 
-        if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long roomCount = roomRepository.countByPropertyId(propertyId);
-            if (roomCount != property.getTotalRooms()) {
-                throw new BusinessException(String.format(
-                        "Phải tạo đủ %d phòng (hiện có %d)", property.getTotalRooms(), roomCount));
-            }
+        long roomCount = roomRepository.countByPropertyId(propertyId);
+        if (roomCount != property.getTotalRooms()) {
+            throw new BusinessException(String.format(
+                    "Phải tạo đủ %d phòng chi tiết (hiện có %d)", property.getTotalRooms(), roomCount));
         }
 
         if (Boolean.TRUE.equals(property.getHasRenovation())) {
@@ -509,15 +511,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                                           Long propertyId,
                                           Long roomId,
                                           com.sep490.slms2026.enums.HouseArea houseArea) {
-        if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            if (roomId != null) {
-                throw new BusinessException("Nhà nguyên căn gán thiết bị theo khu vực, không theo phòng");
-            }
-            if (houseArea == null) {
-                throw new BusinessException("Nhà nguyên căn phải chọn khu vực (houseArea)");
-            }
-            return null;
-        }
         if (roomId == null) {
             throw new BusinessException("Nhà chia phòng phải gán thiết bị vào phòng (roomId)");
         }
@@ -551,8 +544,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private EquipmentManifestResponse toManifestResponse(EquipmentManifest manifest) {
-        long assigned = equipmentRepository.countByPropertyIdAndCatalogId(
-                manifest.getProperty().getId(), manifest.getCatalog().getId());
+        long assigned = equipmentRepository.countByManifestId(manifest.getId());
         return EquipmentManifestResponse.builder()
                 .id(manifest.getId())
                 .catalogId(manifest.getCatalog().getId())
@@ -598,8 +590,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setZoneName(property.getZone().getName());
         response.setWholeHouse(property.getWholeHouse());
         response.setHasRenovation(property.getHasRenovation());
-        response.setFloorCount(property.getFloorCount());
-        response.setRoomsPerFloor(property.getRoomsPerFloor());
+        response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
         response.setStatus(property.getStatus().name());

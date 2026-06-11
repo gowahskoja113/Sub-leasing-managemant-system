@@ -105,4 +105,9 @@ public class UserServiceImpl implements UserService {
         user.setStatus(newStatus);
         return userRepository.save(user);
     }
+
+    @Override
+    public List<User> getAllManagers() {
+        return userRepository.findByRole(Role.ROLE_MANAGER);
+    }
 }

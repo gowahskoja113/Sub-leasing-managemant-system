@@ -19,8 +19,7 @@ public class OnboardingSummaryResponse {
     private PropertyStatus status;
     private Boolean wholeHouse;
     private Boolean hasRenovation;
-    private Integer floorCount;
-    private Integer roomsPerFloor;
+    private Integer totalFloor;
     private Integer totalRooms;
     private boolean renovationCompleted;
     private LocalDate renovationStartDate;

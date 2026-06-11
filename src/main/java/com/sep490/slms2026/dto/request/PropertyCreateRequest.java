@@ -15,8 +15,7 @@ public class PropertyCreateRequest {
     private UUID zoneId;
     private Boolean wholeHouse;
     private Double areaSize;
-    private Integer floorCount;
-    private Integer roomsPerFloor;
+    private Integer totalFloor;
     private Integer totalRooms;
     private Long createdBy;
     /** @deprecated dùng createdBy */
