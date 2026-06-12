@@ -100,9 +100,10 @@ public class RoomServiceImpl implements RoomService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
-        if (property.getStatus() != PropertyStatus.ACTIVE) {
+        PropertyStatus propertyStatus = property.getStatus();
+        if (propertyStatus != PropertyStatus.DRAFT && propertyStatus != PropertyStatus.ACTIVE) {
             throw new BusinessException(
-                    "Chỉ cập nhật trạng thái phòng khi tòa nhà đang ACTIVE");
+                    "Chỉ cập nhật trạng thái phòng khi tòa nhà đang DRAFT hoặc ACTIVE");
         }
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
             throw new BusinessException(
@@ -117,7 +118,7 @@ public class RoomServiceImpl implements RoomService {
             throw new BusinessException(
                     "Phòng " + room.getRoomNumber() + " đang cho thuê — không thể đổi trạng thái");
         }
-        if (room.getStatus() == RoomStatus.DRAFT) {
+        if (room.getStatus() == RoomStatus.DRAFT && propertyStatus != PropertyStatus.DRAFT) {
             throw new BusinessException(
                     "Phòng " + room.getRoomNumber() + " chưa kích hoạt — không thể cập nhật trạng thái");
         }

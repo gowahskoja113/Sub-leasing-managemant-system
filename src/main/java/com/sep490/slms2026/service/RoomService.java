@@ -30,7 +30,7 @@ public interface RoomService {
 
     /**
      * Cập nhật trạng thái phòng (AVAILABLE / MAINTENANCE).
-     * Không cho phép khi phòng đang RENTED.
+     * Cho phép khi tòa nhà DRAFT hoặc ACTIVE. Không cho phép khi phòng đang RENTED.
      */
     RoomResponse updateRoomStatus(Long propertyId, Long roomId, UpdateRoomStatusRequest request);
 }

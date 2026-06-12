@@ -190,15 +190,15 @@ hoặc
 
 **Quy tắc nghiệp vụ:**
 
-| Trạng thái phòng hiện tại | Cho phép? |
-|---------------------------|-----------|
-| `AVAILABLE` | ✅ → `AVAILABLE` hoặc `MAINTENANCE` |
-| `MAINTENANCE` | ✅ → `AVAILABLE` hoặc `MAINTENANCE` |
-| `RENTED` | ❌ HTTP 422 |
-| `DRAFT` | ❌ HTTP 422 (phòng chưa kích hoạt) |
+| Trạng thái phòng hiện tại | Property `DRAFT` | Property `ACTIVE` |
+|---------------------------|------------------|-------------------|
+| `AVAILABLE` (trống) | ✅ → `MAINTENANCE` / `AVAILABLE` | ✅ |
+| `MAINTENANCE` | ✅ → `AVAILABLE` / `MAINTENANCE` | ✅ |
+| `DRAFT` | ✅ → `MAINTENANCE` / `AVAILABLE` | ❌ HTTP 422 |
+| `RENTED` | ❌ HTTP 422 | ❌ HTTP 422 |
 
 **Điều kiện thêm:**
-- Tòa nhà phải `ACTIVE`
+- Tòa nhà phải `DRAFT` **hoặc** `ACTIVE` (không bắt buộc ACTIVE khi nhà còn nháp)
 - Chỉ nhà chia phòng (`wholeHouse = false`)
 
 **Response:** `RoomResponse` với `status` mới.
