@@ -91,15 +91,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setTotalFloor(request.getTotalFloor());
         property.setTotalRooms(request.getTotalRooms());
 
-        if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long roomCount = roomRepository.countByPropertyId(propertyId);
-            if (roomCount > property.getTotalRooms()) {
-                throw new BusinessException(
-                        "Đã có " + roomCount + " phòng — không thể giảm cấu trúc xuống "
-                                + property.getTotalRooms() + " phòng. Xóa phòng thừa trước.");
-            }
-        }
-
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
@@ -117,11 +108,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Không tìm thấy danh mục thiết bị ID=" + item.getCatalogId()));
 
+            java.math.BigDecimal itemPrice = item.getPrice() != null ? item.getPrice() : java.math.BigDecimal.ZERO;
+            if (item.getSource() == com.sep490.slms2026.enums.EquipmentSource.INITIAL_HANDOVER) {
+                itemPrice = java.math.BigDecimal.ZERO;
+            }
+
             saved.add(equipmentManifestRepository.save(EquipmentManifest.builder()
                     .property(property)
                     .catalog(catalog)
                     .quantity(item.getQuantity())
                     .status(item.getStatus())
+                    .source(item.getSource())
+                    .price(itemPrice)
                     .build()));
         }
         return saved.stream().map(this::toManifestResponse).toList();
@@ -140,17 +138,14 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional
     public EquipmentResponse assignEquipment(Long propertyId, AssignEquipmentRequest request) {
         Property property = findEditableProperty(propertyId);
-        if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            throw new BusinessException("Nhà nguyên căn không cần phân bố thiết bị — chỉ áp dụng cho nhà chia phòng");
-        }
         validateEquipmentStatus(request.getStatus());
 
         EquipmentManifest manifest = equipmentManifestRepository
-                .findByPropertyIdAndCatalogIdAndStatus(
-                        propertyId, request.getCatalogId(), request.getStatus())
+                .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                        propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
                 .orElseThrow(() -> new BusinessException(String.format(
-                        "Thiết bị catalog ID=%d trạng thái %s chưa có trong manifest",
-                        request.getCatalogId(), request.getStatus())));
+                        "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest",
+                        request.getCatalogId(), request.getStatus(), request.getSource())));
 
         long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
         if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
@@ -170,8 +165,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .catalog(manifest.getCatalog())
                     .manifest(manifest)
                     .houseArea(request.getHouseArea())
-                    .source(request.getSource())
-                    .status(request.getStatus())
+                    .source(manifest.getSource())
+                    .status(manifest.getStatus())
+                    .price(manifest.getPrice())
                     .build());
         }
         return toEquipmentResponse(lastSaved);
@@ -314,6 +310,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         propertyRepository.save(property);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+            for (Room room : draftRooms) {
+                room.setStatus(RoomStatus.AVAILABLE);
+            }
+            roomRepository.saveAll(draftRooms);
             return buildWholeHouseActivationResponse(property, propertyId);
         }
         return activatePerRoom(property, propertyId, managerId);
@@ -535,6 +536,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         propertyRepository.save(property);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+            for (Room room : draftRooms) {
+                room.setStatus(RoomStatus.AVAILABLE);
+            }
+            roomRepository.saveAll(draftRooms);
             return buildWholeHouseActivationResponse(property, propertyId);
         }
         return activatePerRoom(property, propertyId, managerId);
@@ -610,12 +616,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                             assigned, manifest.getQuantity()));
                 }
             }
-        }
 
-        long roomCount = roomRepository.countByPropertyId(propertyId);
-        if (roomCount != property.getTotalRooms()) {
-            throw new BusinessException(String.format(
-                    "Phải tạo đủ %d phòng chi tiết (hiện có %d)", property.getTotalRooms(), roomCount));
+            long roomCount = roomRepository.countByPropertyId(propertyId);
+            if (roomCount != property.getTotalRooms()) {
+                throw new BusinessException(String.format(
+                        "Phải tạo đủ %d phòng chi tiết (hiện có %d)", property.getTotalRooms(), roomCount));
+            }
         }
 
         if (Boolean.TRUE.equals(property.getHasRenovation())) {
@@ -633,14 +639,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                                           Long roomId,
                                           com.sep490.slms2026.enums.HouseArea houseArea) {
         if (roomId == null) {
-            throw new BusinessException("Nhà chia phòng phải gán thiết bị vào phòng (roomId)");
-        }
-        if (houseArea != null) {
-            throw new BusinessException("Nhà chia phòng không dùng houseArea — dùng roomId");
+            throw new BusinessException("Phải chọn phòng/khu vực (roomId) để gán thiết bị");
         }
         return roomRepository.findByIdAndPropertyId(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Không tìm thấy phòng ID=" + roomId));
+                        "Không tìm thấy phòng/khu vực ID=" + roomId + " trong tòa nhà này"));
     }
 
     private void validateEquipmentStatus(EquipmentStatus status) {
@@ -664,8 +667,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private Property findEditableProperty(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT) {
-            throw new BusinessException("Chỉ chỉnh sửa onboarding khi nhà ở trạng thái DRAFT");
+        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
+            throw new BusinessException("Chỉ chỉnh sửa onboarding khi nhà ở trạng thái DRAFT hoặc UNDER_RENOVATION");
         }
         return property;
     }
@@ -684,6 +687,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .catalogName(manifest.getCatalog().getName())
                 .quantity(manifest.getQuantity())
                 .status(manifest.getStatus())
+                .source(manifest.getSource())
+                .price(manifest.getPrice())
                 .assignedCount(assigned)
                 .build();
     }
@@ -709,6 +714,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .houseArea(equipment.getHouseArea())
                 .source(equipment.getSource())
                 .status(equipment.getStatus())
+                .price(equipment.getPrice())
                 .note(equipment.getNote())
                 .build();
     }

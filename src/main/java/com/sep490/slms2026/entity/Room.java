@@ -28,6 +28,9 @@ public class Room implements Serializable {
     @Column(name = "room_number", nullable = false)
     private String roomNumber;
 
+    @Column(name = "floor")
+    private Integer floor;
+
     @Column(nullable = true)
     private BigDecimal price;
 

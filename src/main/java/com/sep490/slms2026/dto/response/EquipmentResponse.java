@@ -20,5 +20,6 @@ public class EquipmentResponse {
     private HouseArea houseArea;
     private EquipmentSource source;
     private EquipmentStatus status;
+    private java.math.BigDecimal price;
     private String note;
 }

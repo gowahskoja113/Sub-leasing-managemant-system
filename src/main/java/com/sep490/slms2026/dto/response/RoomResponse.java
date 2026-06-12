@@ -17,6 +17,7 @@ public class RoomResponse {
     private Long propertyId;
     private String propertyName;    // tiện cho FE hiển thị, khỏi gọi thêm API
     private String roomNumber;
+    private Integer floor;
     private BigDecimal price;
     private BigDecimal deposit;
     private Double area;

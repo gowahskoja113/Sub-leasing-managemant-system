@@ -19,4 +19,6 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     long countByPropertyIdAndCatalogId(@Param("propertyId") Long propertyId, @Param("catalogId") Long catalogId);
 
     void deleteByPropertyId(Long propertyId);
+
+    java.util.Optional<Equipment> findByIdAndPropertyId(Long id, Long propertyId);
 }

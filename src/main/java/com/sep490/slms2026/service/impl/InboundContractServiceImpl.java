@@ -33,24 +33,22 @@ public class InboundContractServiceImpl implements InboundContractService {
             throw new BusinessException("Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT");
         }
 
-        if (inboundContractRepository.existsByPropertyId(propertyId)) {
-            throw new BusinessException("Tòa nhà này đã có hợp đồng inbound");
-        }
-
         if (!request.getEndDate().isAfter(request.getStartDate())) {
             throw new BusinessException("Ngày kết thúc hợp đồng phải sau ngày bắt đầu");
         }
 
-        InboundContract contract = InboundContract.builder()
-                .property(property)
-                .contractCode(request.getContractCode())
-                .ownerName(request.getOwnerName())
-                .totalRentAmount(request.getTotalRentAmount())
-                .startDate(request.getStartDate())
-                .endDate(request.getEndDate())
-                .contractScanUrl(request.getContractScanUrl())
-                .status(ContractStatus.ACTIVE)
-                .build();
+        InboundContract contract = inboundContractRepository.findByPropertyId(propertyId)
+                .orElseGet(() -> InboundContract.builder()
+                        .property(property)
+                        .status(ContractStatus.ACTIVE)
+                        .build());
+
+        contract.setContractCode(request.getContractCode());
+        contract.setOwnerName(request.getOwnerName());
+        contract.setTotalRentAmount(request.getTotalRentAmount());
+        contract.setStartDate(request.getStartDate());
+        contract.setEndDate(request.getEndDate());
+        contract.setContractScanUrl(request.getContractScanUrl());
 
         InboundContract saved = inboundContractRepository.save(contract);
         return toResponse(saved);

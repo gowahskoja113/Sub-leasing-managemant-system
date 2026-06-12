@@ -19,4 +19,11 @@ public class EquipmentController {
     public ResponseEntity<List<EquipmentResponse>> getEquipments(@PathVariable Long propertyId) {
         return ResponseEntity.ok(equipmentService.getEquipmentsByProperty(propertyId));
     }
+
+    @DeleteMapping("/{equipmentId}")
+    public ResponseEntity<Void> unassignEquipment(@PathVariable Long propertyId,
+                                                  @PathVariable Long equipmentId) {
+        equipmentService.unassignEquipment(propertyId, equipmentId);
+        return ResponseEntity.noContent().build();
+    }
 }

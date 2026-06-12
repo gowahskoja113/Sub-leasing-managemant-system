@@ -49,6 +49,9 @@ public class Equipment implements Serializable {
     @Column(nullable = false)
     private EquipmentStatus status = EquipmentStatus.NEW;
 
+    @Column(name = "price")
+    private java.math.BigDecimal price = java.math.BigDecimal.ZERO;
+
     @Column(columnDefinition = "TEXT")
     private String note;
 }

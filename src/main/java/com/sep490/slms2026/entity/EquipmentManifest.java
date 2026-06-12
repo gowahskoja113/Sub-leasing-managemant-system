@@ -33,4 +33,11 @@ public class EquipmentManifest implements Serializable {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EquipmentStatus status = EquipmentStatus.NEW;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false)
+    private com.sep490.slms2026.enums.EquipmentSource source = com.sep490.slms2026.enums.EquipmentSource.INITIAL_HANDOVER;
+
+    @Column(name = "price")
+    private java.math.BigDecimal price = java.math.BigDecimal.ZERO;
 }

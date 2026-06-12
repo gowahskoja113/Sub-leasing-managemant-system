@@ -15,5 +15,7 @@ public class EquipmentManifestResponse {
     private String catalogName;
     private Integer quantity;
     private EquipmentStatus status;
+    private com.sep490.slms2026.enums.EquipmentSource source;
+    private java.math.BigDecimal price;
     private long assignedCount;
 }

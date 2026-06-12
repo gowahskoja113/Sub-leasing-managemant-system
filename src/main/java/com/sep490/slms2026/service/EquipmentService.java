@@ -7,4 +7,6 @@ import java.util.List;
 public interface EquipmentService {
 
     List<EquipmentResponse> getEquipmentsByProperty(Long propertyId);
+
+    void unassignEquipment(Long propertyId, Long equipmentId);
 }

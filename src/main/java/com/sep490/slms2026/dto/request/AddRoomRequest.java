@@ -16,6 +16,9 @@ public class AddRoomRequest {
     @NotBlank(message = "Số phòng không được để trống")
     private String roomNumber;
 
+    @Min(value = 1, message = "Tầng phải từ 1 trở lên")
+    private Integer floor;
+
     // Optional khi tạo nháp — sẽ set khi confirm giá sau khấu hao
     @DecimalMin(value = "0.0", inclusive = false, message = "Giá thuê phải lớn hơn 0")
     private BigDecimal price;

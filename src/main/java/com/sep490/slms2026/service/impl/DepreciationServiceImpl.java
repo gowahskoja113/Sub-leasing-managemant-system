@@ -37,6 +37,7 @@ public class DepreciationServiceImpl implements DepreciationService {
     private final PropertyRepository propertyRepository;
     private final RenovationLineRepository renovationLineRepository;
     private final RoomRepository roomRepository;
+    private final com.sep490.slms2026.repository.EquipmentManifestRepository equipmentManifestRepository;
 
     @Override
     @Transactional
@@ -47,13 +48,14 @@ public class DepreciationServiceImpl implements DepreciationService {
         depreciationResultRepository.deleteByPropertyId(propertyId);
 
         BigDecimal totalRenovationCost = renovationLineRepository.sumCostByPropertyId(propertyId);
+        BigDecimal totalEquipmentCost = equipmentManifestRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
         int contractMonths = resolveContractMonths(contract);
         BigDecimal totalRentAmount = contract.getTotalRentAmount();
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return calculateWholeHouse(property, contract, totalRentAmount, totalRenovationCost, contractMonths);
+            return calculateWholeHouse(property, contract, totalRentAmount, totalRenovationCost, totalEquipmentCost, contractMonths);
         }
-        return calculatePerRoom(property, contract, totalRentAmount, totalRenovationCost, contractMonths);
+        return calculatePerRoom(property, contract, totalRentAmount, totalRenovationCost, totalEquipmentCost, contractMonths);
     }
 
     @Override
@@ -96,11 +98,12 @@ public class DepreciationServiceImpl implements DepreciationService {
                                                                 InboundContract contract,
                                                                 BigDecimal totalRentAmount,
                                                                 BigDecimal totalRenovationCost,
+                                                                BigDecimal totalEquipmentCost,
                                                                 int contractMonths) {
-        PricingBreakdown breakdown = computePricing(totalRentAmount, totalRenovationCost, contractMonths);
+        PricingBreakdown breakdown = computePricing(totalRentAmount, totalRenovationCost, totalEquipmentCost, contractMonths);
 
         DepreciationResult saved = depreciationResultRepository.save(buildResult(
-                contract, null, totalRenovationCost, totalRentAmount, breakdown));
+                contract, null, totalRenovationCost, totalEquipmentCost, totalRentAmount, breakdown));
 
         return DepreciationCalculationResponse.builder()
                 .propertyId(property.getId())
@@ -113,13 +116,14 @@ public class DepreciationServiceImpl implements DepreciationService {
                                                              InboundContract contract,
                                                              BigDecimal totalRentAmount,
                                                              BigDecimal totalRenovationCost,
+                                                             BigDecimal totalEquipmentCost,
                                                              int contractMonths) {
         List<Room> rooms = roomRepository.findByPropertyId(property.getId());
         if (rooms.isEmpty()) {
             throw new BusinessException("Phải có ít nhất một phòng trước khi tính giá theo phòng");
         }
 
-        PricingBreakdown wholeBreakdown = computePricing(totalRentAmount, totalRenovationCost, contractMonths);
+        PricingBreakdown wholeBreakdown = computePricing(totalRentAmount, totalRenovationCost, totalEquipmentCost, contractMonths);
         BigDecimal perRoomMonthly = wholeBreakdown.suggestedMinPrice()
                 .divide(BigDecimal.valueOf(rooms.size()), 2, RoundingMode.HALF_UP);
 
@@ -133,7 +137,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                     perRoomMonthly);
 
             DepreciationResult saved = depreciationResultRepository.save(buildResult(
-                    contract, room, totalRenovationCost, totalRentAmount, roomBreakdown));
+                    contract, room, totalRenovationCost, totalEquipmentCost, totalRentAmount, roomBreakdown));
 
             roomResults.add(toResponse(saved, PricingScope.ROOM));
         }
@@ -147,8 +151,9 @@ public class DepreciationServiceImpl implements DepreciationService {
 
     private PricingBreakdown computePricing(BigDecimal totalRentAmount,
                                             BigDecimal totalRenovationCost,
+                                            BigDecimal totalEquipmentCost,
                                             int contractMonths) {
-        BigDecimal totalInvestment = totalRentAmount.add(totalRenovationCost);
+        BigDecimal totalInvestment = totalRentAmount.add(totalRenovationCost).add(totalEquipmentCost);
         BigDecimal monthlySuggested = totalInvestment
                 .divide(BigDecimal.valueOf(contractMonths), 2, RoundingMode.HALF_UP);
 
@@ -158,13 +163,14 @@ public class DepreciationServiceImpl implements DepreciationService {
     private DepreciationResult buildResult(InboundContract contract,
                                            Room room,
                                            BigDecimal totalRenovationCost,
+                                           BigDecimal totalEquipmentCost,
                                            BigDecimal totalRentAmount,
                                            PricingBreakdown breakdown) {
         return DepreciationResult.builder()
                 .inboundContract(contract)
                 .room(room)
                 .totalRenovationCost(totalRenovationCost)
-                .totalEquipmentCost(BigDecimal.ZERO)
+                .totalEquipmentCost(totalEquipmentCost)
                 .totalRentAmount(totalRentAmount)
                 .totalInvestment(breakdown.totalInvestment())
                 .contractMonths(breakdown.contractMonths())
@@ -179,8 +185,10 @@ public class DepreciationServiceImpl implements DepreciationService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT) {
-            throw new BusinessException("Chỉ tính giá khi tòa nhà đang ở trạng thái DRAFT");
+        if (property.getStatus() != PropertyStatus.DRAFT
+                && property.getStatus() != PropertyStatus.UNDER_RENOVATION
+                && property.getStatus() != PropertyStatus.PENDING_HOST_REVIEW) {
+            throw new BusinessException("Chỉ tính giá khi tòa nhà đang trong quá trình onboarding");
         }
         return property;
     }

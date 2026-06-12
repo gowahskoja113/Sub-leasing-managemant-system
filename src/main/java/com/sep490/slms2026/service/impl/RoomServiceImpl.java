@@ -44,9 +44,16 @@ public class RoomServiceImpl implements RoomService {
         if (property.getWholeHouse() == null) {
             throw new BusinessException("Phải chọn loại hình thuê (onboarding-options) trước khi thêm phòng");
         }
+
+        // Cho phép thêm phòng đối với cả nhà nguyên căn để phân bổ thiết bị, nhưng không quản lý giá tại phòng
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            request.setPrice(null);
+            request.setDeposit(null);
+        }
+
+        if (property.getTotalFloor() != null && request.getFloor() != null && request.getFloor() > property.getTotalFloor()) {
             throw new BusinessException(
-                    "Nhà nguyên căn không thêm phòng riêng lẻ — giá được quản lý ở cấp tòa nhà");
+                    "Số tầng của phòng (" + request.getFloor() + ") vượt quá tổng số tầng của tòa nhà (" + property.getTotalFloor() + ")");
         }
 
         long currentCount = roomRepository.countByPropertyId(propertyId);

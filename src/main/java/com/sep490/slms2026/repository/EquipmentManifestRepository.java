@@ -16,8 +16,14 @@ public interface EquipmentManifestRepository extends JpaRepository<EquipmentMani
     Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatus(
             Long propertyId, Long catalogId, EquipmentStatus status);
 
+    Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatusAndSource(
+            Long propertyId, Long catalogId, EquipmentStatus status, com.sep490.slms2026.enums.EquipmentSource source);
+
     void deleteByPropertyId(Long propertyId);
 
     @Query("SELECT COALESCE(SUM(m.quantity), 0) FROM EquipmentManifest m WHERE m.property.id = :propertyId")
     int sumQuantityByPropertyId(@Param("propertyId") Long propertyId);
+
+    @Query("SELECT COALESCE(SUM(m.price * m.quantity), 0) FROM EquipmentManifest m WHERE m.property.id = :propertyId AND m.source = 'PURCHASED'")
+    java.math.BigDecimal sumPurchasedEquipmentCostByPropertyId(@Param("propertyId") Long propertyId);
 }

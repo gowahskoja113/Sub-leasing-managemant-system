@@ -23,6 +23,9 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     // Đếm số phòng hiện có của tòa — dùng để validate không vượt totalRooms
     long countByPropertyId(Long propertyId);
 
+    @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId")
+    int findMaxFloorByPropertyId(@Param("propertyId") Long propertyId);
+
     // Fetch kèm property trong 1 query — tránh N+1 khi load danh sách phòng
     @Query("SELECT r FROM Room r JOIN FETCH r.property WHERE r.property.id = :propertyId")
     List<Room> findByPropertyIdWithProperty(@Param("propertyId") Long propertyId);

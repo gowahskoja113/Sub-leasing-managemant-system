@@ -19,4 +19,9 @@ public class EquipmentManifestItemRequest {
 
     @NotNull
     private EquipmentStatus status;
+
+    @NotNull(message = "Nguồn thiết bị không được để trống")
+    private com.sep490.slms2026.enums.EquipmentSource source;
+
+    private java.math.BigDecimal price;
 }
