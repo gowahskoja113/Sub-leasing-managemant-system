@@ -17,6 +17,8 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
 
     long countByRoomId(Long roomId);
 
+    List<Equipment> findByRoomId(Long roomId);
+
     @Query("SELECT COUNT(e) FROM Equipment e WHERE e.property.id = :propertyId AND e.catalog.id = :catalogId")
     long countByPropertyIdAndCatalogId(@Param("propertyId") Long propertyId, @Param("catalogId") Long catalogId);
 

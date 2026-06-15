@@ -4,6 +4,7 @@ import com.sep490.slms2026.dto.request.AddRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
+import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.enums.PropertyStatus;
@@ -11,9 +12,7 @@ import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.mapper.RoomMapper;
-import com.sep490.slms2026.repository.DepreciationResultRepository;
 import com.sep490.slms2026.repository.EquipmentRepository;
-import com.sep490.slms2026.repository.MonthlyReadingRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.service.RoomService;
@@ -32,8 +31,6 @@ public class RoomServiceImpl implements RoomService {
     private final RoomRepository roomRepository;
     private final PropertyRepository propertyRepository;
     private final EquipmentRepository equipmentRepository;
-    private final DepreciationResultRepository depreciationResultRepository;
-    private final MonthlyReadingRepository monthlyReadingRepository;
     private final RoomMapper roomMapper;
 
     @Override
@@ -63,13 +60,13 @@ public class RoomServiceImpl implements RoomService {
                     "Số tầng của phòng (" + request.getFloor() + ") vượt quá tổng số tầng của tòa nhà (" + property.getTotalFloor() + ")");
         }
 
-        long currentCount = roomRepository.countByPropertyId(propertyId);
+        long currentCount = roomRepository.countByPropertyIdAndDeletedIsFalse(propertyId);
         if (property.getTotalRooms() != null && currentCount >= property.getTotalRooms()) {
             throw new BusinessException(
                     "Tòa nhà đã đủ " + property.getTotalRooms() + " phòng theo khai báo ban đầu");
         }
 
-        if (roomRepository.existsByPropertyIdAndRoomNumber(propertyId, request.getRoomNumber())) {
+        if (roomRepository.existsByPropertyIdAndRoomNumberAndDeletedIsFalse(propertyId, request.getRoomNumber())) {
             throw new BusinessException(
                     "Số phòng '" + request.getRoomNumber() + "' đã tồn tại trong tòa nhà này");
         }
@@ -103,7 +100,7 @@ public class RoomServiceImpl implements RoomService {
     @Override
     @Transactional(readOnly = true)
     public RoomResponse getRoomById(Long propertyId, Long roomId) {
-        Room room = roomRepository.findByIdAndPropertyId(roomId, propertyId)
+        Room room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
         return roomMapper.toResponse(room);
@@ -171,7 +168,7 @@ public class RoomServiceImpl implements RoomService {
 
         validateFloor(property, request.getFloor());
 
-        if (roomRepository.existsByPropertyIdAndRoomNumberAndIdNot(
+        if (roomRepository.existsByPropertyIdAndRoomNumberAndIdNotAndDeletedIsFalse(
                 propertyId, request.getRoomNumber(), roomId)) {
             throw new BusinessException(
                     "Số phòng '" + request.getRoomNumber() + "' đã tồn tại trong tòa nhà này");
@@ -188,26 +185,26 @@ public class RoomServiceImpl implements RoomService {
     @Transactional
     public void deleteRoom(Long propertyId, Long roomId) {
         loadPropertyForRoomManagement(propertyId);
-        Room room = loadRoom(propertyId, roomId);
+        Room room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
 
         if (room.getStatus() == RoomStatus.RENTED) {
             throw new BusinessException(
                     "Phòng " + room.getRoomNumber() + " đang cho thuê — không thể xóa");
         }
-        if (equipmentRepository.countByRoomId(roomId) > 0) {
-            throw new BusinessException(
-                    "Phòng " + room.getRoomNumber() + " còn thiết bị được gán — không thể xóa");
-        }
-        if (monthlyReadingRepository.existsByRoomId(roomId)) {
-            throw new BusinessException(
-                    "Phòng " + room.getRoomNumber() + " đã có lịch sử chỉ số điện nước — không thể xóa");
-        }
 
-        depreciationResultRepository.findByRoomId(roomId)
-                .ifPresent(depreciationResultRepository::delete);
+        List<Equipment> equipments = equipmentRepository.findByRoomId(roomId);
+        equipments.forEach(equipment -> {
+            equipment.setRoom(null);
+            equipment.setHouseArea(null);
+        });
+        equipmentRepository.saveAll(equipments);
 
-        roomRepository.delete(room);
-        log.info("Đã xóa phòng {} (ID={}) khỏi tòa nhà ID={}", room.getRoomNumber(), roomId, propertyId);
+        room.setDeleted(true);
+        roomRepository.save(room);
+        log.info("Đã ẩn phòng {} (ID={}) — thiết bị đã chuyển về kho (tòa nhà ID={})",
+                room.getRoomNumber(), roomId, propertyId);
     }
 
     private Property loadPropertyForRoomManagement(Long propertyId) {

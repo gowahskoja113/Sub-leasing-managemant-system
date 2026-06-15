@@ -13,37 +13,42 @@ import java.util.Optional;
 @Repository
 public interface RoomRepository extends JpaRepository<Room, Long> {
 
-    List<Room> findByPropertyId(Long propertyId);
+    List<Room> findByPropertyIdAndDeletedIsFalse(Long propertyId);
 
-    List<Room> findByPropertyIdAndStatus(Long propertyId, RoomStatus status);
+    List<Room> findByPropertyIdAndStatusAndDeletedIsFalse(Long propertyId, RoomStatus status);
 
-    // Kiểm tra trùng số phòng trong cùng 1 tòa
-    boolean existsByPropertyIdAndRoomNumber(Long propertyId, String roomNumber);
+    boolean existsByPropertyIdAndRoomNumberAndDeletedIsFalse(Long propertyId, String roomNumber);
 
-    boolean existsByPropertyIdAndRoomNumberAndIdNot(Long propertyId, String roomNumber, Long id);
+    boolean existsByPropertyIdAndRoomNumberAndIdNotAndDeletedIsFalse(
+            Long propertyId, String roomNumber, Long id);
 
-    // Đếm số phòng hiện có của tòa — dùng để validate không vượt totalRooms
-    long countByPropertyId(Long propertyId);
+    long countByPropertyIdAndDeletedIsFalse(Long propertyId);
 
-    long countByPropertyIdAndStatus(Long propertyId, RoomStatus status);
+    long countByPropertyIdAndStatusAndDeletedIsFalse(Long propertyId, RoomStatus status);
 
-    @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId")
+    long countByDeletedIsFalse();
+
+    @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId AND r.deleted = false")
     int findMaxFloorByPropertyId(@Param("propertyId") Long propertyId);
 
-    // Fetch kèm property trong 1 query — tránh N+1 khi load danh sách phòng
-    @Query("SELECT r FROM Room r JOIN FETCH r.property WHERE r.property.id = :propertyId")
+    @Query("SELECT r FROM Room r JOIN FETCH r.property WHERE r.property.id = :propertyId AND r.deleted = false")
     List<Room> findByPropertyIdWithProperty(@Param("propertyId") Long propertyId);
 
-    Optional<Room> findByIdAndPropertyId(Long id, Long propertyId);
+    Optional<Room> findByIdAndPropertyIdAndDeletedIsFalse(Long id, Long propertyId);
 
-    @Query("SELECT r FROM Room r JOIN FETCH r.property WHERE r.id = :roomId AND r.property.id = :propertyId")
+    @Query("""
+            SELECT r FROM Room r JOIN FETCH r.property
+            WHERE r.id = :roomId AND r.property.id = :propertyId AND r.deleted = false
+            """)
     Optional<Room> findByIdAndPropertyIdWithProperty(
             @Param("roomId") Long roomId, @Param("propertyId") Long propertyId);
+
     @Query("""
        SELECT z.name, COUNT(r)
        FROM Room r
        JOIN r.property p
        JOIN p.zone z
+       WHERE r.deleted = false
        GROUP BY z.name
        ORDER BY COUNT(r) DESC
        """)

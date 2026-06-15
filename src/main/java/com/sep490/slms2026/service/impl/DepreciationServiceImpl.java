@@ -118,7 +118,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                                                              BigDecimal totalRenovationCost,
                                                              BigDecimal totalEquipmentCost,
                                                              int contractMonths) {
-        List<Room> rooms = roomRepository.findByPropertyId(property.getId());
+        List<Room> rooms = roomRepository.findByPropertyIdAndDeletedIsFalse(property.getId());
         if (rooms.isEmpty()) {
             throw new BusinessException("Phải có ít nhất một phòng trước khi tính giá theo phòng");
         }

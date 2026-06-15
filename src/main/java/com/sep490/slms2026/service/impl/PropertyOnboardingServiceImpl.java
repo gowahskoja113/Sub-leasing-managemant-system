@@ -250,7 +250,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
+            long rentedCount = roomRepository.countByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.RENTED);
             if (rentedCount > 0) {
                 throw new BusinessException(
                         "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
@@ -385,7 +385,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         propertyRepository.save(property);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
             for (Room room : draftRooms) {
                 room.setStatus(RoomStatus.AVAILABLE);
             }
@@ -542,7 +542,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Phải gửi giá từng phòng");
         }
 
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
         Map<Long, HostConfirmRequest.RoomPriceConfirm> priceByRoomId = request.getRoomPrices().stream()
                 .collect(Collectors.toMap(HostConfirmRequest.RoomPriceConfirm::getRoomId, Function.identity()));
 
@@ -602,7 +602,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private PropertyActivationResponse buildActivePerRoomActivationResponse(Property property, Long propertyId) {
-        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
+        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyIdAndDeletedIsFalse(propertyId).stream()
                 .map(room -> {
                     BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
                             .map(DepreciationResult::getSuggestedMinPrice)
@@ -628,7 +628,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
         List<PropertyActivationResponse.ActivatedRoom> activatedRooms = new ArrayList<>();
 
         for (Room room : draftRooms) {
@@ -698,7 +698,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 }
             }
 
-            long roomCount = roomRepository.countByPropertyId(propertyId);
+            long roomCount = roomRepository.countByPropertyIdAndDeletedIsFalse(propertyId);
             if (roomCount != property.getTotalRooms()) {
                 throw new BusinessException(String.format(
                         "Phải tạo đủ %d phòng chi tiết (hiện có %d)", property.getTotalRooms(), roomCount));
@@ -722,7 +722,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (roomId == null) {
             throw new BusinessException("Phải chọn phòng/khu vực (roomId) để gán thiết bị");
         }
-        return roomRepository.findByIdAndPropertyId(roomId, propertyId)
+        return roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng/khu vực ID=" + roomId + " trong tòa nhà này"));
     }
