@@ -1,6 +1,9 @@
 -- Chạy thủ công nếu cần (PostgreSQL)
 -- Xóa cột legacy sau khi đổi công thức khấu hao / inbound contract
 
+ALTER TABLE equipment_manifests
+    ADD COLUMN IF NOT EXISTS source VARCHAR(50) NOT NULL DEFAULT 'INITIAL_HANDOVER';
+
 ALTER TABLE depreciation_results DROP COLUMN IF EXISTS base_rent;
 ALTER TABLE depreciation_results DROP COLUMN IF EXISTS original_deposit;
 ALTER TABLE depreciation_results DROP COLUMN IF EXISTS monthly_operating_cost;

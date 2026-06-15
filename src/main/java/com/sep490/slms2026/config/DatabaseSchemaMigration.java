@@ -20,6 +20,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        addColumnIfNotExists(
+                "equipment_manifests",
+                "source",
+                "VARCHAR(50) NOT NULL DEFAULT 'INITIAL_HANDOVER'");
         dropColumnIfExists("depreciation_results", "base_rent");
         dropColumnIfExists("depreciation_results", "original_deposit");
         dropColumnIfExists("depreciation_results", "monthly_operating_cost");
@@ -114,6 +118,27 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             jdbcTemplate.execute(
                     "ALTER TABLE " + table + " RENAME COLUMN " + oldColumn + " TO " + newColumn);
             log.info("Renamed column {}.{} to {}", table, oldColumn, newColumn);
+        }
+    }
+
+    private void addColumnIfNotExists(String table, String column, String columnDefinition) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = ?
+                      AND column_name = ?
+                )
+                """,
+                Boolean.class,
+                table,
+                column);
+
+        if (!Boolean.TRUE.equals(exists)) {
+            jdbcTemplate.execute(
+                    "ALTER TABLE " + table + " ADD COLUMN " + column + " " + columnDefinition);
+            log.info("Added column {}.{}", table, column);
         }
     }
 
