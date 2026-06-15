@@ -15,7 +15,15 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     List<Room> findByPropertyIdAndDeletedIsFalse(Long propertyId);
 
+    default List<Room> findByPropertyId(Long propertyId) {
+        return findByPropertyIdAndDeletedIsFalse(propertyId);
+    }
+
     List<Room> findByPropertyIdAndStatusAndDeletedIsFalse(Long propertyId, RoomStatus status);
+
+    default List<Room> findByPropertyIdAndStatus(Long propertyId, RoomStatus status) {
+        return findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, status);
+    }
 
     boolean existsByPropertyIdAndRoomNumberAndDeletedIsFalse(Long propertyId, String roomNumber);
 
@@ -26,6 +34,10 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     long countByPropertyIdAndStatusAndDeletedIsFalse(Long propertyId, RoomStatus status);
 
+    default long countByPropertyIdAndStatus(Long propertyId, RoomStatus status) {
+        return countByPropertyIdAndStatusAndDeletedIsFalse(propertyId, status);
+    }
+
     long countByDeletedIsFalse();
 
     @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId AND r.deleted = false")
@@ -35,6 +47,10 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     List<Room> findByPropertyIdWithProperty(@Param("propertyId") Long propertyId);
 
     Optional<Room> findByIdAndPropertyIdAndDeletedIsFalse(Long id, Long propertyId);
+
+    default Optional<Room> findByIdAndPropertyId(Long id, Long propertyId) {
+        return findByIdAndPropertyIdAndDeletedIsFalse(id, propertyId);
+    }
 
     @Query("""
             SELECT r FROM Room r JOIN FETCH r.property
