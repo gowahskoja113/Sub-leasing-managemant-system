@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.AddRoomRequest;
+import com.sep490.slms2026.dto.request.UpdateRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 
@@ -33,4 +34,8 @@ public interface RoomService {
      * Cho phép khi tòa nhà DRAFT hoặc ACTIVE. Không cho phép khi phòng đang RENTED.
      */
     RoomResponse updateRoomStatus(Long propertyId, Long roomId, UpdateRoomStatusRequest request);
+
+    RoomResponse updateRoom(Long propertyId, Long roomId, UpdateRoomRequest request);
+
+    void deleteRoom(Long propertyId, Long roomId);
 }

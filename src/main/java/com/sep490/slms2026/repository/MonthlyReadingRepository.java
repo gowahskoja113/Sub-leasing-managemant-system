@@ -4,4 +4,6 @@ import com.sep490.slms2026.entity.MonthlyReading;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MonthlyReadingRepository extends JpaRepository<MonthlyReading, Long> {
+
+    boolean existsByRoomId(Long roomId);
 }

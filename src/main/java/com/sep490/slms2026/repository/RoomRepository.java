@@ -20,6 +20,8 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     // Kiểm tra trùng số phòng trong cùng 1 tòa
     boolean existsByPropertyIdAndRoomNumber(Long propertyId, String roomNumber);
 
+    boolean existsByPropertyIdAndRoomNumberAndIdNot(Long propertyId, String roomNumber, Long id);
+
     // Đếm số phòng hiện có của tòa — dùng để validate không vượt totalRooms
     long countByPropertyId(Long propertyId);
 
