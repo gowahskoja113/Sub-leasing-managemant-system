@@ -37,7 +37,7 @@ public class DepreciationServiceImpl implements DepreciationService {
     private final PropertyRepository propertyRepository;
     private final RenovationLineRepository renovationLineRepository;
     private final RoomRepository roomRepository;
-    private final com.sep490.slms2026.repository.EquipmentManifestRepository equipmentManifestRepository;
+    private final com.sep490.slms2026.repository.EquipmentRepository equipmentRepository;
 
     @Override
     @Transactional
@@ -48,7 +48,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         depreciationResultRepository.deleteByPropertyId(propertyId);
 
         BigDecimal totalRenovationCost = renovationLineRepository.sumCostByPropertyId(propertyId);
-        BigDecimal totalEquipmentCost = equipmentManifestRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
+        BigDecimal totalEquipmentCost = equipmentRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
         int contractMonths = resolveContractMonths(contract);
         BigDecimal totalRentAmount = contract.getTotalRentAmount();
 

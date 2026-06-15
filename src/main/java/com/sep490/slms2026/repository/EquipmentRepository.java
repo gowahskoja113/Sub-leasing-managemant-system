@@ -1,6 +1,7 @@
 package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.Equipment;
+import com.sep490.slms2026.enums.EquipmentSource;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,6 +13,11 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     List<Equipment> findByPropertyId(Long propertyId);
 
     long countByPropertyId(Long propertyId);
+
+    long countByPropertyIdAndSource(Long propertyId, EquipmentSource source);
+
+    @Query("SELECT COALESCE(SUM(e.price), 0) FROM Equipment e WHERE e.property.id = :propertyId AND e.source = 'PURCHASED'")
+    java.math.BigDecimal sumPurchasedEquipmentCostByPropertyId(@Param("propertyId") Long propertyId);
 
     long countByManifestId(Long manifestId);
 

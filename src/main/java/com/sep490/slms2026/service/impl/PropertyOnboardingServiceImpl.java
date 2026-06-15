@@ -3,6 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.*;
 import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PricingScope;
 import com.sep490.slms2026.enums.PropertyStatus;
@@ -142,19 +143,45 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = findEditableProperty(propertyId);
         validateEquipmentStatus(request.getStatus());
 
-        EquipmentManifest manifest = equipmentManifestRepository
-                .findByPropertyIdAndCatalogIdAndStatusAndSource(
-                        propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
-                .orElseThrow(() -> new BusinessException(String.format(
-                        "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest",
-                        request.getCatalogId(), request.getStatus(), request.getSource())));
+        EquipmentCatalog catalog = equipmentCatalogRepository.findById(request.getCatalogId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy danh mục thiết bị ID=" + request.getCatalogId()));
 
-        long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
-        if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
-            throw new BusinessException(String.format(
-                    "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
-                    request.getCatalogId(), request.getStatus(),
-                    alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+        EquipmentManifest manifest = null;
+        BigDecimal unitPrice;
+
+        if (request.getSource() == EquipmentSource.INITIAL_HANDOVER) {
+            manifest = equipmentManifestRepository
+                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                            propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
+                    .orElseThrow(() -> new BusinessException(String.format(
+                            "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest bàn giao",
+                            request.getCatalogId(), request.getStatus(), request.getSource())));
+
+            long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+            if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
+                throw new BusinessException(String.format(
+                        "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
+                        request.getCatalogId(), request.getStatus(),
+                        alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+            }
+            unitPrice = BigDecimal.ZERO;
+        } else {
+            unitPrice = resolvePurchasedUnitPrice(request);
+            manifest = equipmentManifestRepository
+                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                            propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
+                    .orElse(null);
+
+            if (manifest != null) {
+                long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+                if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
+                            request.getCatalogId(), request.getStatus(),
+                            alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+                }
+            }
         }
 
         Room room = resolveRoomForAssignment(property, propertyId, request.getRoomId(), request.getHouseArea());
@@ -164,15 +191,23 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             lastSaved = equipmentRepository.save(Equipment.builder()
                     .property(property)
                     .room(room)
-                    .catalog(manifest.getCatalog())
+                    .catalog(catalog)
                     .manifest(manifest)
                     .houseArea(request.getHouseArea())
-                    .source(manifest.getSource())
-                    .status(manifest.getStatus())
-                    .price(manifest.getPrice())
+                    .source(request.getSource())
+                    .status(request.getStatus())
+                    .price(unitPrice)
+                    .note(request.getNote())
                     .build());
         }
         return toEquipmentResponse(lastSaved);
+    }
+
+    private BigDecimal resolvePurchasedUnitPrice(AssignEquipmentRequest request) {
+        if (request.getPrice() == null || request.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Thiết bị mua mới (PURCHASED) phải có price > 0");
+        }
+        return request.getPrice();
     }
 
     @Override
@@ -250,7 +285,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long rentedCount = roomRepository.countByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.RENTED);
+            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
             if (rentedCount > 0) {
                 throw new BusinessException(
                         "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
@@ -385,7 +420,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         propertyRepository.save(property);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
+            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
             for (Room room : draftRooms) {
                 room.setStatus(RoomStatus.AVAILABLE);
             }
@@ -542,7 +577,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Phải gửi giá từng phòng");
         }
 
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
         Map<Long, HostConfirmRequest.RoomPriceConfirm> priceByRoomId = request.getRoomPrices().stream()
                 .collect(Collectors.toMap(HostConfirmRequest.RoomPriceConfirm::getRoomId, Function.identity()));
 
@@ -602,7 +637,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private PropertyActivationResponse buildActivePerRoomActivationResponse(Property property, Long propertyId) {
-        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyIdAndDeletedIsFalse(propertyId).stream()
+        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
                 .map(room -> {
                     BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
                             .map(DepreciationResult::getSuggestedMinPrice)
@@ -628,7 +663,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatusAndDeletedIsFalse(propertyId, RoomStatus.DRAFT);
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
         List<PropertyActivationResponse.ActivatedRoom> activatedRooms = new ArrayList<>();
 
         for (Room room : draftRooms) {
@@ -684,11 +719,21 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         List<EquipmentManifest> manifests = equipmentManifestRepository.findByPropertyId(propertyId);
-        if (manifests.isEmpty()) {
-            throw new BusinessException("Phải khai báo manifest thiết bị trước khi gửi host");
+        boolean hasHandoverManifest = manifests.stream()
+                .anyMatch(m -> m.getSource() == EquipmentSource.INITIAL_HANDOVER);
+        boolean hasPurchasedEquipment = equipmentRepository.countByPropertyIdAndSource(
+                propertyId, EquipmentSource.PURCHASED) > 0;
+
+        if (!hasHandoverManifest && !hasPurchasedEquipment) {
+            throw new BusinessException(
+                    "Phải khai báo manifest thiết bị bàn giao hoặc gán thiết bị mua mới trước khi gửi host");
         }
+
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
             for (EquipmentManifest manifest : manifests) {
+                if (manifest.getSource() != EquipmentSource.INITIAL_HANDOVER) {
+                    continue;
+                }
                 long assigned = equipmentRepository.countByManifestId(manifest.getId());
                 if (assigned != manifest.getQuantity()) {
                     throw new BusinessException(String.format(
@@ -722,7 +767,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (roomId == null) {
             throw new BusinessException("Phải chọn phòng/khu vực (roomId) để gán thiết bị");
         }
-        return roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
+        return roomRepository.findByIdAndPropertyId(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng/khu vực ID=" + roomId + " trong tòa nhà này"));
     }
