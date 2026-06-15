@@ -251,10 +251,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (!Boolean.TRUE.equals(property.getHasRenovation())) {
             throw new BusinessException("Tòa nhà không có cải tạo");
         }
-        property.setRenovationCompleted(true);
 
         if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
-            property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
+            property.setRenovationCompleted(true);
+            if (property.getOperationManagerId() != null) {
+                property.setStatus(PropertyStatus.ACTIVE);
+            } else {
+                property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
+            }
+        } else if (property.getStatus() == PropertyStatus.DRAFT) {
+            property.setRenovationCompleted(true);
+        } else {
+            throw new BusinessException("Chỉ có thể xác nhận hoàn thành khi tòa nhà đang UNDER_RENOVATION");
         }
 
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
