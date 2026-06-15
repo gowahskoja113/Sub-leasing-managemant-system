@@ -23,6 +23,8 @@ public interface PropertyOnboardingService {
 
     List<RenovationLineResponse> getRenovationLines(Long propertyId);
 
+    List<RenovationSessionResponse> getRenovationSessions(Long propertyId);
+
     PropertyResponse setRenovationSchedule(Long propertyId, RenovationScheduleRequest request);
 
     PropertyResponse startRenovation(Long propertyId);

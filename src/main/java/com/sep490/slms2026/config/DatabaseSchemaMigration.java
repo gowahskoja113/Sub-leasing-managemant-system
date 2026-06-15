@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -38,6 +39,82 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropNotNullIfExists("properties", "created_by");
         alterColumnToUuidIfBigint("properties", "operation_manager_id");
         alterColumnToUuidIfBigint("properties", "managed_by");
+        migrateRenovationSessions();
+    }
+
+    private void migrateRenovationSessions() {
+        createTableIfNotExists(
+                "renovation_sessions",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                property_id BIGINT NOT NULL REFERENCES properties(id),
+                session_number INT NOT NULL,
+                start_date DATE,
+                end_date DATE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (property_id, session_number)
+                """);
+        addColumnIfNotExists("renovation_lines", "session_id", "BIGINT REFERENCES renovation_sessions(id)");
+        backfillOrphanRenovationLines();
+    }
+
+    private void backfillOrphanRenovationLines() {
+        List<Long> propertyIds = jdbcTemplate.queryForList(
+                "SELECT DISTINCT property_id FROM renovation_lines WHERE session_id IS NULL",
+                Long.class);
+
+        for (Long propertyId : propertyIds) {
+            List<Long> existingSessionIds = jdbcTemplate.queryForList(
+                    "SELECT id FROM renovation_sessions WHERE property_id = ? AND session_number = 1",
+                    Long.class,
+                    propertyId);
+
+            Long sessionId;
+            if (existingSessionIds.isEmpty()) {
+                Map<String, Object> dates = jdbcTemplate.queryForMap(
+                        "SELECT renovation_start_date, renovation_end_date FROM properties WHERE id = ?",
+                        propertyId);
+                sessionId = jdbcTemplate.queryForObject(
+                        """
+                        INSERT INTO renovation_sessions (property_id, session_number, start_date, end_date, created_at)
+                        VALUES (?, 1, ?, ?, NOW()) RETURNING id
+                        """,
+                        Long.class,
+                        propertyId,
+                        dates.get("renovation_start_date"),
+                        dates.get("renovation_end_date"));
+                log.info("Created default renovation session 1 for property {}", propertyId);
+            } else {
+                sessionId = existingSessionIds.get(0);
+            }
+
+            int updated = jdbcTemplate.update(
+                    "UPDATE renovation_lines SET session_id = ? WHERE property_id = ? AND session_id IS NULL",
+                    sessionId,
+                    propertyId);
+            if (updated > 0) {
+                log.info("Assigned {} orphan renovation lines to session {} for property {}",
+                        updated, sessionId, propertyId);
+            }
+        }
+    }
+
+    private void createTableIfNotExists(String table, String columnDefinitions) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = ?
+                )
+                """,
+                Boolean.class,
+                table);
+
+        if (!Boolean.TRUE.equals(exists)) {
+            jdbcTemplate.execute("CREATE TABLE " + table + " (" + columnDefinitions + ")");
+            log.info("Created table {}", table);
+        }
     }
 
     private void alterColumnToUuidIfBigint(String table, String column) {

@@ -27,6 +27,10 @@ public class RenovationLine implements Serializable {
     @JoinColumn(name = "category_id", nullable = false)
     private RenovationCategory category;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "session_id")
+    private RenovationSession session;
+
     @Column(nullable = false)
     private BigDecimal cost;
 
