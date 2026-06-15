@@ -45,5 +45,7 @@ public interface PropertyOnboardingService {
 
     List<EquipmentCatalogResponse> listEquipmentCatalog();
 
+    EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request);
+
     List<RenovationCategoryResponse> listRenovationCategories();
 }

@@ -8,4 +8,6 @@ import java.util.List;
 public interface EquipmentCatalogRepository extends JpaRepository<EquipmentCatalog, Long> {
 
     List<EquipmentCatalog> findByActiveTrueOrderByNameAsc();
+
+    boolean existsByNameIgnoreCase(String name);
 }

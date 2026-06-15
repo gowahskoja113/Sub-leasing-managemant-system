@@ -145,6 +145,13 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.listEquipmentCatalog());
     }
 
+    @PostMapping("/equipment-catalog")
+    public ResponseEntity<EquipmentCatalogResponse> createEquipmentCatalog(
+            @Valid @RequestBody EquipmentCatalogCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(propertyOnboardingService.createEquipmentCatalog(request));
+    }
+
     @GetMapping("/renovation-categories")
     public ResponseEntity<List<RenovationCategoryResponse>> listRenovationCategories() {
         return ResponseEntity.ok(propertyOnboardingService.listRenovationCategories());

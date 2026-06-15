@@ -40,6 +40,21 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         alterColumnToUuidIfBigint("properties", "operation_manager_id");
         alterColumnToUuidIfBigint("properties", "managed_by");
         migrateRenovationSessions();
+        ensureEquipmentCatalogSchema();
+    }
+
+    private void ensureEquipmentCatalogSchema() {
+        createTableIfNotExists(
+                "equipment_catalog",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                active BOOLEAN NOT NULL DEFAULT TRUE
+                """);
+        renameColumnIfExists("equipment_catalog", "is_active", "active");
+        addColumnIfNotExists("equipment_catalog", "active", "BOOLEAN DEFAULT TRUE");
+        jdbcTemplate.execute("UPDATE equipment_catalog SET active = TRUE WHERE active IS NULL");
     }
 
     private void migrateRenovationSessions() {

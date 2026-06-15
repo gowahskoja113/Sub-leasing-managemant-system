@@ -11,6 +11,7 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
+import com.sep490.slms2026.exception.ConflictException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.DepreciationService;
@@ -518,12 +519,32 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional(readOnly = true)
     public List<EquipmentCatalogResponse> listEquipmentCatalog() {
         return equipmentCatalogRepository.findByActiveTrueOrderByNameAsc().stream()
-                .map(c -> EquipmentCatalogResponse.builder()
-                        .id(c.getId())
-                        .name(c.getName())
-                        .description(c.getDescription())
-                        .build())
+                .map(this::toEquipmentCatalogResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request) {
+        String name = request.getName().trim();
+        if (equipmentCatalogRepository.existsByNameIgnoreCase(name)) {
+            throw new ConflictException("Tên thiết bị '" + name + "' đã tồn tại");
+        }
+
+        EquipmentCatalog saved = equipmentCatalogRepository.save(EquipmentCatalog.builder()
+                .name(name)
+                .description(request.getDescription())
+                .active(true)
+                .build());
+        return toEquipmentCatalogResponse(saved);
+    }
+
+    private EquipmentCatalogResponse toEquipmentCatalogResponse(EquipmentCatalog catalog) {
+        return EquipmentCatalogResponse.builder()
+                .id(catalog.getId())
+                .name(catalog.getName())
+                .description(catalog.getDescription())
+                .build();
     }
 
     @Override
