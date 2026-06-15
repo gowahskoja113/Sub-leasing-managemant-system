@@ -75,7 +75,7 @@ public class RoomServiceImpl implements RoomService {
         if (!propertyRepository.existsById(propertyId)) {
             throw new RuntimeException("Không tìm thấy Bất động sản!");
         }
-        return roomRepository.findAllByPropertyId(propertyId, pageable).map(roomMapper::toResponse);
+        return roomRepository.findAllByPropertyId(propertyId).map(roomMapper::toResponse);
     }
 
     @Override

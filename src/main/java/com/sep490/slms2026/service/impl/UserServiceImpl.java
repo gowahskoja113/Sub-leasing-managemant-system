@@ -2,27 +2,35 @@ package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.TenantCreationRequest;
 import com.sep490.slms2026.dto.response.TenantResponse;
+import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.Tenant;
 import com.sep490.slms2026.entity.User;
+import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
+import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.mapper.UserMapper;
+import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.UserService;
 import com.sep490.slms2026.util.SmsService;
 import jakarta.transaction.Transactional;
+import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@AllArgsConstructor
 public class UserServiceImpl implements UserService {
 
     @Autowired
@@ -32,6 +40,7 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final SmsService smsService;
     private final RoomRepository roomRepository;
+    private final PropertyRepository propertyRepository;
 
     @Override
     public User createUser(User user) {
@@ -102,6 +111,7 @@ public class UserServiceImpl implements UserService {
         user.setStatus(newStatus);
         return userRepository.save(user);
     }
+
     @Override
     @Transactional
     public TenantResponse createTenant(TenantCreationRequest request) {
@@ -144,10 +154,12 @@ public class UserServiceImpl implements UserService {
         // 5. Phân nhánh gán phòng hoặc nguyên căn
         if (request.getRoomId() != null) {
             // --- Trường hợp thuê phòng ---
+            // FIX LỖI Ở ĐÂY: Đổi sang findById để dùng được orElseThrow
             Room room = roomRepository.findById(request.getRoomId())
                     .orElseThrow(() -> new RuntimeException("Phòng không tồn tại!"));
 
-            if ("OCCUPIED".equals(room.getStatus())) {
+            // ĐỒNG BỘ ENUM: Nên check theo Enum thay vì so sánh String "OCCUPIED"
+            if (RoomStatus.AVAILABLE.equals(room.getStatus()) || RoomStatus.RENTED.equals(room.getStatus())) {
                 throw new RuntimeException("Phòng đã có người ở, không thể gán thêm!");
             }
 
@@ -155,7 +167,7 @@ public class UserServiceImpl implements UserService {
             tenant.setProperty(null);
             tenant.setRoomRentalStatus("RENTING");
 
-            room.setStatus("OCCUPIED");
+            room.setStatus(RoomStatus.RENTED);
             roomRepository.save(room);
 
         } else if (request.getPropertyId() != null) {
@@ -163,10 +175,12 @@ public class UserServiceImpl implements UserService {
             Property property = propertyRepository.findById(request.getPropertyId())
                     .orElseThrow(() -> new RuntimeException("Property không tồn tại!"));
 
-            if (!property.isWholeHouse()) {
+            if (!property.getWholeHouse()) {
                 throw new RuntimeException("Property này không phải nguyên căn, hãy chọn phòng cụ thể!");
             }
-            if ("OCCUPIED".equals(property.getStatus())) {
+
+            // ĐỒNG BỘ ENUM: Thay vì dùng chuỗi "OCCUPIED", hãy dùng PropertyStatus.OCCUPIED
+            if (PropertyStatus.OCCUPIED.equals(property.getPropertyStatus())) {
                 throw new RuntimeException("Nguyên căn này đã có người thuê!");
             }
 
@@ -174,7 +188,7 @@ public class UserServiceImpl implements UserService {
             tenant.setRoom(null);
             tenant.setRoomRentalStatus("RENTING");
 
-            property.setStatus("OCCUPIED");
+            property.setPropertyStatus(PropertyStatus.OCCUPIED);
             propertyRepository.save(property);
 
         } else {

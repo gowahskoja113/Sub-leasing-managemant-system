@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.sep490.slms2026.enums.PropertyStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -54,4 +55,8 @@ public class Property {
 
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Room> rooms = new ArrayList<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "property_status", nullable = false)
+    private PropertyStatus propertyStatus;
 }
