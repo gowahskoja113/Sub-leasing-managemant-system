@@ -306,9 +306,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             response = confirmPerRoom(property, propertyId, request);
         }
 
-        if (request.getOperationManagerId() != null) {
-            return finalizeActivation(property, propertyId, request.getOperationManagerId());
-        }
         return response;
     }
 
@@ -319,13 +316,26 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
-        if (property.getStatus() != PropertyStatus.PENDING_OPERATION_MANAGER) {
+        if (property.getStatus() != PropertyStatus.PENDING_OPERATION_MANAGER
+                && property.getStatus() != PropertyStatus.ACTIVE) {
             throw new BusinessException(
-                    "Chỉ có thể gán Operation Manager khi nhà ở trạng thái PENDING_OPERATION_MANAGER");
+                    "Chỉ có thể gán/đổi Operation Manager khi nhà đang PENDING_OPERATION_MANAGER hoặc ACTIVE");
         }
 
         UUID managerId = request.getOperationManagerId();
         validateOperationManager(managerId);
+
+        if (property.getStatus() == PropertyStatus.ACTIVE) {
+            if (!managerId.equals(property.getOperationManagerId())) {
+                property.setOperationManagerId(managerId);
+                property.setManagedBy(managerId);
+                propertyRepository.save(property);
+            }
+            if (Boolean.TRUE.equals(property.getWholeHouse())) {
+                return buildWholeHouseActivationResponse(property, propertyId);
+            }
+            return buildActivePerRoomActivationResponse(property, propertyId);
+        }
 
         property.setOperationManagerId(managerId);
         property.setManagedBy(managerId);
@@ -549,24 +559,30 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .build();
     }
 
-    private PropertyActivationResponse finalizeActivation(Property property,
-                                                          Long propertyId,
-                                                          UUID managerId) {
-        validateOperationManager(managerId);
-        property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
-        property.setStatus(PropertyStatus.ACTIVE);
-        propertyRepository.save(property);
+    private PropertyActivationResponse buildActivePerRoomActivationResponse(Property property, Long propertyId) {
+        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
+                .map(room -> {
+                    BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
+                            .map(DepreciationResult::getSuggestedMinPrice)
+                            .orElse(null);
+                    return PropertyActivationResponse.ActivatedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .price(room.getPrice())
+                            .adminSuggestedPrice(adminSuggested)
+                            .status(room.getStatus())
+                            .build();
+                })
+                .toList();
 
-        if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
-            for (Room room : draftRooms) {
-                room.setStatus(RoomStatus.AVAILABLE);
-            }
-            roomRepository.saveAll(draftRooms);
-            return buildWholeHouseActivationResponse(property, propertyId);
-        }
-        return activatePerRoom(property, propertyId, managerId);
+        return PropertyActivationResponse.builder()
+                .propertyId(propertyId)
+                .pricingScope(PricingScope.ROOM)
+                .propertyStatus(property.getStatus())
+                .hostContingencyPercent(property.getHostContingencyPercent())
+                .operationManagerId(property.getOperationManagerId())
+                .rooms(rooms)
+                .build();
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {

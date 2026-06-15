@@ -27,7 +27,7 @@ public class HostConfirmRequest {
     @Valid
     private List<RoomPriceConfirm> roomPrices;
 
-    /** Tuỳ chọn — nếu gửi kèm sẽ gán OM và kích hoạt tòa nhà ngay trong cùng request */
+    /** Tuỳ chọn — không dùng trong host-confirm; gán manager qua POST/PATCH /operation-manager */
     @JsonAlias({"id", "managerId"})
     private UUID operationManagerId;
 
