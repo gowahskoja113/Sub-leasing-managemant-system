@@ -221,6 +221,29 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
     @Override
     @Transactional
+    public PropertyResponse startRenovation(Long propertyId) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.ACTIVE) {
+            throw new BusinessException("Chỉ có thể cải tạo lại khi tòa nhà đang ACTIVE");
+        }
+
+        if (Boolean.FALSE.equals(property.getWholeHouse())) {
+            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
+            if (rentedCount > 0) {
+                throw new BusinessException(
+                        "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
+            }
+        }
+
+        property.setStatus(PropertyStatus.UNDER_RENOVATION);
+        property.setRenovationCompleted(false);
+        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+    }
+
+    @Override
+    @Transactional
     public PropertyResponse completeRenovation(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));

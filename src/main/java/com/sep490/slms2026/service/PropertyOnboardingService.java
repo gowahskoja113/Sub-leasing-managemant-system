@@ -25,6 +25,8 @@ public interface PropertyOnboardingService {
 
     PropertyResponse setRenovationSchedule(Long propertyId, RenovationScheduleRequest request);
 
+    PropertyResponse startRenovation(Long propertyId);
+
     PropertyResponse completeRenovation(Long propertyId);
 
     OnboardingSummaryResponse submitToHost(Long propertyId);

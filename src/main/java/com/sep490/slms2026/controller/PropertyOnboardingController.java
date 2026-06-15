@@ -80,6 +80,11 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.setRenovationSchedule(propertyId, request));
     }
 
+    @PostMapping("/properties/{propertyId}/renovation/start")
+    public ResponseEntity<PropertyResponse> startRenovation(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.startRenovation(propertyId));
+    }
+
     @PostMapping("/properties/{propertyId}/renovation/complete")
     public ResponseEntity<PropertyResponse> completeRenovation(@PathVariable Long propertyId) {
         return ResponseEntity.ok(propertyOnboardingService.completeRenovation(propertyId));
