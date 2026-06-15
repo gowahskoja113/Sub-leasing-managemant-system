@@ -44,6 +44,10 @@ public class User {
     @Enumerated(EnumType.STRING)
     private UserStatus status = UserStatus.INACTIVE;
 
+    // Push token (FCM / Expo) cho thông báo đẩy — chủ yếu dùng cho tenant
+    @Column(name = "push_token")
+    private String pushToken;
+
     // Mối quan hệ 1-1 quay ngược lại các bảng Profile
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JsonIgnore

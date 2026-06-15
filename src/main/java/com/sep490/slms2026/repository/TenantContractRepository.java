@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -20,4 +21,6 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     List<TenantContract> findByPropertyId(Long propertyId);
 
     List<TenantContract> findByTenantId(UUID tenantUserId);
+
+    Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
 }
