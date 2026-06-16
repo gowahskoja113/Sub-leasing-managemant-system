@@ -40,9 +40,9 @@ public class RoomServiceImpl implements RoomService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
-        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
+        if (!property.getStatus().isOnboardingEditable()) {
             throw new BusinessException(
-                    "Chỉ có thể thêm phòng khi tòa nhà đang ở trạng thái DRAFT hoặc UNDER_RENOVATION");
+                    "Chỉ có thể thêm phòng khi tòa nhà đang trong quá trình onboarding");
         }
 
         if (property.getWholeHouse() == null) {
@@ -73,9 +73,7 @@ public class RoomServiceImpl implements RoomService {
 
         Room room = roomMapper.toEntity(request);
         room.setProperty(property);
-        room.setStatus(property.getStatus() == PropertyStatus.UNDER_RENOVATION
-                ? RoomStatus.AVAILABLE
-                : RoomStatus.DRAFT);
+        room.setStatus(RoomStatus.DRAFT);
 
         Room saved = roomRepository.save(room);
         log.info("Đã tạo phòng {} cho tòa nhà ID={}", saved.getRoomNumber(), propertyId);
@@ -114,9 +112,9 @@ public class RoomServiceImpl implements RoomService {
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
         PropertyStatus propertyStatus = property.getStatus();
-        if (propertyStatus != PropertyStatus.DRAFT && propertyStatus != PropertyStatus.ACTIVE) {
+        if (!propertyStatus.isOnboardingEditable() && propertyStatus != PropertyStatus.ACTIVE) {
             throw new BusinessException(
-                    "Chỉ cập nhật trạng thái phòng khi tòa nhà đang DRAFT hoặc ACTIVE");
+                    "Chỉ cập nhật trạng thái phòng khi tòa nhà đang onboarding hoặc ACTIVE");
         }
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
             throw new BusinessException(
@@ -131,7 +129,7 @@ public class RoomServiceImpl implements RoomService {
             throw new BusinessException(
                     "Phòng " + room.getRoomNumber() + " đang cho thuê — không thể đổi trạng thái");
         }
-        if (room.getStatus() == RoomStatus.DRAFT && propertyStatus != PropertyStatus.DRAFT) {
+        if (room.getStatus() == RoomStatus.DRAFT) {
             throw new BusinessException(
                     "Phòng " + room.getRoomNumber() + " chưa kích hoạt — không thể cập nhật trạng thái");
         }
@@ -213,9 +211,9 @@ public class RoomServiceImpl implements RoomService {
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
         PropertyStatus status = property.getStatus();
-        if (status != PropertyStatus.DRAFT && status != PropertyStatus.UNDER_RENOVATION) {
+        if (!status.isOnboardingEditable()) {
             throw new BusinessException(
-                    "Chỉ sửa/xóa phòng khi tòa nhà đang DRAFT hoặc UNDER_RENOVATION");
+                    "Chỉ sửa/xóa phòng khi tòa nhà đang trong quá trình onboarding");
         }
         return property;
     }

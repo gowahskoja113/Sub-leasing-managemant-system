@@ -185,8 +185,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT
-                && property.getStatus() != PropertyStatus.UNDER_RENOVATION
+        if (!property.getStatus().isOnboardingEditable()
                 && property.getStatus() != PropertyStatus.PENDING_HOST_REVIEW) {
             throw new BusinessException("Chỉ tính giá khi tòa nhà đang trong quá trình onboarding");
         }

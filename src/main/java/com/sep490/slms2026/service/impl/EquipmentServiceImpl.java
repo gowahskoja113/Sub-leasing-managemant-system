@@ -43,8 +43,9 @@ public class EquipmentServiceImpl implements EquipmentService {
     public void unassignEquipment(Long propertyId, Long equipmentId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
-            throw new BusinessException("Chỉ có thể xoá thiết bị đã gán khi tòa nhà đang ở trạng thái DRAFT hoặc UNDER_RENOVATION");
+        if (!property.getStatus().isEquipmentEditable()) {
+            throw new BusinessException(
+                    "Chỉ có thể xoá thiết bị đã gán khi nhà đang trong quá trình onboarding (quy trình 3)");
         }
         Equipment equipment = equipmentRepository.findByIdAndPropertyId(equipmentId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -59,9 +60,9 @@ public class EquipmentServiceImpl implements EquipmentService {
                                                ReassignEquipmentRequest request) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
+        if (!property.getStatus().isEquipmentEditable()) {
             throw new BusinessException(
-                    "Chỉ có thể gán thiết bị từ kho khi tòa nhà đang ở trạng thái DRAFT hoặc UNDER_RENOVATION");
+                    "Chỉ có thể gán thiết bị từ kho khi nhà đang trong quá trình onboarding (quy trình 3)");
         }
 
         Equipment equipment = equipmentRepository.findByIdAndPropertyId(equipmentId, propertyId)

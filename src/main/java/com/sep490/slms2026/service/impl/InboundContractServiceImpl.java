@@ -51,6 +51,8 @@ public class InboundContractServiceImpl implements InboundContractService {
         contract.setContractScanUrl(request.getContractScanUrl());
 
         InboundContract saved = inboundContractRepository.save(contract);
+        property.setStatus(PropertyStatus.PENDING);
+        propertyRepository.save(property);
         return toResponse(saved);
     }
 
