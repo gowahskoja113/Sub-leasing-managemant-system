@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -155,5 +156,15 @@ public class PropertyOnboardingController {
     @GetMapping("/renovation-categories")
     public ResponseEntity<List<RenovationCategoryResponse>> listRenovationCategories() {
         return ResponseEntity.ok(propertyOnboardingService.listRenovationCategories());
+    }
+
+    /**
+     * Xóa cứng căn nhà và toàn bộ dữ liệu onboarding (hợp đồng, cải tạo, thiết bị, phòng...).
+     * Dùng khi import Excel sai và cần import lại từ đầu.
+     */
+    @DeleteMapping("/properties/{propertyId}/purge")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PropertyPurgeResponse> purgeProperty(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.purgeProperty(propertyId));
     }
 }

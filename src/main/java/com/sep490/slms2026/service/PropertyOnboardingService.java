@@ -48,4 +48,6 @@ public interface PropertyOnboardingService {
     EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request);
 
     List<RenovationCategoryResponse> listRenovationCategories();
+
+    PropertyPurgeResponse purgeProperty(Long propertyId);
 }

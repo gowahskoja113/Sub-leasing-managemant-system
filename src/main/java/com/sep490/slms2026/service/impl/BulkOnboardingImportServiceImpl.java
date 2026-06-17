@@ -4,6 +4,7 @@ import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.BulkImportContractResultResponse;
 import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
 import com.sep490.slms2026.dto.response.BulkImportResponse;
+import com.sep490.slms2026.dto.response.PropertyPurgeResponse;
 import com.sep490.slms2026.entity.EquipmentCatalog;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.RenovationCategory;
@@ -13,6 +14,7 @@ import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.exception.BulkImportValidationException;
+import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.imports.*;
 import com.sep490.slms2026.repository.EquipmentCatalogRepository;
 import com.sep490.slms2026.repository.InboundContractRepository;
@@ -99,6 +101,16 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                 .results(results)
                 .errors(List.of())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public PropertyPurgeResponse purgeByContractCode(String contractCode) {
+        Long propertyId = inboundContractRepository.findByContractCode(contractCode)
+                .map(contract -> contract.getProperty().getId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng inbound với mã: " + contractCode));
+        return propertyOnboardingService.purgeProperty(propertyId);
     }
 
     private BulkImportContractResultResponse importContract(LeaseContractImportRow leaseRow,

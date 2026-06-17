@@ -3,6 +3,7 @@ package com.sep490.slms2026.repository;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.enums.RoomStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -71,4 +72,11 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
        ORDER BY COUNT(r) DESC
        """)
     List<Object[]> getMostRoomsByZone();
+
+    @Query("SELECT COUNT(r) FROM Room r WHERE r.property.id = :propertyId")
+    long countAllByPropertyIdIncludingDeleted(@Param("propertyId") Long propertyId);
+
+    @Modifying
+    @Query("DELETE FROM Room r WHERE r.property.id = :propertyId")
+    void deleteAllByPropertyId(@Param("propertyId") Long propertyId);
 }

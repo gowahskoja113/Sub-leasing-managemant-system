@@ -2,6 +2,7 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.RenovationSession;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,4 +19,10 @@ public interface RenovationSessionRepository extends JpaRepository<RenovationSes
 
     @Query("SELECT COALESCE(MAX(s.sessionNumber), 0) FROM RenovationSession s WHERE s.property.id = :propertyId")
     int findMaxSessionNumberByPropertyId(@Param("propertyId") Long propertyId);
+
+    long countByPropertyId(Long propertyId);
+
+    @Modifying
+    @Query("DELETE FROM RenovationSession s WHERE s.property.id = :propertyId")
+    void deleteByPropertyId(@Param("propertyId") Long propertyId);
 }
