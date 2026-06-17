@@ -22,7 +22,7 @@ public interface RenovationSessionRepository extends JpaRepository<RenovationSes
 
     long countByPropertyId(Long propertyId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM RenovationSession s WHERE s.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
 }

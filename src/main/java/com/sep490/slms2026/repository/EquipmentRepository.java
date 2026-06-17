@@ -3,6 +3,7 @@ package com.sep490.slms2026.repository;
 import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.enums.EquipmentSource;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -28,7 +29,9 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     @Query("SELECT COUNT(e) FROM Equipment e WHERE e.property.id = :propertyId AND e.catalog.id = :catalogId")
     long countByPropertyIdAndCatalogId(@Param("propertyId") Long propertyId, @Param("catalogId") Long catalogId);
 
-    void deleteByPropertyId(Long propertyId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM Equipment e WHERE e.property.id = :propertyId")
+    void deleteByPropertyId(@Param("propertyId") Long propertyId);
 
     java.util.Optional<Equipment> findByIdAndPropertyId(Long id, Long propertyId);
 }

@@ -8,7 +8,9 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.PropertyDeletionService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,8 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
     private final InboundContractRepository inboundContractRepository;
     private final DepreciationResultRepository depreciationResultRepository;
     private final MonthlyReadingRepository monthlyReadingRepository;
+    private final EntityManager entityManager;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     @Transactional
@@ -56,6 +60,7 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         }
         int monthlyReadingsDeleted = (int) monthlyReadingRepository.countByPropertyId(propertyId);
 
+        entityManager.detach(property);
         deleteDependentRecords(propertyId);
         propertyRepository.delete(property);
 
@@ -74,16 +79,24 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
     }
 
     /**
-     * Thứ tự xóa theo phụ thuộc FK — khớp docs/BE-import-excel-status-constraint.md §BUG #2.
+     * Thứ tự xóa con → cha (docs/BE-import-excel-status-constraint.md):
+     * depreciation_results → equipments → monthly_readings → inbound_contracts
+     * → renovation_lines → renovation_sessions → equipment_manifests
+     * → property_images → rooms → properties
      */
     private void deleteDependentRecords(Long propertyId) {
         depreciationResultRepository.deleteByPropertyId(propertyId);
         equipmentRepository.deleteByPropertyId(propertyId);
         monthlyReadingRepository.deleteByPropertyId(propertyId);
         inboundContractRepository.deleteByPropertyId(propertyId);
+
+        // renovation_lines.session_id → renovation_sessions: xóa lines TRƯỚC sessions
         renovationLineRepository.deleteByPropertyId(propertyId);
+        entityManager.flush();
         renovationSessionRepository.deleteByPropertyId(propertyId);
+
         equipmentManifestRepository.deleteByPropertyId(propertyId);
+        jdbcTemplate.update("DELETE FROM property_images WHERE property_id = ?", propertyId);
         roomRepository.deleteAllByPropertyId(propertyId);
     }
 }
