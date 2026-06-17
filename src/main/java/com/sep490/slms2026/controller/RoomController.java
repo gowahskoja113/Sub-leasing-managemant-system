@@ -1,6 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.AddRoomRequest;
+import com.sep490.slms2026.dto.request.UpdateRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.service.RoomService;
@@ -63,5 +64,31 @@ public class RoomController {
             @PathVariable Long roomId,
             @Valid @RequestBody UpdateRoomStatusRequest request) {
         return ResponseEntity.ok(roomService.updateRoomStatus(propertyId, roomId, request));
+    }
+
+    /**
+     * PUT /api/v1/properties/{propertyId}/rooms/{roomId}
+     * Cập nhật thông tin phòng (số phòng, tầng, diện tích...).
+     * Cho phép khi tòa nhà DRAFT hoặc UNDER_RENOVATION. Không cho phép khi phòng đang RENTED.
+     */
+    @PutMapping("/{roomId}")
+    public ResponseEntity<RoomResponse> updateRoom(
+            @PathVariable Long propertyId,
+            @PathVariable Long roomId,
+            @Valid @RequestBody UpdateRoomRequest request) {
+        return ResponseEntity.ok(roomService.updateRoom(propertyId, roomId, request));
+    }
+
+    /**
+     * DELETE /api/v1/properties/{propertyId}/rooms/{roomId}
+     * Xóa phòng (khi giảm số phòng sau cải tạo).
+     * Cho phép khi tòa nhà DRAFT hoặc UNDER_RENOVATION. Không cho phép khi phòng đang RENTED.
+     */
+    @DeleteMapping("/{roomId}")
+    public ResponseEntity<Void> deleteRoom(
+            @PathVariable Long propertyId,
+            @PathVariable Long roomId) {
+        roomService.deleteRoom(propertyId, roomId);
+        return ResponseEntity.noContent().build();
     }
 }

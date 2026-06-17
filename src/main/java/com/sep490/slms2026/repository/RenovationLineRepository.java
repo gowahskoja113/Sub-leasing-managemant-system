@@ -12,6 +12,8 @@ public interface RenovationLineRepository extends JpaRepository<RenovationLine, 
 
     List<RenovationLine> findByPropertyId(Long propertyId);
 
+    List<RenovationLine> findBySessionIdOrderByIdAsc(Long sessionId);
+
     void deleteByPropertyId(Long propertyId);
 
     @Query("SELECT COALESCE(SUM(r.cost), 0) FROM RenovationLine r WHERE r.property.id = :propertyId")

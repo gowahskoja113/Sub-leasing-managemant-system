@@ -73,11 +73,22 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.getRenovationLines(propertyId));
     }
 
+    @GetMapping("/properties/{propertyId}/renovation/sessions")
+    public ResponseEntity<List<RenovationSessionResponse>> getRenovationSessions(
+            @PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.getRenovationSessions(propertyId));
+    }
+
     @PutMapping("/properties/{propertyId}/renovation-schedule")
     public ResponseEntity<PropertyResponse> setRenovationSchedule(
             @PathVariable Long propertyId,
             @Valid @RequestBody RenovationScheduleRequest request) {
         return ResponseEntity.ok(propertyOnboardingService.setRenovationSchedule(propertyId, request));
+    }
+
+    @PostMapping("/properties/{propertyId}/renovation/start")
+    public ResponseEntity<PropertyResponse> startRenovation(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.startRenovation(propertyId));
     }
 
     @PostMapping("/properties/{propertyId}/renovation/complete")

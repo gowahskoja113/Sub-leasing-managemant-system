@@ -20,8 +20,12 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     // Kiểm tra trùng số phòng trong cùng 1 tòa
     boolean existsByPropertyIdAndRoomNumber(Long propertyId, String roomNumber);
 
+    boolean existsByPropertyIdAndRoomNumberAndIdNot(Long propertyId, String roomNumber, Long id);
+
     // Đếm số phòng hiện có của tòa — dùng để validate không vượt totalRooms
     long countByPropertyId(Long propertyId);
+
+    long countByPropertyIdAndStatus(Long propertyId, RoomStatus status);
 
     @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId")
     int findMaxFloorByPropertyId(@Param("propertyId") Long propertyId);

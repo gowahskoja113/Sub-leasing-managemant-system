@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final EquipmentRepository equipmentRepository;
     private final RenovationCategoryRepository renovationCategoryRepository;
     private final RenovationLineRepository renovationLineRepository;
+    private final RenovationSessionRepository renovationSessionRepository;
     private final RoomRepository roomRepository;
     private final InboundContractRepository inboundContractRepository;
     private final DepreciationResultRepository depreciationResultRepository;
@@ -185,9 +187,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy danh mục cải tạo ID=" + request.getCategoryId()));
 
+        RenovationSession session = findOrCreateCurrentSession(property);
+
         RenovationLine saved = renovationLineRepository.save(RenovationLine.builder()
                 .property(property)
                 .category(category)
+                .session(session)
                 .cost(request.getCost())
                 .note(request.getNote())
                 .build());
@@ -204,6 +209,15 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<RenovationSessionResponse> getRenovationSessions(Long propertyId) {
+        ensurePropertyExists(propertyId);
+        return renovationSessionRepository.findByPropertyIdOrderBySessionNumberAsc(propertyId).stream()
+                .map(this::toRenovationSessionResponse)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public PropertyResponse setRenovationSchedule(Long propertyId, RenovationScheduleRequest request) {
         Property property = findEditableProperty(propertyId);
@@ -216,6 +230,44 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setRenovationStartDate(request.getStartDate());
         property.setRenovationEndDate(request.getEndDate());
         property.setRenovationCompleted(false);
+
+        RenovationSession session = findOrCreateCurrentSession(property);
+        session.setStartDate(request.getStartDate());
+        session.setEndDate(request.getEndDate());
+        renovationSessionRepository.save(session);
+
+        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+    }
+
+    @Override
+    @Transactional
+    public PropertyResponse startRenovation(Long propertyId) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.ACTIVE) {
+            throw new BusinessException("Chỉ có thể cải tạo lại khi tòa nhà đang ACTIVE");
+        }
+
+        if (Boolean.FALSE.equals(property.getWholeHouse())) {
+            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
+            if (rentedCount > 0) {
+                throw new BusinessException(
+                        "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
+            }
+        }
+
+        property.setStatus(PropertyStatus.UNDER_RENOVATION);
+        property.setRenovationCompleted(false);
+
+        int nextSessionNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId) + 1;
+        renovationSessionRepository.save(RenovationSession.builder()
+                .property(property)
+                .sessionNumber(nextSessionNumber)
+                .startDate(LocalDate.now())
+                .createdAt(LocalDateTime.now())
+                .build());
+
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
@@ -228,10 +280,23 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (!Boolean.TRUE.equals(property.getHasRenovation())) {
             throw new BusinessException("Tòa nhà không có cải tạo");
         }
-        property.setRenovationCompleted(true);
 
         if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
-            property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
+            closeActiveRenovationSession(property, LocalDate.now());
+            property.setRenovationCompleted(true);
+            if (property.getOperationManagerId() != null) {
+                property.setStatus(PropertyStatus.ACTIVE);
+            } else {
+                property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
+            }
+        } else if (property.getStatus() == PropertyStatus.DRAFT) {
+            LocalDate endDate = property.getRenovationEndDate() != null
+                    ? property.getRenovationEndDate()
+                    : LocalDate.now();
+            closeActiveRenovationSession(property, endDate);
+            property.setRenovationCompleted(true);
+        } else {
+            throw new BusinessException("Chỉ có thể xác nhận hoàn thành khi tòa nhà đang UNDER_RENOVATION");
         }
 
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
@@ -283,9 +348,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             response = confirmPerRoom(property, propertyId, request);
         }
 
-        if (request.getOperationManagerId() != null) {
-            return finalizeActivation(property, propertyId, request.getOperationManagerId());
-        }
         return response;
     }
 
@@ -296,13 +358,26 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
-        if (property.getStatus() != PropertyStatus.PENDING_OPERATION_MANAGER) {
+        if (property.getStatus() != PropertyStatus.PENDING_OPERATION_MANAGER
+                && property.getStatus() != PropertyStatus.ACTIVE) {
             throw new BusinessException(
-                    "Chỉ có thể gán Operation Manager khi nhà ở trạng thái PENDING_OPERATION_MANAGER");
+                    "Chỉ có thể gán/đổi Operation Manager khi nhà đang PENDING_OPERATION_MANAGER hoặc ACTIVE");
         }
 
         UUID managerId = request.getOperationManagerId();
         validateOperationManager(managerId);
+
+        if (property.getStatus() == PropertyStatus.ACTIVE) {
+            if (!managerId.equals(property.getOperationManagerId())) {
+                property.setOperationManagerId(managerId);
+                property.setManagedBy(managerId);
+                propertyRepository.save(property);
+            }
+            if (Boolean.TRUE.equals(property.getWholeHouse())) {
+                return buildWholeHouseActivationResponse(property, propertyId);
+            }
+            return buildActivePerRoomActivationResponse(property, propertyId);
+        }
 
         property.setOperationManagerId(managerId);
         property.setManagedBy(managerId);
@@ -526,24 +601,30 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .build();
     }
 
-    private PropertyActivationResponse finalizeActivation(Property property,
-                                                          Long propertyId,
-                                                          UUID managerId) {
-        validateOperationManager(managerId);
-        property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
-        property.setStatus(PropertyStatus.ACTIVE);
-        propertyRepository.save(property);
+    private PropertyActivationResponse buildActivePerRoomActivationResponse(Property property, Long propertyId) {
+        List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
+                .map(room -> {
+                    BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
+                            .map(DepreciationResult::getSuggestedMinPrice)
+                            .orElse(null);
+                    return PropertyActivationResponse.ActivatedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .price(room.getPrice())
+                            .adminSuggestedPrice(adminSuggested)
+                            .status(room.getStatus())
+                            .build();
+                })
+                .toList();
 
-        if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
-            for (Room room : draftRooms) {
-                room.setStatus(RoomStatus.AVAILABLE);
-            }
-            roomRepository.saveAll(draftRooms);
-            return buildWholeHouseActivationResponse(property, propertyId);
-        }
-        return activatePerRoom(property, propertyId, managerId);
+        return PropertyActivationResponse.builder()
+                .propertyId(propertyId)
+                .pricingScope(PricingScope.ROOM)
+                .propertyStatus(property.getStatus())
+                .hostContingencyPercent(property.getHostContingencyPercent())
+                .operationManagerId(property.getOperationManagerId())
+                .rooms(rooms)
+                .build();
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {
@@ -702,6 +783,53 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .cost(line.getCost())
                 .note(line.getNote())
                 .build();
+    }
+
+    private RenovationSessionResponse toRenovationSessionResponse(RenovationSession session) {
+        List<RenovationLine> lines = renovationLineRepository.findBySessionIdOrderByIdAsc(session.getId());
+        BigDecimal totalCost = lines.stream()
+                .map(RenovationLine::getCost)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return RenovationSessionResponse.builder()
+                .sessionNumber(session.getSessionNumber())
+                .startDate(session.getStartDate())
+                .endDate(session.getEndDate())
+                .totalCost(totalCost)
+                .lines(lines.stream().map(this::toRenovationSessionLineResponse).toList())
+                .build();
+    }
+
+    private RenovationSessionLineResponse toRenovationSessionLineResponse(RenovationLine line) {
+        return RenovationSessionLineResponse.builder()
+                .id(line.getId())
+                .categoryName(line.getCategory().getName())
+                .cost(line.getCost())
+                .note(line.getNote())
+                .build();
+    }
+
+    private RenovationSession findOrCreateCurrentSession(Property property) {
+        return renovationSessionRepository
+                .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(property.getId())
+                .orElseGet(() -> {
+                    int nextNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(property.getId()) + 1;
+                    return renovationSessionRepository.save(RenovationSession.builder()
+                            .property(property)
+                            .sessionNumber(nextNumber)
+                            .startDate(property.getRenovationStartDate())
+                            .createdAt(LocalDateTime.now())
+                            .build());
+                });
+    }
+
+    private void closeActiveRenovationSession(Property property, LocalDate endDate) {
+        renovationSessionRepository
+                .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(property.getId())
+                .ifPresent(session -> {
+                    session.setEndDate(endDate);
+                    renovationSessionRepository.save(session);
+                });
     }
 
     private EquipmentResponse toEquipmentResponse(Equipment equipment) {
