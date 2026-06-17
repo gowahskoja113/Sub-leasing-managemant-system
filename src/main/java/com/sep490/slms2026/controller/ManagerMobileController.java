@@ -1,8 +1,10 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.ResolveMaintenanceRequest;
+import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.MaintenanceStatus;
 import com.sep490.slms2026.repository.MaintenanceRequestRepository;
+import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.MaintenanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,35 +21,46 @@ public class ManagerMobileController {
 
     private final MaintenanceService maintenanceService;
     private final MaintenanceRequestRepository repository;
+    private final UserRepository userRepository;
 
     @GetMapping
     @PreAuthorize("hasRole('MANAGER')")
     public ResponseEntity<?> getAssignedRequests(Principal principal) {
-        UUID managerId = UUID.fromString(principal.getName());
-        return ResponseEntity.ok(repository.findByAssignedManagerIdOrderByCreatedAtDesc(managerId));
+        String username = principal.getName();
+        User manager = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy manager: " + username));
+        return ResponseEntity.ok(repository.findByAssignedManagerIdOrderByCreatedAtDesc(manager.getId()));
     }
 
     @PutMapping("/{id}/assign")
     @PreAuthorize("hasRole('MANAGER') or hasRole('ADMIN')")
     public ResponseEntity<?> assignRequest(@PathVariable UUID id, @RequestParam UUID managerId, Principal principal) {
-        UUID assignedBy = UUID.fromString(principal.getName());
-        maintenanceService.assignRequest(id, managerId, assignedBy);
+        String username = principal.getName();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng: " + username));
+        maintenanceService.assignRequest(id, managerId, user.getId());
         return ResponseEntity.ok("Assigned successfully");
     }
 
     @PutMapping("/{id}/status")
     @PreAuthorize("hasRole('MANAGER')")
-    public ResponseEntity<?> updateStatus(@PathVariable UUID id, @RequestParam MaintenanceStatus status, Principal principal) {
-        UUID changedBy = UUID.fromString(principal.getName());
-        maintenanceService.updateStatus(id, status, changedBy);
+    public ResponseEntity<?> updateStatus(@PathVariable UUID id, @RequestParam MaintenanceStatus status,
+            Principal principal) {
+        String username = principal.getName();
+        User manager = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy manager: " + username));
+        maintenanceService.updateStatus(id, status, manager.getId());
         return ResponseEntity.ok("Status updated");
     }
 
     @PutMapping("/{id}/resolve")
     @PreAuthorize("hasRole('MANAGER')")
-    public ResponseEntity<?> resolveRequest(@PathVariable UUID id, @RequestBody ResolveMaintenanceRequest dto, Principal principal) {
-        UUID managerId = UUID.fromString(principal.getName());
-        maintenanceService.resolveRequest(id, dto, managerId);
+    public ResponseEntity<?> resolveRequest(@PathVariable UUID id, @RequestBody ResolveMaintenanceRequest dto,
+            Principal principal) {
+        String username = principal.getName();
+        User manager = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy manager: " + username));
+        maintenanceService.resolveRequest(id, dto, manager.getId());
         return ResponseEntity.ok("Resolved and financial integrated successfully");
     }
 }
