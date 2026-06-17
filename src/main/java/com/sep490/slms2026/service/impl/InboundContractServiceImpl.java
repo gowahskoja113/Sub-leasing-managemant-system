@@ -29,12 +29,18 @@ public class InboundContractServiceImpl implements InboundContractService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
-        if (property.getStatus() != PropertyStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT");
-        }
-
         if (!request.getEndDate().isAfter(request.getStartDate())) {
             throw new BusinessException("Ngày kết thúc hợp đồng phải sau ngày bắt đầu");
+        }
+
+        if (property.getStatus() != PropertyStatus.DRAFT) {
+            if (mayReturnExistingContract(property.getStatus())) {
+                return inboundContractRepository.findByPropertyId(propertyId)
+                        .map(this::toResponse)
+                        .orElseThrow(() -> new BusinessException(
+                                "Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT"));
+            }
+            throw new BusinessException("Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT");
         }
 
         InboundContract contract = inboundContractRepository.findByPropertyId(propertyId)
@@ -63,6 +69,12 @@ public class InboundContractServiceImpl implements InboundContractService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy hợp đồng inbound cho tòa nhà ID: " + propertyId));
         return toResponse(contract);
+    }
+
+    private static boolean mayReturnExistingContract(PropertyStatus status) {
+        return status.isOnboardingEditable()
+                || status == PropertyStatus.PENDING_HOST_REVIEW
+                || status == PropertyStatus.PENDING_OPERATION_MANAGER;
     }
 
     private InboundContractResponse toResponse(InboundContract contract) {
