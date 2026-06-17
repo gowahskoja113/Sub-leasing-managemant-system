@@ -41,6 +41,33 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         alterColumnToUuidIfBigint("properties", "managed_by");
         migrateRenovationSessions();
         ensureEquipmentCatalogSchema();
+        ensureRoomsSoftDeleteColumn();
+        ensurePropertyStatusConstraint();
+    }
+
+    private void ensureRoomsSoftDeleteColumn() {
+        addColumnIfNotExists("rooms", "is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE");
+    }
+
+    private void ensurePropertyStatusConstraint() {
+        jdbcTemplate.execute("ALTER TABLE properties DROP CONSTRAINT IF EXISTS properties_status_check");
+        jdbcTemplate.execute("""
+                ALTER TABLE properties ADD CONSTRAINT properties_status_check
+                    CHECK (status IN (
+                        'DRAFT',
+                        'PENDING',
+                        'UNDER_RENOVATION',
+                        'PENDING_EQUIPMENT_INSTALLATION',
+                        'RENOVATION_COMPLETED',
+                        'PENDING_HOST_REVIEW',
+                        'PENDING_OPERATION_MANAGER',
+                        'ACTIVE',
+                        'DISABLED',
+                        'MAINTENANCE',
+                        'INACTIVE'
+                    ))
+                """);
+        log.info("Ensured properties_status_check constraint includes RENOVATION_COMPLETED");
     }
 
     private void ensureEquipmentCatalogSchema() {

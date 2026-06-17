@@ -15,6 +15,7 @@ import com.sep490.slms2026.exception.ConflictException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.DepreciationService;
+import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -48,7 +49,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final DepreciationResultRepository depreciationResultRepository;
     private final DepreciationService depreciationService;
     private final UserRepository userRepository;
-    private final MonthlyReadingRepository monthlyReadingRepository;
+    private final PropertyDeletionService propertyDeletionService;
 
     @Override
     @Transactional
@@ -603,55 +604,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Override
     @Transactional
     public PropertyPurgeResponse purgeProperty(Long propertyId) {
-        Property property = propertyRepository.findById(propertyId)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
-
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            throw new BusinessException(
-                    "Không thể xóa căn nhà đang ACTIVE. Vui lòng disable hoặc thanh lý hợp đồng trước.");
-        }
-        if (monthlyReadingRepository.existsByPropertyId(propertyId)) {
-            throw new BusinessException(
-                    "Không thể xóa căn nhà đã có chỉ số điện nước. Chỉ dùng API này cho dữ liệu onboarding/import sai.");
-        }
-
-        String contractCode = inboundContractRepository.findByPropertyId(propertyId)
-                .map(InboundContract::getContractCode)
-                .orElse(null);
-
-        int equipmentsDeleted = (int) equipmentRepository.countByPropertyId(propertyId);
-        int equipmentManifestsDeleted = equipmentManifestRepository.findByPropertyId(propertyId).size();
-        int renovationLinesDeleted = renovationLineRepository.findByPropertyId(propertyId).size();
-        int renovationSessionsDeleted = (int) renovationSessionRepository.countByPropertyId(propertyId);
-        int roomsDeleted = (int) roomRepository.countAllByPropertyIdIncludingDeleted(propertyId);
-        int depreciationResultsDeleted = depreciationResultRepository.findAllRoomLevelByPropertyId(propertyId).size();
-        if (depreciationResultRepository.existsByInboundContractPropertyIdAndRoomIsNull(propertyId)) {
-            depreciationResultsDeleted++;
-        }
-        int monthlyReadingsDeleted = (int) monthlyReadingRepository.countByPropertyId(propertyId);
-
-        depreciationResultRepository.deleteByPropertyId(propertyId);
-        equipmentRepository.deleteByPropertyId(propertyId);
-        equipmentManifestRepository.deleteByPropertyId(propertyId);
-        monthlyReadingRepository.deleteByPropertyId(propertyId);
-        renovationLineRepository.deleteByPropertyId(propertyId);
-        renovationSessionRepository.deleteByPropertyId(propertyId);
-        roomRepository.deleteAllByPropertyId(propertyId);
-        inboundContractRepository.deleteByPropertyId(propertyId);
-        propertyRepository.delete(property);
-
-        return PropertyPurgeResponse.builder()
-                .propertyId(propertyId)
-                .propertyName(property.getPropertyName())
-                .contractCode(contractCode)
-                .equipmentsDeleted(equipmentsDeleted)
-                .equipmentManifestsDeleted(equipmentManifestsDeleted)
-                .renovationLinesDeleted(renovationLinesDeleted)
-                .renovationSessionsDeleted(renovationSessionsDeleted)
-                .roomsDeleted(roomsDeleted)
-                .depreciationResultsDeleted(depreciationResultsDeleted)
-                .monthlyReadingsDeleted(monthlyReadingsDeleted)
-                .build();
+        return propertyDeletionService.purgeProperty(propertyId);
     }
 
     private PropertyActivationResponse confirmWholeHouse(Property property,

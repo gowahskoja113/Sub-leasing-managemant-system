@@ -7,6 +7,7 @@ import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
+import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class PropertyServiceImpl implements PropertyService {
 
     private final PropertyRepository propertyRepository;
     private final ZoneRepository zoneRepository;
+    private final PropertyDeletionService propertyDeletionService;
 
     @Override
     @Transactional
@@ -118,15 +120,7 @@ public class PropertyServiceImpl implements PropertyService {
     @Override
     @Transactional
     public void deleteProperty(Long id) {
-        Property property = propertyRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy tài sản với ID: " + id));
-
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            throw new IllegalStateException(
-                    "Không thể xóa tài sản đã kích hoạt (ACTIVE). Vui lòng thanh lý hợp đồng gốc trước!");
-        }
-
-        propertyRepository.delete(property);
+        propertyDeletionService.purgeProperty(id);
     }
 
     private String buildZoneFullName(Zone zone) {
