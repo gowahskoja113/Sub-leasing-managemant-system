@@ -164,6 +164,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     "Chỉ gán thiết bị khi nhà đang ở quy trình 3 (PENDING_EQUIPMENT_INSTALLATION)");
         }
         validateEquipmentStatus(request.getStatus());
+        validateEquipmentPlacement(request.getRoomId(), request.getHouseArea());
 
         EquipmentCatalog catalog = equipmentCatalogRepository.findById(request.getCatalogId())
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -824,11 +825,20 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                                           Long roomId,
                                           com.sep490.slms2026.enums.HouseArea houseArea) {
         if (roomId == null) {
-            throw new BusinessException("Phải chọn phòng/khu vực (roomId) để gán thiết bị");
+            return null;
         }
         return roomRepository.findByIdAndPropertyId(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng/khu vực ID=" + roomId + " trong tòa nhà này"));
+    }
+
+    private void validateEquipmentPlacement(Long roomId, com.sep490.slms2026.enums.HouseArea houseArea) {
+        if (roomId == null && houseArea == null) {
+            throw new BusinessException("Phải chọn phòng (roomId) hoặc khu vực chung (houseArea)");
+        }
+        if (roomId != null && houseArea != null) {
+            throw new BusinessException("Chỉ chọn một trong phòng (roomId) hoặc khu vực chung (houseArea)");
+        }
     }
 
     private void validateEquipmentStatus(EquipmentStatus status) {

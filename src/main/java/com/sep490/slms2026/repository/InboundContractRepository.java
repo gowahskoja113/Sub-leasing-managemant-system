@@ -10,6 +10,10 @@ public interface InboundContractRepository extends JpaRepository<InboundContract
 
     java.util.Optional<InboundContract> findByPropertyId(Long propertyId);
 
+    boolean existsByContractCode(String contractCode);
+
+    java.util.Optional<InboundContract> findByContractCode(String contractCode);
+
     @Query("""
        SELECT COALESCE(SUM(i.totalRentAmount),0)
        FROM InboundContract i

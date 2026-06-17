@@ -16,3 +16,20 @@ ALTER TABLE properties DROP COLUMN IF EXISTS rooms_per_floor;
 
 ALTER TABLE rooms
     ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Cập nhật check constraint status sau khi bổ sung enum PropertyStatus mới
+ALTER TABLE properties DROP CONSTRAINT IF EXISTS properties_status_check;
+ALTER TABLE properties ADD CONSTRAINT properties_status_check
+    CHECK (status IN (
+        'DRAFT',
+        'PENDING',
+        'UNDER_RENOVATION',
+        'PENDING_EQUIPMENT_INSTALLATION',
+        'RENOVATION_COMPLETED',
+        'PENDING_HOST_REVIEW',
+        'PENDING_OPERATION_MANAGER',
+        'ACTIVE',
+        'DISABLED',
+        'MAINTENANCE',
+        'INACTIVE'
+    ));

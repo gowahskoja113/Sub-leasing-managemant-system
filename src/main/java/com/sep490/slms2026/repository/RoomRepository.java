@@ -27,6 +27,8 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     boolean existsByPropertyIdAndRoomNumberAndDeletedIsFalse(Long propertyId, String roomNumber);
 
+    Optional<Room> findByPropertyIdAndRoomNumberAndDeletedIsFalse(Long propertyId, String roomNumber);
+
     boolean existsByPropertyIdAndRoomNumberAndIdNotAndDeletedIsFalse(
             Long propertyId, String roomNumber, Long id);
 
