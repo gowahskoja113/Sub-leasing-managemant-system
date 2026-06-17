@@ -76,7 +76,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     @Query("SELECT COUNT(r) FROM Room r WHERE r.property.id = :propertyId")
     long countAllByPropertyIdIncludingDeleted(@Param("propertyId") Long propertyId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM Room r WHERE r.property.id = :propertyId")
     void deleteAllByPropertyId(@Param("propertyId") Long propertyId);
 }

@@ -12,6 +12,9 @@ public interface InboundContractRepository extends JpaRepository<InboundContract
 
     java.util.Optional<InboundContract> findByPropertyId(Long propertyId);
 
+    @Query("SELECT c.contractCode FROM InboundContract c WHERE c.property.id = :propertyId")
+    java.util.Optional<String> findContractCodeByPropertyId(@Param("propertyId") Long propertyId);
+
     boolean existsByContractCode(String contractCode);
 
     java.util.Optional<InboundContract> findByContractCode(String contractCode);
@@ -22,7 +25,7 @@ public interface InboundContractRepository extends JpaRepository<InboundContract
        """)
     java.math.BigDecimal getTotalInboundCost();
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM InboundContract c WHERE c.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
 }

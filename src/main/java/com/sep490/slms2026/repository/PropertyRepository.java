@@ -1,6 +1,7 @@
 package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.enums.PropertyStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,9 +9,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface PropertyRepository extends JpaRepository<Property, Long> {
+
+    @Query("SELECT p.propertyName, p.status FROM Property p WHERE p.id = :id")
+    Optional<Object[]> findNameAndStatusById(@Param("id") Long id);
 
     @Query("SELECT DISTINCT p FROM Property p " +
             "JOIN p.zone z " +

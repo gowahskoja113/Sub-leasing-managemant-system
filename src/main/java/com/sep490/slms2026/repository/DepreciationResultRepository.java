@@ -19,9 +19,12 @@ public interface DepreciationResultRepository extends JpaRepository<Depreciation
 
     Optional<DepreciationResult> findByRoomId(Long roomId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM DepreciationResult d WHERE d.inboundContract.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
+
+    @Query("SELECT COUNT(d) FROM DepreciationResult d WHERE d.inboundContract.property.id = :propertyId")
+    long countByPropertyId(@Param("propertyId") Long propertyId);
 
     boolean existsByInboundContractPropertyIdAndRoomIsNull(Long propertyId);
 

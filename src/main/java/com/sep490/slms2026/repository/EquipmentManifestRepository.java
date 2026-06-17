@@ -29,4 +29,6 @@ public interface EquipmentManifestRepository extends JpaRepository<EquipmentMani
 
     @Query("SELECT COALESCE(SUM(m.price * m.quantity), 0) FROM EquipmentManifest m WHERE m.property.id = :propertyId AND m.source = 'PURCHASED'")
     java.math.BigDecimal sumPurchasedEquipmentCostByPropertyId(@Param("propertyId") Long propertyId);
+
+    long countByPropertyId(Long propertyId);
 }

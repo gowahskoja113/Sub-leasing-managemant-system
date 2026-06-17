@@ -21,4 +21,6 @@ public interface RenovationLineRepository extends JpaRepository<RenovationLine, 
 
     @Query("SELECT COALESCE(SUM(r.cost), 0) FROM RenovationLine r WHERE r.property.id = :propertyId")
     BigDecimal sumCostByPropertyId(@Param("propertyId") Long propertyId);
+
+    long countByPropertyId(Long propertyId);
 }

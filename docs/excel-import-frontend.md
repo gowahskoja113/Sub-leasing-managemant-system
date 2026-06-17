@@ -5,6 +5,7 @@ Tài liệu cho team FE tích hợp màn **Import hàng loạt** (bulk onboardin
 | Tài liệu liên quan | Đối tượng |
 |--------------------|-----------|
 | `docs/excel-import-backend.md` | Chi tiết luồng backend, entity DB |
+| `docs/fe-property-delete-api.md` | **Xóa / rollback** căn nhà sau import sai |
 | `docs/excel-import-test-scenarios.md` | Kịch bản QA |
 | `excel_import_format_design.md` | Đặc tả cột Excel đầy đủ |
 | `docs/SLMS2026_v2.xlsx` | **Template chuẩn** (file mẫu để tải về) |

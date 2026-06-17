@@ -14,7 +14,7 @@ public interface MonthlyReadingRepository extends JpaRepository<MonthlyReading, 
 
     long countByPropertyId(Long propertyId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM MonthlyReading m WHERE m.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
 }
