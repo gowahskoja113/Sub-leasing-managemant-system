@@ -509,6 +509,36 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     @Override
+    @Transactional
+    public PropertyResponse enableProperty(Long propertyId) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.DISABLED) {
+            throw new BusinessException("Chỉ có thể enable khi nhà đang ở trạng thái DISABLED");
+        }
+
+        // Khôi phục trạng thái hợp lý dựa trên dữ liệu đã có (an toàn, không nhảy thẳng ACTIVE).
+        PropertyStatus restoredStatus;
+        if (property.getOperationManagerId() != null) {
+            restoredStatus = PropertyStatus.PENDING_OPERATION_MANAGER;
+        } else if (property.getSubmittedToHostAt() != null) {
+            restoredStatus = PropertyStatus.PENDING_HOST_REVIEW;
+        } else if (property.isRenovationCompleted()) {
+            restoredStatus = PropertyStatus.RENOVATION_COMPLETED;
+        } else if (Boolean.TRUE.equals(property.getHasRenovation())) {
+            restoredStatus = PropertyStatus.UNDER_RENOVATION;
+        } else if (inboundContractRepository.existsByPropertyId(propertyId)) {
+            restoredStatus = PropertyStatus.PENDING;
+        } else {
+            restoredStatus = PropertyStatus.DRAFT;
+        }
+
+        property.setStatus(restoredStatus);
+        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public OnboardingSummaryResponse getOnboardingSummary(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)

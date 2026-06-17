@@ -135,6 +135,11 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.disableProperty(propertyId));
     }
 
+    @PostMapping("/properties/{propertyId}/enable")
+    public ResponseEntity<PropertyResponse> enableProperty(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.enableProperty(propertyId));
+    }
+
     @GetMapping("/properties/{propertyId}/onboarding-summary")
     public ResponseEntity<OnboardingSummaryResponse> getOnboardingSummary(
             @PathVariable Long propertyId) {

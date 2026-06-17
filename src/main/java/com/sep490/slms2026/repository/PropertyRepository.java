@@ -14,8 +14,13 @@ import java.util.UUID;
 
 public interface PropertyRepository extends JpaRepository<Property, Long> {
 
-    @Query("SELECT p.propertyName, p.status FROM Property p WHERE p.id = :id")
-    Optional<Object[]> findNameAndStatusById(@Param("id") Long id);
+    interface PropertyNameStatusView {
+        String getPropertyName();
+        PropertyStatus getStatus();
+    }
+
+    @Query("SELECT p.propertyName as propertyName, p.status as status FROM Property p WHERE p.id = :id")
+    Optional<PropertyNameStatusView> findNameAndStatusById(@Param("id") Long id);
 
     @Query("SELECT DISTINCT p FROM Property p " +
             "JOIN p.zone z " +

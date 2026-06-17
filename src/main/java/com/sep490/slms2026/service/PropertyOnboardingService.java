@@ -41,6 +41,12 @@ public interface PropertyOnboardingService {
 
     PropertyResponse disableProperty(Long propertyId);
 
+    /**
+     * Kích hoạt lại (bỏ DISABLED) và đưa property về trạng thái phù hợp nhất dựa trên dữ liệu hiện có.
+     * Không tự chuyển sang ACTIVE — muốn ACTIVE phải đi qua luồng assign operation manager.
+     */
+    PropertyResponse enableProperty(Long propertyId);
+
     OnboardingSummaryResponse getOnboardingSummary(Long propertyId);
 
     List<EquipmentCatalogResponse> listEquipmentCatalog();

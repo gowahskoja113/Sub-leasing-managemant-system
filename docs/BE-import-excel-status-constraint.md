@@ -104,6 +104,97 @@ Bản đồ phụ thuộc (tất cả tham chiếu tới property qua `property_
 - Hoặc trong `deleteProperty()` xóa con theo đúng thứ tự phụ thuộc trước khi xóa property (1 transaction).
 - Hoặc thêm `ON DELETE CASCADE` cho các FK (rủi ro mất dữ liệu — cân nhắc).
 
+### CẬP NHẬT 2026-06-17 — BE đã thêm cascade nhưng SAI THỨ TỰ
+
+BE đã sửa `deleteProperty` để xóa con, nhưng xóa **`renovation_sessions` TRƯỚC `renovation_lines`** → vẫn lỗi:
+
+```
+delete from renovation_sessions ... violates FK "fkqos7ok6xwn4pfcbi2u508k77c" on table "renovation_lines"
+Detail: Key (id)=(15) is still referenced from table "renovation_lines".
+```
+
+Vì `renovation_lines.session_id` → `renovation_sessions(id)`. **Phải xóa `renovation_lines` TRƯỚC, rồi mới `renovation_sessions`.**
+
+Thứ tự xóa con đúng (con → cha): `depreciation_results` → `equipments` → `monthly_readings`
+→ `inbound_contracts` → **`renovation_lines` → `renovation_sessions`** → `equipment_manifests`
+→ `property_images` → `rooms` → `properties`.
+
+### CẬP NHẬT thêm — lỗi optimistic lock khi xóa
+
+Có lúc xóa lại báo:
+
+```
+Row was already updated or deleted by another transaction
+for entity [com.sep490.slms2026.entity.InboundContract with id '12']
+```
+
+Đây là `StaleObjectStateException` của Hibernate: `deleteProperty` đang **nạp từng entity con rồi `delete()`** (kiểm tra version/@Version), nên khi row bị đụng ngoài luồng (import dở, xóa 1 phần trước đó) thì lệch phiên bản → 400.
+
+**Khuyến nghị BE (gốc rễ):** thay vì load entity rồi xóa từng cái, dùng **bulk delete native/JPQL** theo đúng thứ tự con→cha (`@Modifying @Query("delete from ...")`), hoặc **soft delete**. Bulk delete bỏ qua kiểm tra version nên không dính lỗi này, và nhanh hơn.
+
+### Dọn mồ côi nhanh (tái sử dụng)
+
+`docs`/Temp có sẵn `cleanup_property.sql` (xóa thẳng theo property_id, bỏ qua Hibernate):
+
+```
+psql -h localhost -U postgres -d slms2026_db -v pid=<ID> -f cleanup_property.sql
+```
+
+### ĐÃ KHẮC PHỤC (2026-06-17) — BE chuyển sang bulk delete
+
+BE đã sửa dứt điểm: `deleteProperty` giờ chỉ **bulk delete** (JPQL + native, đúng thứ tự con→cha,
+1 transaction), `DELETE /properties/{id}` trả **204**. Hết cả 3 lỗi trên.
+Hợp đồng API chính thức: `SEPBE/docs/fe-property-delete-api.md`.
+
+**FE đã đồng bộ:** `deleteProperty` (204), `purgeProperty` (`/purge`),
+`importService.deleteImportedContract(contractCode)` (rollback import), và xử lý 204/404/422/403
+bằng toast. Nếu vẫn gặp lỗi optimistic-lock → BE chưa deploy/restart bản mới.
+
+---
+
+# BE BUG #4 (2026-06-17) — ClassCastException khi xóa: `Object[] → String`
+
+## Triệu chứng
+Xóa property (#22) → 400:
+```
+class [Ljava.lang.Object; cannot be cast to class java.lang.String
+DELETE /api/v1/properties/22
+```
+
+## Vị trí & nguyên nhân
+`service/impl/PropertyDeletionServiceImpl.java:32-36`:
+
+```java
+Object[] nameAndStatus = propertyRepository.findNameAndStatusById(propertyId).orElseThrow(...);
+String propertyName     = (String) nameAndStatus[0];          // ← ClassCastException
+PropertyStatus status   = (PropertyStatus) nameAndStatus[1];
+```
+
+Lỗi Spring Data JPA kinh điển: query nhiều cột (`SELECT p.propertyName, p.status`) với kiểu trả
+`Optional<Object[]>` bị **bọc lồng một tầng** → `nameAndStatus` thực ra là `Object[]{ Object[]{name, status} }`,
+nên `nameAndStatus[0]` là `Object[]` chứ không phải `String`.
+
+## Cách sửa BE (khuyên dùng — projection interface)
+```java
+public interface PropertyNameStatusView {
+    String getPropertyName();
+    PropertyStatus getStatus();
+}
+
+@Query("select p.propertyName as propertyName, p.status as status from Property p where p.id = :id")
+Optional<PropertyNameStatusView> findNameAndStatusById(@Param("id") Long id);
+```
+```java
+var view = propertyRepository.findNameAndStatusById(propertyId).orElseThrow(...);
+String propertyName   = view.getPropertyName();
+PropertyStatus status = view.getStatus();
+```
+
+Hoặc đơn giản nhất: load thẳng entity `propertyRepository.findById(propertyId)` rồi đọc
+`getPropertyName()` / `getStatus()`.
+
+> FE không xử lý được lỗi này — thuần BE. Trong lúc chờ, dùng `cleanup_property.sql -v pid=<ID>`.
+
 ## 4. Dọn ngay property mồ côi #19 (chạy 1 lần trên DB)
 
 ```sql

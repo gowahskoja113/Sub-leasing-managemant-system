@@ -29,11 +29,11 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
     @Override
     @Transactional
     public PropertyPurgeResponse purgeProperty(Long propertyId) {
-        Object[] nameAndStatus = propertyRepository.findNameAndStatusById(propertyId)
+        var nameAndStatus = propertyRepository.findNameAndStatusById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
-        String propertyName = (String) nameAndStatus[0];
-        PropertyStatus status = (PropertyStatus) nameAndStatus[1];
+        String propertyName = nameAndStatus.getPropertyName();
+        PropertyStatus status = nameAndStatus.getStatus();
 
         if (status == PropertyStatus.ACTIVE) {
             throw new BusinessException(
