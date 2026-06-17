@@ -7,6 +7,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "equipments")
@@ -54,4 +56,12 @@ public class Equipment implements Serializable {
 
     @Column(columnDefinition = "TEXT")
     private String note;
+
+    // QUAN HỆ MỚI: 1 Thiết bị có thể bị hỏng/tạo yêu cầu sửa chữa nhiều lần
+    @OneToMany(mappedBy = "equipment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<MaintenanceRequest> maintenanceRequests = new ArrayList<>();
+
+    // QUAN HỆ MỚI: 1 Thiết bị có nhiều lần ghi nhận lịch sử bảo trì
+    @OneToMany(mappedBy = "equipment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<EquipmentMaintenanceHistory> maintenanceHistories = new ArrayList<>();
 }
