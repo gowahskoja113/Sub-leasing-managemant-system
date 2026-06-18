@@ -28,4 +28,7 @@ public class PropertyResponse {
     private UUID operationManagerId;
     private boolean renovationCompleted;
     private List<String> imageUrls;
+
+    // true nếu BĐS còn cho thuê được (nhà nguyên căn chưa có HĐ active / nhà chia phòng còn phòng trống)
+    private Boolean rentalAvailable;
 }

@@ -26,6 +26,21 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000
 
+# OCR đọc chỉ số điện nước (OCR.space). Đăng ký key free tại https://ocr.space/ocrapi
+ocr:
+  space:
+    base-url: https://api.ocr.space/parse/image
+    api-key: ${OCR_SPACE_API_KEY:helloworld}   # 'helloworld' là key demo giới hạn, nên thay bằng key free riêng
+
+# Thanh toán cọc qua PayOS (https://payos.vn). Lấy key ở Dashboard PayOS.
+payos:
+  client-id: ${PAYOS_CLIENT_ID:}
+  api-key: ${PAYOS_API_KEY:}
+  checksum-key: ${PAYOS_CHECKSUM_KEY:}
+  # URL FE/mobile sẽ redirect về sau khi thanh toán (deep link hoặc trang web)
+  return-url: ${PAYOS_RETURN_URL:slms://payment-success}
+  cancel-url: ${PAYOS_CANCEL_URL:slms://payment-cancel}
+
 springdoc:
   api-docs:
     path: /v3/api-docs

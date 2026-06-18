@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 @Getter
 @Setter
@@ -40,5 +41,23 @@ public class OnboardTenantRequest {
 
     private String equipmentSnapshot;
 
-    private String roomConditionUrl;
+    // Số tháng cọc (1 hoặc 2) — FE tính deposit = rentAmount * depositMonths
+    private Integer depositMonths;
+
+    // Chỉ số + ảnh đồng hồ điện nước đầu kỳ
+    private BigDecimal initialElectricReading;
+    private BigDecimal initialWaterReading;
+    private String electricMeterImageUrl;
+    private String waterMeterImageUrl;
+
+    // Ảnh hiện trạng phòng/nhà (Cloudinary URLs) + ghi chú
+    private List<String> roomConditionUrls;
+    private String roomConditionNote;
+
+    // Thành viên ở cùng (chủ yếu cho thuê nguyên căn)
+    private List<HouseholdMemberRequest> householdMembers;
+
+    // true (mobile): tạo HĐ ở trạng thái PENDING, phải thanh toán cọc (PayOS) + OTP rồi mới confirm.
+    // false (mặc định, web): tạo HĐ ACTIVE ngay, set phòng RENTED.
+    private boolean requireDepositPayment;
 }

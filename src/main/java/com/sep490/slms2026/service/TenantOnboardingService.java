@@ -14,4 +14,18 @@ public interface TenantOnboardingService {
     TenantContractResponse onboardTenant(Long propertyId, Long roomId, OnboardTenantRequest request);
 
     List<TenantContractResponse> getContractsByProperty(Long propertyId);
+
+    TenantContractResponse getContract(Long contractId);
+
+    /** Tạo link/QR thanh toán cọc qua PayOS cho hợp đồng đang PENDING. */
+    TenantContractResponse createDepositPayment(Long contractId);
+
+    /** Hoàn tất HĐ (sau khi đã thanh toán cọc + OTP): set ACTIVE, phòng RENTED. */
+    TenantContractResponse confirmContract(Long contractId);
+
+    /** Đánh dấu đã thanh toán theo orderCode (gọi từ webhook PayOS). */
+    void markDepositPaid(Long payosOrderCode);
+
+    /** Chủ động hỏi PayOS trạng thái đơn & đồng bộ paymentStatus (dùng cho nút "Kiểm tra" / local không có webhook). */
+    TenantContractResponse syncPaymentStatus(Long contractId);
 }

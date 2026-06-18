@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -17,7 +18,12 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null)
     boolean existsByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
+    // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
+    List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
+
     List<TenantContract> findByPropertyId(Long propertyId);
 
     List<TenantContract> findByTenantId(UUID tenantUserId);
+
+    Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
 }
