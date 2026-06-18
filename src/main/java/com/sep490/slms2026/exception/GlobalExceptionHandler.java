@@ -1,5 +1,6 @@
 package com.sep490.slms2026.exception;
 
+import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -87,6 +88,26 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                        .error(ex.getMessage())
+                        .build());
+    }
+
+    @ExceptionHandler(BulkImportValidationException.class)
+    public ResponseEntity<Map<String, Object>> handleBulkImportValidation(BulkImportValidationException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", "Bulk import validation failed");
+        body.put("message", ex.getMessage());
+        body.put("errors", ex.getErrors());
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.CONFLICT.value())
                         .error(ex.getMessage())
                         .build());
     }

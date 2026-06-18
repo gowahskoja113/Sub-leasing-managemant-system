@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ZoneRepository extends JpaRepository<Zone, UUID> {
@@ -33,4 +34,11 @@ public interface ZoneRepository extends JpaRepository<Zone, UUID> {
 
     @Query("SELECT COUNT(z) > 0 FROM Zone z WHERE z.name = :name AND z.parent IS NULL AND z.id <> :id")
     boolean existsByNameAndParentIsNullAndIdNot(@Param("name") String name, @Param("id") UUID id);
+
+    @Query("SELECT z FROM Zone z WHERE LOWER(z.name) = LOWER(:name) AND z.level = 1 AND z.parent IS NULL")
+    Optional<Zone> findCityLevelZoneByNameIgnoreCase(@Param("name") String name);
+
+    @Query("SELECT z FROM Zone z WHERE LOWER(z.name) = LOWER(:name) AND z.level = 2 AND z.parent.id = :parentId")
+    Optional<Zone> findDistrictLevelZoneByNameIgnoreCaseAndParentId(
+            @Param("name") String name, @Param("parentId") UUID parentId);
 }

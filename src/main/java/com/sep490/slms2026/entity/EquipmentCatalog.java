@@ -24,6 +24,7 @@ public class EquipmentCatalog implements Serializable {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Builder.Default
     @Column(nullable = false)
     private boolean active = true;
 }

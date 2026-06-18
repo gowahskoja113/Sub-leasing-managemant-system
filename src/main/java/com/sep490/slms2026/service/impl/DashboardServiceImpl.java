@@ -21,7 +21,7 @@ public class DashboardServiceImpl implements DashboardService {
 
         return DashboardResponse.builder()
                 .totalProperties(propertyRepository.count())
-                .totalRooms(roomRepository.count())
+                .totalRooms(roomRepository.countByDeletedIsFalse())
                 .wholeHouseCount(propertyRepository.countWholeHouse())
                 .roomBasedPropertyCount(propertyRepository.countRoomBasedProperty())
                 .totalArea(propertyRepository.getTotalArea())
