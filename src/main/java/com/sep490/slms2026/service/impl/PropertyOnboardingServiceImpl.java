@@ -501,9 +501,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     public PropertyResponse disableProperty(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            throw new BusinessException("Không thể disable nhà đang ACTIVE");
-        }
+        propertyDeletionService.assertNoActiveTenants(propertyId);
         property.setStatus(PropertyStatus.DISABLED);
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
