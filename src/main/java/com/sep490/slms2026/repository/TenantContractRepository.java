@@ -18,6 +18,9 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null)
     boolean existsByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
+    // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
+    List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
+
     List<TenantContract> findByPropertyId(Long propertyId);
 
     List<TenantContract> findByTenantId(UUID tenantUserId);

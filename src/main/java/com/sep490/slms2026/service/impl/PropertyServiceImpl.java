@@ -4,8 +4,12 @@ import com.sep490.slms2026.dto.request.PropertyCreateRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Zone;
+import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
+import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.repository.PropertyRepository;
+import com.sep490.slms2026.repository.RoomRepository;
+import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
 import com.sep490.slms2026.service.PropertyService;
 import jakarta.persistence.EntityNotFoundException;
@@ -15,12 +19,20 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 public class PropertyServiceImpl implements PropertyService {
 
     private final PropertyRepository propertyRepository;
     private final ZoneRepository zoneRepository;
+    private final TenantContractRepository tenantContractRepository;
+    private final RoomRepository roomRepository;
 
     @Override
     @Transactional
@@ -75,6 +87,38 @@ public class PropertyServiceImpl implements PropertyService {
             String shortAddress = property.getAddress().replace(", " + zoneFullName, "");
             return mapToResponse(property, shortAddress);
         });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PropertyResponse> getRentableProperties() {
+        // Nhà nguyên căn đã có HĐ active (room == null) -> không còn cho thuê
+        Set<Long> wholeHouseRentedIds = tenantContractRepository
+                .findByRoomIsNullAndStatus(ContractStatus.ACTIVE).stream()
+                .map(c -> c.getProperty().getId())
+                .collect(Collectors.toSet());
+        // Tòa có ít nhất 1 phòng trống
+        Set<Long> propertyIdsWithAvailableRooms =
+                new HashSet<>(roomRepository.findPropertyIdsByRoomStatus(RoomStatus.AVAILABLE));
+
+        List<PropertyResponse> result = new ArrayList<>();
+        for (Property p : propertyRepository.findAll()) {
+            if (p.getStatus() != PropertyStatus.ACTIVE) {
+                continue;
+            }
+            boolean rentable = Boolean.TRUE.equals(p.getWholeHouse())
+                    ? !wholeHouseRentedIds.contains(p.getId())          // nguyên căn: chưa có khách
+                    : propertyIdsWithAvailableRooms.contains(p.getId()); // chia phòng: còn phòng trống
+            if (!rentable) {
+                continue;
+            }
+            String zoneFullName = buildZoneFullName(p.getZone());
+            String shortAddress = p.getAddress().replace(", " + zoneFullName, "");
+            PropertyResponse resp = mapToResponse(p, shortAddress);
+            resp.setRentalAvailable(true);
+            result.add(resp);
+        }
+        return result;
     }
 
     @Override
