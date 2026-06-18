@@ -20,6 +20,7 @@ public class BulkImportController {
     /**
      * Import hàng loạt onboarding từ file Excel (3 sheet data).
      * dryRun=true: chỉ parse + validate, không ghi DB.
+     * Hợp đồng có mã đã tồn tại trong DB được bỏ qua (SKIPPED); các mã mới vẫn import bình thường.
      */
     @PostMapping(value = "/onboarding-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")

@@ -41,6 +41,8 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
     private static final String SHEET_LEASE = "1. Hop_Dong_Thue";
     private static final String SHEET_RENOVATION = "2. Hop_Dong_Cai_Tao";
     private static final String SHEET_EQUIPMENT = "3. Phan_Bo_Thiet_Bi";
+    private static final String IMPORT_STATUS_IMPORTED = "IMPORTED";
+    private static final String IMPORT_STATUS_SKIPPED = "SKIPPED";
 
     private final ExcelOnboardingWorkbookReader workbookReader;
     private final PropertyOnboardingService propertyOnboardingService;
@@ -57,19 +59,23 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
     @Transactional
     public BulkImportResponse importWorkbook(MultipartFile file, boolean dryRun) {
         OnboardingImportWorkbook workbook = workbookReader.read(file);
-        List<BulkImportErrorResponse> errors = validate(workbook);
+        Set<String> skippedContractCodes = resolveSkippedContractCodes(workbook);
+        List<BulkImportErrorResponse> errors = validate(workbook, skippedContractCodes);
 
         if (!errors.isEmpty()) {
             throw new BulkImportValidationException("File Excel có lỗi validation", errors);
         }
 
+        int importableCount = countImportableContracts(workbook, skippedContractCodes);
+
         if (dryRun) {
             return BulkImportResponse.builder()
                     .dryRun(true)
-                    .contractsProcessed(workbook.getLeaseContracts().size())
-                    .renovationLinesImported(workbook.getRenovationLines().size())
-                    .equipmentRowsImported(workbook.getEquipmentRows().size())
-                    .results(List.of())
+                    .contractsProcessed(importableCount)
+                    .contractsSkipped(skippedContractCodes.size())
+                    .renovationLinesImported(countRenovationLinesForImport(workbook, skippedContractCodes))
+                    .equipmentRowsImported(countEquipmentRowsForImport(workbook, skippedContractCodes))
+                    .results(buildDryRunResults(workbook, skippedContractCodes))
                     .errors(List.of())
                     .build();
         }
@@ -82,20 +88,29 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         List<BulkImportContractResultResponse> results = new ArrayList<>();
         int renovationCount = 0;
         int equipmentCount = 0;
+        int importedCount = 0;
 
         for (LeaseContractImportRow leaseRow : workbook.getLeaseContracts()) {
+            String contractCode = leaseRow.getContractCode();
+            if (skippedContractCodes.contains(contractCode)) {
+                results.add(buildSkippedResult(contractCode));
+                continue;
+            }
+
             BulkImportContractResultResponse result = importContract(
                     leaseRow,
-                    renovationsByContract.getOrDefault(leaseRow.getContractCode(), List.of()),
-                    equipmentByContract.getOrDefault(leaseRow.getContractCode(), List.of()));
+                    renovationsByContract.getOrDefault(contractCode, List.of()),
+                    equipmentByContract.getOrDefault(contractCode, List.of()));
             results.add(result);
-            renovationCount += renovationsByContract.getOrDefault(leaseRow.getContractCode(), List.of()).size();
-            equipmentCount += equipmentByContract.getOrDefault(leaseRow.getContractCode(), List.of()).size();
+            importedCount++;
+            renovationCount += renovationsByContract.getOrDefault(contractCode, List.of()).size();
+            equipmentCount += equipmentByContract.getOrDefault(contractCode, List.of()).size();
         }
 
         return BulkImportResponse.builder()
                 .dryRun(false)
-                .contractsProcessed(results.size())
+                .contractsProcessed(importedCount)
+                .contractsSkipped(skippedContractCodes.size())
                 .renovationLinesImported(renovationCount)
                 .equipmentRowsImported(equipmentCount)
                 .results(results)
@@ -183,6 +198,7 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
 
         Property property = propertyRepository.findById(propertyId).orElseThrow();
         return BulkImportContractResultResponse.builder()
+                .importStatus(IMPORT_STATUS_IMPORTED)
                 .contractCode(leaseRow.getContractCode())
                 .propertyId(propertyId)
                 .propertyName(property.getPropertyName())
@@ -190,7 +206,77 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                 .build();
     }
 
-    private List<BulkImportErrorResponse> validate(OnboardingImportWorkbook workbook) {
+    private Set<String> resolveSkippedContractCodes(OnboardingImportWorkbook workbook) {
+        Set<String> skipped = new LinkedHashSet<>();
+        for (LeaseContractImportRow row : workbook.getLeaseContracts()) {
+            String code = normalizeOptional(row.getContractCode());
+            if (!code.isBlank() && inboundContractRepository.existsByContractCode(code)) {
+                skipped.add(code);
+            }
+        }
+        return skipped;
+    }
+
+    private int countImportableContracts(OnboardingImportWorkbook workbook, Set<String> skippedContractCodes) {
+        return (int) workbook.getLeaseContracts().stream()
+                .map(LeaseContractImportRow::getContractCode)
+                .filter(code -> !skippedContractCodes.contains(code))
+                .count();
+    }
+
+    private int countRenovationLinesForImport(OnboardingImportWorkbook workbook, Set<String> skippedContractCodes) {
+        return (int) workbook.getRenovationLines().stream()
+                .filter(row -> !skippedContractCodes.contains(row.getContractCode()))
+                .count();
+    }
+
+    private int countEquipmentRowsForImport(OnboardingImportWorkbook workbook, Set<String> skippedContractCodes) {
+        return (int) workbook.getEquipmentRows().stream()
+                .filter(row -> !skippedContractCodes.contains(row.getContractCode()))
+                .count();
+    }
+
+    private List<BulkImportContractResultResponse> buildDryRunResults(OnboardingImportWorkbook workbook,
+                                                                        Set<String> skippedContractCodes) {
+        List<BulkImportContractResultResponse> results = new ArrayList<>();
+        for (LeaseContractImportRow row : workbook.getLeaseContracts()) {
+            String code = row.getContractCode();
+            if (skippedContractCodes.contains(code)) {
+                results.add(buildSkippedResult(code));
+            } else {
+                results.add(BulkImportContractResultResponse.builder()
+                        .importStatus(IMPORT_STATUS_IMPORTED)
+                        .contractCode(code)
+                        .propertyName(row.getPropertyName())
+                        .message("Dry run — sẽ được tạo mới")
+                        .build());
+            }
+        }
+        return results;
+    }
+
+    private BulkImportContractResultResponse buildSkippedResult(String contractCode) {
+        return inboundContractRepository.findByContractCode(contractCode)
+                .map(contract -> {
+                    Property property = contract.getProperty();
+                    return BulkImportContractResultResponse.builder()
+                            .importStatus(IMPORT_STATUS_SKIPPED)
+                            .contractCode(contractCode)
+                            .propertyId(property.getId())
+                            .propertyName(property.getPropertyName())
+                            .finalStatus(property.getStatus().name())
+                            .message("Mã hợp đồng đã tồn tại trong hệ thống — bỏ qua")
+                            .build();
+                })
+                .orElseGet(() -> BulkImportContractResultResponse.builder()
+                        .importStatus(IMPORT_STATUS_SKIPPED)
+                        .contractCode(contractCode)
+                        .message("Mã hợp đồng đã tồn tại trong hệ thống — bỏ qua")
+                        .build());
+    }
+
+    private List<BulkImportErrorResponse> validate(OnboardingImportWorkbook workbook,
+                                                   Set<String> skippedContractCodes) {
         List<BulkImportErrorResponse> errors = new ArrayList<>();
 
         if (workbook.getLeaseContracts().isEmpty()) {
@@ -202,19 +288,28 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         Map<String, LeaseContractImportRow> leaseByCode = new LinkedHashMap<>();
 
         for (LeaseContractImportRow row : workbook.getLeaseContracts()) {
-            validateLeaseRow(row, contractCodes, errors);
+            validateLeaseRow(row, contractCodes, skippedContractCodes, errors);
             leaseByCode.put(row.getContractCode(), row);
         }
 
         for (RenovationImportRow row : workbook.getRenovationLines()) {
+            if (skippedContractCodes.contains(row.getContractCode())) {
+                continue;
+            }
             validateRenovationRow(row, leaseByCode, errors);
         }
 
         for (EquipmentImportRow row : workbook.getEquipmentRows()) {
+            if (skippedContractCodes.contains(row.getContractCode())) {
+                continue;
+            }
             validateEquipmentRow(row, leaseByCode, errors);
         }
 
         for (LeaseContractImportRow leaseRow : workbook.getLeaseContracts()) {
+            if (skippedContractCodes.contains(leaseRow.getContractCode())) {
+                continue;
+            }
             boolean hasRenovation = parseBoolean(leaseRow.getHasRenovationRaw());
             long renovationCount = workbook.getRenovationLines().stream()
                     .filter(line -> line.getContractCode().equals(leaseRow.getContractCode()))
@@ -236,8 +331,19 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
 
     private void validateLeaseRow(LeaseContractImportRow row,
                                   Set<String> contractCodes,
+                                  Set<String> skippedContractCodes,
                                   List<BulkImportErrorResponse> errors) {
+        boolean willSkip = skippedContractCodes.contains(normalizeOptional(row.getContractCode()));
+
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng", row.getContractCode());
+        if (willSkip) {
+            if (!contractCodes.add(row.getContractCode())) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng",
+                        "Mã hợp đồng bị trùng trong file"));
+            }
+            return;
+        }
+
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Tên tòa nhà", row.getPropertyName());
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Địa chỉ chi tiết", row.getAddress());
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Quận/Huyện", row.getDistrict());
@@ -250,10 +356,6 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         if (!contractCodes.add(row.getContractCode())) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng",
                     "Mã hợp đồng bị trùng trong file"));
-        }
-        if (inboundContractRepository.existsByContractCode(row.getContractCode())) {
-            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng",
-                    "Mã hợp đồng đã tồn tại trong hệ thống"));
         }
 
         if (row.getAreaSize() == null || row.getAreaSize() <= 0) {
