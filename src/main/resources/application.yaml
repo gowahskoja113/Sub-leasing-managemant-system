@@ -41,6 +41,15 @@ payos:
   return-url: ${PAYOS_RETURN_URL:slms://payment-success}
   cancel-url: ${PAYOS_CANCEL_URL:slms://payment-cancel}
 
+# Gửi SMS OTP qua Twilio (https://www.twilio.com). Lấy key tại Twilio Console.
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:}
+  auth-token: ${TWILIO_AUTH_TOKEN:}
+  from-number: ${TWILIO_FROM_NUMBER:}
+  otp:
+    expiry-minutes: ${TWILIO_OTP_EXPIRY_MINUTES:5}
+    max-attempts: ${TWILIO_OTP_MAX_ATTEMPTS:5}
+
 springdoc:
   api-docs:
     path: /v3/api-docs

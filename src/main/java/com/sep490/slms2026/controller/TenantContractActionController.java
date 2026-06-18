@@ -1,11 +1,15 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.request.ConfirmContractRequest;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 /**
  * Các thao tác trên hợp đồng thuê theo ID (thanh toán cọc, xác nhận, xem trạng thái).
@@ -38,10 +42,20 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.syncPaymentStatus(id));
     }
 
+    /** POST /{id}/send-otp — gửi OTP SMS tới SĐT khách thuê (Twilio). */
+    @PostMapping("/{id}/send-otp")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Map<String, Object>> sendOtp(@PathVariable Long id) {
+        tenantOnboardingService.sendContractConfirmOtp(id);
+        return ResponseEntity.ok(Map.of("success", true, "message", "Đã gửi mã OTP tới số điện thoại khách thuê"));
+    }
+
     /** POST /{id}/confirm — hoàn tất HĐ sau khi đã thanh toán cọc + OTP. */
     @PostMapping("/{id}/confirm")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<TenantContractResponse> confirm(@PathVariable Long id) {
-        return ResponseEntity.ok(tenantOnboardingService.confirmContract(id));
+    public ResponseEntity<TenantContractResponse> confirm(
+            @PathVariable Long id,
+            @Valid @RequestBody ConfirmContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.confirmContract(id, request.getOtp()));
     }
 }
