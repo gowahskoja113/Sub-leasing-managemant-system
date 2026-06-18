@@ -17,6 +17,10 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     List<Room> findByPropertyIdAndStatus(Long propertyId, RoomStatus status);
 
+    // ID các tòa có ít nhất 1 phòng ở trạng thái cho trước (vd AVAILABLE)
+    @Query("SELECT DISTINCT r.property.id FROM Room r WHERE r.status = :status")
+    List<Long> findPropertyIdsByRoomStatus(@Param("status") RoomStatus status);
+
     // Kiểm tra trùng số phòng trong cùng 1 tòa
     boolean existsByPropertyIdAndRoomNumber(Long propertyId, String roomNumber);
 
