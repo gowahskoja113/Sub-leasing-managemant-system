@@ -58,6 +58,10 @@ public class Property implements Serializable {
     @Column(nullable = false)
     private PropertyStatus status = PropertyStatus.DRAFT;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "previous_status")
+    private PropertyStatus previousStatus;
+
     @Column(name = "created_by")
     private Long createdBy;
 

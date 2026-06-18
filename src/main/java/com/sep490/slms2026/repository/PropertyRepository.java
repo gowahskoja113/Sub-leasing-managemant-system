@@ -33,7 +33,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     boolean existsByAddressIgnoreCase(String address);
 
-    boolean existsByAddressIgnoreCaseAndIdNot(String address, UUID id);
+    boolean existsByAddressIgnoreCaseAndIdNot(String address, Long id);
 
     @Query("""
        SELECT z.name, COUNT(p)

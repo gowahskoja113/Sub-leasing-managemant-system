@@ -42,7 +42,12 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         migrateRenovationSessions();
         ensureEquipmentCatalogSchema();
         ensureRoomsSoftDeleteColumn();
+        ensurePropertyPreviousStatusColumn();
         ensurePropertyStatusConstraint();
+    }
+
+    private void ensurePropertyPreviousStatusColumn() {
+        addColumnIfNotExists("properties", "previous_status", "VARCHAR(50)");
     }
 
     private void ensureRoomsSoftDeleteColumn() {

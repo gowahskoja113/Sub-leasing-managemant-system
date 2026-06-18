@@ -14,6 +14,9 @@ ALTER TABLE inbound_contracts DROP COLUMN IF EXISTS deposit_amount;
 ALTER TABLE properties RENAME COLUMN floor_count TO total_floor;
 ALTER TABLE properties DROP COLUMN IF EXISTS rooms_per_floor;
 
+ALTER TABLE properties
+    ADD COLUMN IF NOT EXISTS previous_status VARCHAR(50);
+
 ALTER TABLE rooms
     ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
 

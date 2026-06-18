@@ -64,6 +64,8 @@ File: `PropertyDeletionServiceImpl.assertNoActiveTenants()`
 
 ### Vô hiệu hóa — `POST /api/v1/properties/{propertyId}/disable`
 
+BE lưu `previousStatus = status` trước khi chuyển sang `DISABLED` (cột `previous_status` trong DB, không trả về API).
+
 | Tình huống | Kết quả |
 |---|---|
 | ACTIVE, không còn khách thuê | **200** — `status` → `DISABLED` |
@@ -79,6 +81,15 @@ File: `PropertyDeletionServiceImpl.assertNoActiveTenants()`
 | ACTIVE, còn khách thuê | **422** — message giống disable |
 | ACTIVE (hoặc bất kỳ status), đã có chỉ số điện/nước | **422** — `Không thể xóa căn nhà đã có chỉ số điện nước. Chỉ dùng cho dữ liệu onboarding/import sai.` |
 | DISABLED / DRAFT, không khách, chưa có chỉ số | **204** (như cũ) |
+
+### Kích hoạt lại — `POST /api/v1/properties/{propertyId}/enable`
+
+| Tình huống | Kết quả |
+|---|---|
+| DISABLED (đã disable từ ACTIVE) | **200** — `status` → `ACTIVE` (khôi phục đúng trạng thái trước disable) |
+| DISABLED (đã disable từ DRAFT / PENDING / …) | **200** — `status` → trạng thái tương ứng trước disable |
+| DISABLED nhưng không có `previousStatus` (dữ liệu cũ) | **200** — `status` → `DRAFT` |
+| Không phải DISABLED | **422** — `Chỉ có thể enable khi nhà đang ở trạng thái DISABLED` |
 
 ### Xóa purge (onboarding) — `DELETE /api/v1/properties/{propertyId}/purge`
 
@@ -116,6 +127,7 @@ Nếu bước 2 vẫn 422 vì chỉ số điện/nước → chỉ **disable**, 
 - [ ] Nhà ACTIVE nguyên căn, còn HĐ ACTIVE → 422 `Còn khách thuê — không thể vô hiệu/xóa`.
 - [ ] Nhà ACTIVE onboarding (chưa có chỉ số điện/nước), không khách → **Xóa** thành công 204.
 - [ ] Nhà ACTIVE đã có chỉ số điện/nước → **Xóa** 422; **Vô hiệu hóa** vẫn OK nếu không còn khách.
+- [ ] Nhà ACTIVE → **Vô hiệu hóa** → **Kích hoạt lại** → `status` quay về `ACTIVE`; các module (cấu hình khai thác, Host, …) hiển thị nhất quán.
 
 ## 8. Tham chiếu endpoint
 
@@ -131,6 +143,8 @@ Nếu bước 2 vẫn 422 vì chỉ số điện/nước → chỉ **disable**, 
 
 | File | Thay đổi |
 |---|---|
-| `PropertyOnboardingServiceImpl.java` | Bỏ chặn ACTIVE ở `disableProperty`; gọi `assertNoActiveTenants` |
+| `PropertyOnboardingServiceImpl.java` | Bỏ chặn ACTIVE ở `disableProperty`; `assertNoActiveTenants`; lưu/khôi phục `previousStatus` khi disable/enable |
+| `Property.java` | Thêm field `previousStatus` |
+| `DatabaseSchemaMigration.java` | Thêm cột `previous_status` nếu chưa có |
 | `PropertyDeletionServiceImpl.java` | Bỏ chặn ACTIVE ở `purgeProperty`; thêm `assertNoActiveTenants` |
 | `PropertyDeletionService.java` | Khai báo `assertNoActiveTenants(Long propertyId)` |

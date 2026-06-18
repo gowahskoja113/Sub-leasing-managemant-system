@@ -57,9 +57,13 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Zone zone = zoneRepository.findById(request.getZoneId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy khu vực (Zone)"));
 
+        String shortAddress = request.getAddress().trim();
+        String fullAddress = buildFullAddress(shortAddress, zone);
+        assertAddressAvailable(fullAddress, null);
+
         Property property = Property.builder()
                 .propertyName(request.getPropertyName())
-                .address(request.getAddress() + ", " + buildZoneFullName(zone))
+                .address(fullAddress)
                 .zone(zone)
                 .descriptions(request.getDescriptions())
                 .areaSize(request.getAreaSize())
@@ -69,7 +73,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .status(PropertyStatus.DRAFT)
                 .build();
 
-        return mapPropertyResponse(propertyRepository.save(property), request.getAddress());
+        return mapPropertyResponse(propertyRepository.save(property), shortAddress);
     }
 
     @Override
@@ -502,7 +506,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
         propertyDeletionService.assertNoActiveTenants(propertyId);
-        property.setStatus(PropertyStatus.DISABLED);
+        if (property.getStatus() != PropertyStatus.DISABLED) {
+            property.setPreviousStatus(property.getStatus());
+            property.setStatus(PropertyStatus.DISABLED);
+        }
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
@@ -516,23 +523,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chỉ có thể enable khi nhà đang ở trạng thái DISABLED");
         }
 
-        // Khôi phục trạng thái hợp lý dựa trên dữ liệu đã có (an toàn, không nhảy thẳng ACTIVE).
-        PropertyStatus restoredStatus;
-        if (property.getOperationManagerId() != null) {
-            restoredStatus = PropertyStatus.PENDING_OPERATION_MANAGER;
-        } else if (property.getSubmittedToHostAt() != null) {
-            restoredStatus = PropertyStatus.PENDING_HOST_REVIEW;
-        } else if (property.isRenovationCompleted()) {
-            restoredStatus = PropertyStatus.RENOVATION_COMPLETED;
-        } else if (Boolean.TRUE.equals(property.getHasRenovation())) {
-            restoredStatus = PropertyStatus.UNDER_RENOVATION;
-        } else if (inboundContractRepository.existsByPropertyId(propertyId)) {
-            restoredStatus = PropertyStatus.PENDING;
-        } else {
-            restoredStatus = PropertyStatus.DRAFT;
-        }
-
-        property.setStatus(restoredStatus);
+        property.setStatus(property.getPreviousStatus() != null
+                ? property.getPreviousStatus()
+                : PropertyStatus.DRAFT);
+        property.setPreviousStatus(null);
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
@@ -1031,5 +1025,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             return zone.getName() + ", " + zone.getParent().getName();
         }
         return zone.getName();
+    }
+
+    private String buildFullAddress(String shortAddress, Zone zone) {
+        return shortAddress + ", " + buildZoneFullName(zone);
+    }
+
+    private void assertAddressAvailable(String fullAddress, Long excludePropertyId) {
+        boolean exists = excludePropertyId == null
+                ? propertyRepository.existsByAddressIgnoreCase(fullAddress)
+                : propertyRepository.existsByAddressIgnoreCaseAndIdNot(fullAddress, excludePropertyId);
+        if (exists) {
+            throw new ConflictException("Địa chỉ này đã được sử dụng cho một tòa nhà khác");
+        }
     }
 }

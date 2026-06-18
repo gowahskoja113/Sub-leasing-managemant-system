@@ -42,8 +42,8 @@ public interface PropertyOnboardingService {
     PropertyResponse disableProperty(Long propertyId);
 
     /**
-     * Kích hoạt lại (bỏ DISABLED) và đưa property về trạng thái phù hợp nhất dựa trên dữ liệu hiện có.
-     * Không tự chuyển sang ACTIVE — muốn ACTIVE phải đi qua luồng assign operation manager.
+     * Kích hoạt lại (bỏ DISABLED) và khôi phục {@code previousStatus} đã lưu khi disable.
+     * Nếu không có trạng thái trước đó thì mặc định về DRAFT.
      */
     PropertyResponse enableProperty(Long propertyId);
 
