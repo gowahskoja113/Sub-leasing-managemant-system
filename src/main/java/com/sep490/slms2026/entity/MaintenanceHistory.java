@@ -2,21 +2,23 @@ package com.sep490.slms2026.entity;
 
 import com.sep490.slms2026.enums.MaintenanceStatus;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Entity
 @Table(name = "maintenance_history")
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class MaintenanceHistory {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "maintenance_request_id", nullable = false)
@@ -28,7 +30,12 @@ public class MaintenanceHistory {
     @Enumerated(EnumType.STRING)
     private MaintenanceStatus newStatus;
 
-    private UUID changedBy;
+    @Column(columnDefinition = "TEXT")
+    private String note;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "changed_by", nullable = false)
+    private User changedByUser;
 
     @CreationTimestamp
     private LocalDateTime changedAt;

@@ -837,6 +837,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
                 .roomId(equipment.getRoom() != null ? equipment.getRoom().getId() : null)
+                .roomName(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .catalogId(equipment.getCatalog().getId())
                 .catalogName(equipment.getCatalog().getName())
                 .houseArea(equipment.getHouseArea())
@@ -844,6 +845,13 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .status(equipment.getStatus())
                 .price(equipment.getPrice())
                 .note(equipment.getNote())
+                .equipmentName(equipment.getEquipmentName())
+                .category(equipment.getEquipmentCategory())
+                .qrCode(equipment.getQrCode())
+                .installationDate(equipment.getInstallationDate())
+                .warrantyExpiredDate(equipment.getWarrantyExpiredDate())
+                .maintenanceCount(equipment.getMaintenanceCount())
+                .lastMaintenanceDate(equipment.getLastMaintenanceDate())
                 .build();
     }
 

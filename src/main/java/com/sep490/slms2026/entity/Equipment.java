@@ -7,6 +7,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,11 +59,36 @@ public class Equipment implements Serializable {
     @Column(columnDefinition = "TEXT")
     private String note;
 
-    // QUAN HỆ MỚI: 1 Thiết bị có thể bị hỏng/tạo yêu cầu sửa chữa nhiều lần
+    // --- New fields per Maintenance_BE_Contract ---
+    @Column(name = "equipment_name")
+    private String equipmentName;
+
+    @Column(name = "category")
+    private String equipmentCategory;
+
+    @Column(name = "qr_code", unique = true)
+    private String qrCode;
+
+    @Column(name = "installation_date")
+    private LocalDate installationDate;
+
+    @Column(name = "warranty_expired_date")
+    private LocalDate warrantyExpiredDate;
+
+    @Column(name = "maintenance_count", nullable = false)
+    @Builder.Default
+    private int maintenanceCount = 0;
+
+    @Column(name = "last_maintenance_date")
+    private LocalDateTime lastMaintenanceDate;
+
+    // 1 Thiết bị có thể tạo yêu cầu sửa chữa nhiều lần
     @OneToMany(mappedBy = "equipment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<MaintenanceRequest> maintenanceRequests = new ArrayList<>();
 
-    // QUAN HỆ MỚI: 1 Thiết bị có nhiều lần ghi nhận lịch sử bảo trì
+    // 1 Thiết bị có nhiều lần ghi nhận lịch sử bảo trì
     @OneToMany(mappedBy = "equipment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<EquipmentMaintenanceHistory> maintenanceHistories = new ArrayList<>();
 }

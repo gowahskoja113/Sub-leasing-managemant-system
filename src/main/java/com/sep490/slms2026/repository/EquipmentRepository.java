@@ -24,4 +24,6 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     void deleteByPropertyId(Long propertyId);
 
     java.util.Optional<Equipment> findByIdAndPropertyId(Long id, Long propertyId);
+
+    List<Equipment> findByRoomId(Long roomId);
 }

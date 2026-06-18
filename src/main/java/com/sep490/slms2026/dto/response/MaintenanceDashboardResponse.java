@@ -1,15 +1,17 @@
 package com.sep490.slms2026.dto.response;
 
-import java.math.BigDecimal;
+import lombok.*;
 
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class MaintenanceDashboardResponse {
-    private Long totalRequests;
-
-    private Long pendingRequests;
-
-    private Long inProgressRequests;
-
-    private Long resolvedRequests;
-
-    private BigDecimal totalMaintenanceCost;
+    private long total;
+    private long pending;
+    private long inProgress;
+    private long resolved;
+    private long cancelled;
+    private long totalRepairCost;
 }

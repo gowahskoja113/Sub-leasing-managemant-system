@@ -1,22 +1,23 @@
 package com.sep490.slms2026.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Entity
 @Table(name = "equipment_maintenance_histories")
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class EquipmentMaintenanceHistory {
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
 
-    // Thay thế UUID rời rạc bằng quan hệ @ManyToOne
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "equipment_id", nullable = false)
     private Equipment equipment;
@@ -26,6 +27,9 @@ public class EquipmentMaintenanceHistory {
     private MaintenanceRequest maintenanceRequest;
 
     private LocalDateTime maintenanceDate;
+
+    @Column(name = "repair_cost")
+    private Long repairCost;
 
     @Column(columnDefinition = "TEXT")
     private String note;

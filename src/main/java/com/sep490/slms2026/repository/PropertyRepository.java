@@ -53,4 +53,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
        WHERE p.wholeHouse = false
        """)
     Long countRoomBasedProperty();
+
+    @Query("SELECT p.id FROM Property p WHERE p.operationManagerId = :managerId")
+    List<Long> findIdsByOperationManagerId(@Param("managerId") UUID managerId);
 }
