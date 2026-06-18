@@ -852,7 +852,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             if (renovationLineRepository.findByPropertyId(propertyId).isEmpty()) {
                 throw new BusinessException("Phải có ít nhất một hạng mục cải tạo");
             }
-            if (property.getRenovationStartDate() == null || property.getRenovationEndDate() == null) {
+            if (!property.isRenovationCompleted()
+                    && (property.getRenovationStartDate() == null || property.getRenovationEndDate() == null)) {
                 throw new BusinessException("Phải nhập lịch cải tạo (ngày bắt đầu/kết thúc)");
             }
         }
