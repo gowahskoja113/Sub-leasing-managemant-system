@@ -34,4 +34,7 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
 
     java.util.Optional<Equipment> findByIdAndPropertyId(Long id, Long propertyId);
+
+    @Query("SELECT DISTINCT e.catalog.name FROM Equipment e WHERE e.property.id = :propertyId ORDER BY e.catalog.name")
+    List<String> findDistinctAmenityNamesByPropertyId(@Param("propertyId") Long propertyId);
 }

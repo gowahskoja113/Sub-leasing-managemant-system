@@ -63,4 +63,6 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
        WHERE p.wholeHouse = false
        """)
     Long countRoomBasedProperty();
+
+    Page<Property> findByStatusAndOperationManagerIdIsNotNull(PropertyStatus status, Pageable pageable);
 }
