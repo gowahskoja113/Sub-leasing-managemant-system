@@ -20,12 +20,16 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 25MB
-      max-request-size: 30MB
+      max-file-size: 200MB
+      max-request-size: 210MB
 
 app:
   qr:
     base-url: https://localhost:8080/maintenance/scan
+  upload:
+    property-images:
+      dir: ${PROPERTY_IMAGES_DIR:uploads/properties}
+      public-base-url: ${APP_PUBLIC_BASE_URL:http://localhost:8080}
 
 jwt:
   secret: ${JWT_SECRET}

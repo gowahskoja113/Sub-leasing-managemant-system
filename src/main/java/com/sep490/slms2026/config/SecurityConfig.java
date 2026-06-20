@@ -48,6 +48,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/properties/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/uploads/properties/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

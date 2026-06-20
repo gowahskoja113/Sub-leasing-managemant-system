@@ -20,6 +20,14 @@ public interface InboundContractRepository extends JpaRepository<InboundContract
     java.util.Optional<InboundContract> findByContractCode(String contractCode);
 
     @Query("""
+            SELECT c FROM InboundContract c
+            JOIN FETCH c.property
+            WHERE LOWER(TRIM(c.contractCode)) = LOWER(TRIM(:contractCode))
+            """)
+    java.util.Optional<InboundContract> findByContractCodeIgnoreCaseWithProperty(
+            @Param("contractCode") String contractCode);
+
+    @Query("""
        SELECT COALESCE(SUM(i.totalRentAmount),0)
        FROM InboundContract i
        """)
