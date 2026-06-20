@@ -48,4 +48,9 @@ public class TenantContractResponse {
     private Long payosOrderCode;
     private String payosCheckoutUrl;
     private String payosQrCode;
+
+    // Onboarding: thông tin tài khoản tenant sau confirm
+    private String  tenantUsername;        // = SĐT khách (username đăng nhập)
+    private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản
+    private Boolean tenantRolePromoted;    // true nếu vừa nâng ROLE_USER → ROLE_TENANT
 }

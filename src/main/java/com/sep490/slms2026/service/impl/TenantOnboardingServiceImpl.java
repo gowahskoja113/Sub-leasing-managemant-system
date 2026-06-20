@@ -181,6 +181,59 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         String tenantPhone = contract.getTenant().getUser().getPhoneNumber();
         otpService.verifyOrThrow(tenantPhone, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
 
+        // ---- Resolve tài khoản tenant theo SĐT (spec Onboarding.md §2) ----
+        boolean accountCreated = false;
+        boolean rolePromoted   = false;
+        String phone = tenantPhone;
+
+        User tenantUser = userRepository.findByPhoneNumber(phone)
+                .or(() -> userRepository.findByUsername(phone))
+                .orElse(null);
+
+        if (tenantUser == null) {
+            // Chưa có tài khoản → tạo mới với phone/123456, ROLE_TENANT
+            tenantUser = new User();
+            tenantUser.setUsername(phone);
+            tenantUser.setPhoneNumber(phone);
+            tenantUser.setPassword(passwordEncoder.encode(DEFAULT_TENANT_PASSWORD));
+            tenantUser.setRole(Role.ROLE_TENANT);
+            tenantUser.setStatus(UserStatus.ACTIVE);
+            // fullName: lấy từ tenant hiện có trên contract, fallback SĐT
+            User existingContractUser = contract.getTenant().getUser();
+            tenantUser.setFullName(existingContractUser.getFullName() != null
+                    ? existingContractUser.getFullName() : phone);
+
+            Tenant tenantProfile = new Tenant();
+            tenantProfile.setUser(tenantUser);
+            tenantProfile.setCccd(contract.getTenant().getCccd());
+            tenantUser.setTenantProfile(tenantProfile);
+
+            tenantUser = userRepository.save(tenantUser);
+            accountCreated = true;
+        } else if (tenantUser.getRole() == Role.ROLE_USER) {
+            // Đã có tài khoản ROLE_USER → nâng quyền lên ROLE_TENANT
+            tenantUser.setRole(Role.ROLE_TENANT);
+            if (tenantUser.getPhoneNumber() == null) {
+                tenantUser.setPhoneNumber(phone);
+            }
+            // Tạo Tenant profile nếu chưa có
+            if (tenantUser.getTenantProfile() == null) {
+                Tenant tenantProfile = new Tenant();
+                tenantProfile.setUser(tenantUser);
+                tenantProfile.setCccd(contract.getTenant().getCccd());
+                tenantUser.setTenantProfile(tenantProfile);
+            }
+            userRepository.save(tenantUser);
+            rolePromoted = true;
+        }
+        // else: đã là ROLE_TENANT / role khác → giữ nguyên, chỉ liên kết
+
+        // Liên kết tenant user vào hợp đồng (nếu khác user hiện tại)
+        Tenant linkedProfile = tenantUser.getTenantProfile();
+        if (linkedProfile != null && !linkedProfile.getId().equals(contract.getTenant().getId())) {
+            contract.setTenant(linkedProfile);
+        }
+
         Room room = contract.getRoom();
         if (room != null) {
             if (tenantContractRepository.existsByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)) {
@@ -190,7 +243,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             roomRepository.save(room);
         }
         contract.setStatus(ContractStatus.ACTIVE);
-        return toResponse(tenantContractRepository.save(contract));
+        TenantContract saved = tenantContractRepository.save(contract);
+
+        return toResponse(saved, tenantUser.getUsername(), accountCreated, rolePromoted);
     }
 
     @Override
@@ -251,12 +306,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         // Tái dùng tài khoản đã có theo SĐT (đồng bộ với chức năng tra cứu tự điền)
         User existing = userRepository.findByPhoneNumber(phone).orElse(null);
         if (existing != null) {
-            if (existing.getRole() != Role.ROLE_TENANT) {
+            if (existing.getRole() == Role.ROLE_USER) {
+                // ROLE_USER → nâng quyền lên ROLE_TENANT khi onboard
+                existing.setRole(Role.ROLE_TENANT);
+                if (existing.getPhoneNumber() == null) {
+                    existing.setPhoneNumber(phone);
+                }
+            } else if (existing.getRole() != Role.ROLE_TENANT) {
                 throw new BusinessException("Số điện thoại đã được đăng ký cho tài khoản khác (không phải khách thuê)");
             }
             Tenant profile = existing.getTenantProfile();
             if (profile == null) {
-                // Trường hợp hiếm: user tenant chưa có profile -> tạo bổ sung
+                // User chưa có Tenant profile → tạo bổ sung
                 profile = new Tenant();
                 profile.setUser(existing);
                 profile.setCccd(request.getCccd());
@@ -267,7 +328,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return profile;
         }
 
-        // Chưa có -> tạo mới
+        // Chưa có → tạo mới
         String username = "t" + phone;
         User user = new User();
         user.setUsername(username);
@@ -286,7 +347,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             User savedUser = userRepository.saveAndFlush(user);
             return savedUser.getTenantProfile();
         } catch (DataIntegrityViolationException e) {
-            // fullName là UNIQUE trên bảng User -> trùng tên sẽ vi phạm ràng buộc
+            // fullName là UNIQUE trên bảng User → trùng tên sẽ vi phạm ràng buộc
             throw new BusinessException(
                     "Tên khách thuê hoặc SĐT đã tồn tại trong hệ thống, vui lòng kiểm tra lại");
         }
@@ -298,6 +359,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     private TenantContractResponse toResponse(TenantContract c) {
+        return toResponse(c, null, null, null);
+    }
+
+    /**
+     * Overload cho confirm: trả thêm thông tin tài khoản tenant cho FE hiển thị.
+     */
+    private TenantContractResponse toResponse(TenantContract c, String tenantUsername,
+                                               Boolean accountCreated, Boolean rolePromoted) {
         Tenant tenant = c.getTenant();
         User tenantUser = tenant.getUser();
         Room room = c.getRoom();
@@ -327,6 +396,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
+                .tenantUsername(tenantUsername)
+                .tenantAccountCreated(accountCreated)
+                .tenantRolePromoted(rolePromoted)
                 .build();
     }
 }
