@@ -35,6 +35,8 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     boolean existsByAddressIgnoreCaseAndIdNot(String address, Long id);
 
+    Optional<Property> findFirstByAddressIgnoreCase(String address);
+
     @Query("""
        SELECT z.name, COUNT(p)
        FROM Property p

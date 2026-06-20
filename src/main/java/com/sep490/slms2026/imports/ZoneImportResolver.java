@@ -40,4 +40,16 @@ public class ZoneImportResolver {
         }
         return address + ", " + wardName;
     }
+
+    /** Ghép fullAddress giống {@code PropertyOnboardingServiceImpl#createDraft}. */
+    public static String buildFullAddress(String shortAddress, Zone zone) {
+        return shortAddress.trim() + ", " + buildZoneFullName(zone);
+    }
+
+    private static String buildZoneFullName(Zone zone) {
+        if (zone.getParent() != null) {
+            return zone.getName() + ", " + zone.getParent().getName();
+        }
+        return zone.getName();
+    }
 }
