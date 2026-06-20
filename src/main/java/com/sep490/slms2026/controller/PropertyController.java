@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/properties")
 @RequiredArgsConstructor
@@ -21,6 +23,12 @@ public class PropertyController {
     @PostMapping
     public ResponseEntity<PropertyResponse> createProperty(@RequestBody PropertyCreateRequest request) {
         return new ResponseEntity<>(propertyService.createProperty(request), HttpStatus.CREATED);
+    }
+
+    /** Danh sách BĐS còn cho thuê được — dùng cho màn onboarding đón khách. */
+    @GetMapping("/rentable")
+    public ResponseEntity<List<PropertyResponse>> getRentableProperties() {
+        return ResponseEntity.ok(propertyService.getRentableProperties());
     }
 
     @GetMapping("/{id}")

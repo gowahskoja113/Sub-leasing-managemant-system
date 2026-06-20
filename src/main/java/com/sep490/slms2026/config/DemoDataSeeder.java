@@ -54,6 +54,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 .collect(Collectors.toMap(EquipmentCatalog::getName, c -> c, (a, b) -> a));
 
         seedProperties(manager.getId(), districts);
+        seedTenantUsers();
         log.info("DemoDataSeeder: hoàn tất seed dữ liệu demo (manager={}).", MANAGER_USERNAME);
     }
 
@@ -211,6 +212,48 @@ public class DemoDataSeeder implements ApplicationRunner {
                 List.of(
                         "https://images.unsplash.com/photo-1484154218962-a197022b5858",
                         "https://images.unsplash.com/photo-1556911220-bff31c812dba"));
+
+        // ============================================================
+        // Bổ sung cho đủ 10 nhà nguyên căn + 10 nhà chia phòng (demo onboarding)
+        // ============================================================
+        String[] dCycle = {"Quận 1", "Quận 3", "Bình Thạnh", "Gò Vấp", "Phú Nhuận"};
+        List<String> imgsWH = List.of(
+                "https://images.unsplash.com/photo-1568605114967-8130f3a36994",
+                "https://images.unsplash.com/photo-1570129477492-45c003edd2be");
+        List<String> imgsRB = List.of(
+                "https://images.unsplash.com/photo-1493809842364-78817add7ffb",
+                "https://images.unsplash.com/photo-1505691938895-1758d7feb511");
+
+        // 8 nhà nguyên căn (đã có 2 -> tổng 10)
+        String[] whName = {"Nhà phố Lê Lợi", "Villa Nguyễn Huệ", "Nhà nguyên căn Hai Bà Trưng",
+                "Biệt thự Trần Hưng Đạo", "Nhà phố Cách Mạng Tháng 8", "Villa Nguyễn Đình Chiểu",
+                "Nhà nguyên căn Pasteur", "Nhà phố Lý Tự Trọng"};
+        String[] whAddr = {"12 Lê Lợi", "34 Nguyễn Huệ", "56 Hai Bà Trưng", "78 Trần Hưng Đạo",
+                "90 Cách Mạng Tháng 8", "21 Nguyễn Đình Chiểu", "43 Pasteur", "65 Lý Tự Trọng"};
+        int[] whBeds = {2, 3, 4, 5, 3, 2, 4, 3};
+        long[] whPrice = {18000000, 22000000, 30000000, 40000000, 25000000, 16000000, 32000000, 24000000};
+        for (int i = 0; i < whName.length; i++) {
+            int beds = whBeds[i];
+            createWholeHouse(existingNames, managerId, districts.get(dCycle[i % dCycle.length]),
+                    whName[i], whAddr[i],
+                    "Nhà nguyên căn cho thuê, nội thất đầy đủ, vị trí thuận tiện.",
+                    70.0 + i * 8, 2 + (i % 3), beds, BigDecimal.valueOf(whPrice[i]), imgsWH,
+                    beds + " phòng ngủ, 1 phòng khách, 1 bếp, " + Math.max(1, beds - 1) + " WC");
+        }
+
+        // 7 nhà chia phòng (đã có 3 -> tổng 10)
+        String[] rbName = {"Nhà trọ Cộng Hòa", "Căn hộ mini Trường Chinh", "Nhà trọ Lạc Long Quân",
+                "KTX mini Nguyễn Oanh", "Nhà trọ Lê Văn Sỹ", "Căn hộ DV Hoàng Văn Thụ", "Nhà trọ Phạm Văn Đồng"};
+        String[] rbAddr = {"15 Cộng Hòa", "27 Trường Chinh", "39 Lạc Long Quân", "51 Nguyễn Oanh",
+                "63 Lê Văn Sỹ", "75 Hoàng Văn Thụ", "87 Phạm Văn Đồng"};
+        int[] rbRooms = {6, 8, 10, 5, 7, 9, 4};
+        long[] rbPrice = {3500000, 5000000, 2800000, 4000000, 3200000, 6000000, 2500000};
+        for (int i = 0; i < rbName.length; i++) {
+            createRoomBased(existingNames, managerId, districts.get(dCycle[i % dCycle.length]),
+                    rbName[i], rbAddr[i],
+                    "Nhà chia phòng cho thuê, phòng khép kín đầy đủ tiện nghi.",
+                    120.0 + i * 15, 3 + (i % 3), rbRooms[i], BigDecimal.valueOf(rbPrice[i]), imgsRB);
+        }
     }
 
     private void createWholeHouse(Set<String> existing, UUID managerId, Zone zone, String name,
@@ -355,6 +398,47 @@ public class DemoDataSeeder implements ApplicationRunner {
                 .build());
     }
 
+    // ---------------------------------------------------------------------
+    // 30 tài khoản khách thuê chưa có nhà (để demo luồng onboarding)
+    // Đăng nhập: khach01..khach30 / 123456. Tra cứu theo SĐT 0912000001..0912000030.
+    // ---------------------------------------------------------------------
+    private void seedTenantUsers() {
+        String[] ho = {"Nguyễn", "Trần", "Lê", "Phạm", "Hoàng", "Vũ", "Đặng", "Bùi", "Đỗ", "Hồ"};
+        String[] dem = {"Văn", "Thị", "Hữu", "Đức", "Minh", "Ngọc", "Gia", "Quang", "Thanh", "Khánh"};
+        String[] ten = {"An", "Bình", "Cường", "Dũng", "Em", "Phúc", "Giang", "Hà", "Hiếu", "Khoa",
+                "Long", "Mai", "Nam", "Oanh", "Phương", "Quân", "Quỳnh", "Sơn", "Tâm", "Uyên",
+                "Vy", "Xuân", "Yến", "Bảo", "Châu", "Duy", "Hải", "Khang", "Linh", "Trang"};
+
+        int created = 0;
+        for (int i = 0; i < 30; i++) {
+            String username = "khach" + String.format("%02d", i + 1);
+            String phone = "0912" + String.format("%06d", i + 1);
+            if (userRepository.existsByUsername(username) || userRepository.existsByPhoneNumber(phone)) {
+                continue;
+            }
+            User u = new User();
+            u.setUsername(username);
+            u.setPassword(passwordEncoder.encode("123456"));
+            u.setRole(Role.ROLE_TENANT);
+            u.setStatus(UserStatus.ACTIVE);
+            u.setFullName(ho[i % ho.length] + " " + dem[i % dem.length] + " " + ten[i]);
+            u.setPhoneNumber(phone);
+
+            Tenant profile = new Tenant();
+            profile.setUser(u);
+            profile.setCccd("079" + String.format("%09d", i + 1));
+            u.setTenantProfile(profile);
+
+            try {
+                userRepository.save(u);
+                created++;
+            } catch (Exception e) {
+                log.warn("DemoDataSeeder: bỏ qua khách thuê {}: {}", username, e.getMessage());
+            }
+        }
+        log.info("DemoDataSeeder: seed {} khách thuê demo (khach01..khach30 / 123456).", created);
+    }
+
     private void addManifest(Property property, String catalogName, int quantity, EquipmentStatus status) {
         EquipmentCatalog catalog = catalogByName.get(catalogName);
         if (catalog == null) {
@@ -365,6 +449,8 @@ public class DemoDataSeeder implements ApplicationRunner {
                 .catalog(catalog)
                 .quantity(quantity)
                 .status(status)
+                .source(EquipmentSource.INITIAL_HANDOVER)  // @Builder bỏ qua initializer -> phải set tường minh
+                .price(BigDecimal.ZERO)
                 .build());
     }
 }
