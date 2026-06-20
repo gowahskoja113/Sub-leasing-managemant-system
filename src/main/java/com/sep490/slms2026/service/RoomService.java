@@ -37,5 +37,8 @@ public interface RoomService {
 
     RoomResponse updateRoom(Long propertyId, Long roomId, UpdateRoomRequest request);
 
+    /**
+     * Ẩn phòng (soft delete). Thiết bị trong phòng được chuyển về kho tự động.
+     */
     void deleteRoom(Long propertyId, Long roomId);
 }

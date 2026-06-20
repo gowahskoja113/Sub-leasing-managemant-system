@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service;
 
+import com.sep490.slms2026.dto.request.ReassignEquipmentRequest;
 import com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.enums.EquipmentStatus;
@@ -28,4 +29,6 @@ public interface EquipmentService {
 
     /** GET /api/v1/equipment/{id}/maintenance-history — lịch sử bảo trì thiết bị */
     List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistory(Long equipmentId);
+
+    EquipmentResponse reassignEquipment(Long propertyId, Long equipmentId, ReassignEquipmentRequest request);
 }

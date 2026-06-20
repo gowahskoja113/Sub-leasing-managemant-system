@@ -1,10 +1,12 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.request.ReassignEquipmentRequest;
 import com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.entity.EquipmentMaintenanceHistory;
 import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -12,6 +14,7 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.EquipmentMaintenanceHistoryRepository;
 import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
+import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.service.EquipmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,6 +29,7 @@ public class EquipmentServiceImpl implements EquipmentService {
     private final EquipmentRepository equipmentRepository;
     private final PropertyRepository propertyRepository;
     private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
+    private final RoomRepository roomRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -44,8 +48,9 @@ public class EquipmentServiceImpl implements EquipmentService {
     public void unassignEquipment(Long propertyId, Long equipmentId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
-            throw new BusinessException("Chỉ có thể xoá thiết bị đã gán khi tòa nhà đang ở trạng thái DRAFT hoặc UNDER_RENOVATION");
+        if (!property.getStatus().isEquipmentEditable()) {
+            throw new BusinessException(
+                    "Chỉ có thể xoá thiết bị đã gán khi nhà đang trong quá trình onboarding (quy trình 3)");
         }
         Equipment equipment = equipmentRepository.findByIdAndPropertyId(equipmentId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -117,6 +122,34 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .stream()
                 .map(this::toHistoryResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse reassignEquipment(Long propertyId,
+                                               Long equipmentId,
+                                               ReassignEquipmentRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
+        if (!property.getStatus().isEquipmentEditable()) {
+            throw new BusinessException(
+                    "Chỉ có thể gán thiết bị từ kho khi nhà đang trong quá trình onboarding (quy trình 3)");
+        }
+
+        Equipment equipment = equipmentRepository.findByIdAndPropertyId(equipmentId, propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy thiết bị ID=" + equipmentId + " trong tòa nhà ID=" + propertyId));
+        if (equipment.getRoom() != null) {
+            throw new BusinessException("Thiết bị đã được gán phòng — chỉ gán lại thiết bị đang ở kho");
+        }
+
+        Room room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(request.getRoomId(), propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy phòng ID=" + request.getRoomId() + " trong tòa nhà này"));
+
+        equipment.setRoom(room);
+        equipment.setHouseArea(request.getHouseArea());
+        return toResponse(equipmentRepository.save(equipment));
     }
 
     // ========== PRIVATE MAPPERS ==========

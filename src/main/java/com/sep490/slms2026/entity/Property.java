@@ -58,6 +58,10 @@ public class Property implements Serializable {
     @Column(nullable = false)
     private PropertyStatus status = PropertyStatus.DRAFT;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "previous_status")
+    private PropertyStatus previousStatus;
+
     @Column(name = "created_by")
     private Long createdBy;
 
@@ -72,6 +76,28 @@ public class Property implements Serializable {
 
     @Column
     private BigDecimal price;
+
+    @Column
+    private Double latitude;
+
+    @Column
+    private Double longitude;
+
+    /** Đơn giá điện (VNĐ/kWh) hiển thị cho khách */
+    @Column(name = "electricity_unit_price")
+    private BigDecimal electricityUnitPrice;
+
+    /** Đơn giá nước (VNĐ/m³) hiển thị cho khách */
+    @Column(name = "water_unit_price")
+    private BigDecimal waterUnitPrice;
+
+    /** Số tháng tiền cọc mặc định (1 hoặc 2) */
+    @Column(name = "deposit_months")
+    private Integer depositMonths;
+
+    /** Phí dịch vụ cố định hàng tháng (VNĐ) */
+    @Column(name = "service_fee")
+    private BigDecimal serviceFee;
 
     @Column(name = "renovation_start_date")
     private LocalDate renovationStartDate;

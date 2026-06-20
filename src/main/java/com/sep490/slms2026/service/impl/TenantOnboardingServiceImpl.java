@@ -10,6 +10,7 @@ import com.sep490.slms2026.entity.Tenant;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.OtpPurpose;
 import com.sep490.slms2026.enums.PaymentStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -20,6 +21,7 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
+import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
     private final PayosService payosService;
+    private final OtpService otpService;
 
     @Override
     @Transactional
@@ -165,7 +168,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     @Override
     @Transactional
-    public TenantContractResponse confirmContract(Long contractId) {
+    public TenantContractResponse confirmContract(Long contractId, String otp) {
         TenantContract contract = findContract(contractId);
 
         if (contract.getStatus() == ContractStatus.ACTIVE) {
@@ -174,6 +177,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() != PaymentStatus.PAID) {
             throw new BusinessException("Chưa thanh toán cọc, không thể hoàn tất hợp đồng");
         }
+
+        String tenantPhone = contract.getTenant().getUser().getPhoneNumber();
+        otpService.verifyOrThrow(tenantPhone, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
 
         Room room = contract.getRoom();
         if (room != null) {
@@ -185,6 +191,20 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         contract.setStatus(ContractStatus.ACTIVE);
         return toResponse(tenantContractRepository.save(contract));
+    }
+
+    @Override
+    @Transactional
+    public void sendContractConfirmOtp(Long contractId) {
+        TenantContract contract = findContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            throw new BusinessException("Hợp đồng đã được kích hoạt");
+        }
+        if (contract.getPaymentStatus() != PaymentStatus.PAID) {
+            throw new BusinessException("Chưa thanh toán cọc, không thể gửi OTP xác nhận");
+        }
+        String tenantPhone = contract.getTenant().getUser().getPhoneNumber();
+        otpService.sendOtp(tenantPhone, OtpPurpose.CONTRACT_CONFIRM, contractId);
     }
 
     @Override

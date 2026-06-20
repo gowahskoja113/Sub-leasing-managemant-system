@@ -1,7 +1,9 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.request.ReassignEquipmentRequest;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.service.EquipmentService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -26,5 +28,17 @@ public class EquipmentController {
                                                   @PathVariable Long equipmentId) {
         equipmentService.unassignEquipment(propertyId, equipmentId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * PATCH /api/v1/properties/{propertyId}/equipments/{equipmentId}/assign
+     * Gán thiết bị từ kho (roomId = null) vào phòng mới.
+     */
+    @PatchMapping("/{equipmentId}/assign")
+    public ResponseEntity<EquipmentResponse> reassignEquipment(
+            @PathVariable Long propertyId,
+            @PathVariable Long equipmentId,
+            @Valid @RequestBody ReassignEquipmentRequest request) {
+        return ResponseEntity.ok(equipmentService.reassignEquipment(propertyId, equipmentId, request));
     }
 }

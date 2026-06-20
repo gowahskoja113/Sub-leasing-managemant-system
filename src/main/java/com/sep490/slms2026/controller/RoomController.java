@@ -81,7 +81,8 @@ public class RoomController {
 
     /**
      * DELETE /api/v1/properties/{propertyId}/rooms/{roomId}
-     * Xóa phòng (khi giảm số phòng sau cải tạo).
+     * Ẩn phòng (soft delete) khi đập bỏ/gộp phòng sau cải tạo.
+     * Thiết bị trong phòng tự động chuyển về kho (roomId = null).
      * Cho phép khi tòa nhà DRAFT hoặc UNDER_RENOVATION. Không cho phép khi phòng đang RENTED.
      */
     @DeleteMapping("/{roomId}")
