@@ -11,7 +11,9 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
+import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyService;
+import com.sep490.slms2026.exception.ConflictException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -31,6 +33,7 @@ public class PropertyServiceImpl implements PropertyService {
 
     private final PropertyRepository propertyRepository;
     private final ZoneRepository zoneRepository;
+    private final PropertyDeletionService propertyDeletionService;
     private final TenantContractRepository tenantContractRepository;
     private final RoomRepository roomRepository;
 
@@ -49,7 +52,10 @@ public class PropertyServiceImpl implements PropertyService {
         property.setAreaSize(request.getAreaSize());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
-        property.setAddress(request.getAddress() + ", " + buildZoneFullName(zone));
+        String shortAddress = request.getAddress().trim();
+        String fullAddress = buildFullAddress(shortAddress, zone);
+        assertAddressAvailable(fullAddress, null);
+        property.setAddress(fullAddress);
 
         if (request.getTotalFloor() != null) {
             property.setTotalFloor(request.getTotalFloor());
@@ -64,7 +70,7 @@ public class PropertyServiceImpl implements PropertyService {
 
         property.setStatus(PropertyStatus.DRAFT);
         Property saved = propertyRepository.save(property);
-        return mapToResponse(saved, request.getAddress());
+        return mapToResponse(saved, shortAddress);
     }
 
     @Override
@@ -141,7 +147,10 @@ public class PropertyServiceImpl implements PropertyService {
             property.setZone(newZone);
         }
 
-        property.setAddress(request.getAddress() + ", " + buildZoneFullName(property.getZone()));
+        String shortAddress = request.getAddress().trim();
+        String fullAddress = buildFullAddress(shortAddress, property.getZone());
+        assertAddressAvailable(fullAddress, id);
+        property.setAddress(fullAddress);
 
         if (property.getStatus() != PropertyStatus.ACTIVE) {
             if (request.getTotalFloor() != null) {
@@ -156,21 +165,13 @@ public class PropertyServiceImpl implements PropertyService {
         }
 
         Property updated = propertyRepository.save(property);
-        return mapToResponse(updated, request.getAddress());
+        return mapToResponse(updated, shortAddress);
     }
 
     @Override
     @Transactional
     public void deleteProperty(Long id) {
-        Property property = propertyRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy tài sản với ID: " + id));
-
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            throw new IllegalStateException(
-                    "Không thể xóa tài sản đã kích hoạt (ACTIVE). Vui lòng thanh lý hợp đồng gốc trước!");
-        }
-
-        propertyRepository.delete(property);
+        propertyDeletionService.purgeProperty(id);
     }
 
     private String buildZoneFullName(Zone zone) {
@@ -178,6 +179,19 @@ public class PropertyServiceImpl implements PropertyService {
             return zone.getName() + ", " + zone.getParent().getName();
         }
         return zone.getName();
+    }
+
+    private String buildFullAddress(String shortAddress, Zone zone) {
+        return shortAddress + ", " + buildZoneFullName(zone);
+    }
+
+    private void assertAddressAvailable(String fullAddress, Long excludePropertyId) {
+        boolean exists = excludePropertyId == null
+                ? propertyRepository.existsByAddressIgnoreCase(fullAddress)
+                : propertyRepository.existsByAddressIgnoreCaseAndIdNot(fullAddress, excludePropertyId);
+        if (exists) {
+            throw new ConflictException("Địa chỉ này đã được sử dụng cho một tòa nhà khác");
+        }
     }
 
     private PropertyResponse mapToResponse(Property property, String shortAddress) {

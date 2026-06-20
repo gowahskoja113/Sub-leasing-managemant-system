@@ -21,7 +21,10 @@ public interface TenantOnboardingService {
     TenantContractResponse createDepositPayment(Long contractId);
 
     /** Hoàn tất HĐ (sau khi đã thanh toán cọc + OTP): set ACTIVE, phòng RENTED. */
-    TenantContractResponse confirmContract(Long contractId);
+    TenantContractResponse confirmContract(Long contractId, String otp);
+
+    /** Gửi OTP SMS tới SĐT khách thuê để xác nhận hoàn tất HĐ. */
+    void sendContractConfirmOtp(Long contractId);
 
     /** Đánh dấu đã thanh toán theo orderCode (gọi từ webhook PayOS). */
     void markDepositPaid(Long payosOrderCode);

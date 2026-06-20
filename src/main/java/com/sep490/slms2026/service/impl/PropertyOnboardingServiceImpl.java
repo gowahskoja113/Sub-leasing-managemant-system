@@ -3,6 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.*;
 import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PricingScope;
 import com.sep490.slms2026.enums.PropertyStatus;
@@ -10,9 +11,11 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
+import com.sep490.slms2026.exception.ConflictException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.DepreciationService;
+import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,6 +49,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final DepreciationResultRepository depreciationResultRepository;
     private final DepreciationService depreciationService;
     private final UserRepository userRepository;
+    private final PropertyDeletionService propertyDeletionService;
 
     @Override
     @Transactional
@@ -53,9 +57,13 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Zone zone = zoneRepository.findById(request.getZoneId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy khu vực (Zone)"));
 
+        String shortAddress = request.getAddress().trim();
+        String fullAddress = buildFullAddress(shortAddress, zone);
+        assertAddressAvailable(fullAddress, null);
+
         Property property = Property.builder()
                 .propertyName(request.getPropertyName())
-                .address(request.getAddress() + ", " + buildZoneFullName(zone))
+                .address(fullAddress)
                 .zone(zone)
                 .descriptions(request.getDescriptions())
                 .areaSize(request.getAreaSize())
@@ -65,13 +73,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .status(PropertyStatus.DRAFT)
                 .build();
 
-        return mapPropertyResponse(propertyRepository.save(property), request.getAddress());
+        return mapPropertyResponse(propertyRepository.save(property), shortAddress);
     }
 
     @Override
     @Transactional
     public PropertyResponse setOnboardingOptions(Long propertyId, OnboardingOptionsRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.PENDING) {
+            throw new BusinessException(
+                    "Phải hoàn thành quy trình 1 (ký hợp đồng) trước khi chọn loại hình thuê/cải tạo");
+        }
+
         property.setWholeHouse(request.getWholeHouse());
         property.setHasRenovation(request.getHasRenovation());
 
@@ -83,13 +96,14 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             property.setRenovationCompleted(false);
         }
 
+        property.setStatus(PropertyStatus.UNDER_RENOVATION);
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
     @Override
     @Transactional
     public PropertyResponse updateStructure(Long propertyId, UpdatePropertyStructureRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
         property.setTotalFloor(request.getTotalFloor());
         property.setTotalRooms(request.getTotalRooms());
 
@@ -100,7 +114,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional
     public List<EquipmentManifestResponse> saveEquipmentManifest(Long propertyId,
                                                                  SaveEquipmentManifestRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.UNDER_RENOVATION
+                && property.getStatus() != PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            throw new BusinessException(
+                    "Phải hoàn thành quy trình 2 trước khi khai báo thiết bị");
+        }
         equipmentManifestRepository.deleteByPropertyId(propertyId);
 
         List<EquipmentManifest> saved = new ArrayList<>();
@@ -124,6 +143,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .price(itemPrice)
                     .build()));
         }
+
+        if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
+            property.setStatus(PropertyStatus.PENDING_EQUIPMENT_INSTALLATION);
+            propertyRepository.save(property);
+        }
+
         return saved.stream().map(this::toManifestResponse).toList();
     }
 
@@ -139,22 +164,53 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Override
     @Transactional
     public EquipmentResponse assignEquipment(Long propertyId, AssignEquipmentRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            throw new BusinessException(
+                    "Chỉ gán thiết bị khi nhà đang ở quy trình 3 (PENDING_EQUIPMENT_INSTALLATION)");
+        }
         validateEquipmentStatus(request.getStatus());
+        validateEquipmentPlacement(request.getRoomId(), request.getHouseArea());
 
-        EquipmentManifest manifest = equipmentManifestRepository
-                .findByPropertyIdAndCatalogIdAndStatusAndSource(
-                        propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
-                .orElseThrow(() -> new BusinessException(String.format(
-                        "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest",
-                        request.getCatalogId(), request.getStatus(), request.getSource())));
+        EquipmentCatalog catalog = equipmentCatalogRepository.findById(request.getCatalogId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy danh mục thiết bị ID=" + request.getCatalogId()));
 
-        long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
-        if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
-            throw new BusinessException(String.format(
-                    "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
-                    request.getCatalogId(), request.getStatus(),
-                    alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+        EquipmentManifest manifest = null;
+        BigDecimal unitPrice;
+
+        if (request.getSource() == EquipmentSource.INITIAL_HANDOVER) {
+            manifest = equipmentManifestRepository
+                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                            propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
+                    .orElseThrow(() -> new BusinessException(String.format(
+                            "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest bàn giao",
+                            request.getCatalogId(), request.getStatus(), request.getSource())));
+
+            long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+            if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
+                throw new BusinessException(String.format(
+                        "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
+                        request.getCatalogId(), request.getStatus(),
+                        alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+            }
+            unitPrice = BigDecimal.ZERO;
+        } else {
+            unitPrice = resolvePurchasedUnitPrice(request);
+            manifest = equipmentManifestRepository
+                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                            propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
+                    .orElse(null);
+
+            if (manifest != null) {
+                long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+                if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
+                    throw new BusinessException(String.format(
+                            "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
+                            request.getCatalogId(), request.getStatus(),
+                            alreadyAssigned, manifest.getQuantity(), request.getQuantity()));
+                }
+            }
         }
 
         Room room = resolveRoomForAssignment(property, propertyId, request.getRoomId(), request.getHouseArea());
@@ -164,21 +220,33 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             lastSaved = equipmentRepository.save(Equipment.builder()
                     .property(property)
                     .room(room)
-                    .catalog(manifest.getCatalog())
+                    .catalog(catalog)
                     .manifest(manifest)
                     .houseArea(request.getHouseArea())
-                    .source(manifest.getSource())
-                    .status(manifest.getStatus())
-                    .price(manifest.getPrice())
+                    .source(request.getSource())
+                    .status(request.getStatus())
+                    .price(unitPrice)
+                    .note(request.getNote())
                     .build());
         }
         return toEquipmentResponse(lastSaved);
     }
 
+    private BigDecimal resolvePurchasedUnitPrice(AssignEquipmentRequest request) {
+        if (request.getPrice() == null || request.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Thiết bị mua mới (PURCHASED) phải có price > 0");
+        }
+        return request.getPrice();
+    }
+
     @Override
     @Transactional
     public RenovationLineResponse addRenovationLine(Long propertyId, AddRenovationLineRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.UNDER_RENOVATION
+                && property.getStatus() != PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            throw new BusinessException("Chỉ thêm hạng mục cải tạo khi nhà đang ở quy trình 2");
+        }
         if (!Boolean.TRUE.equals(property.getHasRenovation())) {
             throw new BusinessException("Tòa nhà không chọn cải tạo — không thể thêm hạng mục");
         }
@@ -220,7 +288,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Override
     @Transactional
     public PropertyResponse setRenovationSchedule(Long propertyId, RenovationScheduleRequest request) {
-        Property property = findEditableProperty(propertyId);
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.UNDER_RENOVATION
+                && property.getStatus() != PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            throw new BusinessException("Chỉ nhập lịch cải tạo khi nhà đang ở quy trình 2");
+        }
         if (!Boolean.TRUE.equals(property.getHasRenovation())) {
             throw new BusinessException("Tòa nhà không chọn cải tạo");
         }
@@ -277,6 +349,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
+        if (property.getStatus() == PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            if (Boolean.TRUE.equals(property.getHasRenovation())) {
+                LocalDate endDate = property.getRenovationEndDate() != null
+                        ? property.getRenovationEndDate()
+                        : LocalDate.now();
+                closeActiveRenovationSession(property, endDate);
+            }
+            property.setRenovationCompleted(true);
+            property.setStatus(PropertyStatus.RENOVATION_COMPLETED);
+            return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+        }
+
         if (!Boolean.TRUE.equals(property.getHasRenovation())) {
             throw new BusinessException("Tòa nhà không có cải tạo");
         }
@@ -289,14 +373,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             } else {
                 property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
             }
-        } else if (property.getStatus() == PropertyStatus.DRAFT) {
-            LocalDate endDate = property.getRenovationEndDate() != null
-                    ? property.getRenovationEndDate()
-                    : LocalDate.now();
-            closeActiveRenovationSession(property, endDate);
-            property.setRenovationCompleted(true);
         } else {
-            throw new BusinessException("Chỉ có thể xác nhận hoàn thành khi tòa nhà đang UNDER_RENOVATION");
+            throw new BusinessException(
+                    "Chỉ có thể xác nhận hoàn thành khi nhà đang PENDING_EQUIPMENT_INSTALLATION hoặc UNDER_RENOVATION (cải tạo lại)");
         }
 
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
@@ -305,17 +384,19 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Override
     @Transactional
     public OnboardingSummaryResponse submitToHost(Long propertyId) {
-        Property property = findEditableProperty(propertyId);
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.RENOVATION_COMPLETED) {
+            throw new BusinessException(
+                    "Phải hoàn thành 3 quy trình onboarding (trạng thái RENOVATION_COMPLETED) trước khi gửi host");
+        }
         validateReadyForSubmit(property);
 
         depreciationService.calculate(propertyId, CalculateDepreciationRequest.builder().build());
 
         property.setSubmittedToHostAt(LocalDateTime.now());
-        if (Boolean.TRUE.equals(property.getHasRenovation()) && !property.isRenovationCompleted()) {
-            property.setStatus(PropertyStatus.UNDER_RENOVATION);
-        } else {
-            property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
-        }
+        property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
         propertyRepository.save(property);
 
         return getOnboardingSummary(propertyId);
@@ -424,10 +505,28 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     public PropertyResponse disableProperty(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            throw new BusinessException("Không thể disable nhà đang ACTIVE");
+        propertyDeletionService.assertNoActiveTenants(propertyId);
+        if (property.getStatus() != PropertyStatus.DISABLED) {
+            property.setPreviousStatus(property.getStatus());
+            property.setStatus(PropertyStatus.DISABLED);
         }
-        property.setStatus(PropertyStatus.DISABLED);
+        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+    }
+
+    @Override
+    @Transactional
+    public PropertyResponse enableProperty(Long propertyId) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
+
+        if (property.getStatus() != PropertyStatus.DISABLED) {
+            throw new BusinessException("Chỉ có thể enable khi nhà đang ở trạng thái DISABLED");
+        }
+
+        property.setStatus(property.getPreviousStatus() != null
+                ? property.getPreviousStatus()
+                : PropertyStatus.DRAFT);
+        property.setPreviousStatus(null);
         return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
     }
 
@@ -483,12 +582,32 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional(readOnly = true)
     public List<EquipmentCatalogResponse> listEquipmentCatalog() {
         return equipmentCatalogRepository.findByActiveTrueOrderByNameAsc().stream()
-                .map(c -> EquipmentCatalogResponse.builder()
-                        .id(c.getId())
-                        .name(c.getName())
-                        .description(c.getDescription())
-                        .build())
+                .map(this::toEquipmentCatalogResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request) {
+        String name = request.getName().trim();
+        if (equipmentCatalogRepository.existsByNameIgnoreCase(name)) {
+            throw new ConflictException("Tên thiết bị '" + name + "' đã tồn tại");
+        }
+
+        EquipmentCatalog saved = equipmentCatalogRepository.save(EquipmentCatalog.builder()
+                .name(name)
+                .description(request.getDescription())
+                .active(true)
+                .build());
+        return toEquipmentCatalogResponse(saved);
+    }
+
+    private EquipmentCatalogResponse toEquipmentCatalogResponse(EquipmentCatalog catalog) {
+        return EquipmentCatalogResponse.builder()
+                .id(catalog.getId())
+                .name(catalog.getName())
+                .description(catalog.getDescription())
+                .build();
     }
 
     @Override
@@ -502,6 +621,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                         .description(c.getDescription())
                         .build())
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public PropertyPurgeResponse purgeProperty(Long propertyId) {
+        return propertyDeletionService.purgeProperty(propertyId);
     }
 
     private PropertyActivationResponse confirmWholeHouse(Property property,
@@ -684,11 +809,21 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         List<EquipmentManifest> manifests = equipmentManifestRepository.findByPropertyId(propertyId);
-        if (manifests.isEmpty()) {
-            throw new BusinessException("Phải khai báo manifest thiết bị trước khi gửi host");
+        boolean hasHandoverManifest = manifests.stream()
+                .anyMatch(m -> m.getSource() == EquipmentSource.INITIAL_HANDOVER);
+        boolean hasPurchasedEquipment = equipmentRepository.countByPropertyIdAndSource(
+                propertyId, EquipmentSource.PURCHASED) > 0;
+
+        if (!hasHandoverManifest && !hasPurchasedEquipment) {
+            throw new BusinessException(
+                    "Phải khai báo manifest thiết bị bàn giao hoặc gán thiết bị mua mới trước khi gửi host");
         }
+
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
             for (EquipmentManifest manifest : manifests) {
+                if (manifest.getSource() != EquipmentSource.INITIAL_HANDOVER) {
+                    continue;
+                }
                 long assigned = equipmentRepository.countByManifestId(manifest.getId());
                 if (assigned != manifest.getQuantity()) {
                     throw new BusinessException(String.format(
@@ -698,7 +833,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 }
             }
 
-            long roomCount = roomRepository.countByPropertyId(propertyId);
+            long roomCount = roomRepository.countByPropertyIdAndDeletedIsFalse(propertyId);
             if (roomCount != property.getTotalRooms()) {
                 throw new BusinessException(String.format(
                         "Phải tạo đủ %d phòng chi tiết (hiện có %d)", property.getTotalRooms(), roomCount));
@@ -709,7 +844,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             if (renovationLineRepository.findByPropertyId(propertyId).isEmpty()) {
                 throw new BusinessException("Phải có ít nhất một hạng mục cải tạo");
             }
-            if (property.getRenovationStartDate() == null || property.getRenovationEndDate() == null) {
+            if (!property.isRenovationCompleted()
+                    && (property.getRenovationStartDate() == null || property.getRenovationEndDate() == null)) {
                 throw new BusinessException("Phải nhập lịch cải tạo (ngày bắt đầu/kết thúc)");
             }
         }
@@ -720,11 +856,20 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                                           Long roomId,
                                           com.sep490.slms2026.enums.HouseArea houseArea) {
         if (roomId == null) {
-            throw new BusinessException("Phải chọn phòng/khu vực (roomId) để gán thiết bị");
+            return null;
         }
         return roomRepository.findByIdAndPropertyId(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng/khu vực ID=" + roomId + " trong tòa nhà này"));
+    }
+
+    private void validateEquipmentPlacement(Long roomId, com.sep490.slms2026.enums.HouseArea houseArea) {
+        if (roomId == null && houseArea == null) {
+            throw new BusinessException("Phải chọn phòng (roomId) hoặc khu vực chung (houseArea)");
+        }
+        if (roomId != null && houseArea != null) {
+            throw new BusinessException("Chỉ chọn một trong phòng (roomId) hoặc khu vực chung (houseArea)");
+        }
     }
 
     private void validateEquipmentStatus(EquipmentStatus status) {
@@ -745,11 +890,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
     }
 
-    private Property findEditableProperty(Long propertyId) {
+    private Property findOnboardingProperty(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT && property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
-            throw new BusinessException("Chỉ chỉnh sửa onboarding khi nhà ở trạng thái DRAFT hoặc UNDER_RENOVATION");
+        if (!property.getStatus().isOnboardingEditable()) {
+            throw new BusinessException(
+                    "Chỉ chỉnh sửa onboarding khi nhà đang trong quá trình nhập liệu (DRAFT → RENOVATION_COMPLETED)");
         }
         return property;
     }
@@ -879,5 +1025,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             return zone.getName() + ", " + zone.getParent().getName();
         }
         return zone.getName();
+    }
+
+    private String buildFullAddress(String shortAddress, Zone zone) {
+        return shortAddress + ", " + buildZoneFullName(zone);
+    }
+
+    private void assertAddressAvailable(String fullAddress, Long excludePropertyId) {
+        boolean exists = excludePropertyId == null
+                ? propertyRepository.existsByAddressIgnoreCase(fullAddress)
+                : propertyRepository.existsByAddressIgnoreCaseAndIdNot(fullAddress, excludePropertyId);
+        if (exists) {
+            throw new ConflictException("Địa chỉ này đã được sử dụng cho một tòa nhà khác");
+        }
     }
 }

@@ -37,7 +37,7 @@ public class DepreciationServiceImpl implements DepreciationService {
     private final PropertyRepository propertyRepository;
     private final RenovationLineRepository renovationLineRepository;
     private final RoomRepository roomRepository;
-    private final com.sep490.slms2026.repository.EquipmentManifestRepository equipmentManifestRepository;
+    private final com.sep490.slms2026.repository.EquipmentRepository equipmentRepository;
 
     @Override
     @Transactional
@@ -48,7 +48,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         depreciationResultRepository.deleteByPropertyId(propertyId);
 
         BigDecimal totalRenovationCost = renovationLineRepository.sumCostByPropertyId(propertyId);
-        BigDecimal totalEquipmentCost = equipmentManifestRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
+        BigDecimal totalEquipmentCost = equipmentRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
         int contractMonths = resolveContractMonths(contract);
         BigDecimal totalRentAmount = contract.getTotalRentAmount();
 
@@ -118,7 +118,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                                                              BigDecimal totalRenovationCost,
                                                              BigDecimal totalEquipmentCost,
                                                              int contractMonths) {
-        List<Room> rooms = roomRepository.findByPropertyId(property.getId());
+        List<Room> rooms = roomRepository.findByPropertyIdAndDeletedIsFalse(property.getId());
         if (rooms.isEmpty()) {
             throw new BusinessException("Phải có ít nhất một phòng trước khi tính giá theo phòng");
         }
@@ -185,8 +185,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
-        if (property.getStatus() != PropertyStatus.DRAFT
-                && property.getStatus() != PropertyStatus.UNDER_RENOVATION
+        if (!property.getStatus().isOnboardingEditable()
                 && property.getStatus() != PropertyStatus.PENDING_HOST_REVIEW) {
             throw new BusinessException("Chỉ tính giá khi tòa nhà đang trong quá trình onboarding");
         }

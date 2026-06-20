@@ -64,4 +64,7 @@ public class Room implements Serializable {
 
     @Column(name = "water_meter_code")
     private String waterMeterCode;
+
+    @Column(name = "is_deleted", nullable = false)
+    private boolean deleted = false;
 }

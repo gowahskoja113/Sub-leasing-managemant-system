@@ -18,9 +18,18 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 210MB
+
 app:
   qr:
     base-url: https://localhost:8080/maintenance/scan
+  upload:
+    property-images:
+      dir: ${PROPERTY_IMAGES_DIR:uploads/properties}
+      public-base-url: ${APP_PUBLIC_BASE_URL:http://localhost:8080}
 
 jwt:
   secret: ${JWT_SECRET}
@@ -40,6 +49,15 @@ payos:
   # URL FE/mobile sẽ redirect về sau khi thanh toán (deep link hoặc trang web)
   return-url: ${PAYOS_RETURN_URL:slms://payment-success}
   cancel-url: ${PAYOS_CANCEL_URL:slms://payment-cancel}
+
+# Gửi SMS OTP qua Twilio (https://www.twilio.com). Lấy key tại Twilio Console.
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID:}
+  auth-token: ${TWILIO_AUTH_TOKEN:}
+  from-number: ${TWILIO_FROM_NUMBER:}
+  otp:
+    expiry-minutes: ${TWILIO_OTP_EXPIRY_MINUTES:5}
+    max-attempts: ${TWILIO_OTP_MAX_ATTEMPTS:5}
 
 springdoc:
   api-docs:

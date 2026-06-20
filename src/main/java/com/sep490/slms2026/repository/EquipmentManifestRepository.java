@@ -3,6 +3,7 @@ package com.sep490.slms2026.repository;
 import com.sep490.slms2026.entity.EquipmentManifest;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,11 +20,15 @@ public interface EquipmentManifestRepository extends JpaRepository<EquipmentMani
     Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatusAndSource(
             Long propertyId, Long catalogId, EquipmentStatus status, com.sep490.slms2026.enums.EquipmentSource source);
 
-    void deleteByPropertyId(Long propertyId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM EquipmentManifest m WHERE m.property.id = :propertyId")
+    void deleteByPropertyId(@Param("propertyId") Long propertyId);
 
     @Query("SELECT COALESCE(SUM(m.quantity), 0) FROM EquipmentManifest m WHERE m.property.id = :propertyId")
     int sumQuantityByPropertyId(@Param("propertyId") Long propertyId);
 
     @Query("SELECT COALESCE(SUM(m.price * m.quantity), 0) FROM EquipmentManifest m WHERE m.property.id = :propertyId AND m.source = 'PURCHASED'")
     java.math.BigDecimal sumPurchasedEquipmentCostByPropertyId(@Param("propertyId") Long propertyId);
+
+    long countByPropertyId(Long propertyId);
 }

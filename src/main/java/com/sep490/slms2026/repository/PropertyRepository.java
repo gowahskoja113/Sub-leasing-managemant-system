@@ -1,6 +1,7 @@
 package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.enums.PropertyStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,9 +9,18 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface PropertyRepository extends JpaRepository<Property, Long> {
+
+    interface PropertyNameStatusView {
+        String getPropertyName();
+        PropertyStatus getStatus();
+    }
+
+    @Query("SELECT p.propertyName as propertyName, p.status as status FROM Property p WHERE p.id = :id")
+    Optional<PropertyNameStatusView> findNameAndStatusById(@Param("id") Long id);
 
     @Query("SELECT DISTINCT p FROM Property p " +
             "JOIN p.zone z " +
@@ -23,7 +33,9 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     boolean existsByAddressIgnoreCase(String address);
 
-    boolean existsByAddressIgnoreCaseAndIdNot(String address, UUID id);
+    boolean existsByAddressIgnoreCaseAndIdNot(String address, Long id);
+
+    Optional<Property> findFirstByAddressIgnoreCase(String address);
 
     @Query("""
        SELECT z.name, COUNT(p)
@@ -53,4 +65,6 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
        WHERE p.wholeHouse = false
        """)
     Long countRoomBasedProperty();
+
+    Page<Property> findByStatusAndOperationManagerIdIsNotNull(PropertyStatus status, Pageable pageable);
 }

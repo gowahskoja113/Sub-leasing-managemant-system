@@ -2,6 +2,7 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.RenovationLine;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,8 +15,12 @@ public interface RenovationLineRepository extends JpaRepository<RenovationLine, 
 
     List<RenovationLine> findBySessionIdOrderByIdAsc(Long sessionId);
 
-    void deleteByPropertyId(Long propertyId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM RenovationLine r WHERE r.property.id = :propertyId")
+    void deleteByPropertyId(@Param("propertyId") Long propertyId);
 
     @Query("SELECT COALESCE(SUM(r.cost), 0) FROM RenovationLine r WHERE r.property.id = :propertyId")
     BigDecimal sumCostByPropertyId(@Param("propertyId") Long propertyId);
+
+    long countByPropertyId(Long propertyId);
 }

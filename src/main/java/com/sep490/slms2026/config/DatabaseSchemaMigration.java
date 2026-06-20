@@ -40,6 +40,53 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         alterColumnToUuidIfBigint("properties", "operation_manager_id");
         alterColumnToUuidIfBigint("properties", "managed_by");
         migrateRenovationSessions();
+        ensureEquipmentCatalogSchema();
+        ensureRoomsSoftDeleteColumn();
+        ensurePropertyPreviousStatusColumn();
+        ensurePropertyStatusConstraint();
+    }
+
+    private void ensurePropertyPreviousStatusColumn() {
+        addColumnIfNotExists("properties", "previous_status", "VARCHAR(50)");
+    }
+
+    private void ensureRoomsSoftDeleteColumn() {
+        addColumnIfNotExists("rooms", "is_deleted", "BOOLEAN NOT NULL DEFAULT FALSE");
+    }
+
+    private void ensurePropertyStatusConstraint() {
+        jdbcTemplate.execute("ALTER TABLE properties DROP CONSTRAINT IF EXISTS properties_status_check");
+        jdbcTemplate.execute("""
+                ALTER TABLE properties ADD CONSTRAINT properties_status_check
+                    CHECK (status IN (
+                        'DRAFT',
+                        'PENDING',
+                        'UNDER_RENOVATION',
+                        'PENDING_EQUIPMENT_INSTALLATION',
+                        'RENOVATION_COMPLETED',
+                        'PENDING_HOST_REVIEW',
+                        'PENDING_OPERATION_MANAGER',
+                        'ACTIVE',
+                        'DISABLED',
+                        'MAINTENANCE',
+                        'INACTIVE'
+                    ))
+                """);
+        log.info("Ensured properties_status_check constraint includes RENOVATION_COMPLETED");
+    }
+
+    private void ensureEquipmentCatalogSchema() {
+        createTableIfNotExists(
+                "equipment_catalog",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                active BOOLEAN NOT NULL DEFAULT TRUE
+                """);
+        renameColumnIfExists("equipment_catalog", "is_active", "active");
+        addColumnIfNotExists("equipment_catalog", "active", "BOOLEAN DEFAULT TRUE");
+        jdbcTemplate.execute("UPDATE equipment_catalog SET active = TRUE WHERE active IS NULL");
     }
 
     private void migrateRenovationSessions() {

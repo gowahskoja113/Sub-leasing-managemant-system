@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -134,6 +135,11 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.disableProperty(propertyId));
     }
 
+    @PostMapping("/properties/{propertyId}/enable")
+    public ResponseEntity<PropertyResponse> enableProperty(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.enableProperty(propertyId));
+    }
+
     @GetMapping("/properties/{propertyId}/onboarding-summary")
     public ResponseEntity<OnboardingSummaryResponse> getOnboardingSummary(
             @PathVariable Long propertyId) {
@@ -145,8 +151,25 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.listEquipmentCatalog());
     }
 
+    @PostMapping("/equipment-catalog")
+    public ResponseEntity<EquipmentCatalogResponse> createEquipmentCatalog(
+            @Valid @RequestBody EquipmentCatalogCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(propertyOnboardingService.createEquipmentCatalog(request));
+    }
+
     @GetMapping("/renovation-categories")
     public ResponseEntity<List<RenovationCategoryResponse>> listRenovationCategories() {
         return ResponseEntity.ok(propertyOnboardingService.listRenovationCategories());
+    }
+
+    /**
+     * Xóa cứng căn nhà và toàn bộ dữ liệu onboarding (hợp đồng, cải tạo, thiết bị, phòng...).
+     * Dùng khi import Excel sai và cần import lại từ đầu.
+     */
+    @DeleteMapping("/properties/{propertyId}/purge")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PropertyPurgeResponse> purgeProperty(@PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.purgeProperty(propertyId));
     }
 }
