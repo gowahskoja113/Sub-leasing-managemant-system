@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,6 +34,12 @@ public class TenantContractResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private ContractStatus status;
+
+    /** true nếu status ACTIVE và chưa quá endDate. */
+    private Boolean effective;
+    /** "Còn hiệu lực" / "Không còn hiệu lực". */
+    private String effectiveLabel;
+
     private String equipmentSnapshot;
 
     private Integer depositMonths;
@@ -53,4 +60,8 @@ public class TenantContractResponse {
     private String  tenantUsername;        // = SĐT khách (username đăng nhập)
     private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản
     private Boolean tenantRolePromoted;    // true nếu vừa nâng ROLE_USER → ROLE_TENANT
+
+    /** URL file DOCX đã xuất (lưu storage giống ảnh). */
+    private String documentUrl;
+    private LocalDateTime documentGeneratedAt;
 }
