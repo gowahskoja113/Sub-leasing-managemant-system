@@ -58,9 +58,27 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy tòa nhà với ID: " + propertyId));
 
-        // Validate ngày
-        if (request.getEndDate() != null && !request.getEndDate().isAfter(request.getMoveInDate())) {
-            throw new BusinessException("Ngày kết thúc hợp đồng phải sau ngày vào ở");
+        // ── Validation §3.2: 4 quy tắc bắt buộc phía server ──
+        LocalDate today = LocalDate.now();
+
+        // Rule 1: Ngày hợp đồng hiệu lực (moveInDate) phải là hôm nay
+        if (!today.equals(request.getMoveInDate())) {
+            throw new BusinessException("Ngày hợp đồng hiệu lực phải là hôm nay");
+        }
+
+        // Rule 2: endDate bắt buộc (belt-and-suspenders — @NotNull đã chặn ở DTO)
+        if (request.getEndDate() == null) {
+            throw new BusinessException("Thiếu ngày kết thúc hợp đồng");
+        }
+
+        // Rule 3: endDate phải sau moveInDate (ngày hiệu lực)
+        if (!request.getEndDate().isAfter(request.getMoveInDate())) {
+            throw new BusinessException("Ngày kết thúc phải sau ngày hiệu lực");
+        }
+
+        // Rule 4: Thời hạn thuê tối đa 5 năm
+        if (request.getEndDate().isAfter(today.plusYears(5))) {
+            throw new BusinessException("Thời hạn thuê tối đa 5 năm");
         }
 
         Room room = null;
@@ -69,9 +87,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Không tìm thấy phòng ID " + roomId + " thuộc tòa nhà ID " + propertyId));
 
-            // Quy tắc 1-HĐ-active theo phòng
+            // Quy tắc 1-HĐ-active theo phòng + kiểm tra trùng khoảng thời gian
             if (tenantContractRepository.existsByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)) {
                 throw new BusinessException("Phòng này đã có hợp đồng đang hiệu lực");
+            }
+            if (tenantContractRepository.existsOverlappingContractByRoom(
+                    roomId, request.getMoveInDate(), request.getEndDate())) {
+                throw new BusinessException("Phòng này đã có hợp đồng chồng lấn trong khoảng thời gian này");
             }
             if (room.getStatus() == RoomStatus.RENTED) {
                 throw new BusinessException("Phòng này đang được cho thuê");
@@ -80,6 +102,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             // Thuê nguyên căn: chặn nếu đã có HĐ active cấp tòa
             if (tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(propertyId, ContractStatus.ACTIVE)) {
                 throw new BusinessException("Căn nhà này đã có hợp đồng nguyên căn đang hiệu lực");
+            }
+            if (tenantContractRepository.existsOverlappingContractByProperty(
+                    propertyId, request.getMoveInDate(), request.getEndDate())) {
+                throw new BusinessException("Căn nhà này đã có hợp đồng chồng lấn trong khoảng thời gian này");
             }
         }
 

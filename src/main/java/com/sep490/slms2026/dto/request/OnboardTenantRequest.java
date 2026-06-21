@@ -36,7 +36,7 @@ public class OnboardTenantRequest {
     @DecimalMin(value = "0.0", inclusive = true, message = "Tiền cọc không hợp lệ")
     private BigDecimal deposit;
 
-    // Optional
+    @NotNull(message = "Thiếu ngày kết thúc hợp đồng")
     private LocalDate endDate;
 
     private String equipmentSnapshot;
