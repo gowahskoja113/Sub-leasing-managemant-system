@@ -50,6 +50,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/properties/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/uploads/properties/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/uploads/contracts/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

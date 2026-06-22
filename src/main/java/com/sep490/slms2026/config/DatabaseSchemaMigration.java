@@ -44,6 +44,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureRoomsSoftDeleteColumn();
         ensurePropertyPreviousStatusColumn();
         ensurePropertyStatusConstraint();
+        addColumnIfNotExists("tenant_contracts", "document_url", "VARCHAR(1024)");
+        addColumnIfNotExists("tenant_contracts", "document_generated_at", "TIMESTAMP");
     }
 
     private void ensurePropertyPreviousStatusColumn() {

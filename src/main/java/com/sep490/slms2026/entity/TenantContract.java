@@ -110,6 +110,13 @@ public class TenantContract implements Serializable {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** URL public file hợp đồng DOCX đã xuất (lưu local giống ảnh property). */
+    @Column(name = "document_url")
+    private String documentUrl;
+
+    @Column(name = "document_generated_at")
+    private LocalDateTime documentGeneratedAt;
+
     // Thành viên ở cùng
     @OneToMany(mappedBy = "tenantContract", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default

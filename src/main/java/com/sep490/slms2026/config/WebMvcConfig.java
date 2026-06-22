@@ -12,6 +12,7 @@ import java.nio.file.Path;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final PropertyImageUploadProperties uploadProperties;
+    private final ContractDocumentUploadProperties contractDocumentProperties;
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
@@ -22,5 +23,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
         }
         registry.addResourceHandler("/uploads/properties/**")
                 .addResourceLocations(location);
+
+        Path contractDir = Path.of(contractDocumentProperties.getDir()).toAbsolutePath().normalize();
+        String contractLocation = contractDir.toUri().toString();
+        if (!contractLocation.endsWith("/")) {
+            contractLocation += "/";
+        }
+        registry.addResourceHandler("/uploads/contracts/**")
+                .addResourceLocations(contractLocation);
     }
 }
