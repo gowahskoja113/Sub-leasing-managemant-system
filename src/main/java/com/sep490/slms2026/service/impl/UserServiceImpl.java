@@ -8,6 +8,8 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.UserService;
+import com.sep490.slms2026.dto.request.UpdateProfileRequest;
+import com.sep490.slms2026.dto.response.AuthMeResponse;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -109,5 +111,35 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<User> getAllManagers() {
         return userRepository.findByRole(Role.ROLE_MANAGER);
+    }
+
+    @Override
+    @Transactional
+    public AuthMeResponse updateMyProfile(UpdateProfileRequest request) {
+        com.sep490.slms2026.security.CustomUserDetails userDetails = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        User user = userRepository.findById(userDetails.getId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+
+        if (request.getFullName() != null) {
+            user.setFullName(request.getFullName());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getAvatarUrl() != null) {
+            user.setAvatarUrl(request.getAvatarUrl());
+        }
+
+        user = userRepository.save(user);
+
+        return AuthMeResponse.builder()
+                .id(user.getId().toString())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .phone(user.getPhoneNumber())
+                .email(user.getEmail())
+                .role(user.getRole().name())
+                .avatarUrl(user.getAvatarUrl())
+                .build();
     }
 }

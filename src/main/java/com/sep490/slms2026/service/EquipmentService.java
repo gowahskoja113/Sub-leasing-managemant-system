@@ -12,4 +12,6 @@ public interface EquipmentService {
     void unassignEquipment(Long propertyId, Long equipmentId);
 
     EquipmentResponse reassignEquipment(Long propertyId, Long equipmentId, ReassignEquipmentRequest request);
+
+    EquipmentResponse getEquipmentById(Long equipmentId);
 }

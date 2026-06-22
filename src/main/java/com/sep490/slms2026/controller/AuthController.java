@@ -1,6 +1,8 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.AuthRequest;
+import com.sep490.slms2026.dto.request.ChangePasswordRequest;
+import com.sep490.slms2026.dto.response.AuthMeResponse;
 import com.sep490.slms2026.dto.response.AuthResponse;
 import com.sep490.slms2026.service.AuthService;
 import jakarta.validation.Valid;
@@ -27,5 +29,16 @@ public class AuthController {
     public ResponseEntity<AuthResponse> loginUser(@Valid @RequestBody AuthRequest request) {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<AuthMeResponse> getMe() {
+        return ResponseEntity.ok(authService.getMe());
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<java.util.Map<String, String>> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(request);
+        return ResponseEntity.ok(java.util.Map.of("message", "Đổi mật khẩu thành công"));
     }
 }
