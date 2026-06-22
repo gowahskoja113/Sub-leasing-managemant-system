@@ -5,5 +5,5 @@ public enum Role {
     ROLE_OWNER,
     ROLE_MANAGER,
     ROLE_TENANT,
-    ROLE_USER   // Người dùng app chỉ tìm/xem nhà, không có quyền tính năng sâu
+    ROLE_USER
 }

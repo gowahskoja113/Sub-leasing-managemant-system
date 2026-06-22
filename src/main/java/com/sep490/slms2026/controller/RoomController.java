@@ -7,6 +7,7 @@ import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.service.RoomService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +38,7 @@ public class RoomController {
      * Lấy danh sách tất cả phòng của 1 tòa nhà
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
     public ResponseEntity<List<RoomResponse>> getRooms(
             @PathVariable Long propertyId) {
         return ResponseEntity.ok(roomService.getRoomsByProperty(propertyId));
@@ -47,6 +49,7 @@ public class RoomController {
      * Lấy chi tiết 1 phòng, validate thuộc đúng tòa
      */
     @GetMapping("/{roomId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
     public ResponseEntity<RoomResponse> getRoom(
             @PathVariable Long propertyId,
             @PathVariable Long roomId) {
