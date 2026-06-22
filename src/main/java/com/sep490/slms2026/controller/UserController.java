@@ -26,6 +26,14 @@ public class UserController {
     @Autowired
     private UserRepository userRepository;
 
+    // 0. API Đăng ký tài khoản cho khách (không cần đăng nhập)
+    @PostMapping("/register")
+    public ResponseEntity<User> registerUserAccount(@RequestBody User user) {
+        user.setRole(Role.ROLE_USER);
+        user.setStatus(UserStatus.ACTIVE);
+        return ResponseEntity.ok(userService.createUser(user));
+    }
+
     // 1. API Lấy toàn bộ danh sách User
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
@@ -35,12 +43,12 @@ public class UserController {
 
     // 2. API Lấy chi tiết User bằng ID
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
     public ResponseEntity<User> getUserById(@PathVariable UUID id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
 
-    // 3. API Tạo mới một User
+    // 3. API Tạo mới một User (Admin)
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<User> createUser(@RequestBody User user) {

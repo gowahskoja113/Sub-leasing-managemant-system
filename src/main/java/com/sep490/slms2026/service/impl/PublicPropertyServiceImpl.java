@@ -46,7 +46,8 @@ public class PublicPropertyServiceImpl implements PublicPropertyService {
         Set<Long> propertyIdsWithAvailableRooms = loadPropertyIdsWithAvailableRooms();
 
         return propertyRepository
-                .findByStatusAndOperationManagerIdIsNotNull(PropertyStatus.ACTIVE, pageable)
+                .findByStatusInAndOperationManagerIdIsNotNull(
+                        List.of(PropertyStatus.ACTIVE, PropertyStatus.RENTED), pageable)
                 .map(property -> mapToGuestResponse(
                         property,
                         wholeHouseRentedIds,
@@ -78,7 +79,9 @@ public class PublicPropertyServiceImpl implements PublicPropertyService {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài sản với ID: " + id));
 
-        if (property.getStatus() != PropertyStatus.ACTIVE || property.getOperationManagerId() == null) {
+        if (property.getStatus() != PropertyStatus.ACTIVE
+                && property.getStatus() != PropertyStatus.RENTED
+                || property.getOperationManagerId() == null) {
             throw new ResourceNotFoundException("Không tìm thấy tài sản với ID: " + id);
         }
         return property;
