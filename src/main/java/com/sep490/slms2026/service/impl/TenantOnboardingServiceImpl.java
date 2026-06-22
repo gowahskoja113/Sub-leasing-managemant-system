@@ -12,6 +12,7 @@ import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.OtpPurpose;
 import com.sep490.slms2026.enums.PaymentStatus;
+import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
@@ -157,6 +158,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             roomRepository.save(room);
         }
 
+        // Nguyên căn: chuyển property sang RENTED khi HĐ kích hoạt ngay
+        if (room == null && !request.isRequireDepositPayment()) {
+            property.setStatus(PropertyStatus.RENTED);
+            propertyRepository.save(property);
+        }
+
         return toResponse(saved);
     }
 
@@ -267,6 +274,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             }
             room.setStatus(RoomStatus.RENTED);
             roomRepository.save(room);
+        } else {
+            // Nguyên căn: chuyển property sang RENTED khi HĐ confirm thành công
+            Property property = contract.getProperty();
+            property.setStatus(PropertyStatus.RENTED);
+            propertyRepository.save(property);
         }
         contract.setStatus(ContractStatus.ACTIVE);
         TenantContract saved = tenantContractRepository.save(contract);

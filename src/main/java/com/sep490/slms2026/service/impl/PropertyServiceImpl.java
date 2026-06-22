@@ -152,7 +152,7 @@ public class PropertyServiceImpl implements PropertyService {
         assertAddressAvailable(fullAddress, id);
         property.setAddress(fullAddress);
 
-        if (property.getStatus() != PropertyStatus.ACTIVE) {
+        if (property.getStatus() != PropertyStatus.ACTIVE && property.getStatus() != PropertyStatus.RENTED) {
             if (request.getTotalFloor() != null) {
                 property.setTotalFloor(request.getTotalFloor());
             }

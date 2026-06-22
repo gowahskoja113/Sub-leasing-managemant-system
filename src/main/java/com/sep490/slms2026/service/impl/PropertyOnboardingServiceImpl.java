@@ -440,15 +440,16 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
         if (property.getStatus() != PropertyStatus.PENDING_OPERATION_MANAGER
-                && property.getStatus() != PropertyStatus.ACTIVE) {
+                && property.getStatus() != PropertyStatus.ACTIVE
+                && property.getStatus() != PropertyStatus.RENTED) {
             throw new BusinessException(
-                    "Chỉ có thể gán/đổi Operation Manager khi nhà đang PENDING_OPERATION_MANAGER hoặc ACTIVE");
+                    "Chỉ có thể gán/đổi Operation Manager khi nhà đang PENDING_OPERATION_MANAGER, ACTIVE hoặc RENTED");
         }
 
         UUID managerId = request.getOperationManagerId();
         validateOperationManager(managerId);
 
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
+        if (property.getStatus() == PropertyStatus.ACTIVE || property.getStatus() == PropertyStatus.RENTED) {
             if (!managerId.equals(property.getOperationManagerId())) {
                 property.setOperationManagerId(managerId);
                 property.setManagedBy(managerId);
@@ -483,9 +484,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
 
-        if (property.getStatus() != PropertyStatus.ACTIVE) {
+        if (property.getStatus() != PropertyStatus.ACTIVE && property.getStatus() != PropertyStatus.RENTED) {
             throw new BusinessException(
-                    "Chỉ có thể đổi Operation Manager khi nhà đang ở trạng thái ACTIVE");
+                    "Chỉ có thể đổi Operation Manager khi nhà đang ở trạng thái ACTIVE hoặc RENTED");
         }
 
         UUID managerId = request.getOperationManagerId();

@@ -16,6 +16,8 @@ public enum PropertyStatus {
     /** Host đã xác nhận giá — chờ gán Operation Manager */
     PENDING_OPERATION_MANAGER,
     ACTIVE,
+    /** Nguyên căn đã được cho thuê — đang có hợp đồng tenant hiệu lực */
+    RENTED,
     DISABLED,
     MAINTENANCE,
     INACTIVE;
