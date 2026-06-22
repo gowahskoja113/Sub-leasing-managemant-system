@@ -35,6 +35,10 @@ public class OtpServiceImpl implements OtpService {
     @Override
     @Transactional
     public void sendOtp(String phoneNumber, OtpPurpose purpose, Long referenceId) {
+        // TODO: Bật lại khi tích hợp Twilio — tạm thời không gửi SMS, confirm chấp nhận mã 6 số bất kỳ.
+        log.info("[DEV] Bỏ qua gửi OTP Twilio — nhập bất kỳ mã 6 chữ số khi confirm (phone={}, purpose={}, ref={})",
+                phoneNumber, purpose, referenceId);
+        /*
         String normalizedPhone = TwilioServiceImpl.formatVietnamesePhone(phoneNumber);
         String code = generateCode();
 
@@ -53,6 +57,7 @@ public class OtpServiceImpl implements OtpService {
         if (!twilioService.isConfigured()) {
             log.warn("[DEV] Mã OTP {} cho {} (purpose={}, ref={})", code, normalizedPhone, purpose, referenceId);
         }
+        */
     }
 
     @Override
@@ -62,6 +67,13 @@ public class OtpServiceImpl implements OtpService {
             throw new BusinessException("Vui lòng nhập mã OTP");
         }
 
+        // TODO: Bật lại khi tích hợp Twilio — tạm thời chấp nhận mã 6 chữ số bất kỳ.
+        if (code.trim().matches("\\d{6}")) {
+            return;
+        }
+        throw new BusinessException("Mã OTP phải gồm 6 chữ số");
+
+        /*
         String normalizedPhone = TwilioServiceImpl.formatVietnamesePhone(phoneNumber);
         OtpVerification otp = otpVerificationRepository
                 .findTopByPhoneNumberAndPurposeAndReferenceIdAndVerifiedFalseOrderByCreatedAtDesc(
@@ -83,6 +95,7 @@ public class OtpServiceImpl implements OtpService {
 
         otp.setVerified(true);
         otpVerificationRepository.save(otp);
+        */
     }
 
     private static String generateCode() {
