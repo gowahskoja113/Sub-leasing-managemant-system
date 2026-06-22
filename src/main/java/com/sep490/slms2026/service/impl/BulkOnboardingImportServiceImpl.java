@@ -586,6 +586,10 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                 .filter(value -> !value.isBlank())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
+        if (!wholeHouse) {
+            ensureRoomNumbersForIndividualProperty(roomNumbers, leaseRow.getTotalRooms());
+        }
+
         Map<String, Long> roomIdByNumber = new HashMap<>();
         PropertyType propertyType = wholeHouse ? PropertyType.WHOLE_HOUSE : PropertyType.INDIVIDUAL_ROOM;
         double defaultArea = Math.max(1.0,
@@ -609,6 +613,28 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
             roomIdByNumber.put(roomNumber, roomResponse.getId());
         }
         return roomIdByNumber;
+    }
+
+    /**
+     * Nhà chia phòng: đảm bảo đủ {@code totalRooms} phòng (101, 102, …) kể cả sheet 3 chưa khai báo hết.
+     */
+    private void ensureRoomNumbersForIndividualProperty(Set<String> roomNumbers, Integer totalRooms) {
+        if (totalRooms == null || totalRooms <= 0) {
+            return;
+        }
+        if (roomNumbers.size() >= totalRooms) {
+            return;
+        }
+        int floor = 1;
+        int indexOnFloor = 1;
+        while (roomNumbers.size() < totalRooms) {
+            roomNumbers.add(String.format("%d%02d", floor, indexOnFloor));
+            indexOnFloor++;
+            if (indexOnFloor > 99) {
+                indexOnFloor = 1;
+                floor++;
+            }
+        }
     }
 
     private List<EquipmentManifestItemRequest> buildManifestItems(List<EquipmentImportRow> equipmentRows) {

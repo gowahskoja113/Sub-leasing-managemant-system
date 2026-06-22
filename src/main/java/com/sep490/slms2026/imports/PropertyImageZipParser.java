@@ -67,13 +67,6 @@ public class PropertyImageZipParser {
             throw new BusinessException("Không đọc được file zip: " + ex.getMessage());
         }
 
-        if (images.isEmpty()) {
-            String hint = skipped.isEmpty()
-                    ? "Zip không chứa ảnh hợp lệ."
-                    : "Zip không chứa ảnh hợp lệ. Ví dụ bỏ qua: " + String.join("; ", skipped.subList(0, Math.min(3, skipped.size())));
-            throw new BusinessException(hint);
-        }
-
         return images;
     }
 
