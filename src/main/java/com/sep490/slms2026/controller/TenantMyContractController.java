@@ -15,7 +15,7 @@ import java.util.List;
 
 /** Khách thuê xem danh sách hợp đồng của mình (kèm URL file, trạng thái hiệu lực). */
 @RestController
-@RequestMapping("/api/v1/me/tenant-contracts")
+@RequestMapping({"/api/v1/me/tenant-contracts", "/api/v1/tenant/me/contracts"})
 @RequiredArgsConstructor
 public class TenantMyContractController {
 

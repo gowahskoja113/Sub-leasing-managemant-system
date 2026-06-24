@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 
 @Getter
 @Setter
@@ -26,6 +27,20 @@ public class TenantContractResponse {
     private String tenantFullName;
     private String tenantPhone;
     private String tenantCccd;
+
+    private String type;
+    private String lessorName;
+    private String lessorPhone;
+    private String lesseeName;
+    private String lesseeCccd;
+    private String lesseePhone;
+    private String propertyName;
+    private String notes;
+    private LocalDateTime signedAt;
+    private LocalDateTime terminatedAt;
+    private String terminationReason;
+    private String pdfUrl;
+    private List<EquipmentItem> equipmentList;
 
     private String contractCode;
     private BigDecimal rentAmount;
@@ -64,4 +79,12 @@ public class TenantContractResponse {
     /** URL file DOCX đã xuất (lưu storage giống ảnh). */
     private String documentUrl;
     private LocalDateTime documentGeneratedAt;
+
+    public String getCode() {
+        return this.contractCode;
+    }
+
+    public String getRoomCode() {
+        return this.roomNumber;
+    }
 }

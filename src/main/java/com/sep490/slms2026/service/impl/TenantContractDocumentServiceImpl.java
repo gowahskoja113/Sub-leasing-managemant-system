@@ -41,6 +41,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import com.sep490.slms2026.repository.EquipmentRepository;
+import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 
 @Service
 @RequiredArgsConstructor
@@ -54,6 +57,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private final ContractDocumentStorage contractDocumentStorage;
     private final ContractDocumentUploadProperties uploadProperties;
     private final ContractLessorProperties lessorProperties;
+    private final EquipmentRepository equipmentRepository;
 
     @Override
     @Transactional
@@ -243,9 +247,37 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         Tenant tenant = c.getTenant();
         User tenantUser = tenant.getUser();
         Room room = c.getRoom();
+        Property property = c.getProperty();
+
+        String type = (room == null) ? "WHOLE_HOUSE" : "ROOM";
+        String propertyNameStr = property.getPropertyName();
+        
+        List<EquipmentItem> equipmentList = null;
+        if (room != null) {
+            equipmentList = equipmentRepository.findByRoomId(room.getId()).stream()
+                .map(eq -> EquipmentItem.builder()
+                        .id(eq.getId())
+                        .name(eq.getCatalog() != null ? eq.getCatalog().getName() : "")
+                        .condition(eq.getStatus() != null ? eq.getStatus().name() : "Tốt")
+                        .quantity(1)
+                        .build())
+                .collect(Collectors.toList());
+        } else {
+            // For whole house, we can query by propertyId and roomId is null
+            // Actually findByPropertyId returns all equipments. Wait, whole house means all equipments in property
+            equipmentList = equipmentRepository.findByPropertyId(property.getId()).stream()
+                .map(eq -> EquipmentItem.builder()
+                        .id(eq.getId())
+                        .name(eq.getCatalog() != null ? eq.getCatalog().getName() : "")
+                        .condition(eq.getStatus() != null ? eq.getStatus().name() : "Tốt")
+                        .quantity(1)
+                        .build())
+                .collect(Collectors.toList());
+        }
+
         return TenantContractResponse.builder()
                 .id(c.getId())
-                .propertyId(c.getProperty().getId())
+                .propertyId(property.getId())
                 .roomId(room != null ? room.getId() : null)
                 .roomNumber(room != null ? room.getRoomNumber() : null)
                 .tenantUserId(tenant.getId())
@@ -273,6 +305,19 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .payosOrderCode(c.getPayosOrderCode())
                 .documentUrl(c.getDocumentUrl())
                 .documentGeneratedAt(c.getDocumentGeneratedAt())
+                .type(type)
+                .lessorName("Ban Quản Lý") // fallback or get from property if possible
+                .lessorPhone("")
+                .lesseeName(tenantUser.getFullName())
+                .lesseeCccd(tenant.getCccd())
+                .lesseePhone(tenantUser.getPhoneNumber())
+                .propertyName(propertyNameStr)
+                .notes(c.getRoomConditionNote())
+                .signedAt(c.getDocumentGeneratedAt() != null ? c.getDocumentGeneratedAt() : c.getPaidAt())
+                .terminatedAt(c.getStatus() == ContractStatus.TERMINATED ? LocalDateTime.now() : null)
+                .terminationReason(null)
+                .pdfUrl(c.getDocumentUrl())
+                .equipmentList(equipmentList)
                 .build();
     }
 

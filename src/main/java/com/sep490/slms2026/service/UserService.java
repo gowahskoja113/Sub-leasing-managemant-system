@@ -2,6 +2,8 @@ package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.dto.request.UpdateProfileRequest;
+import com.sep490.slms2026.dto.response.AuthMeResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -12,4 +14,5 @@ public interface UserService {
     User updateUser(UUID id, User userDetails);
     User changeUserStatus(UUID id, UserStatus newStatus);
     public List<User> getAllManagers();
+    AuthMeResponse updateMyProfile(UpdateProfileRequest request);
 }
