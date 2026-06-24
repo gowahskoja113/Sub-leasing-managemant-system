@@ -52,6 +52,12 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.getEquipmentManifest(propertyId));
     }
 
+    @GetMapping("/properties/{propertyId}/handover-equipments")
+    public ResponseEntity<List<HandoverEquipmentResponse>> getHandoverEquipments(
+            @PathVariable Long propertyId) {
+        return ResponseEntity.ok(propertyOnboardingService.getHandoverEquipments(propertyId));
+    }
+
     @PostMapping("/properties/{propertyId}/equipments/assign")
     public ResponseEntity<EquipmentResponse> assignEquipment(
             @PathVariable Long propertyId,

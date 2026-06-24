@@ -69,8 +69,7 @@ public class ExcelOnboardingWorkbookReader {
         requireHeaders(headers, SHEET_LEASE,
                 "Mã hợp đồng", "Tên tòa nhà", "Địa chỉ chi tiết", "Quận/Huyện",
                 "Tỉnh/Thành phố", "Diện tích (m²)", "Tổng số tầng", "Tổng số phòng", "Tên chủ nhà",
-                "Tổng tiền thuê", "Ngày bắt đầu", "Ngày kết thúc", "Hình thức thuê",
-                "Có cải tạo không", "Mô tả chi tiết");
+                "Tổng tiền thuê", "Ngày bắt đầu", "Ngày kết thúc", "Mô tả chi tiết");
 
         List<LeaseContractImportRow> rows = new ArrayList<>();
         int lastRow = sheet.getLastRowNum();
@@ -90,7 +89,6 @@ public class ExcelOnboardingWorkbookReader {
                     .contractCode(contractCode)
                     .propertyName(readString(row, headers.get("Tên tòa nhà"), formatter, evaluator))
                     .address(readString(row, headers.get("Địa chỉ chi tiết"), formatter, evaluator))
-                    .ward(readOptionalString(row, headers.get("Xã/Phường"), formatter, evaluator))
                     .district(readString(row, headers.get("Quận/Huyện"), formatter, evaluator))
                     .province(readString(row, headers.get("Tỉnh/Thành phố"), formatter, evaluator))
                     .areaSize(readDouble(row, headers.get("Diện tích (m²)"), formatter, evaluator))
@@ -100,10 +98,6 @@ public class ExcelOnboardingWorkbookReader {
                     .totalRentAmount(readDecimal(row, headers.get("Tổng tiền thuê"), formatter, evaluator))
                     .startDate(readDate(row, headers.get("Ngày bắt đầu"), formatter, evaluator))
                     .endDate(readDate(row, headers.get("Ngày kết thúc"), formatter, evaluator))
-                    .leaseType(readString(row, headers.get("Hình thức thuê"), formatter, evaluator))
-                    .hasRenovationRaw(readString(row, headers.get("Có cải tạo không"), formatter, evaluator))
-                    .hostContingencyPercent(readDecimalOptional(
-                            row, headers.get("Tỷ lệ chi phí dự phòng (%)"), formatter, evaluator))
                     .descriptions(readString(row, headers.get("Mô tả chi tiết"), formatter, evaluator))
                     .build());
         }

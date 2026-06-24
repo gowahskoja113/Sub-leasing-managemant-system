@@ -29,6 +29,8 @@ public class PropertyResponse {
     private boolean renovationCompleted;
     private List<String> imageUrls;
 
-    // true nếu BĐS còn cho thuê được (nhà nguyên căn chưa có HĐ active / nhà chia phòng còn phòng trống)
+    private List<HandoverEquipmentResponse> handoverEquipments;
+
+    // true nếu BĐS còn cho thuê được
     private Boolean rentalAvailable;
 }

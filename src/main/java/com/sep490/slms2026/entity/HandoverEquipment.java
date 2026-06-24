@@ -1,22 +1,23 @@
 package com.sep490.slms2026.entity;
 
-import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDate;
 import java.io.Serializable;
 
+/**
+ * Thiết bị chủ nhà bàn giao — chỉ hiển thị, không gán vận hành / khấu hao.
+ */
 @Entity
-@Table(name = "equipments")
+@Table(name = "handover_equipments")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Equipment implements Serializable {
+public class HandoverEquipment implements Serializable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -27,16 +28,14 @@ public class Equipment implements Serializable {
     private Property property;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "room_id")
-    private Room room;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "catalog_id", nullable = false)
     private EquipmentCatalog catalog;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "manifest_id")
-    private EquipmentManifest manifest;
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "room_number")
+    private String roomNumber;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "house_area")
@@ -44,24 +43,11 @@ public class Equipment implements Serializable {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private EquipmentSource source = EquipmentSource.INITIAL_HANDOVER;
+    private EquipmentStatus status;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private EquipmentStatus status = EquipmentStatus.NEW;
-
-    @Column(name = "price")
-    private java.math.BigDecimal price = java.math.BigDecimal.ZERO;
+    private Integer quantity;
 
     @Column(columnDefinition = "TEXT")
     private String note;
-
-    @Column(name = "warranty_months")
-    private Integer warrantyMonths;
-
-    @Column(name = "warranty_start_date")
-    private LocalDate warrantyStartDate;
-
-    @Column(name = "warranty_end_date")
-    private LocalDate warrantyEndDate;
 }

@@ -50,6 +50,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final DepreciationService depreciationService;
     private final UserRepository userRepository;
     private final PropertyDeletionService propertyDeletionService;
+    private final HandoverEquipmentRepository handoverEquipmentRepository;
 
     @Override
     @Transactional
@@ -227,6 +228,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .status(request.getStatus())
                     .price(unitPrice)
                     .note(request.getNote())
+                    .warrantyMonths(request.getWarrantyMonths())
+                    .warrantyStartDate(request.getWarrantyStartDate())
+                    .warrantyEndDate(request.getWarrantyEndDate())
                     .build());
         }
         return toEquipmentResponse(lastSaved);
@@ -814,10 +818,17 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .anyMatch(m -> m.getSource() == EquipmentSource.INITIAL_HANDOVER);
         boolean hasPurchasedEquipment = equipmentRepository.countByPropertyIdAndSource(
                 propertyId, EquipmentSource.PURCHASED) > 0;
+        boolean hasRenovationLines = !renovationLineRepository.findByPropertyId(propertyId).isEmpty();
+        boolean hasHandoverDisplay = handoverEquipmentRepository.countByPropertyId(propertyId) > 0;
 
         if (!hasHandoverManifest && !hasPurchasedEquipment) {
-            throw new BusinessException(
-                    "Phải khai báo manifest thiết bị bàn giao hoặc gán thiết bị mua mới trước khi gửi host");
+            if (Boolean.TRUE.equals(property.getHasRenovation())) {
+                if (!hasRenovationLines) {
+                    throw new BusinessException("Phải có ít nhất một hạng mục cải tạo");
+                }
+            } else if (!hasHandoverDisplay) {
+                // NORENO không có TB — vẫn cho phép gửi Host (chỉ tiền thuê)
+            }
         }
 
         if (Boolean.FALSE.equals(property.getWholeHouse())) {
@@ -990,6 +1001,32 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .source(equipment.getSource())
                 .status(equipment.getStatus())
                 .price(equipment.getPrice())
+                .note(equipment.getNote())
+                .warrantyMonths(equipment.getWarrantyMonths())
+                .warrantyStartDate(equipment.getWarrantyStartDate())
+                .warrantyEndDate(equipment.getWarrantyEndDate())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<HandoverEquipmentResponse> getHandoverEquipments(Long propertyId) {
+        ensurePropertyExists(propertyId);
+        return handoverEquipmentRepository.findByPropertyIdOrderByIdAsc(propertyId).stream()
+                .map(this::toHandoverEquipmentResponse)
+                .toList();
+    }
+
+    private HandoverEquipmentResponse toHandoverEquipmentResponse(HandoverEquipment equipment) {
+        return HandoverEquipmentResponse.builder()
+                .id(equipment.getId())
+                .catalogId(equipment.getCatalog().getId())
+                .catalogName(equipment.getCatalog().getName())
+                .description(equipment.getDescription())
+                .roomNumber(equipment.getRoomNumber())
+                .houseArea(equipment.getHouseArea())
+                .status(equipment.getStatus())
+                .quantity(equipment.getQuantity())
                 .note(equipment.getNote())
                 .build();
     }

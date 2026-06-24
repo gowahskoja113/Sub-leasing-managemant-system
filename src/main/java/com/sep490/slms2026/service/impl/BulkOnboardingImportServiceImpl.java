@@ -139,8 +139,7 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                                                             List<EquipmentImportRow> equipmentRows) {
         Zone districtZone = zoneImportResolver.resolveDistrictZone(
                 leaseRow.getProvince(), leaseRow.getDistrict());
-        String shortAddress = ZoneImportResolver.buildShortAddress(
-                leaseRow.getAddress(), leaseRow.getWard());
+        String shortAddress = leaseRow.getAddress() == null ? "" : leaseRow.getAddress().trim();
 
         var draftRequest = new PropertyDraftRequest();
         draftRequest.setPropertyName(leaseRow.getPropertyName());
@@ -154,12 +153,6 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         var propertyResponse = propertyOnboardingService.createDraft(draftRequest);
         Long propertyId = propertyResponse.getId();
 
-        if (leaseRow.getHostContingencyPercent() != null) {
-            Property property = propertyRepository.findById(propertyId).orElseThrow();
-            property.setHostContingencyPercent(leaseRow.getHostContingencyPercent());
-            propertyRepository.save(property);
-        }
-
         var contractRequest = CreateInboundContractRequest.builder()
                 .contractCode(leaseRow.getContractCode())
                 .ownerName(leaseRow.getOwnerName())
@@ -169,8 +162,9 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                 .build();
         inboundContractService.signContract(propertyId, contractRequest);
 
-        boolean wholeHouse = parseWholeHouse(leaseRow.getLeaseType());
-        boolean hasRenovation = parseBoolean(leaseRow.getHasRenovationRaw());
+        boolean wholeHouse = ImportContractClassifier.isWholeHouse(
+                leaseRow.getContractCode(), leaseRow.getDescriptions());
+        boolean hasRenovation = !renovationRows.isEmpty();
 
         var optionsRequest = new OnboardingOptionsRequest();
         optionsRequest.setWholeHouse(wholeHouse);
@@ -247,7 +241,7 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
     private String tryBuildFullAddress(LeaseContractImportRow row) {
         try {
             Zone districtZone = zoneImportResolver.resolveDistrictZone(row.getProvince(), row.getDistrict());
-            String shortAddress = ZoneImportResolver.buildShortAddress(row.getAddress(), row.getWard());
+            String shortAddress = row.getAddress() == null ? "" : row.getAddress().trim();
             return ZoneImportResolver.buildFullAddress(shortAddress, districtZone);
         } catch (IllegalArgumentException ex) {
             return null;
@@ -374,19 +368,20 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
             if (skippedContracts.containsKey(leaseRow.getContractCode())) {
                 continue;
             }
-            boolean hasRenovation = parseBoolean(leaseRow.getHasRenovationRaw());
             long renovationCount = workbook.getRenovationLines().stream()
                     .filter(line -> line.getContractCode().equals(leaseRow.getContractCode()))
                     .count();
-            if (!hasRenovation && renovationCount > 0) {
+            boolean expectsRenovation = ImportContractClassifier.inferHasRenovationForPhase1(
+                    leaseRow.getContractCode());
+            if (!expectsRenovation && renovationCount > 0) {
                 errors.add(error(SHEET_LEASE, leaseRow.getRowNumber(), leaseRow.getContractCode(),
-                        "Có cải tạo không",
-                        "Hợp đồng khai báo FALSE nhưng sheet 2 vẫn có chi phí cải tạo"));
+                        "Mã hợp đồng",
+                        "Hợp đồng NORENO nhưng sheet 2 vẫn có chi phí cải tạo"));
             }
-            if (hasRenovation && renovationCount == 0) {
+            if (expectsRenovation && renovationCount == 0) {
                 errors.add(error(SHEET_LEASE, leaseRow.getRowNumber(), leaseRow.getContractCode(),
-                        "Có cải tạo không",
-                        "Hợp đồng khai báo TRUE nhưng sheet 2 không có dòng cải tạo"));
+                        "Mã hợp đồng",
+                        "Hợp đồng cần cải tạo nhưng sheet 2 không có dòng cải tạo"));
             }
         }
 
@@ -414,8 +409,6 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Tỉnh/Thành phố", row.getProvince());
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Tên chủ nhà", row.getOwnerName());
         requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mô tả chi tiết", row.getDescriptions());
-        requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Hình thức thuê", row.getLeaseType());
-        requireText(errors, SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Có cải tạo không", row.getHasRenovationRaw());
 
         if (!contractCodes.add(row.getContractCode())) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng",
@@ -449,22 +442,6 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         if (row.getStartDate() != null && row.getEndDate() != null && !row.getEndDate().isAfter(row.getStartDate())) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Ngày kết thúc",
                     "Ngày kết thúc phải sau ngày bắt đầu"));
-        }
-
-        if (!isValidLeaseType(row.getLeaseType())) {
-            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Hình thức thuê",
-                    "Chỉ chấp nhận WHOLE_HOUSE hoặc INDIVIDUAL_ROOM"));
-        }
-        if (!isValidBoolean(row.getHasRenovationRaw())) {
-            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Có cải tạo không",
-                    "Chỉ chấp nhận TRUE hoặc FALSE"));
-        }
-        if (row.getHostContingencyPercent() != null) {
-            double percent = row.getHostContingencyPercent().doubleValue();
-            if (percent < 0 || percent > 100) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Tỷ lệ chi phí dự phòng (%)", "Giá trị phải từ 0 đến 100"));
-            }
         }
 
         try {
@@ -704,24 +681,6 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
             }
         }
         return 1;
-    }
-
-    private boolean parseWholeHouse(String leaseType) {
-        return "WHOLE_HOUSE".equalsIgnoreCase(normalizeOptional(leaseType));
-    }
-
-    private boolean parseBoolean(String raw) {
-        return "TRUE".equalsIgnoreCase(normalizeOptional(raw));
-    }
-
-    private boolean isValidLeaseType(String leaseType) {
-        String value = normalizeOptional(leaseType);
-        return "WHOLE_HOUSE".equalsIgnoreCase(value) || "INDIVIDUAL_ROOM".equalsIgnoreCase(value);
-    }
-
-    private boolean isValidBoolean(String raw) {
-        String value = normalizeOptional(raw);
-        return "TRUE".equalsIgnoreCase(value) || "FALSE".equalsIgnoreCase(value);
     }
 
     private String normalizeOptional(String value) {

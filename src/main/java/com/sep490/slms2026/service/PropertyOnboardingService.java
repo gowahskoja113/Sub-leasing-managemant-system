@@ -55,5 +55,7 @@ public interface PropertyOnboardingService {
 
     List<RenovationCategoryResponse> listRenovationCategories();
 
+    List<HandoverEquipmentResponse> getHandoverEquipments(Long propertyId);
+
     PropertyPurgeResponse purgeProperty(Long propertyId);
 }
