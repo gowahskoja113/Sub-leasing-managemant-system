@@ -1103,6 +1103,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
                 .roomId(equipment.getRoom() != null ? equipment.getRoom().getId() : null)
+                .roomNumber(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .catalogId(equipment.getCatalog().getId())
                 .catalogName(equipment.getCatalog().getName())
                 .houseArea(equipment.getHouseArea())
@@ -1128,6 +1129,17 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         return handoverEquipmentRepository.findByPropertyIdOrderByIdAsc(propertyId).stream()
                 .map(this::toHandoverEquipmentResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getPurchasedEquipments(Long propertyId, Integer sessionNumber) {
+        ensurePropertyExists(propertyId);
+        List<Equipment> equipments = sessionNumber != null
+                ? equipmentRepository.findByPropertyIdAndSourceAndRenovationSession_SessionNumberOrderByIdAsc(
+                propertyId, EquipmentSource.PURCHASED, sessionNumber)
+                : equipmentRepository.findByPropertyIdAndSourceOrderByIdAsc(propertyId, EquipmentSource.PURCHASED);
+        return equipments.stream().map(this::toEquipmentResponse).toList();
     }
 
     private HandoverEquipmentResponse toHandoverEquipmentResponse(HandoverEquipment equipment) {

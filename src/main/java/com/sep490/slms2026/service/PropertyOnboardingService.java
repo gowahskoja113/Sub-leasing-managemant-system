@@ -61,5 +61,11 @@ public interface PropertyOnboardingService {
 
     List<HandoverEquipmentResponse> getHandoverEquipments(Long propertyId);
 
+    /**
+     * Thiết bị mua mới (PURCHASED) — dùng khi import cải tạo / cải tạo bổ sung.
+     * {@code sessionNumber} tùy chọn: lọc theo phiên cải tạo (v2, v3…); bỏ trống = tất cả PURCHASED của nhà.
+     */
+    List<EquipmentResponse> getPurchasedEquipments(Long propertyId, Integer sessionNumber);
+
     PropertyPurgeResponse purgeProperty(Long propertyId);
 }

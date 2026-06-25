@@ -13,6 +13,20 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
 
     List<Equipment> findByPropertyId(Long propertyId);
 
+    List<Equipment> findByPropertyIdAndSourceOrderByIdAsc(Long propertyId, EquipmentSource source);
+
+    @Query("""
+            SELECT e FROM Equipment e
+            WHERE e.property.id = :propertyId
+              AND e.source = :source
+              AND e.renovationSession.sessionNumber = :sessionNumber
+            ORDER BY e.id ASC
+            """)
+    List<Equipment> findByPropertyIdAndSourceAndRenovationSession_SessionNumberOrderByIdAsc(
+            @Param("propertyId") Long propertyId,
+            @Param("source") EquipmentSource source,
+            @Param("sessionNumber") Integer sessionNumber);
+
     long countByPropertyId(Long propertyId);
 
     long countByPropertyIdAndSource(Long propertyId, EquipmentSource source);
