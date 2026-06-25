@@ -29,6 +29,12 @@ public class User {
     @Column(nullable = false, unique = true)
     private String phoneNumber;
 
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(nullable = false, unique = true)
     private String fullName;
 

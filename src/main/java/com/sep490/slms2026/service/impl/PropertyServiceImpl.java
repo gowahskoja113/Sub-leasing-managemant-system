@@ -1,9 +1,11 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
+import com.sep490.slms2026.dto.response.HandoverEquipmentResponse;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Zone;
+import com.sep490.slms2026.repository.HandoverEquipmentRepository;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -36,6 +38,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final PropertyDeletionService propertyDeletionService;
     private final TenantContractRepository tenantContractRepository;
     private final RoomRepository roomRepository;
+    private final HandoverEquipmentRepository handoverEquipmentRepository;
 
     @Override
     @Transactional
@@ -82,7 +85,21 @@ public class PropertyServiceImpl implements PropertyService {
         String zoneFullName = buildZoneFullName(property.getZone());
         String shortAddress = property.getAddress().replace(", " + zoneFullName, "");
 
-        return mapToResponse(property, shortAddress);
+        PropertyResponse response = mapToResponse(property, shortAddress);
+        response.setHandoverEquipments(handoverEquipmentRepository.findByPropertyIdOrderByIdAsc(id).stream()
+                .map(he -> HandoverEquipmentResponse.builder()
+                        .id(he.getId())
+                        .catalogId(he.getCatalog().getId())
+                        .catalogName(he.getCatalog().getName())
+                        .description(he.getDescription())
+                        .roomNumber(he.getRoomNumber())
+                        .houseArea(he.getHouseArea())
+                        .status(he.getStatus())
+                        .quantity(he.getQuantity())
+                        .note(he.getNote())
+                        .build())
+                .toList());
+        return response;
     }
 
     @Override
@@ -152,7 +169,7 @@ public class PropertyServiceImpl implements PropertyService {
         assertAddressAvailable(fullAddress, id);
         property.setAddress(fullAddress);
 
-        if (property.getStatus() != PropertyStatus.ACTIVE) {
+        if (property.getStatus() != PropertyStatus.ACTIVE && property.getStatus() != PropertyStatus.RENTED) {
             if (request.getTotalFloor() != null) {
                 property.setTotalFloor(request.getTotalFloor());
             }

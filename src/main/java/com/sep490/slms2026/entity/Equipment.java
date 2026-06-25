@@ -6,6 +6,7 @@ import com.sep490.slms2026.enums.HouseArea;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.io.Serializable;
 
 @Entity
@@ -54,4 +55,13 @@ public class Equipment implements Serializable {
 
     @Column(columnDefinition = "TEXT")
     private String note;
+
+    @Column(name = "warranty_months")
+    private Integer warrantyMonths;
+
+    @Column(name = "warranty_start_date")
+    private LocalDate warrantyStartDate;
+
+    @Column(name = "warranty_end_date")
+    private LocalDate warrantyEndDate;
 }

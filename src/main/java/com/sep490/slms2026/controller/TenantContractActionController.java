@@ -1,8 +1,12 @@
 package com.sep490.slms2026.controller;
 
-import com.sep490.slms2026.dto.request.ConfirmContractRequest;
+import com.sep490.slms2026.dto.response.TenantContractDocumentResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.dto.request.ConfirmContractRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 /**
- * Các thao tác trên hợp đồng thuê theo ID (thanh toán cọc, xác nhận, xem trạng thái).
+ * Các thao tác trên hợp đồng thuê theo ID (thanh toán cọc, xác nhận, xuất file, xem trạng thái).
  */
 @RestController
 @RequestMapping("/api/v1/tenant-contracts")
@@ -20,12 +24,33 @@ import java.util.Map;
 public class TenantContractActionController {
 
     private final TenantOnboardingService tenantOnboardingService;
+    private final TenantContractDocumentService tenantContractDocumentService;
 
-    /** GET /{id} — xem chi tiết/trạng thái HĐ (mobile poll trạng thái thanh toán). */
+    /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<TenantContractResponse> get(@PathVariable Long id) {
-        return ResponseEntity.ok(tenantOnboardingService.getContract(id));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        return ResponseEntity.ok(tenantContractDocumentService.getContractForUser(
+                id, user.getId(), role));
+    }
+
+    /** POST /{id}/document — xuất DOCX, lưu storage, trả URL (manager/admin). */
+    @PostMapping("/{id}/document")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractDocumentResponse> generateDocument(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantContractDocumentService.generateAndStore(id));
+    }
+
+    /** GET /{id}/document — lấy URL file đã lưu (manager hoặc khách thuê). */
+    @GetMapping("/{id}/document")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        tenantContractDocumentService.getContractForUser(id, user.getId(), role);
+        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id));
     }
 
     /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc qua PayOS. */

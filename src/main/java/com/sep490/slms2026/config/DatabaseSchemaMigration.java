@@ -44,6 +44,28 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureRoomsSoftDeleteColumn();
         ensurePropertyPreviousStatusColumn();
         ensurePropertyStatusConstraint();
+        addColumnIfNotExists("tenant_contracts", "document_url", "VARCHAR(1024)");
+        addColumnIfNotExists("tenant_contracts", "document_generated_at", "TIMESTAMP");
+        ensureHandoverEquipmentTable();
+        addColumnIfNotExists("equipments", "warranty_months", "INTEGER");
+        addColumnIfNotExists("equipments", "warranty_start_date", "DATE");
+        addColumnIfNotExists("equipments", "warranty_end_date", "DATE");
+    }
+
+    private void ensureHandoverEquipmentTable() {
+        createTableIfNotExists(
+                "handover_equipments",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                property_id BIGINT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+                catalog_id BIGINT NOT NULL REFERENCES equipment_catalog(id),
+                description TEXT,
+                room_number VARCHAR(50),
+                house_area VARCHAR(50),
+                status VARCHAR(50) NOT NULL,
+                quantity INT NOT NULL,
+                note TEXT
+                """);
     }
 
     private void ensurePropertyPreviousStatusColumn() {

@@ -6,6 +6,8 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.UserService;
+import com.sep490.slms2026.dto.request.UpdateProfileRequest;
+import com.sep490.slms2026.dto.response.AuthMeResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -89,5 +91,10 @@ public class UserController {
                 .toList();
 
         return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<AuthMeResponse> updateMyProfile(@RequestBody UpdateProfileRequest request) {
+        return ResponseEntity.ok(userService.updateMyProfile(request));
     }
 }

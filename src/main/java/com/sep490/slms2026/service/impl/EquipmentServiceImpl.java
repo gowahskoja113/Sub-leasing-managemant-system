@@ -11,7 +11,11 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
+import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
+import com.sep490.slms2026.enums.ContractStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +29,7 @@ public class EquipmentServiceImpl implements EquipmentService {
     private final EquipmentRepository equipmentRepository;
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
+    private final TenantContractRepository tenantContractRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,5 +99,36 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .price(equipment.getPrice())
                 .note(equipment.getNote())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentById(Long equipmentId) {
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID: " + equipmentId));
+
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+
+        if ("ROLE_TENANT".equals(role)) {
+            // Kiểm tra xem thiết bị có thuộc phòng/nhà mà tenant đang thuê hay không
+            List<com.sep490.slms2026.entity.TenantContract> contracts = tenantContractRepository.findByTenantId(user.getId());
+            boolean hasAccess = contracts.stream()
+                    .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                    .anyMatch(c -> {
+                        if (c.getRoom() != null) {
+                            return equipment.getRoom() != null && equipment.getRoom().getId().equals(c.getRoom().getId());
+                        } else {
+                            // Whole house
+                            return equipment.getProperty() != null && equipment.getProperty().getId().equals(c.getProperty().getId());
+                        }
+                    });
+
+            if (!hasAccess) {
+                throw new BusinessException("Bạn không có quyền xem thông tin thiết bị này");
+            }
+        }
+
+        return toResponse(equipment);
     }
 }

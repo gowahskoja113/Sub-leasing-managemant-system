@@ -26,7 +26,6 @@ public class TenantLookupController {
     @Transactional(readOnly = true)
     public ResponseEntity<TenantLookupResponse> lookupByPhone(@RequestParam String phone) {
         User user = userRepository.findByPhoneNumber(phone)
-                .filter(u -> u.getRole() == Role.ROLE_TENANT)
                 .orElse(null);
 
         if (user == null) {
@@ -39,6 +38,7 @@ public class TenantLookupController {
                 .fullName(user.getFullName())
                 .phoneNumber(user.getPhoneNumber())
                 .cccd(profile != null ? profile.getCccd() : null)
+                .role(user.getRole() != null ? user.getRole().name() : null)
                 .build());
     }
 }

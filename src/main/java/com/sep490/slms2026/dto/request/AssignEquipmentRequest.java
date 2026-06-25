@@ -40,4 +40,10 @@ public class AssignEquipmentRequest {
     private BigDecimal price;
 
     private String note;
+
+    private Integer warrantyMonths;
+
+    private java.time.LocalDate warrantyStartDate;
+
+    private java.time.LocalDate warrantyEndDate;
 }
