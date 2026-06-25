@@ -15,6 +15,10 @@ public interface PropertyOnboardingService {
 
     List<EquipmentManifestResponse> saveEquipmentManifest(Long propertyId, SaveEquipmentManifestRequest request);
 
+    /** Bổ sung manifest TB mua mới — không xóa manifest hiện có (dùng cho cải tạo lần 2+). */
+    List<EquipmentManifestResponse> appendPurchasedEquipmentManifest(Long propertyId,
+                                                                     SaveEquipmentManifestRequest request);
+
     List<EquipmentManifestResponse> getEquipmentManifest(Long propertyId);
 
     EquipmentResponse assignEquipment(Long propertyId, AssignEquipmentRequest request);

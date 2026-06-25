@@ -1,13 +1,15 @@
 package com.sep490.slms2026.imports;
 
 /**
- * Suy ra loại hình / đợt 2 từ mã HĐ demo và tag mô tả.
+ * Suy ra có đợt 2 hay không từ mã HĐ demo (HD-*-NORENO-*).
+ * Luồng cũ (onboarding-excel) vẫn dùng isWholeHouse theo prefix/tag.
  */
 public final class ImportContractClassifier {
 
     private ImportContractClassifier() {
     }
 
+    /** Luồng import cũ (1 file) — không dùng cho lease-excel / renovation-excel mới. */
     public static boolean isWholeHouse(String contractCode, String description) {
         if (contractCode != null) {
             String upper = contractCode.trim().toUpperCase();

@@ -11,6 +11,7 @@ const DOCS = path.join(__dirname, '..', 'docs');
 
 const OUT_DOT1 = path.join(DOCS, 'SLMS2026_import_dot1_khoi_tao.xlsx');
 const OUT_DOT2 = path.join(DOCS, 'SLMS2026_import_dot2_cai_tao.xlsx');
+const OUT_SUPPLEMENT = path.join(DOCS, 'SLMS2026_import_cai_tao_bo_sung.xlsx');
 
 const renovationCategories = [
   ['Mã danh mục', 'Tên danh mục', 'Mô tả'],
@@ -47,77 +48,63 @@ const houseAreas = [
   ['OTHER', 'Khu vực khác'],
 ];
 
-/** Ma trận 6 trường hợp nghiệp vụ (sheet tham khảo, BE không đọc). */
 const scenarioMatrix = [
   [
     'Mã hợp đồng (demo)',
-    'Loại hình (BE)',
-    'TB chủ bàn giao (đợt 1)',
-    'Có dòng cải tạo (đợt 2 sheet 1)',
-    'Có TB mua mới (đợt 2 sheet 2)',
+    'Đợt 1 TB bàn giao',
+    'Đợt 2 hình thức',
+    'Đợt 2 cải tạo',
+    'Đợt 2 mua TB',
     'Diễn giải',
   ],
   [
     'HD-WH-RENO-FURN',
-    'Nguyên căn',
+    'Có',
+    'NGUYEN_CAN',
     'Có',
     'Có',
-    'Có',
-    'Thuê nguyên căn — cải tạo + mua nội thất thêm (mặc định phổ biến)',
+    'Thuê nguyên căn — giữ nguyên căn sau cải tạo + mua nội thất',
   ],
   [
     'HD-WH-NORENO-FURN',
-    'Nguyên căn',
     'Có',
-    'Không',
-    'Không',
-    'Thuê nguyên căn — không cải tạo, chỉ TB chủ bàn giao (đợt 1). Không có dòng đợt 2.',
+    '—',
+    '—',
+    '—',
+    'Không cải tạo — sau đợt 1 gửi Host luôn (không có file đợt 2)',
   ],
   [
     'HD-WH-RENO-NOFURN',
-    'Nguyên căn',
     'Không',
+    'NGUYEN_CAN',
     'Có',
     'Không',
     'Thuê nguyên căn — chỉ cải tạo, không mua TB mới',
   ],
   [
     'HD-WH-NORENO-NOFURN',
-    'Nguyên căn',
     'Không',
-    'Không',
-    'Không',
-    'Thuê nguyên căn — trống, không cải tạo không TB. Không có dòng đợt 2.',
+    '—',
+    '—',
+    '—',
+    'Nhà trống, không cải tạo — gửi Host sau đợt 1',
   ],
   [
-    'HD-ROOM-RENO-FURN',
-    'Theo phòng',
+    'HD-WH-RENO-SPLIT',
+    'Có',
+    'THEO_PHONG (5 phòng)',
     'Có',
     'Có',
-    'Có',
-    'Thuê theo phòng — mặc định có cải tạo + mua nội thất từng phòng',
-  ],
-  [
-    'HD-ROOM-RENO-NOFURN',
-    'Theo phòng',
-    'Không',
-    'Có',
-    'Không',
-    'Thuê theo phòng — chỉ cải tạo, không mua TB mới',
+    'Thuê nguyên căn đợt 1 — đợt 2 chia 5 phòng khai thác + mua TB từng phòng',
   ],
   [''],
-  [
-    'Cách BE suy ra từ file đợt 2 (không cần cột Có cải tạo / Có nội thất):',
-  ],
-  ['- Có cải tạo ⇔ tồn tại ≥1 dòng sheet "1. Hop_Dong_Cai_Tao" cho mã HĐ đó'],
-  ['- Có nội thất mua thêm ⇔ tồn tại ≥1 dòng sheet "2. Thiet_Bi_Mua_Moi" cho mã HĐ đó'],
-  ['- TB chủ bàn giao ⇔ chỉ có ở đợt 1 sheet "2. Thiet_Bi_Ban_Giao" (hiển thị, không vận hành)'],
-  ['- Nguyên căn vs theo phòng: quyết định ở BE khi code đợt 1 (không có trong file đợt 2)'],
-  ['  Gợi ý: prefix mã demo HD-WH-* = nguyên căn, HD-ROOM-* = theo phòng — hoặc rule nghiệp vụ BE chốt'],
-  ['- Nhà THEO_PHONG: sheet "3. Danh_Sach_Phong" BẮT BUỘC đủ số phòng = cột Tổng số phòng'],
+  ['Quy tắc:'],
+  ['- Đợt 1: luôn import nhà nguyên căn (HĐ thuê từ chủ). TB bàn giao chỉ ghi nhận, không gắn phòng.'],
+  ['- Đợt 2: sheet "1. Cau_Hinh_Khai_Thac" quyết định NGUYEN_CAN hay THEO_PHONG.'],
+  ['- THEO_PHONG: sheet "2. Danh_Sach_Phong" bắt buộc đủ Số phòng khai thác.'],
+  ['- HD-*-NORENO-*: không có dòng trong file đợt 2.'],
 ];
 
-/** Sinh số phòng 101, 102, … — khớp logic ensureRoomNumbersForIndividualProperty (BE). */
 function buildRoomNumbers(totalRooms) {
   const rooms = [];
   let floor = 1;
@@ -146,7 +133,7 @@ function inferFloor(roomNumber, totalFloors) {
 
 function buildRoomListRows(contractCode, totalRooms, totalFloors, areaSize) {
   const perRoomArea = Math.round((areaSize / totalRooms) * 10) / 10;
-  return buildRoomNumbers(totalRooms).map((roomNumber, i) => [
+  return buildRoomNumbers(totalRooms).map((roomNumber) => [
     contractCode,
     roomNumber,
     inferFloor(roomNumber, totalFloors),
@@ -156,9 +143,9 @@ function buildRoomListRows(contractCode, totalRooms, totalFloors, areaSize) {
 }
 
 function buildPurchasedRowsForAllRooms(contractCode, totalRooms, warrantyStart) {
-  const catalogs = ['Giường', 'Điều hòa', 'Tủ quần áo', 'Nóng lạnh'];
-  const prices = [4_200_000, 8_000_000, 3_200_000, 2_500_000];
-  const months = [12, 24, 12, 12];
+  const catalogs = ['Giường', 'Điều hòa', 'Tủ quần áo', 'Nóng lạnh', 'Quạt'];
+  const prices = [4_200_000, 8_000_000, 3_200_000, 2_500_000, 800_000];
+  const months = [12, 24, 12, 12, 6];
   return buildRoomNumbers(totalRooms).map((roomNumber, i) => {
     const catIdx = i % catalogs.length;
     const m = months[catIdx];
@@ -172,6 +159,7 @@ function buildPurchasedRowsForAllRooms(contractCode, totalRooms, warrantyStart) 
       '',
       catalogs[catIdx],
       'NEW',
+      'THEM_MOI',
       1,
       prices[catIdx],
       m,
@@ -182,20 +170,7 @@ function buildPurchasedRowsForAllRooms(contractCode, totalRooms, warrantyStart) 
   });
 }
 
-function buildHandoverRowsForRooms(contractCode, roomNumbers, device = 'Quạt') {
-  return roomNumbers.map((roomNumber) => [
-    contractCode,
-    device,
-    `TB chủ bàn giao phòng ${roomNumber}`,
-    roomNumber,
-    '',
-    'GOOD',
-    1,
-    '',
-  ]);
-}
-
-// --- Đợt 1: không có Xã/Phường ---
+// --- Đợt 1 ---
 
 const leaseHeader = [
   'Mã hợp đồng',
@@ -227,7 +202,7 @@ const leaseRows = [
     450_000_000,
     '2026-03-01',
     '2029-02-28',
-    '[NGUYEN_CAN] Biệt thự — cải tạo + mua nội thất thêm.',
+    'Biệt thự thuê nguyên căn — chờ cải tạo đợt 2.',
   ],
   [
     'HD-WH-NORENO-FURN',
@@ -242,7 +217,7 @@ const leaseRows = [
     280_000_000,
     '2026-05-01',
     '2031-04-30',
-    '[NGUYEN_CAN] Vào ở ngay — chỉ TB chủ bàn giao, không cải tạo.',
+    'Vào ở ngay — chỉ TB chủ bàn giao, không cải tạo.',
   ],
   [
     'HD-WH-RENO-NOFURN',
@@ -257,7 +232,7 @@ const leaseRows = [
     550_000_000,
     '2026-09-01',
     '2031-08-31',
-    '[NGUYEN_CAN] Cải tạo hoàn thiện, không mua TB mới.',
+    'Cải tạo hoàn thiện, không mua TB mới.',
   ],
   [
     'HD-WH-NORENO-NOFURN',
@@ -272,37 +247,22 @@ const leaseRows = [
     180_000_000,
     '2026-06-01',
     '2027-05-31',
-    '[NGUYEN_CAN] Nhà trống hoàn toàn, không cải tạo không TB.',
+    'Nhà trống hoàn toàn, không cải tạo.',
   ],
   [
-    'HD-ROOM-RENO-FURN',
+    'HD-WH-RENO-SPLIT',
     'Nhà trọ Bình Thạnh',
     '45 Phan Văn Trị',
     'Bình Thạnh',
     'TP. Hồ Chí Minh',
     120,
     3,
-    10,
+    8,
     'Lê Thị Hương',
     320_000_000,
     '2026-04-01',
     '2028-03-31',
-    '[THEO_PHONG] 10 phòng (101–110) — cải tạo + mua nội thất từng phòng.',
-  ],
-  [
-    'HD-ROOM-RENO-NOFURN',
-    'Nhà trọ sinh viên Cầu Giấy',
-    '24 Xuân Thủy',
-    'Cầu Giấy',
-    'Hà Nội',
-    110,
-    4,
-    10,
-    'Hoàng Văn Nam',
-    380_000_000,
-    '2026-07-01',
-    '2029-06-30',
-    '[THEO_PHONG] 10 phòng — chỉ cải tạo, không mua TB.',
+    'Thuê nguyên căn từ chủ — đợt 2 sẽ chia phòng khai thác.',
   ],
 ];
 
@@ -310,11 +270,42 @@ const handoverHeader = [
   'Mã hợp đồng thuê',
   'Tên thiết bị',
   'Mô tả chi tiết',
-  'Số phòng',
-  'Khu vực chung',
+  'Mô tả vị trí',
   'Trạng thái thiết bị',
   'Số lượng',
   'Ghi chú',
+];
+
+const handoverRows = [
+  ['HD-WH-RENO-FURN', 'Điều hòa', 'Máy lạnh 2HP cũ', 'Tầng 1, phòng khách', 'GOOD', 2, 'Chủ bàn giao'],
+  ['HD-WH-RENO-FURN', 'Tủ lạnh', 'Tủ 250L', 'Nhà bếp', 'GOOD', 1, ''],
+  ['HD-WH-NORENO-FURN', 'Điều hòa', '3 máy lạnh', 'Các phòng trong nhà', 'GOOD', 3, ''],
+  ['HD-WH-NORENO-FURN', 'Máy giặt', 'Máy giặt sân sau', 'Sân sau', 'GOOD', 1, ''],
+  ['HD-WH-RENO-SPLIT', 'Quạt', 'Quạt trần cũ', 'Toàn nhà', 'GOOD', 5, 'TB chủ bàn giao trước cải tạo'],
+];
+
+const huongDanDot1 = [
+  ['Hướng dẫn — Đợt 1: Khởi tạo nhà (HĐ thuê từ chủ)'],
+  [''],
+  ['Sheet "1. Hop_Dong_Thue": tạo Property + hợp đồng thuê — LUÔN nguyên căn.'],
+  ['Sheet "2. Thiet_Bi_Ban_Giao" (tùy chọn): TB chủ bàn giao — CHỈ HIỂN THỊ, không gắn phòng vận hành.'],
+  ['"Tổng số phòng" = đặc tính vật lý căn nhà thuê, không phải số phòng khai thác.'],
+  ['Chia phòng / hình thức khai thác → quyết định ở file đợt 2.'],
+  ['Xem sheet "0. Ma_Tran_Trường_Hop".'],
+];
+
+// --- Đợt 2 ---
+
+const configHeader = [
+  'Mã hợp đồng thuê',
+  'Hình thức khai thác',
+  'Số phòng khai thác',
+];
+
+const configRows = [
+  ['HD-WH-RENO-FURN', 'NGUYEN_CAN', ''],
+  ['HD-WH-RENO-NOFURN', 'NGUYEN_CAN', ''],
+  ['HD-WH-RENO-SPLIT', 'THEO_PHONG', 5],
 ];
 
 const roomListHeader = [
@@ -325,37 +316,7 @@ const roomListHeader = [
   'Ghi chú',
 ];
 
-const roomListRows = [
-  ...buildRoomListRows('HD-ROOM-RENO-FURN', 10, 3, 120),
-  ...buildRoomListRows('HD-ROOM-RENO-NOFURN', 10, 4, 110),
-];
-
-const handoverRows = [
-  ['HD-WH-RENO-FURN', 'Điều hòa', 'Máy lạnh 2HP tầng 1', '101', '', 'GOOD', 2, 'Chủ bàn giao'],
-  ['HD-WH-RENO-FURN', 'Tủ lạnh', 'Tủ 250L cũ', '', 'KITCHEN', 'GOOD', 1, ''],
-  ['HD-WH-NORENO-FURN', 'Điều hòa', '3 máy lạnh các phòng', '101', '', 'GOOD', 1, 'Phòng 101'],
-  ['HD-WH-NORENO-FURN', 'Điều hòa', '', '102', '', 'GOOD', 1, 'Phòng 102'],
-  ['HD-WH-NORENO-FURN', 'Máy giặt', 'Máy giặt sân sau', '', 'GARAGE', 'GOOD', 1, ''],
-  // THEO_PHONG: bàn giao lẻ từng phòng (phòng 101–110)
-  ...buildHandoverRowsForRooms('HD-ROOM-RENO-FURN', buildRoomNumbers(10), 'Điều hòa'),
-];
-
-const huongDanDot1 = [
-  ['Hướng dẫn — Đợt 1: Khởi tạo nhà'],
-  [''],
-  ['Sheet "1. Hop_Dong_Thue": tạo Property + hợp đồng thuê inbound.'],
-  ['Sheet "2. Thiet_Bi_Ban_Giao" (tùy chọn): TB chủ nhà gốc bàn giao — CHỈ HIỂN THỊ.'],
-  ['Sheet "3. Danh_Sach_Phong" (BẮT BUỘC nếu [THEO_PHONG]): liệt kê ĐỦ từng phòng = Tổng số phòng.'],
-  ['Sheet "0. Ma_Tran_Trường_Hop": bảng demo 6 trường hợp nghiệp vụ (BE không đọc).'],
-  [''],
-  ['Địa chỉ / Zone:'],
-  ['- Chỉ dùng Quận/Huyện + Tỉnh/Thành phố (2 cấp Zone). KHÔNG có cột Xã/Phường.'],
-  ['- Địa chỉ chi tiết ghi đủ số nhà, ngõ/đường.'],
-  [''],
-  ['Tag trong Mô tả chi tiết (demo): [NGUYEN_CAN] hoặc [THEO_PHONG] — gợi ý cho BE khi code.'],
-];
-
-// --- Đợt 2: chỉ các HĐ có cải tạo và/hoặc mua TB ---
+const roomListRows = buildRoomListRows('HD-WH-RENO-SPLIT', 5, 3, 120);
 
 const renovationHeader = [
   'Mã hợp đồng thuê',
@@ -368,12 +329,10 @@ const renovationHeader = [
 const renovationRows = [
   ['HD-WH-RENO-FURN', 'PAINTING', 'Sơn sửa', 18_000_000, 'Sơn lại toàn bộ trong nhà'],
   ['HD-WH-RENO-FURN', 'PLUMBING', 'Điện nước', 22_000_000, 'Thay đường ống tầng 2'],
-  ['HD-WH-RENO-NOFURN', 'FURNITURE', 'Nội thất', 80_000_000, 'Hoàn thiện nội thất cao cấp (không mua TB riêng)'],
+  ['HD-WH-RENO-NOFURN', 'FURNITURE', 'Nội thất', 80_000_000, 'Hoàn thiện nội thất cao cấp'],
   ['HD-WH-RENO-NOFURN', 'PLUMBING', 'Điện nước', 30_000_000, 'Smart home'],
-  ['HD-ROOM-RENO-FURN', 'FLOORING', 'Sàn nhà', 35_000_000, 'Lát gạch phòng 101–110'],
-  ['HD-ROOM-RENO-FURN', 'FURNITURE', 'Nội thất', 28_000_000, 'Ngân sách nội thất chung 10 phòng'],
-  ['HD-ROOM-RENO-NOFURN', 'PAINTING', 'Sơn sửa', 15_000_000, 'Sơn hành lang + 10 phòng'],
-  ['HD-ROOM-RENO-NOFURN', 'PLUMBING', 'Điện nước', 12_000_000, 'Sửa WC từng phòng'],
+  ['HD-WH-RENO-SPLIT', 'FLOORING', 'Sàn nhà', 25_000_000, 'Lát gạch 5 phòng'],
+  ['HD-WH-RENO-SPLIT', 'PLUMBING', 'Điện nước', 15_000_000, 'Sửa WC từng phòng'],
 ];
 
 const purchasedHeader = [
@@ -382,6 +341,7 @@ const purchasedHeader = [
   'Khu vực chung',
   'Tên Catalog thiết bị',
   'Trạng thái thiết bị',
+  'Hành động',
   'Số lượng',
   'Đơn giá (VNĐ)',
   'Số tháng bảo hành',
@@ -397,6 +357,7 @@ const purchasedRows = [
     'LIVING_ROOM',
     'Điều hòa',
     'NEW',
+    'THEM_MOI',
     1,
     16_500_000,
     36,
@@ -406,36 +367,31 @@ const purchasedRows = [
   ],
   [
     'HD-WH-RENO-FURN',
-    '201',
     '',
-    'Giường',
+    'KITCHEN',
+    'Bếp từ',
     'NEW',
+    'THEM_MOI',
     1,
-    7_500_000,
+    5_500_000,
     24,
     '2026-04-01',
     '2028-03-31',
-    'Phòng ngủ Master',
+    'Bếp từ nhà bếp',
   ],
-  // THEO_PHONG: mua TB mới cho ĐỦ 10 phòng (101–110)
-  ...buildPurchasedRowsForAllRooms('HD-ROOM-RENO-FURN', 10, '2026-05-01'),
+  ...buildPurchasedRowsForAllRooms('HD-WH-RENO-SPLIT', 5, '2026-05-01'),
 ];
 
 const huongDanDot2 = [
-  ['Hướng dẫn — Đợt 2: Cải tạo + thiết bị mua mới'],
+  ['Hướng dẫn — Đợt 2: Cấu hình khai thác + cải tạo + TB mua mới'],
   [''],
-  ['Phân biệt trường hợp KHÔNG cần cột riêng — chỉ cần có/không dòng theo mã HĐ:'],
+  ['Sheet "1. Cau_Hinh_Khai_Thac" (BẮT BUỘC): quyết định NGUYEN_CAN hoặc THEO_PHONG.'],
+  ['Sheet "2. Danh_Sach_Phong": bắt buộc nếu THEO_PHONG — đủ Số phòng khai thác.'],
+  ['Sheet "3. Hop_Dong_Cai_Tao" (tùy chọn): chi phí cải tạo.'],
+  ['Sheet "4. Thiet_Bi_Mua_Moi" (tùy chọn): TB mua + bảo hành; cột Hành động = THEM_MOI (mặc định) hoặc THAY_THE.'],
   [''],
-  ['| Cải tạo | TB mua mới | Cách nhận biết |'],
-  ['| Có | Có | Có dòng sheet 1 VÀ sheet 2 | → HD-WH-RENO-FURN, HD-ROOM-RENO-FURN'],
-  ['| Có | Không | Chỉ có dòng sheet 1 | → HD-WH-RENO-NOFURN, HD-ROOM-RENO-NOFURN'],
-  ['| Không | Không | Không có dòng nào ở đợt 2 cho mã HĐ | → HD-WH-NORENO-*'],
-  [''],
-  ['TB chủ bàn giao (không cải tạo, không mua): chỉ ở đợt 1 — HD-WH-NORENO-FURN'],
-  ['Nhà trống hoàn toàn: không sheet đợt 1 TB, không sheet đợt 2 — HD-WH-NORENO-NOFURN'],
-  [''],
-  ['Nhà THEO_PHONG có mua TB: sheet "2. Thiet_Bi_Mua_Moi" phải có dòng cho TỪNG phòng (101…110).'],
-  ['Xem chi tiết sheet "0. Ma_Tran_Trường_Hop".'],
+  ['HD-*-NORENO-*: không có trong file đợt 2 (đã gửi Host sau đợt 1).'],
+  ['Xem sheet "0. Ma_Tran_Trường_Hop".'],
 ];
 
 function sheetFromAoA(data, colWidths) {
@@ -464,7 +420,6 @@ const wb1 = buildWorkbook([
   },
   { name: '1. Hop_Dong_Thue', data: [leaseHeader, ...leaseRows] },
   { name: '2. Thiet_Bi_Ban_Giao', data: [handoverHeader, ...handoverRows] },
-  { name: '3. Danh_Sach_Phong', data: [roomListHeader, ...roomListRows] },
 ]);
 
 const wb2 = buildWorkbook([
@@ -474,18 +429,84 @@ const wb2 = buildWorkbook([
     name: '0. Danh_Muc_Tham_Khao',
     data: [...renovationCategories, [''], ...equipmentCatalog, [''], ...houseAreas],
   },
-  { name: '1. Hop_Dong_Cai_Tao', data: [renovationHeader, ...renovationRows] },
-  { name: '2. Thiet_Bi_Mua_Moi', data: [purchasedHeader, ...purchasedRows] },
+  { name: '1. Cau_Hinh_Khai_Thac', data: [configHeader, ...configRows] },
+  { name: '2. Danh_Sach_Phong', data: [roomListHeader, ...roomListRows] },
+  { name: '3. Hop_Dong_Cai_Tao', data: [renovationHeader, ...renovationRows] },
+  { name: '4. Thiet_Bi_Mua_Moi', data: [purchasedHeader, ...purchasedRows] },
 ]);
 
 XLSX.writeFile(wb1, OUT_DOT1);
 XLSX.writeFile(wb2, OUT_DOT2);
 
+// --- Cải tạo bổ sung (lần 2+) — 2 sheet giống sheet 3+4 của đợt 2 ---
+
+const supplementRenovationRows = [
+  ['HD-WH-RENO-FURN', 'PAINTING', 'Sơn sửa', 8_000_000, 'Cải tạo bổ sung lần 2 — sơn lại phòng ngủ'],
+  ['HD-WH-RENO-FURN', 'EQUIPMENT', 'Thiết bị', 3_500_000, 'Thay router WiFi toàn nhà'],
+];
+
+const supplementPurchasedRows = [
+  [
+    'HD-WH-RENO-FURN',
+    '',
+    'LIVING_ROOM',
+    'Điều hòa',
+    'NEW',
+    'THAY_THE',
+    1,
+    18_500_000,
+    36,
+    '2027-01-01',
+    '2030-12-31',
+    'Thay điều hòa mới phòng khách (disable bản v1)',
+  ],
+  [
+    'HD-WH-RENO-FURN',
+    '',
+    'LIVING_ROOM',
+    'Quạt',
+    'NEW',
+    'THEM_MOI',
+    2,
+    1_200_000,
+    12,
+    '2027-01-01',
+    '2027-12-31',
+    'Thêm quạt trần — giữ nguyên đồ cũ',
+  ],
+];
+
+const huongDanSupplement = [
+  ['Hướng dẫn — Cải tạo bổ sung (lần 2, 3…)'],
+  [''],
+  ['Điều kiện: nhà đang ACTIVE → gọi API start-renovation → UNDER_RENOVATION (session ≥ 2).'],
+  ['API: POST /api/v1/import/renovation-supplement-excel?dryRun='],
+  [''],
+  ['Sheet "1. Hop_Dong_Cai_Tao": chi phí cải tạo đợt này (gắn session hiện tại).'],
+  ['Sheet "2. Thiet_Bi_Mua_Moi": TB mua — THEM_MOI giữ TB cũ; THAY_THE disable TB ACTIVE cùng vị trí + catalog.'],
+  ['KHÔNG có sheet cấu hình khai thác / danh sách phòng.'],
+];
+
+const wbSupplement = buildWorkbook([
+  { name: '0. Huong_Dan', data: huongDanSupplement },
+  {
+    name: '0. Danh_Muc_Tham_Khao',
+    data: [...renovationCategories, [''], ...equipmentCatalog, [''], ...houseAreas],
+  },
+  { name: '1. Hop_Dong_Cai_Tao', data: [renovationHeader, ...supplementRenovationRows] },
+  { name: '2. Thiet_Bi_Mua_Moi', data: [purchasedHeader, ...supplementPurchasedRows] },
+]);
+
+XLSX.writeFile(wbSupplement, OUT_SUPPLEMENT);
+
 console.log('Đã tạo file đợt 1:', OUT_DOT1);
-console.log(`  - ${leaseRows.length} hợp đồng (6 trường hợp)`);
+console.log(`  - ${leaseRows.length} hợp đồng (luôn nguyên căn)`);
 console.log(`  - ${handoverRows.length} dòng TB bàn giao`);
-console.log(`  - ${roomListRows.length} dòng danh sách phòng (THEO_PHONG)`);
 console.log('Đã tạo file đợt 2:', OUT_DOT2);
+console.log(`  - ${configRows.length} dòng cấu hình khai thác`);
+console.log(`  - ${roomListRows.length} dòng danh sách phòng (THEO_PHONG)`);
 console.log(`  - ${renovationRows.length} dòng cải tạo`);
-console.log(`  - ${purchasedRows.length} dòng TB mua mới (gồm 10 phòng/HD-ROOM-RENO-FURN)`);
-console.log('  - Không có dòng cho: HD-WH-NORENO-FURN, HD-WH-NORENO-NOFURN');
+console.log(`  - ${purchasedRows.length} dòng TB mua mới`);
+console.log('Đã tạo file cải tạo bổ sung:', OUT_SUPPLEMENT);
+console.log(`  - ${supplementRenovationRows.length} dòng cải tạo mẫu`);
+console.log(`  - ${supplementPurchasedRows.length} dòng TB mua mẫu`);

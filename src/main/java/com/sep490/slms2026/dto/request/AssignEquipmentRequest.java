@@ -46,4 +46,9 @@ public class AssignEquipmentRequest {
     private java.time.LocalDate warrantyStartDate;
 
     private java.time.LocalDate warrantyEndDate;
+
+    /**
+     * THEM_MOI (mặc định) | THAY_THE — khi import Excel cải tạo.
+     */
+    private com.sep490.slms2026.enums.EquipmentImportAction importAction;
 }

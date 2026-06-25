@@ -31,6 +31,12 @@ public class PropertyResponse {
 
     private List<HandoverEquipmentResponse> handoverEquipments;
 
+    /** Đợt cải tạo đang có hiệu lực (status ACTIVE), null nếu chưa có */
+    private RenovationSessionResponse activeRenovationSession;
+
+    /** Lịch sử tất cả đợt cải tạo — mới nhất trước */
+    private List<RenovationSessionResponse> renovationSessions;
+
     // true nếu BĐS còn cho thuê được
     private Boolean rentalAvailable;
 }

@@ -1,6 +1,7 @@
 package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.RenovationSession;
+import com.sep490.slms2026.enums.RenovationSessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -25,4 +26,9 @@ public interface RenovationSessionRepository extends JpaRepository<RenovationSes
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM RenovationSession s WHERE s.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
+
+    Optional<RenovationSession> findTopByPropertyIdAndStatusOrderBySessionNumberDesc(
+            Long propertyId, RenovationSessionStatus status);
+
+    List<RenovationSession> findByPropertyIdAndStatus(Long propertyId, RenovationSessionStatus status);
 }

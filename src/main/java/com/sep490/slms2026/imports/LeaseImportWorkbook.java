@@ -11,5 +11,4 @@ public class LeaseImportWorkbook {
 
     private List<LeaseContractImportRow> leaseContracts;
     private List<HandoverEquipmentImportRow> handoverRows;
-    private List<RoomImportRow> roomRows;
 }

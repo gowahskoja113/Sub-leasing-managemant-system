@@ -6,9 +6,7 @@ import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
 import com.sep490.slms2026.dto.response.BulkImportResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.EquipmentStatus;
-import com.sep490.slms2026.enums.HouseArea;
 import com.sep490.slms2026.enums.PropertyStatus;
-import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.exception.BulkImportValidationException;
 import com.sep490.slms2026.imports.*;
 import com.sep490.slms2026.repository.EquipmentCatalogRepository;
@@ -17,7 +15,6 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.service.BulkLeaseImportService;
 import com.sep490.slms2026.service.InboundContractService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
-import com.sep490.slms2026.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +35,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
     private final BulkImportSupport bulkImportSupport;
     private final PropertyOnboardingService propertyOnboardingService;
     private final InboundContractService inboundContractService;
-    private final RoomService roomService;
     private final EquipmentCatalogRepository equipmentCatalogRepository;
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final PropertyRepository propertyRepository;
@@ -58,7 +54,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
 
         int importableCount = countImportable(workbook, skippedContracts);
         int handoverCount = countHandoverForImport(workbook, skippedContracts);
-        int roomCount = countRoomsForImport(workbook, skippedContracts);
 
         if (dryRun) {
             return BulkImportResponse.builder()
@@ -74,8 +69,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
 
         Map<String, List<HandoverEquipmentImportRow>> handoverByContract = workbook.getHandoverRows().stream()
                 .collect(Collectors.groupingBy(HandoverEquipmentImportRow::getContractCode));
-        Map<String, List<RoomImportRow>> roomsByContract = workbook.getRoomRows().stream()
-                .collect(Collectors.groupingBy(RoomImportRow::getContractCode));
 
         List<BulkImportContractResultResponse> results = new ArrayList<>();
         int importedCount = 0;
@@ -89,8 +82,7 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
 
             results.add(importContract(
                     leaseRow,
-                    handoverByContract.getOrDefault(contractCode, List.of()),
-                    roomsByContract.getOrDefault(contractCode, List.of())));
+                    handoverByContract.getOrDefault(contractCode, List.of())));
             importedCount++;
         }
 
@@ -106,8 +98,7 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
     }
 
     private BulkImportContractResultResponse importContract(LeaseContractImportRow leaseRow,
-                                                            List<HandoverEquipmentImportRow> handoverRows,
-                                                            List<RoomImportRow> roomRows) {
+                                                            List<HandoverEquipmentImportRow> handoverRows) {
         Zone districtZone = zoneImportResolver.resolveDistrictZone(
                 leaseRow.getProvince(), leaseRow.getDistrict());
         String shortAddress = leaseRow.getAddress() == null ? "" : leaseRow.getAddress().trim();
@@ -133,22 +124,16 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                 .build();
         inboundContractService.signContract(propertyId, contractRequest);
 
-        boolean wholeHouse = ImportContractClassifier.isWholeHouse(
-                leaseRow.getContractCode(), leaseRow.getDescriptions());
-        boolean hasRenovation = ImportContractClassifier.inferHasRenovationForPhase1(leaseRow.getContractCode());
+        boolean hasRenovation = ImportContractClassifier.expectsPhase2(leaseRow.getContractCode());
 
         var optionsRequest = new OnboardingOptionsRequest();
-        optionsRequest.setWholeHouse(wholeHouse);
+        optionsRequest.setWholeHouse(true);
         optionsRequest.setHasRenovation(hasRenovation);
         propertyOnboardingService.setOnboardingOptions(propertyId, optionsRequest);
 
-        if (!wholeHouse) {
-            createRoomsFromSheet(propertyId, leaseRow, roomRows);
-        }
-
         saveHandoverEquipment(propertyId, handoverRows);
 
-        if (!ImportContractClassifier.expectsPhase2(leaseRow.getContractCode())) {
+        if (!hasRenovation) {
             Property property = propertyRepository.findById(propertyId).orElseThrow();
             property.setStatus(PropertyStatus.RENOVATION_COMPLETED);
             propertyRepository.save(property);
@@ -165,22 +150,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                 .build();
     }
 
-    private void createRoomsFromSheet(Long propertyId,
-                                      LeaseContractImportRow leaseRow,
-                                      List<RoomImportRow> roomRows) {
-        PropertyType propertyType = PropertyType.INDIVIDUAL_ROOM;
-        for (RoomImportRow roomRow : roomRows) {
-            var addRoomRequest = AddRoomRequest.builder()
-                    .roomNumber(roomRow.getRoomNumber())
-                    .floor(roomRow.getFloor())
-                    .area(roomRow.getArea())
-                    .maxOccupants(2)
-                    .propertyType(propertyType)
-                    .build();
-            roomService.addRoom(propertyId, addRoomRequest);
-        }
-    }
-
     private void saveHandoverEquipment(Long propertyId, List<HandoverEquipmentImportRow> handoverRows) {
         Property property = propertyRepository.findById(propertyId).orElseThrow();
         for (HandoverEquipmentImportRow row : handoverRows) {
@@ -188,22 +157,20 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                     .findFirstByNameIgnoreCaseAndActiveTrue(row.getEquipmentName())
                     .orElseThrow();
 
-            HouseArea houseArea = null;
-            String houseAreaRaw = normalizeOptional(row.getHouseAreaRaw());
-            if (!houseAreaRaw.isBlank()) {
-                houseArea = HouseArea.valueOf(houseAreaRaw);
-            }
+            String locationNote = normalizeOptional(row.getLocationNote());
+            String note = normalizeOptional(row.getNote());
+            String combinedNote = locationNote.isBlank() ? note
+                    : note.isBlank() ? locationNote : locationNote + " — " + note;
 
-            String roomNumber = normalizeOptional(row.getRoomNumber());
             handoverEquipmentRepository.save(HandoverEquipment.builder()
                     .property(property)
                     .catalog(catalog)
                     .description(normalizeOptional(row.getDescription()))
-                    .roomNumber(roomNumber.isBlank() ? null : roomNumber)
-                    .houseArea(houseArea)
+                    .roomNumber(null)
+                    .houseArea(null)
                     .status(EquipmentStatus.valueOf(normalizeOptional(row.getStatusRaw())))
                     .quantity(row.getQuantity())
-                    .note(normalizeOptional(row.getNote()))
+                    .note(combinedNote.isBlank() ? null : combinedNote)
                     .build());
         }
     }
@@ -230,31 +197,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                 continue;
             }
             validateHandoverRow(row, leaseByCode, errors);
-        }
-
-        for (RoomImportRow row : workbook.getRoomRows()) {
-            if (skippedContracts.containsKey(row.getContractCode())) {
-                continue;
-            }
-            validateRoomRow(row, leaseByCode, errors);
-        }
-
-        for (LeaseContractImportRow leaseRow : workbook.getLeaseContracts()) {
-            if (skippedContracts.containsKey(leaseRow.getContractCode())) {
-                continue;
-            }
-            boolean wholeHouse = ImportContractClassifier.isWholeHouse(
-                    leaseRow.getContractCode(), leaseRow.getDescriptions());
-            if (!wholeHouse) {
-                long roomCount = workbook.getRoomRows().stream()
-                        .filter(r -> r.getContractCode().equals(leaseRow.getContractCode()))
-                        .count();
-                if (roomCount != leaseRow.getTotalRooms()) {
-                    errors.add(error(SHEET_ROOMS, leaseRow.getRowNumber(), leaseRow.getContractCode(),
-                            "Tổng số phòng",
-                            "Phải tạo đủ " + leaseRow.getTotalRooms() + " phòng chi tiết (hiện có " + roomCount + ")"));
-                }
-            }
         }
 
         return errors;
@@ -333,24 +275,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
             return;
         }
 
-        String roomNumber = normalizeOptional(row.getRoomNumber());
-        String houseAreaRaw = normalizeOptional(row.getHouseAreaRaw());
-        boolean hasRoom = !roomNumber.isBlank();
-        boolean hasArea = !houseAreaRaw.isBlank();
-
-        if (hasRoom == hasArea) {
-            errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Vị trí",
-                    "Phải điền Số phòng hoặc Khu vực chung, không được điền cả hai hoặc bỏ trống cả hai"));
-        }
-        if (hasArea) {
-            try {
-                HouseArea.valueOf(houseAreaRaw);
-            } catch (IllegalArgumentException ex) {
-                errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Khu vực chung",
-                        "Giá trị không hợp lệ. Chọn một trong: LIVING_ROOM, KITCHEN, BATHROOM, BALCONY, GARAGE, OTHER"));
-            }
-        }
-
         requireText(errors, SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(),
                 "Tên thiết bị", row.getEquipmentName());
         equipmentCatalogRepository.findFirstByNameIgnoreCaseAndActiveTrue(row.getEquipmentName())
@@ -373,34 +297,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         }
     }
 
-    private void validateRoomRow(RoomImportRow row,
-                               Map<String, LeaseContractImportRow> leaseByCode,
-                               List<BulkImportErrorResponse> errors) {
-        if (!leaseByCode.containsKey(row.getContractCode())) {
-            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
-                    "Không tìm thấy mã hợp đồng ở sheet 1"));
-            return;
-        }
-
-        LeaseContractImportRow lease = leaseByCode.get(row.getContractCode());
-        if (ImportContractClassifier.isWholeHouse(row.getContractCode(), lease.getDescriptions())) {
-            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Số phòng",
-                    "Nhà nguyên căn không cần sheet danh sách phòng"));
-            return;
-        }
-
-        requireText(errors, SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Số phòng", row.getRoomNumber());
-        if (row.getFloor() == null || row.getFloor() < 1
-                || (lease.getTotalFloor() != null && row.getFloor() > lease.getTotalFloor())) {
-            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Tầng",
-                    "Tầng phải từ 1 đến " + lease.getTotalFloor()));
-        }
-        if (row.getArea() == null || row.getArea() <= 0) {
-            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Diện tích phòng (m²)",
-                    "Diện tích phòng phải lớn hơn 0"));
-        }
-    }
-
     private int countImportable(LeaseImportWorkbook workbook, Map<String, String> skippedContracts) {
         return (int) workbook.getLeaseContracts().stream()
                 .map(LeaseContractImportRow::getContractCode)
@@ -410,12 +306,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
 
     private int countHandoverForImport(LeaseImportWorkbook workbook, Map<String, String> skippedContracts) {
         return (int) workbook.getHandoverRows().stream()
-                .filter(row -> !skippedContracts.containsKey(row.getContractCode()))
-                .count();
-    }
-
-    private int countRoomsForImport(LeaseImportWorkbook workbook, Map<String, String> skippedContracts) {
-        return (int) workbook.getRoomRows().stream()
                 .filter(row -> !skippedContracts.containsKey(row.getContractCode()))
                 .count();
     }

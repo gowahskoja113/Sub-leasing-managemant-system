@@ -22,4 +22,6 @@ public class PurchasedEquipmentImportRow {
     private LocalDate warrantyStartDate;
     private LocalDate warrantyEndDate;
     private String note;
+    /** THEM_MOI | THAY_THE */
+    private String actionRaw;
 }

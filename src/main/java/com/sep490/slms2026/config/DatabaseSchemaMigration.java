@@ -50,6 +50,17 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("equipments", "warranty_months", "INTEGER");
         addColumnIfNotExists("equipments", "warranty_start_date", "DATE");
         addColumnIfNotExists("equipments", "warranty_end_date", "DATE");
+        migrateEquipmentOperationalFields();
+    }
+
+    private void migrateEquipmentOperationalFields() {
+        addColumnIfNotExists("equipments", "renovation_session_id",
+                "BIGINT REFERENCES renovation_sessions(id)");
+        addColumnIfNotExists("equipments", "operational_status",
+                "VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'");
+        addColumnIfNotExists("equipments", "disabled_at", "TIMESTAMP");
+        jdbcTemplate.execute(
+                "UPDATE equipments SET operational_status = 'ACTIVE' WHERE operational_status IS NULL");
     }
 
     private void ensureHandoverEquipmentTable() {
@@ -124,7 +135,47 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 UNIQUE (property_id, session_number)
                 """);
         addColumnIfNotExists("renovation_lines", "session_id", "BIGINT REFERENCES renovation_sessions(id)");
+        addColumnIfNotExists("renovation_sessions", "status", "VARCHAR(30) NOT NULL DEFAULT 'IN_PROGRESS'");
+        addColumnIfNotExists("renovation_sessions", "disabled_at", "TIMESTAMP");
         backfillOrphanRenovationLines();
+        backfillRenovationSessionStatus();
+    }
+
+    private void backfillRenovationSessionStatus() {
+        List<Long> propertyIds = jdbcTemplate.queryForList(
+                "SELECT DISTINCT property_id FROM renovation_sessions", Long.class);
+        for (Long propertyId : propertyIds) {
+            Integer maxClosed = jdbcTemplate.queryForObject(
+                    """
+                    SELECT MAX(session_number) FROM renovation_sessions
+                    WHERE property_id = ? AND end_date IS NOT NULL
+                    """,
+                    Integer.class,
+                    propertyId);
+            if (maxClosed != null) {
+                jdbcTemplate.update(
+                        """
+                        UPDATE renovation_sessions SET status = 'ACTIVE', disabled_at = NULL
+                        WHERE property_id = ? AND session_number = ? AND (status IS NULL OR status = 'IN_PROGRESS')
+                        """,
+                        propertyId, maxClosed);
+                jdbcTemplate.update(
+                        """
+                        UPDATE renovation_sessions SET status = 'DISABLED',
+                               disabled_at = COALESCE(disabled_at, NOW())
+                        WHERE property_id = ? AND session_number < ? AND end_date IS NOT NULL
+                          AND status IS DISTINCT FROM 'DISABLED'
+                        """,
+                        propertyId, maxClosed);
+            }
+            jdbcTemplate.update(
+                    """
+                    UPDATE renovation_sessions SET status = 'IN_PROGRESS'
+                    WHERE property_id = ? AND end_date IS NULL
+                      AND (status IS NULL OR status = '')
+                    """,
+                    propertyId);
+        }
     }
 
     private void backfillOrphanRenovationLines() {
@@ -145,8 +196,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                         propertyId);
                 sessionId = jdbcTemplate.queryForObject(
                         """
-                        INSERT INTO renovation_sessions (property_id, session_number, start_date, end_date, created_at)
-                        VALUES (?, 1, ?, ?, NOW()) RETURNING id
+                        INSERT INTO renovation_sessions (property_id, session_number, start_date, end_date, status, created_at)
+                        VALUES (?, 1, ?, ?, 'ACTIVE', NOW()) RETURNING id
                         """,
                         Long.class,
                         propertyId,

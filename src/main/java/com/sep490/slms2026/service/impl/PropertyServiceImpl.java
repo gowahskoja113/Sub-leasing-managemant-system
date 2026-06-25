@@ -39,6 +39,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final TenantContractRepository tenantContractRepository;
     private final RoomRepository roomRepository;
     private final HandoverEquipmentRepository handoverEquipmentRepository;
+    private final RenovationSessionViewMapper renovationSessionViewMapper;
 
     @Override
     @Transactional
@@ -99,6 +100,9 @@ public class PropertyServiceImpl implements PropertyService {
                         .note(he.getNote())
                         .build())
                 .toList());
+        response.setActiveRenovationSession(
+                renovationSessionViewMapper.findActiveSession(id).orElse(null));
+        response.setRenovationSessions(renovationSessionViewMapper.listHistoryNewestFirst(id));
         return response;
     }
 

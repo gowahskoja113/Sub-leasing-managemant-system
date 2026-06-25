@@ -7,10 +7,8 @@ import java.util.List;
 
 @Getter
 @Builder
-public class RenovationImportWorkbook {
+public class RenovationSupplementImportWorkbook {
 
-    private List<ExploitationConfigImportRow> configRows;
-    private List<RoomImportRow> roomRows;
     private List<RenovationImportRow> renovationLines;
     private List<PurchasedEquipmentImportRow> purchasedRows;
 }

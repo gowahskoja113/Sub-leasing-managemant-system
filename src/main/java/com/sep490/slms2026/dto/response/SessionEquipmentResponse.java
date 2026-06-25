@@ -5,31 +5,32 @@ import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import lombok.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class EquipmentResponse {
+public class SessionEquipmentResponse {
 
     private Long id;
-    private Long propertyId;
-    private Long roomId;
     private Long catalogId;
     private String catalogName;
+    private Long roomId;
+    private String roomNumber;
     private HouseArea houseArea;
     private EquipmentSource source;
     private EquipmentStatus status;
-    private java.math.BigDecimal price;
-    private String note;
-    private Integer warrantyMonths;
-    private java.time.LocalDate warrantyStartDate;
-    private java.time.LocalDate warrantyEndDate;
-
-    /** ACTIVE | DISABLED — chỉ áp dụng thiết bị PURCHASED vận hành */
+    /** ACTIVE | DISABLED */
     private String operationalStatus;
     private boolean currentEffective;
-    private Integer renovationSessionNumber;
-    private String renovationVersionLabel;
-    private java.time.LocalDateTime disabledAt;
+    private BigDecimal price;
+    private String note;
+    private Integer warrantyMonths;
+    private LocalDate warrantyStartDate;
+    private LocalDate warrantyEndDate;
+    private LocalDateTime disabledAt;
 }

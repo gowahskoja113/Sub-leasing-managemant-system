@@ -17,7 +17,6 @@ public class ExcelLeaseImportWorkbookReader {
 
     public static final String SHEET_LEASE = "1. Hop_Dong_Thue";
     public static final String SHEET_HANDOVER = "2. Thiet_Bi_Ban_Giao";
-    public static final String SHEET_ROOMS = "3. Danh_Sach_Phong";
 
     public LeaseImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
@@ -27,14 +26,11 @@ public class ExcelLeaseImportWorkbookReader {
 
             Sheet leaseSheet = requireSheet(workbook, SHEET_LEASE);
             Sheet handoverSheet = optionalSheet(workbook, SHEET_HANDOVER);
-            Sheet roomSheet = optionalSheet(workbook, SHEET_ROOMS);
 
             return LeaseImportWorkbook.builder()
                     .leaseContracts(readLeaseContracts(leaseSheet, formatter, evaluator))
                     .handoverRows(handoverSheet != null
                             ? readHandoverRows(handoverSheet, formatter, evaluator) : List.of())
-                    .roomRows(roomSheet != null
-                            ? readRoomRows(roomSheet, formatter, evaluator) : List.of())
                     .build();
         } catch (IOException ex) {
             throw new BusinessException("Không đọc được file Excel: " + ex.getMessage());
@@ -102,39 +98,9 @@ public class ExcelLeaseImportWorkbookReader {
                     .contractCode(contractCode)
                     .equipmentName(readString(row, headers.get("Tên thiết bị"), formatter, evaluator))
                     .description(readOptionalString(row, headers.get("Mô tả chi tiết"), formatter, evaluator))
-                    .roomNumber(readOptionalString(row, headers.get("Số phòng"), formatter, evaluator))
-                    .houseAreaRaw(readOptionalString(row, headers.get("Khu vực chung"), formatter, evaluator))
+                    .locationNote(readOptionalString(row, headers.get("Mô tả vị trí"), formatter, evaluator))
                     .statusRaw(readString(row, headers.get("Trạng thái thiết bị"), formatter, evaluator))
                     .quantity(readInteger(row, headers.get("Số lượng"), formatter, evaluator))
-                    .note(readOptionalString(row, headers.get("Ghi chú"), formatter, evaluator))
-                    .build());
-        }
-        return rows;
-    }
-
-    private List<RoomImportRow> readRoomRows(Sheet sheet,
-                                             DataFormatter formatter,
-                                             FormulaEvaluator evaluator) {
-        Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
-        requireHeaders(headers, SHEET_ROOMS,
-                "Mã hợp đồng thuê", "Số phòng", "Tầng", "Diện tích phòng (m²)");
-
-        List<RoomImportRow> rows = new ArrayList<>();
-        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-            Row row = sheet.getRow(rowIndex);
-            if (row == null || isRowEmpty(row, headers, formatter, evaluator)) {
-                continue;
-            }
-            String contractCode = readString(row, headers.get("Mã hợp đồng thuê"), formatter, evaluator);
-            if (contractCode.isBlank()) {
-                continue;
-            }
-            rows.add(RoomImportRow.builder()
-                    .rowNumber(rowIndex + 1)
-                    .contractCode(contractCode)
-                    .roomNumber(readString(row, headers.get("Số phòng"), formatter, evaluator))
-                    .floor(readInteger(row, headers.get("Tầng"), formatter, evaluator))
-                    .area(readDouble(row, headers.get("Diện tích phòng (m²)"), formatter, evaluator))
                     .note(readOptionalString(row, headers.get("Ghi chú"), formatter, evaluator))
                     .build());
         }

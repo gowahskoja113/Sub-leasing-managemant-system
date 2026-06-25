@@ -87,6 +87,10 @@ public class EquipmentServiceImpl implements EquipmentService {
     }
 
     private EquipmentResponse toResponse(Equipment equipment) {
+        Integer sessionNumber = equipment.getRenovationSession() != null
+                ? equipment.getRenovationSession().getSessionNumber() : null;
+        com.sep490.slms2026.enums.EquipmentOperationalStatus opStatus = equipment.getOperationalStatus() != null
+                ? equipment.getOperationalStatus() : com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE;
         return EquipmentResponse.builder()
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
@@ -98,6 +102,11 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .status(equipment.getStatus())
                 .price(equipment.getPrice())
                 .note(equipment.getNote())
+                .operationalStatus(opStatus.name())
+                .currentEffective(opStatus == com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
+                .renovationSessionNumber(sessionNumber)
+                .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
+                .disabledAt(equipment.getDisabledAt())
                 .build();
     }
 
