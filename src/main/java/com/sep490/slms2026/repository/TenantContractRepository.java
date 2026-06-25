@@ -9,7 +9,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,4 +64,42 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     Page<TenantContract> findByStatus(ContractStatus status, Pageable pageable);
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
+
+    @Query("""
+            SELECT COALESCE(SUM(c.rentAmount), 0)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.paymentStatus = com.sep490.slms2026.enums.PaymentStatus.PAID
+              AND c.paidAt IS NOT NULL
+              AND c.paidAt >= :monthStart
+              AND c.paidAt < :monthEnd
+            """)
+    BigDecimal sumPaidRentByPropertyAndMonth(
+            @Param("propertyId") Long propertyId,
+            @Param("monthStart") LocalDateTime monthStart,
+            @Param("monthEnd") LocalDateTime monthEnd);
+
+    @Query("""
+            SELECT COUNT(DISTINCT c.room.id)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NOT NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.moveInDate <= :asOf
+              AND (c.endDate IS NULL OR c.endDate >= :asOf)
+            """)
+    long countOccupiedRooms(@Param("propertyId") Long propertyId, @Param("asOf") LocalDate asOf);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.moveInDate <= :asOf
+              AND (c.endDate IS NULL OR c.endDate >= :asOf)
+            """)
+    boolean hasActiveWholeHouseTenant(
+            @Param("propertyId") Long propertyId, @Param("asOf") LocalDate asOf);
 }

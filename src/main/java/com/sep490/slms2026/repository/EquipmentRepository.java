@@ -21,6 +21,10 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
             + "AND e.source = 'PURCHASED' AND e.operationalStatus = 'ACTIVE'")
     java.math.BigDecimal sumPurchasedEquipmentCostByPropertyId(@Param("propertyId") Long propertyId);
 
+    @Query("SELECT COALESCE(SUM(e.price), 0) FROM Equipment e WHERE e.room.id = :roomId "
+            + "AND e.source = 'PURCHASED' AND e.operationalStatus = 'ACTIVE'")
+    java.math.BigDecimal sumPurchasedEquipmentCostByRoomId(@Param("roomId") Long roomId);
+
     @Query("SELECT COUNT(e) FROM Equipment e WHERE e.manifest.id = :manifestId "
             + "AND e.operationalStatus = 'ACTIVE'")
     long countActiveByManifestId(@Param("manifestId") Long manifestId);

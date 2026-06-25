@@ -52,6 +52,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("equipments", "warranty_end_date", "DATE");
         migrateEquipmentOperationalFields();
         ensureHostPortalTables();
+        addColumnIfNotExists("depreciation_results", "room_floor", "NUMERIC(19, 2)");
+        addColumnIfNotExists("depreciation_results", "effective_m2", "DOUBLE PRECISION");
+        addColumnIfNotExists("depreciation_results", "weight", "DOUBLE PRECISION");
     }
 
     private void ensureHostPortalTables() {
