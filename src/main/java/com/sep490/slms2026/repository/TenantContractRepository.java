@@ -56,4 +56,6 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     List<TenantContract> findByTenantId(UUID tenantUserId);
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
+    
+    org.springframework.data.domain.Page<TenantContract> findByStatus(ContractStatus status, org.springframework.data.domain.Pageable pageable);
 }

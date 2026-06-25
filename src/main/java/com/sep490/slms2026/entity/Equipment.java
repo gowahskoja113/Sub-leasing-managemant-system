@@ -78,4 +78,8 @@ public class Equipment implements Serializable {
 
     @Column(name = "warranty_end_date")
     private LocalDate warrantyEndDate;
+
+    @Column(name = "recommend_replacement")
+    @Builder.Default
+    private boolean recommendReplacement = false;
 }

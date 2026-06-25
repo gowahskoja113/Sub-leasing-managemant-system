@@ -54,4 +54,12 @@ public class MaintenanceController {
     public MaintenanceRequestResponse confirm(@PathVariable Long id, @RequestBody MaintenanceConfirmRequest request) {
         return service.confirm(id, request);
     }
+
+    @PostMapping("/{id}/photos")
+    public MaintenanceRequestResponse uploadPhotos(
+            @PathVariable Long id,
+            @RequestParam("files") java.util.List<org.springframework.web.multipart.MultipartFile> files,
+            @RequestParam("type") String type) {
+        return service.uploadPhotos(id, files, type);
+    }
 }

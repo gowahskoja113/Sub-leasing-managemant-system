@@ -11,4 +11,5 @@ public class MaintenanceResolveRequest {
     private CostPaidBy costPaidBy;
     private DamageCause cause;
     private String resolutionNote;
+    private Long equipmentId;
 }

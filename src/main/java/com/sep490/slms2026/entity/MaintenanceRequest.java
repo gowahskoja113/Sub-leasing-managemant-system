@@ -86,6 +86,9 @@ public class MaintenanceRequest implements Serializable {
     @Column(name = "after_image_urls", columnDefinition = "TEXT")
     private String afterImageUrls;
 
+    @Column(name = "equipment_id")
+    private Long equipmentId;
+
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
     

@@ -13,5 +13,6 @@ public interface MaintenanceService {
     MaintenanceRequestResponse resolve(Long id, MaintenanceResolveRequest request);
     MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
     MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
+    MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type);
     Page<MaintenanceRequestResponse> getRequests(Pageable pageable);
 }
