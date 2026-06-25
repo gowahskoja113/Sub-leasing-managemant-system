@@ -34,6 +34,9 @@ public class HostExpenseServiceImpl implements HostExpenseService {
 
     @Override
     public ExpenseResponse createExpense(ExpenseRequest request) {
+        if (request.getCategory() == ExpenseCategory.LEASE) {
+            throw new com.sep490.slms2026.exception.BusinessException("Không thể tạo thủ công chi phí thuê nhà (LEASE).");
+        }
         Property property = propertyRepository.findById(request.getPropertyId()).orElseThrow();
         Expense expense = Expense.builder()
                 .property(property)
@@ -47,6 +50,9 @@ public class HostExpenseServiceImpl implements HostExpenseService {
 
     @Override
     public ExpenseResponse updateExpense(Long id, ExpenseRequest request) {
+        if (request.getCategory() == ExpenseCategory.LEASE) {
+            throw new com.sep490.slms2026.exception.BusinessException("Không thể cập nhật thành chi phí thuê nhà (LEASE).");
+        }
         Expense expense = expenseRepository.findById(id).orElseThrow();
         expense.setCategory(request.getCategory());
         expense.setAmount(request.getAmount());

@@ -93,6 +93,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 roomRepository.save(req.getRoom());
             }
         } else if (request.getStatus() == MaintenanceStatus.CANCELLED) {
+            com.sep490.slms2026.security.CustomUserDetails user = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+            String roleName = user.getAuthorities().iterator().next().getAuthority();
+            if ("ROLE_TENANT".equals(roleName)) {
+                throw new org.springframework.security.access.AccessDeniedException("Tenant không có quyền hủy yêu cầu");
+            }
+            if ("ROLE_MANAGER".equals(roleName)) {
+                if (req.getProperty() == null || 
+                    (!user.getId().equals(req.getProperty().getOperationManagerId()) && 
+                     !user.getId().equals(req.getProperty().getManagedBy()))) {
+                    throw new org.springframework.security.access.AccessDeniedException("Manager không quản lý property này");
+                }
+            }
             if (req.getRoom() != null) {
                 req.getRoom().setStatus(req.getTenant() != null ? com.sep490.slms2026.enums.RoomStatus.RENTED : com.sep490.slms2026.enums.RoomStatus.AVAILABLE);
                 roomRepository.save(req.getRoom());
