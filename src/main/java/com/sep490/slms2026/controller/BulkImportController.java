@@ -52,7 +52,7 @@ public class BulkImportController {
 
     /**
      * Cải tạo bổ sung (lần 2, 3…) — sau khi gọi {@code POST .../start-renovation} khi nhà ACTIVE.
-     * File 2 sheet: cải tạo + TB mua mới. Chỉ {@code completeRenovation}, không gửi Host.
+     * File 2 sheet: cải tạo + TB mua mới. Tự động completeRenovation → tính giá → gửi Host.
      */
     @PostMapping(value = "/renovation-supplement-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")

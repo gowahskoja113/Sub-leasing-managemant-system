@@ -475,9 +475,15 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
+            boolean isSupplementRenovation = renovationSessionRepository
+                    .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(propertyId)
+                    .map(session -> session.getSessionNumber() >= 2)
+                    .orElse(false);
             finalizeCurrentRenovationSession(property, LocalDate.now());
             property.setRenovationCompleted(true);
-            if (property.getOperationManagerId() != null) {
+            if (isSupplementRenovation) {
+                property.setStatus(PropertyStatus.RENOVATION_COMPLETED);
+            } else if (property.getOperationManagerId() != null) {
                 property.setStatus(PropertyStatus.ACTIVE);
             } else {
                 property.setStatus(PropertyStatus.PENDING_HOST_REVIEW);
