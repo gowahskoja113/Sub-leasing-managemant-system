@@ -3,11 +3,15 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.*;
 import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.EquipmentImportAction;
+import com.sep490.slms2026.enums.EquipmentOperationalStatus;
 import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
+import com.sep490.slms2026.enums.HouseArea;
 import com.sep490.slms2026.enums.PricingScope;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
+import com.sep490.slms2026.enums.RenovationSessionStatus;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -51,6 +55,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final UserRepository userRepository;
     private final PropertyDeletionService propertyDeletionService;
     private final HandoverEquipmentRepository handoverEquipmentRepository;
+    private final RenovationSessionViewMapper renovationSessionViewMapper;
 
     @Override
     @Transactional
@@ -154,6 +159,62 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     @Override
+    @Transactional
+    public List<EquipmentManifestResponse> appendPurchasedEquipmentManifest(Long propertyId,
+                                                                            SaveEquipmentManifestRequest request) {
+        Property property = findOnboardingProperty(propertyId);
+        if (property.getStatus() != PropertyStatus.UNDER_RENOVATION
+                && property.getStatus() != PropertyStatus.PENDING_EQUIPMENT_INSTALLATION) {
+            throw new BusinessException(
+                    "Chỉ bổ sung thiết bị khi nhà đang cải tạo (UNDER_RENOVATION hoặc PENDING_EQUIPMENT_INSTALLATION)");
+        }
+
+        List<EquipmentManifest> saved = new ArrayList<>();
+        for (EquipmentManifestItemRequest item : request.getItems()) {
+            validateEquipmentStatus(item.getStatus());
+            if (item.getSource() != EquipmentSource.PURCHASED) {
+                throw new BusinessException("appendPurchasedEquipmentManifest chỉ hỗ trợ nguồn PURCHASED");
+            }
+            EquipmentCatalog catalog = equipmentCatalogRepository.findById(item.getCatalogId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Không tìm thấy danh mục thiết bị ID=" + item.getCatalogId()));
+
+            java.math.BigDecimal itemPrice = item.getPrice() != null ? item.getPrice() : java.math.BigDecimal.ZERO;
+            java.math.BigDecimal finalItemPrice = itemPrice;
+            EquipmentManifest manifest = equipmentManifestRepository
+                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                            propertyId, catalog.getId(), item.getStatus(), EquipmentSource.PURCHASED)
+                    .filter(existing -> {
+                        java.math.BigDecimal existingPrice = existing.getPrice() != null
+                                ? existing.getPrice() : java.math.BigDecimal.ZERO;
+                        return existingPrice.compareTo(finalItemPrice) == 0;
+                    })
+                    .orElse(null);
+
+            if (manifest != null) {
+                manifest.setQuantity(manifest.getQuantity() + item.getQuantity());
+                saved.add(equipmentManifestRepository.save(manifest));
+            } else {
+                saved.add(equipmentManifestRepository.save(EquipmentManifest.builder()
+                        .property(property)
+                        .catalog(catalog)
+                        .quantity(item.getQuantity())
+                        .status(item.getStatus())
+                        .source(EquipmentSource.PURCHASED)
+                        .price(itemPrice)
+                        .build()));
+            }
+        }
+
+        if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
+            property.setStatus(PropertyStatus.PENDING_EQUIPMENT_INSTALLATION);
+            propertyRepository.save(property);
+        }
+
+        return saved.stream().map(this::toManifestResponse).toList();
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<EquipmentManifestResponse> getEquipmentManifest(Long propertyId) {
         ensurePropertyExists(propertyId);
@@ -173,6 +234,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         validateEquipmentStatus(request.getStatus());
         validateEquipmentPlacement(request.getRoomId(), request.getHouseArea());
 
+        EquipmentImportAction importAction = request.getImportAction() != null
+                ? request.getImportAction()
+                : EquipmentImportAction.THEM_MOI;
+
         EquipmentCatalog catalog = equipmentCatalogRepository.findById(request.getCatalogId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy danh mục thiết bị ID=" + request.getCatalogId()));
@@ -188,7 +253,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                             "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest bàn giao",
                             request.getCatalogId(), request.getStatus(), request.getSource())));
 
-            long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+            long alreadyAssigned = equipmentRepository.countActiveByManifestId(manifest.getId());
             if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
                 throw new BusinessException(String.format(
                         "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
@@ -204,7 +269,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .orElse(null);
 
             if (manifest != null) {
-                long alreadyAssigned = equipmentRepository.countByManifestId(manifest.getId());
+                long alreadyAssigned = equipmentRepository.countActiveByManifestId(manifest.getId());
                 if (alreadyAssigned + request.getQuantity() > manifest.getQuantity()) {
                     throw new BusinessException(String.format(
                             "Catalog ID=%d (%s): đã gán %d/%d — không thể gán thêm %d",
@@ -216,6 +281,16 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Room room = resolveRoomForAssignment(property, propertyId, request.getRoomId(), request.getHouseArea());
 
+        if (request.getSource() == EquipmentSource.PURCHASED
+                && importAction == EquipmentImportAction.THAY_THE) {
+            disableReplacedPurchasedEquipment(propertyId, request.getCatalogId(),
+                    request.getRoomId(), request.getHouseArea(), request.getQuantity());
+        }
+
+        RenovationSession renovationSession = renovationSessionRepository
+                .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(propertyId)
+                .orElse(null);
+
         Equipment lastSaved = null;
         for (int i = 0; i < request.getQuantity(); i++) {
             lastSaved = equipmentRepository.save(Equipment.builder()
@@ -223,6 +298,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .room(room)
                     .catalog(catalog)
                     .manifest(manifest)
+                    .renovationSession(renovationSession)
+                    .operationalStatus(EquipmentOperationalStatus.ACTIVE)
                     .houseArea(request.getHouseArea())
                     .source(request.getSource())
                     .status(request.getStatus())
@@ -234,6 +311,27 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .build());
         }
         return toEquipmentResponse(lastSaved);
+    }
+
+    private void disableReplacedPurchasedEquipment(Long propertyId,
+                                                   Long catalogId,
+                                                   Long roomId,
+                                                   HouseArea houseArea,
+                                                   int quantity) {
+        List<Equipment> activeAtPlacement = equipmentRepository.findActivePurchasedAtPlacement(
+                propertyId, catalogId, roomId, houseArea);
+        if (activeAtPlacement.size() < quantity) {
+            throw new BusinessException(
+                    "THAY_THE: không đủ thiết bị đang ACTIVE tại vị trí này (cần thay "
+                            + quantity + ", hiện có " + activeAtPlacement.size() + ")");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = 0; i < quantity; i++) {
+            Equipment existing = activeAtPlacement.get(i);
+            existing.setOperationalStatus(EquipmentOperationalStatus.DISABLED);
+            existing.setDisabledAt(now);
+            equipmentRepository.save(existing);
+        }
     }
 
     private BigDecimal resolvePurchasedUnitPrice(AssignEquipmentRequest request) {
@@ -284,9 +382,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     @Transactional(readOnly = true)
     public List<RenovationSessionResponse> getRenovationSessions(Long propertyId) {
         ensurePropertyExists(propertyId);
-        return renovationSessionRepository.findByPropertyIdOrderBySessionNumberAsc(propertyId).stream()
-                .map(this::toRenovationSessionResponse)
-                .toList();
+        return renovationSessionViewMapper.listHistoryNewestFirst(propertyId);
     }
 
     @Override
@@ -341,6 +437,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .property(property)
                 .sessionNumber(nextSessionNumber)
                 .startDate(LocalDate.now())
+                .status(RenovationSessionStatus.IN_PROGRESS)
                 .createdAt(LocalDateTime.now())
                 .build());
 
@@ -358,7 +455,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 LocalDate endDate = property.getRenovationEndDate() != null
                         ? property.getRenovationEndDate()
                         : LocalDate.now();
-                closeActiveRenovationSession(property, endDate);
+                finalizeCurrentRenovationSession(property, endDate);
             }
             property.setRenovationCompleted(true);
             property.setStatus(PropertyStatus.RENOVATION_COMPLETED);
@@ -370,7 +467,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
-            closeActiveRenovationSession(property, LocalDate.now());
+            finalizeCurrentRenovationSession(property, LocalDate.now());
             property.setRenovationCompleted(true);
             if (property.getOperationManagerId() != null) {
                 property.setStatus(PropertyStatus.ACTIVE);
@@ -836,7 +933,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 if (manifest.getSource() != EquipmentSource.INITIAL_HANDOVER) {
                     continue;
                 }
-                long assigned = equipmentRepository.countByManifestId(manifest.getId());
+                long assigned = equipmentRepository.countActiveByManifestId(manifest.getId());
                 if (assigned != manifest.getQuantity()) {
                     throw new BusinessException(String.format(
                             "Thiết bị '%s' (%s): đã gán %d/%d — phải gán đủ trước khi gửi host",
@@ -919,7 +1016,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private EquipmentManifestResponse toManifestResponse(EquipmentManifest manifest) {
-        long assigned = equipmentRepository.countByManifestId(manifest.getId());
+        long assigned = equipmentRepository.countActiveByManifestId(manifest.getId());
         return EquipmentManifestResponse.builder()
                 .id(manifest.getId())
                 .catalogId(manifest.getCatalog().getId())
@@ -943,30 +1040,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .build();
     }
 
-    private RenovationSessionResponse toRenovationSessionResponse(RenovationSession session) {
-        List<RenovationLine> lines = renovationLineRepository.findBySessionIdOrderByIdAsc(session.getId());
-        BigDecimal totalCost = lines.stream()
-                .map(RenovationLine::getCost)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        return RenovationSessionResponse.builder()
-                .sessionNumber(session.getSessionNumber())
-                .startDate(session.getStartDate())
-                .endDate(session.getEndDate())
-                .totalCost(totalCost)
-                .lines(lines.stream().map(this::toRenovationSessionLineResponse).toList())
-                .build();
-    }
-
-    private RenovationSessionLineResponse toRenovationSessionLineResponse(RenovationLine line) {
-        return RenovationSessionLineResponse.builder()
-                .id(line.getId())
-                .categoryName(line.getCategory().getName())
-                .cost(line.getCost())
-                .note(line.getNote())
-                .build();
-    }
-
     private RenovationSession findOrCreateCurrentSession(Property property) {
         return renovationSessionRepository
                 .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(property.getId())
@@ -976,21 +1049,42 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                             .property(property)
                             .sessionNumber(nextNumber)
                             .startDate(property.getRenovationStartDate())
+                            .status(RenovationSessionStatus.IN_PROGRESS)
                             .createdAt(LocalDateTime.now())
                             .build());
                 });
     }
 
-    private void closeActiveRenovationSession(Property property, LocalDate endDate) {
+    private void finalizeCurrentRenovationSession(Property property, LocalDate endDate) {
         renovationSessionRepository
                 .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(property.getId())
                 .ifPresent(session -> {
                     session.setEndDate(endDate);
+                    session.setStatus(RenovationSessionStatus.ACTIVE);
                     renovationSessionRepository.save(session);
+                    if (session.getSessionNumber() >= 2) {
+                        disableSupersededRenovationSessions(property.getId(), session.getId());
+                    }
+                });
+    }
+
+    private void disableSupersededRenovationSessions(Long propertyId, Long activeSessionId) {
+        LocalDateTime now = LocalDateTime.now();
+        renovationSessionRepository.findByPropertyIdAndStatus(propertyId, RenovationSessionStatus.ACTIVE)
+                .stream()
+                .filter(s -> !s.getId().equals(activeSessionId))
+                .forEach(s -> {
+                    s.setStatus(RenovationSessionStatus.DISABLED);
+                    s.setDisabledAt(now);
+                    renovationSessionRepository.save(s);
                 });
     }
 
     private EquipmentResponse toEquipmentResponse(Equipment equipment) {
+        Integer sessionNumber = equipment.getRenovationSession() != null
+                ? equipment.getRenovationSession().getSessionNumber() : null;
+        EquipmentOperationalStatus opStatus = equipment.getOperationalStatus() != null
+                ? equipment.getOperationalStatus() : EquipmentOperationalStatus.ACTIVE;
         return EquipmentResponse.builder()
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
@@ -1005,6 +1099,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
+                .operationalStatus(opStatus.name())
+                .currentEffective(opStatus == EquipmentOperationalStatus.ACTIVE)
+                .renovationSessionNumber(sessionNumber)
+                .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
+                .disabledAt(equipment.getDisabledAt())
                 .build();
     }
 

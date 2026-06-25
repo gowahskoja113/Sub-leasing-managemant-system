@@ -179,4 +179,15 @@ public final class ExcelImportReaderSupport {
             return null;
         }
     }
+
+    public static String readOptionalAction(Row row,
+                                            Map<String, Integer> headers,
+                                            DataFormatter formatter,
+                                            FormulaEvaluator evaluator) {
+        Integer columnIndex = headers.get("Hành động");
+        if (columnIndex == null) {
+            return null;
+        }
+        return readOptionalString(row, columnIndex, formatter, evaluator);
+    }
 }

@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.sep490.slms2026.enums.RenovationSessionStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -34,6 +35,14 @@ public class RenovationSession implements Serializable {
 
     @Column(name = "end_date")
     private LocalDate endDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    @Builder.Default
+    private RenovationSessionStatus status = RenovationSessionStatus.IN_PROGRESS;
+
+    @Column(name = "disabled_at")
+    private LocalDateTime disabledAt;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

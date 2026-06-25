@@ -11,8 +11,7 @@ public class HandoverEquipmentImportRow {
     private String contractCode;
     private String equipmentName;
     private String description;
-    private String roomNumber;
-    private String houseAreaRaw;
+    private String locationNote;
     private String statusRaw;
     private Integer quantity;
     private String note;

@@ -7,6 +7,7 @@ import com.sep490.slms2026.service.BulkLeaseImportService;
 import com.sep490.slms2026.service.BulkOnboardingImportService;
 import com.sep490.slms2026.service.BulkPropertyImageImportService;
 import com.sep490.slms2026.service.BulkRenovationImportService;
+import com.sep490.slms2026.service.BulkRenovationSupplementImportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,10 +23,11 @@ public class BulkImportController {
     private final BulkOnboardingImportService bulkOnboardingImportService;
     private final BulkLeaseImportService bulkLeaseImportService;
     private final BulkRenovationImportService bulkRenovationImportService;
+    private final BulkRenovationSupplementImportService bulkRenovationSupplementImportService;
     private final BulkPropertyImageImportService bulkPropertyImageImportService;
 
     /**
-     * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao + danh sách phòng).
+     * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao). Luôn nguyên căn.
      * dryRun=true: chỉ parse + validate, không ghi DB.
      */
     @PostMapping(value = "/lease-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -37,7 +39,7 @@ public class BulkImportController {
     }
 
     /**
-     * Đợt 2 — Cải tạo + TB mua mới; tự động completeRenovation → định giá → gửi Host.
+     * Đợt 2 — Cấu hình khai thác + cải tạo + TB mua mới; tự động completeRenovation → định giá → gửi Host.
      * dryRun=true: chỉ validate, không ghi DB, không gửi Host.
      */
     @PostMapping(value = "/renovation-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -46,6 +48,18 @@ public class BulkImportController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
         return ResponseEntity.ok(bulkRenovationImportService.importRenovationWorkbook(file, dryRun));
+    }
+
+    /**
+     * Cải tạo bổ sung (lần 2, 3…) — sau khi gọi {@code POST .../start-renovation} khi nhà ACTIVE.
+     * File 2 sheet: cải tạo + TB mua mới. Chỉ {@code completeRenovation}, không gửi Host.
+     */
+    @PostMapping(value = "/renovation-supplement-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BulkImportResponse> importRenovationSupplementExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
+        return ResponseEntity.ok(bulkRenovationSupplementImportService.importSupplementWorkbook(file, dryRun));
     }
 
     /**

@@ -5,16 +5,19 @@ import com.sep490.slms2026.dto.response.BulkImportContractResultResponse;
 import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
 import com.sep490.slms2026.dto.response.BulkImportResponse;
 import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.EquipmentImportAction;
 import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import com.sep490.slms2026.enums.PropertyStatus;
+import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.exception.BulkImportValidationException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.imports.*;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.BulkRenovationImportService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
+import com.sep490.slms2026.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +35,8 @@ import static com.sep490.slms2026.imports.ExcelRenovationImportWorkbookReader.*;
 public class BulkRenovationImportServiceImpl implements BulkRenovationImportService {
 
     private static final String SKIP_REASON_ALREADY_SUBMITTED = "Đã hoàn thành đợt 2 / đã gửi Host — bỏ qua";
+    private static final Set<String> VALID_EXPLOITATION_TYPES = Set.of(
+            "NGUYEN_CAN", "WHOLE_HOUSE", "THEO_PHONG", "INDIVIDUAL_ROOM");
 
     private final ExcelRenovationImportWorkbookReader workbookReader;
     private final PropertyOnboardingService propertyOnboardingService;
@@ -40,26 +45,29 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
     private final InboundContractRepository inboundContractRepository;
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
+    private final RoomService roomService;
+    private final RenovationPhaseSupport renovationPhaseSupport;
+    private final EquipmentRepository equipmentRepository;
 
     @Override
     @Transactional
     public BulkImportResponse importRenovationWorkbook(MultipartFile file, boolean dryRun) {
         RenovationImportWorkbook workbook = workbookReader.read(file);
-        Set<String> contractCodes = collectContractCodes(workbook);
-        Map<String, String> skippedContracts = resolveSkippedContracts(contractCodes);
+        List<ExploitationConfigImportRow> configRows = workbook.getConfigRows();
+        Map<String, String> skippedContracts = resolveSkippedContracts(configRows);
         List<BulkImportErrorResponse> errors = validate(workbook, skippedContracts);
 
         if (!errors.isEmpty()) {
             throw new BulkImportValidationException("File Excel có lỗi validation", errors);
         }
 
-        if (contractCodes.isEmpty()) {
+        if (configRows.isEmpty()) {
             throw new BulkImportValidationException("File Excel có lỗi validation",
-                    List.of(error(SHEET_RENOVATION, 1, null, null,
-                            "Không có dòng cải tạo hoặc thiết bị mua mới nào để import")));
+                    List.of(error(SHEET_CONFIG, 1, null, null,
+                            "Không có dòng cấu hình khai thác nào để import")));
         }
 
-        int importableCount = countImportable(contractCodes, skippedContracts);
+        int importableCount = countImportable(configRows, skippedContracts);
 
         if (dryRun) {
             return BulkImportResponse.builder()
@@ -68,7 +76,7 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                     .contractsSkipped(skippedContracts.size())
                     .renovationLinesImported(countRenovationForImport(workbook, skippedContracts))
                     .equipmentRowsImported(countPurchasedForImport(workbook, skippedContracts))
-                    .results(buildDryRunResults(contractCodes, skippedContracts))
+                    .results(buildDryRunResults(configRows, skippedContracts))
                     .errors(List.of())
                     .build();
         }
@@ -77,13 +85,16 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 .collect(Collectors.groupingBy(RenovationImportRow::getContractCode));
         Map<String, List<PurchasedEquipmentImportRow>> purchasedByContract = workbook.getPurchasedRows().stream()
                 .collect(Collectors.groupingBy(PurchasedEquipmentImportRow::getContractCode));
+        Map<String, List<RoomImportRow>> roomsByContract = workbook.getRoomRows().stream()
+                .collect(Collectors.groupingBy(RoomImportRow::getContractCode));
 
         List<BulkImportContractResultResponse> results = new ArrayList<>();
         int renovationCount = 0;
         int equipmentCount = 0;
         int importedCount = 0;
 
-        for (String contractCode : contractCodes) {
+        for (ExploitationConfigImportRow configRow : configRows) {
+            String contractCode = configRow.getContractCode();
             if (skippedContracts.containsKey(contractCode)) {
                 results.add(buildSkippedResult(contractCode, skippedContracts.get(contractCode)));
                 continue;
@@ -91,8 +102,9 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
 
             List<RenovationImportRow> renovationRows = renovationsByContract.getOrDefault(contractCode, List.of());
             List<PurchasedEquipmentImportRow> purchasedRows = purchasedByContract.getOrDefault(contractCode, List.of());
+            List<RoomImportRow> roomRows = roomsByContract.getOrDefault(contractCode, List.of());
 
-            results.add(importContract(contractCode, renovationRows, purchasedRows));
+            results.add(importContract(configRow, renovationRows, purchasedRows, roomRows));
             importedCount++;
             renovationCount += renovationRows.size();
             equipmentCount += purchasedRows.size();
@@ -109,13 +121,27 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 .build();
     }
 
-    private BulkImportContractResultResponse importContract(String contractCode,
+    private BulkImportContractResultResponse importContract(ExploitationConfigImportRow configRow,
                                                             List<RenovationImportRow> renovationRows,
-                                                            List<PurchasedEquipmentImportRow> purchasedRows) {
+                                                            List<PurchasedEquipmentImportRow> purchasedRows,
+                                                            List<RoomImportRow> roomRows) {
+        String contractCode = configRow.getContractCode();
         InboundContract contract = inboundContractRepository.findByContractCode(contractCode)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy hợp đồng inbound với mã: " + contractCode));
         Long propertyId = contract.getProperty().getId();
+        Property property = propertyRepository.findById(propertyId).orElseThrow();
+
+        boolean wholeHouse = configRow.isWholeHouse();
+        property.setWholeHouse(wholeHouse);
+        if (!wholeHouse && configRow.getExploitationRoomCount() != null) {
+            property.setTotalRooms(configRow.getExploitationRoomCount());
+        }
+        propertyRepository.save(property);
+
+        if (!wholeHouse) {
+            createRoomsFromSheet(propertyId, property, roomRows);
+        }
 
         for (RenovationImportRow renovationRow : renovationRows) {
             RenovationCategory category = renovationCategoryRepository.findByCode(renovationRow.getCategoryCode())
@@ -139,18 +165,15 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 AssignEquipmentRequest assignRequest = buildAssignRequest(purchasedRow, roomIdByNumber);
                 propertyOnboardingService.assignEquipment(propertyId, assignRequest);
             }
-        } else {
-            Property property = propertyRepository.findById(propertyId).orElseThrow();
-            if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
-                property.setStatus(PropertyStatus.PENDING_EQUIPMENT_INSTALLATION);
-                propertyRepository.save(property);
-            }
+        } else if (property.getStatus() == PropertyStatus.UNDER_RENOVATION) {
+            property.setStatus(PropertyStatus.PENDING_EQUIPMENT_INSTALLATION);
+            propertyRepository.save(property);
         }
 
         propertyOnboardingService.completeRenovation(propertyId);
         propertyOnboardingService.submitToHost(propertyId);
 
-        Property property = propertyRepository.findById(propertyId).orElseThrow();
+        property = propertyRepository.findById(propertyId).orElseThrow();
         return BulkImportContractResultResponse.builder()
                 .importStatus(IMPORT_STATUS_IMPORTED)
                 .contractCode(contractCode)
@@ -158,6 +181,20 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 .propertyName(property.getPropertyName())
                 .finalStatus(property.getStatus().name())
                 .build();
+    }
+
+    private void createRoomsFromSheet(Long propertyId, Property property, List<RoomImportRow> roomRows) {
+        PropertyType propertyType = PropertyType.INDIVIDUAL_ROOM;
+        for (RoomImportRow roomRow : roomRows) {
+            var addRoomRequest = AddRoomRequest.builder()
+                    .roomNumber(roomRow.getRoomNumber())
+                    .floor(roomRow.getFloor())
+                    .area(roomRow.getArea())
+                    .maxOccupants(2)
+                    .propertyType(propertyType)
+                    .build();
+            roomService.addRoom(propertyId, addRoomRequest);
+        }
     }
 
     private Map<String, Long> buildRoomIdMap(Long propertyId) {
@@ -209,6 +246,7 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         request.setWarrantyMonths(row.getWarrantyMonths());
         request.setWarrantyStartDate(row.getWarrantyStartDate());
         request.setWarrantyEndDate(row.getWarrantyEndDate());
+        request.setImportAction(EquipmentImportAction.parse(row.getActionRaw()));
 
         String roomNumber = normalizeOptional(row.getRoomNumber());
         if (!roomNumber.isBlank()) {
@@ -223,16 +261,10 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         return request;
     }
 
-    private Set<String> collectContractCodes(RenovationImportWorkbook workbook) {
-        Set<String> codes = new LinkedHashSet<>();
-        workbook.getRenovationLines().forEach(row -> codes.add(row.getContractCode()));
-        workbook.getPurchasedRows().forEach(row -> codes.add(row.getContractCode()));
-        return codes;
-    }
-
-    private Map<String, String> resolveSkippedContracts(Set<String> contractCodes) {
+    private Map<String, String> resolveSkippedContracts(List<ExploitationConfigImportRow> configRows) {
         Map<String, String> skipped = new LinkedHashMap<>();
-        for (String code : contractCodes) {
+        for (ExploitationConfigImportRow row : configRows) {
+            String code = row.getContractCode();
             Optional<InboundContract> contractOpt = inboundContractRepository.findByContractCode(code);
             if (contractOpt.isEmpty()) {
                 continue;
@@ -252,9 +284,26 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
     private List<BulkImportErrorResponse> validate(RenovationImportWorkbook workbook,
                                                    Map<String, String> skippedContracts) {
         List<BulkImportErrorResponse> errors = new ArrayList<>();
+        List<ExploitationConfigImportRow> configRows = workbook.getConfigRows();
+        Set<String> configCodes = new HashSet<>();
+        Map<String, ExploitationConfigImportRow> configByCode = new LinkedHashMap<>();
+
+        for (ExploitationConfigImportRow row : configRows) {
+            if (skippedContracts.containsKey(row.getContractCode())) {
+                configCodes.add(row.getContractCode());
+                continue;
+            }
+            validateConfigRow(row, configCodes, errors);
+            configByCode.put(row.getContractCode(), row);
+        }
 
         for (RenovationImportRow row : workbook.getRenovationLines()) {
             if (skippedContracts.containsKey(row.getContractCode())) {
+                continue;
+            }
+            if (!configByCode.containsKey(row.getContractCode())) {
+                errors.add(error(SHEET_RENOVATION, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
+                        "Không tìm thấy mã ở sheet cấu hình khai thác"));
                 continue;
             }
             validateRenovationRow(row, errors);
@@ -264,36 +313,113 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
             if (skippedContracts.containsKey(row.getContractCode())) {
                 continue;
             }
-            validatePurchasedRow(row, errors);
-        }
-
-        Set<String> allCodes = collectContractCodes(workbook);
-        for (String code : allCodes) {
-            if (skippedContracts.containsKey(code)) {
+            if (!configByCode.containsKey(row.getContractCode())) {
+                errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
+                        "Không tìm thấy mã ở sheet cấu hình khai thác"));
                 continue;
             }
+            validatePurchasedRow(row, configByCode.get(row.getContractCode()), workbook, errors);
+        }
+
+        for (RoomImportRow row : workbook.getRoomRows()) {
+            if (skippedContracts.containsKey(row.getContractCode())) {
+                continue;
+            }
+            ExploitationConfigImportRow config = configByCode.get(row.getContractCode());
+            if (config == null) {
+                errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
+                        "Không tìm thấy mã ở sheet cấu hình khai thác"));
+                continue;
+            }
+            validateRoomRow(row, config, errors);
+        }
+
+        for (ExploitationConfigImportRow config : configByCode.values()) {
+            String code = config.getContractCode();
             if (!inboundContractRepository.existsByContractCode(code)) {
-                errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
+                errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
                         "Chưa khởi tạo tòa nhà cho mã HĐ này"));
-            } else {
-                Property property = inboundContractRepository.findByContractCode(code)
-                        .orElseThrow().getProperty();
-                if (property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
-                    errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
-                            "Tòa nhà phải ở trạng thái UNDER_RENOVATION (chờ đợt 2), hiện tại: "
-                                    + property.getStatus()));
-                }
-                long renovationCount = workbook.getRenovationLines().stream()
+                continue;
+            }
+            Property property = inboundContractRepository.findByContractCode(code)
+                    .orElseThrow().getProperty();
+            if (property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
+                errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
+                        "Tòa nhà phải ở trạng thái UNDER_RENOVATION (chờ đợt 2), hiện tại: "
+                                + property.getStatus()));
+            } else if (renovationPhaseSupport.isSupplementRenovationPhase(property.getId())) {
+                errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
+                        "Nhà đang trong đợt cải tạo bổ sung — dùng POST /import/renovation-supplement-excel"));
+            }
+
+            if (!config.isWholeHouse()) {
+                long roomCount = workbook.getRoomRows().stream()
                         .filter(r -> r.getContractCode().equals(code))
                         .count();
-                if (renovationCount == 0) {
-                    errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
-                            "Đợt 2 phải có ít nhất một dòng cải tạo cho mã HĐ này"));
+                int expected = config.getExploitationRoomCount() != null ? config.getExploitationRoomCount() : 0;
+                if (expected <= 0) {
+                    errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Số phòng khai thác",
+                            "Bắt buộc khi Hình thức khai thác là THEO_PHONG"));
+                } else if (roomCount != expected) {
+                    errors.add(error(SHEET_ROOMS, config.getRowNumber(), code, "Số phòng khai thác",
+                            "Phải tạo đủ " + expected + " phòng chi tiết (hiện có " + roomCount + ")"));
+                }
+            } else {
+                long roomCount = workbook.getRoomRows().stream()
+                        .filter(r -> r.getContractCode().equals(code))
+                        .count();
+                if (roomCount > 0) {
+                    errors.add(error(SHEET_ROOMS, config.getRowNumber(), code, "Số phòng",
+                            "Nhà nguyên căn không cần sheet danh sách phòng"));
                 }
             }
         }
 
         return errors;
+    }
+
+    private void validateConfigRow(ExploitationConfigImportRow row,
+                                   Set<String> configCodes,
+                                   List<BulkImportErrorResponse> errors) {
+        requireText(errors, SHEET_CONFIG, row.getRowNumber(), row.getContractCode(),
+                "Mã hợp đồng thuê", row.getContractCode());
+        requireText(errors, SHEET_CONFIG, row.getRowNumber(), row.getContractCode(),
+                "Hình thức khai thác", row.getExploitationTypeRaw());
+
+        if (!configCodes.add(row.getContractCode())) {
+            errors.add(error(SHEET_CONFIG, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
+                    "Mã hợp đồng bị trùng trong file"));
+        }
+
+        String typeRaw = normalizeOptional(row.getExploitationTypeRaw()).toUpperCase();
+        if (!VALID_EXPLOITATION_TYPES.contains(typeRaw)) {
+            errors.add(error(SHEET_CONFIG, row.getRowNumber(), row.getContractCode(), "Hình thức khai thác",
+                    "Giá trị không hợp lệ. Chọn NGUYEN_CAN hoặc THEO_PHONG"));
+        }
+    }
+
+    private void validateRoomRow(RoomImportRow row,
+                                 ExploitationConfigImportRow config,
+                                 List<BulkImportErrorResponse> errors) {
+        if (config.isWholeHouse()) {
+            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Số phòng",
+                    "Nhà nguyên căn không cần sheet danh sách phòng"));
+            return;
+        }
+
+        requireText(errors, SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Số phòng", row.getRoomNumber());
+
+        InboundContract contract = inboundContractRepository.findByContractCode(row.getContractCode()).orElse(null);
+        Integer totalFloor = contract != null ? contract.getProperty().getTotalFloor() : null;
+        if (row.getFloor() == null || row.getFloor() < 1
+                || (totalFloor != null && row.getFloor() > totalFloor)) {
+            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Tầng",
+                    "Tầng phải từ 1 đến " + totalFloor));
+        }
+        if (row.getArea() == null || row.getArea() <= 0) {
+            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Diện tích phòng (m²)",
+                    "Diện tích phòng phải lớn hơn 0"));
+        }
     }
 
     private void validateRenovationRow(RenovationImportRow row, List<BulkImportErrorResponse> errors) {
@@ -313,13 +439,10 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 });
     }
 
-    private void validatePurchasedRow(PurchasedEquipmentImportRow row, List<BulkImportErrorResponse> errors) {
-        if (!inboundContractRepository.existsByContractCode(row.getContractCode())) {
-            errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
-                    "Chưa khởi tạo tòa nhà cho mã HĐ này"));
-            return;
-        }
-
+    private void validatePurchasedRow(PurchasedEquipmentImportRow row,
+                                      ExploitationConfigImportRow config,
+                                      RenovationImportWorkbook workbook,
+                                      List<BulkImportErrorResponse> errors) {
         String roomNumber = normalizeOptional(row.getRoomNumber());
         String houseAreaRaw = normalizeOptional(row.getHouseAreaRaw());
         boolean hasRoom = !roomNumber.isBlank();
@@ -329,6 +452,17 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
             errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Vị trí",
                     "Phải điền Số phòng hoặc Khu vực chung, không được điền cả hai hoặc bỏ trống cả hai"));
         }
+
+        if (!config.isWholeHouse() && hasRoom) {
+            boolean roomExists = workbook.getRoomRows().stream()
+                    .anyMatch(r -> r.getContractCode().equals(row.getContractCode())
+                            && r.getRoomNumber().equals(roomNumber));
+            if (!roomExists) {
+                errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Số phòng",
+                        "Số phòng \"" + roomNumber + "\" không có trong sheet danh sách phòng"));
+            }
+        }
+
         if (hasArea) {
             try {
                 HouseArea.valueOf(houseAreaRaw);
@@ -383,10 +517,59 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
             errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Ngày hết bảo hành",
                     "Ngày hết bảo hành phải sau ngày bắt đầu"));
         }
+
+        validateEquipmentImportAction(errors, SHEET_PURCHASED, row);
+        if (EquipmentImportAction.parse(row.getActionRaw()) == EquipmentImportAction.THAY_THE
+                && inboundContractRepository.existsByContractCode(row.getContractCode())) {
+            validateThayTheStock(row, errors);
+        }
     }
 
-    private int countImportable(Set<String> contractCodes, Map<String, String> skippedContracts) {
-        return (int) contractCodes.stream().filter(code -> !skippedContracts.containsKey(code)).count();
+    private void validateThayTheStock(PurchasedEquipmentImportRow row,
+                                      List<BulkImportErrorResponse> errors) {
+        EquipmentCatalog catalog = equipmentCatalogRepository
+                .findFirstByNameIgnoreCaseAndActiveTrue(row.getCatalogName())
+                .orElse(null);
+        if (catalog == null || row.getQuantity() == null) {
+            return;
+        }
+        Property property = inboundContractRepository.findByContractCode(row.getContractCode())
+                .orElseThrow().getProperty();
+        Long propertyId = property.getId();
+
+        String roomNumber = normalizeOptional(row.getRoomNumber());
+        Long roomId = null;
+        HouseArea houseArea = null;
+        if (!roomNumber.isBlank()) {
+            roomId = roomRepository.findByPropertyIdAndRoomNumberAndDeletedIsFalse(propertyId, roomNumber)
+                    .map(Room::getId)
+                    .orElse(null);
+            if (roomId == null) {
+                return;
+            }
+        } else {
+            try {
+                houseArea = HouseArea.valueOf(normalizeOptional(row.getHouseAreaRaw()));
+            } catch (IllegalArgumentException ex) {
+                return;
+            }
+        }
+
+        long available = equipmentRepository.findActivePurchasedAtPlacement(
+                propertyId, catalog.getId(), roomId, houseArea).size();
+        if (available < row.getQuantity()) {
+            errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Hành động",
+                    "THAY_THE: không đủ thiết bị ACTIVE tại vị trí (cần "
+                            + row.getQuantity() + ", hiện có " + available + ")"));
+        }
+    }
+
+    private int countImportable(List<ExploitationConfigImportRow> configRows,
+                                Map<String, String> skippedContracts) {
+        return (int) configRows.stream()
+                .map(ExploitationConfigImportRow::getContractCode)
+                .filter(code -> !skippedContracts.containsKey(code))
+                .count();
     }
 
     private int countRenovationForImport(RenovationImportWorkbook workbook, Map<String, String> skippedContracts) {
@@ -401,10 +584,11 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 .count();
     }
 
-    private List<BulkImportContractResultResponse> buildDryRunResults(Set<String> contractCodes,
+    private List<BulkImportContractResultResponse> buildDryRunResults(List<ExploitationConfigImportRow> configRows,
                                                                       Map<String, String> skippedContracts) {
         List<BulkImportContractResultResponse> results = new ArrayList<>();
-        for (String code : contractCodes) {
+        for (ExploitationConfigImportRow row : configRows) {
+            String code = row.getContractCode();
             if (skippedContracts.containsKey(code)) {
                 results.add(buildSkippedResult(code, skippedContracts.get(code)));
             } else {

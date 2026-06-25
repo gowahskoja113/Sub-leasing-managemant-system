@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.sep490.slms2026.enums.EquipmentOperationalStatus;
 import com.sep490.slms2026.enums.EquipmentSource;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
@@ -7,6 +8,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.io.Serializable;
 
 @Entity
@@ -37,6 +39,18 @@ public class Equipment implements Serializable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manifest_id")
     private EquipmentManifest manifest;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "renovation_session_id")
+    private RenovationSession renovationSession;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "operational_status")
+    @Builder.Default
+    private EquipmentOperationalStatus operationalStatus = EquipmentOperationalStatus.ACTIVE;
+
+    @Column(name = "disabled_at")
+    private LocalDateTime disabledAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "house_area")

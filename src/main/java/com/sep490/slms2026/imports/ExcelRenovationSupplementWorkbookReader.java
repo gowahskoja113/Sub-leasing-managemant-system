@@ -13,28 +13,26 @@ import java.util.Map;
 import static com.sep490.slms2026.imports.ExcelImportReaderSupport.*;
 
 @Component
-public class ExcelRenovationImportWorkbookReader {
+public class ExcelRenovationSupplementWorkbookReader {
 
-    public static final String SHEET_CONFIG = "1. Cau_Hinh_Khai_Thac";
-    public static final String SHEET_ROOMS = "2. Danh_Sach_Phong";
-    public static final String SHEET_RENOVATION = "3. Hop_Dong_Cai_Tao";
-    public static final String SHEET_PURCHASED = "4. Thiet_Bi_Mua_Moi";
+    public static final String SHEET_RENOVATION = "1. Hop_Dong_Cai_Tao";
+    public static final String SHEET_PURCHASED = "2. Thiet_Bi_Mua_Moi";
 
-    public RenovationImportWorkbook read(MultipartFile file) {
+    public RenovationSupplementImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
         try (Workbook workbook = openWorkbook(file)) {
             DataFormatter formatter = new DataFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
-            Sheet configSheet = requireSheet(workbook, SHEET_CONFIG);
-            Sheet roomSheet = optionalSheet(workbook, SHEET_ROOMS);
             Sheet renovationSheet = optionalSheet(workbook, SHEET_RENOVATION);
             Sheet purchasedSheet = optionalSheet(workbook, SHEET_PURCHASED);
 
-            return RenovationImportWorkbook.builder()
-                    .configRows(readConfigRows(configSheet, formatter, evaluator))
-                    .roomRows(roomSheet != null
-                            ? readRoomRows(roomSheet, formatter, evaluator) : List.of())
+            if (renovationSheet == null && purchasedSheet == null) {
+                throw new BusinessException(
+                        "File phải có ít nhất một sheet: \"" + SHEET_RENOVATION + "\" hoặc \"" + SHEET_PURCHASED + "\"");
+            }
+
+            return RenovationSupplementImportWorkbook.builder()
                     .renovationLines(renovationSheet != null
                             ? readRenovationLines(renovationSheet, formatter, evaluator) : List.of())
                     .purchasedRows(purchasedSheet != null
@@ -43,62 +41,6 @@ public class ExcelRenovationImportWorkbookReader {
         } catch (IOException ex) {
             throw new BusinessException("Không đọc được file Excel: " + ex.getMessage());
         }
-    }
-
-    private List<ExploitationConfigImportRow> readConfigRows(Sheet sheet,
-                                                             DataFormatter formatter,
-                                                             FormulaEvaluator evaluator) {
-        Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
-        requireHeaders(headers, SHEET_CONFIG,
-                "Mã hợp đồng thuê", "Hình thức khai thác");
-
-        List<ExploitationConfigImportRow> rows = new ArrayList<>();
-        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-            Row row = sheet.getRow(rowIndex);
-            if (row == null || isRowEmpty(row, headers, formatter, evaluator)) {
-                continue;
-            }
-            String contractCode = readString(row, headers.get("Mã hợp đồng thuê"), formatter, evaluator);
-            if (contractCode.isBlank()) {
-                continue;
-            }
-            rows.add(ExploitationConfigImportRow.builder()
-                    .rowNumber(rowIndex + 1)
-                    .contractCode(contractCode)
-                    .exploitationTypeRaw(readString(row, headers.get("Hình thức khai thác"), formatter, evaluator))
-                    .exploitationRoomCount(readInteger(row, headers.get("Số phòng khai thác"), formatter, evaluator))
-                    .build());
-        }
-        return rows;
-    }
-
-    private List<RoomImportRow> readRoomRows(Sheet sheet,
-                                             DataFormatter formatter,
-                                             FormulaEvaluator evaluator) {
-        Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
-        requireHeaders(headers, SHEET_ROOMS,
-                "Mã hợp đồng thuê", "Số phòng", "Tầng", "Diện tích phòng (m²)");
-
-        List<RoomImportRow> rows = new ArrayList<>();
-        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-            Row row = sheet.getRow(rowIndex);
-            if (row == null || isRowEmpty(row, headers, formatter, evaluator)) {
-                continue;
-            }
-            String contractCode = readString(row, headers.get("Mã hợp đồng thuê"), formatter, evaluator);
-            if (contractCode.isBlank()) {
-                continue;
-            }
-            rows.add(RoomImportRow.builder()
-                    .rowNumber(rowIndex + 1)
-                    .contractCode(contractCode)
-                    .roomNumber(readString(row, headers.get("Số phòng"), formatter, evaluator))
-                    .floor(readInteger(row, headers.get("Tầng"), formatter, evaluator))
-                    .area(readDouble(row, headers.get("Diện tích phòng (m²)"), formatter, evaluator))
-                    .note(readOptionalString(row, headers.get("Ghi chú"), formatter, evaluator))
-                    .build());
-        }
-        return rows;
     }
 
     private List<RenovationImportRow> readRenovationLines(Sheet sheet,

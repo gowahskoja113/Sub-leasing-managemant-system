@@ -89,4 +89,18 @@ public class BulkImportSupport {
                 .message(message)
                 .build();
     }
+
+    public static void validateEquipmentImportAction(List<BulkImportErrorResponse> errors,
+                                                     String sheet,
+                                                     PurchasedEquipmentImportRow row) {
+        String raw = normalizeOptional(row.getActionRaw());
+        if (raw.isBlank()) {
+            return;
+        }
+        String upper = raw.toUpperCase(Locale.ROOT);
+        if (!Set.of("THEM_MOI", "THAY_THE", "REPLACE", "THAY THE").contains(upper)) {
+            errors.add(error(sheet, row.getRowNumber(), row.getContractCode(), "Hành động",
+                    "Giá trị không hợp lệ. Chọn THEM_MOI hoặc THAY_THE"));
+        }
+    }
 }
