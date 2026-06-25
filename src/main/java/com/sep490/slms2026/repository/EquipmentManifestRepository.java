@@ -17,7 +17,7 @@ public interface EquipmentManifestRepository extends JpaRepository<EquipmentMani
     Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatus(
             Long propertyId, Long catalogId, EquipmentStatus status);
 
-    Optional<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatusAndSource(
+    List<EquipmentManifest> findByPropertyIdAndCatalogIdAndStatusAndSource(
             Long propertyId, Long catalogId, EquipmentStatus status, com.sep490.slms2026.enums.EquipmentSource source);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)

@@ -193,7 +193,7 @@ public class DepreciationServiceImpl implements DepreciationService {
     }
 
     private InboundContract loadContract(Long propertyId) {
-        return inboundContractRepository.findByPropertyId(propertyId)
+        return inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                 .orElseThrow(() -> new BusinessException(
                         "Phải ký hợp đồng inbound trước khi tính giá"));
     }

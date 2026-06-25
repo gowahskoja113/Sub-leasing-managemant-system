@@ -6,14 +6,13 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 public interface InboundContractRepository extends JpaRepository<InboundContract, Long> {
 
     boolean existsByPropertyId(Long propertyId);
 
-    java.util.Optional<InboundContract> findByPropertyId(Long propertyId);
-
-    @Query("SELECT c.contractCode FROM InboundContract c WHERE c.property.id = :propertyId")
-    java.util.Optional<String> findContractCodeByPropertyId(@Param("propertyId") Long propertyId);
+    Optional<InboundContract> findFirstByPropertyIdOrderByIdDesc(Long propertyId);
 
     boolean existsByContractCode(String contractCode);
 
