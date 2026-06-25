@@ -180,16 +180,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                             "Không tìm thấy danh mục thiết bị ID=" + item.getCatalogId()));
 
             java.math.BigDecimal itemPrice = item.getPrice() != null ? item.getPrice() : java.math.BigDecimal.ZERO;
-            java.math.BigDecimal finalItemPrice = itemPrice;
-            EquipmentManifest manifest = equipmentManifestRepository
-                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
-                            propertyId, catalog.getId(), item.getStatus(), EquipmentSource.PURCHASED)
-                    .filter(existing -> {
-                        java.math.BigDecimal existingPrice = existing.getPrice() != null
-                                ? existing.getPrice() : java.math.BigDecimal.ZERO;
-                        return existingPrice.compareTo(finalItemPrice) == 0;
-                    })
-                    .orElse(null);
+            EquipmentManifest manifest = findPurchasedManifestByPrice(
+                    propertyId, catalog.getId(), item.getStatus(), itemPrice);
 
             if (manifest != null) {
                 manifest.setQuantity(manifest.getQuantity() + item.getQuantity());
@@ -249,6 +241,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             manifest = equipmentManifestRepository
                     .findByPropertyIdAndCatalogIdAndStatusAndSource(
                             propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
+                    .stream()
+                    .findFirst()
                     .orElseThrow(() -> new BusinessException(String.format(
                             "Thiết bị catalog ID=%d trạng thái %s nguồn %s chưa có trong manifest bàn giao",
                             request.getCatalogId(), request.getStatus(), request.getSource())));
@@ -263,10 +257,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             unitPrice = BigDecimal.ZERO;
         } else {
             unitPrice = resolvePurchasedUnitPrice(request);
-            manifest = equipmentManifestRepository
-                    .findByPropertyIdAndCatalogIdAndStatusAndSource(
-                            propertyId, request.getCatalogId(), request.getStatus(), request.getSource())
-                    .orElse(null);
+            manifest = findPurchasedManifestByPrice(
+                    propertyId, request.getCatalogId(), request.getStatus(), unitPrice);
 
             if (manifest != null) {
                 long alreadyAssigned = equipmentRepository.countActiveByManifestId(manifest.getId());
@@ -339,6 +331,22 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Thiết bị mua mới (PURCHASED) phải có price > 0");
         }
         return request.getPrice();
+    }
+
+    private EquipmentManifest findPurchasedManifestByPrice(Long propertyId, Long catalogId,
+                                                           EquipmentStatus status, BigDecimal price) {
+        BigDecimal normalizedPrice = price != null ? price : BigDecimal.ZERO;
+        return equipmentManifestRepository
+                .findByPropertyIdAndCatalogIdAndStatusAndSource(
+                        propertyId, catalogId, status, EquipmentSource.PURCHASED)
+                .stream()
+                .filter(existing -> {
+                    BigDecimal existingPrice = existing.getPrice() != null
+                            ? existing.getPrice() : BigDecimal.ZERO;
+                    return existingPrice.compareTo(normalizedPrice) == 0;
+                })
+                .findFirst()
+                .orElse(null);
     }
 
     @Override
@@ -640,7 +648,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         InboundContractResponse contractResponse = null;
         if (inboundContractRepository.existsByPropertyId(propertyId)) {
-            InboundContract contract = inboundContractRepository.findByPropertyId(propertyId).orElseThrow();
+            InboundContract contract = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId).orElseThrow();
             contractResponse = InboundContractResponse.builder()
                     .id(contract.getId())
                     .propertyId(propertyId)

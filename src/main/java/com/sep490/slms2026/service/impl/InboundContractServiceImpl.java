@@ -35,7 +35,7 @@ public class InboundContractServiceImpl implements InboundContractService {
 
         if (property.getStatus() != PropertyStatus.DRAFT) {
             if (mayReturnExistingContract(property.getStatus())) {
-                return inboundContractRepository.findByPropertyId(propertyId)
+                return inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                         .map(this::toResponse)
                         .orElseThrow(() -> new BusinessException(
                                 "Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT"));
@@ -43,7 +43,7 @@ public class InboundContractServiceImpl implements InboundContractService {
             throw new BusinessException("Chỉ có thể ký hợp đồng khi tòa nhà đang ở trạng thái DRAFT");
         }
 
-        InboundContract contract = inboundContractRepository.findByPropertyId(propertyId)
+        InboundContract contract = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                 .orElseGet(() -> InboundContract.builder()
                         .property(property)
                         .status(ContractStatus.ACTIVE)
@@ -65,7 +65,7 @@ public class InboundContractServiceImpl implements InboundContractService {
     @Override
     @Transactional(readOnly = true)
     public InboundContractResponse getContractByProperty(Long propertyId) {
-        InboundContract contract = inboundContractRepository.findByPropertyId(propertyId)
+        InboundContract contract = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy hợp đồng inbound cho tòa nhà ID: " + propertyId));
         return toResponse(contract);
