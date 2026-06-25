@@ -2,6 +2,8 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -54,6 +56,10 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     List<TenantContract> findByPropertyId(Long propertyId);
 
     List<TenantContract> findByTenantId(UUID tenantUserId);
+
+    List<TenantContract> findByStatus(ContractStatus status);
+
+    Page<TenantContract> findByStatus(ContractStatus status, Pageable pageable);
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
 }
