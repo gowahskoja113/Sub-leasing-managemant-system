@@ -3,8 +3,10 @@ package com.sep490.slms2026.dto.request;
 import com.sep490.slms2026.enums.PricingMode;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
@@ -13,6 +15,8 @@ import java.util.Map;
 @Getter
 @Setter
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class CalculateDepreciationRequest {
 
     /** FORWARD = biết pDesired; REVERSE = biết roiExpected. */
