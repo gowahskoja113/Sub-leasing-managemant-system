@@ -6,7 +6,6 @@ import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
 import com.sep490.slms2026.dto.response.BulkImportResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.EquipmentStatus;
-import com.sep490.slms2026.enums.HouseArea;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.PropertyType;
 import com.sep490.slms2026.exception.BulkImportValidationException;
@@ -188,19 +187,10 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                     .findFirstByNameIgnoreCaseAndActiveTrue(row.getEquipmentName())
                     .orElseThrow();
 
-            HouseArea houseArea = null;
-            String houseAreaRaw = normalizeOptional(row.getHouseAreaRaw());
-            if (!houseAreaRaw.isBlank()) {
-                houseArea = HouseArea.valueOf(houseAreaRaw);
-            }
-
-            String roomNumber = normalizeOptional(row.getRoomNumber());
             handoverEquipmentRepository.save(HandoverEquipment.builder()
                     .property(property)
                     .catalog(catalog)
                     .description(normalizeOptional(row.getDescription()))
-                    .roomNumber(roomNumber.isBlank() ? null : roomNumber)
-                    .houseArea(houseArea)
                     .status(EquipmentStatus.valueOf(normalizeOptional(row.getStatusRaw())))
                     .quantity(row.getQuantity())
                     .note(normalizeOptional(row.getNote()))
@@ -331,24 +321,6 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
             errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Mã hợp đồng thuê",
                     "Không tìm thấy mã hợp đồng ở sheet 1"));
             return;
-        }
-
-        String roomNumber = normalizeOptional(row.getRoomNumber());
-        String houseAreaRaw = normalizeOptional(row.getHouseAreaRaw());
-        boolean hasRoom = !roomNumber.isBlank();
-        boolean hasArea = !houseAreaRaw.isBlank();
-
-        if (hasRoom == hasArea) {
-            errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Vị trí",
-                    "Phải điền Số phòng hoặc Khu vực chung, không được điền cả hai hoặc bỏ trống cả hai"));
-        }
-        if (hasArea) {
-            try {
-                HouseArea.valueOf(houseAreaRaw);
-            } catch (IllegalArgumentException ex) {
-                errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Khu vực chung",
-                        "Giá trị không hợp lệ. Chọn một trong: LIVING_ROOM, KITCHEN, BATHROOM, BALCONY, GARAGE, OTHER"));
-            }
         }
 
         requireText(errors, SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(),

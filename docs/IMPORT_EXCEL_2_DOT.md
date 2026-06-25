@@ -103,14 +103,12 @@ Rollback: DELETE /api/v1/import/onboarding-excel/contracts/{contractCode}
 |-----|:--------:|---------|
 | Mã hợp đồng thuê | Có | Khớp sheet 1 |
 | Tên thiết bị | Có | Khớp `EquipmentCatalog.name` |
-| Mô tả chi tiết | Không | |
-| Số phòng | Một trong hai | Số phòng **hoặc** Khu vực chung |
-| Khu vực chung | Một trong hai | `LIVING_ROOM`, `KITCHEN`, `BATHROOM`, `BALCONY`, `GARAGE`, `OTHER` |
+| Mô tả chi tiết | Không | Ghi chú vị trí (nếu cần) — **không** gán phòng |
 | Trạng thái thiết bị | Có | `NEW`, `GOOD`, `DAMAGED`, `BROKEN` |
 | Số lượng | Có | > 0 |
 | Ghi chú | Không | |
 
-**Rule:** Lưu bảng `handover_equipment` (hoặc tương đương). **Không** `assignEquipment`, **không** khấu hao. FE hiển thị ở chi tiết nhà (`handoverEquipments`).
+**Rule:** Lưu bảng `handover_equipment`. **Không** gán `Room` / `HouseArea`, **không** `assignEquipment`, **không** khấu hao. FE hiển thị ở chi tiết nhà (`handoverEquipments`).
 
 ### 3.4. `3. Danh_Sach_Phong` — chỉ nhà **theo phòng**
 

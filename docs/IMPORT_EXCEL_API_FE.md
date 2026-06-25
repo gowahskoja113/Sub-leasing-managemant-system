@@ -338,7 +338,7 @@ Field mới trên `PropertyResponse`:
       "catalogId": 3,
       "catalogName": "Điều hòa",
       "description": "Máy lạnh 2HP tầng 1",
-      "roomNumber": "101",
+      "roomNumber": null,
       "houseArea": null,
       "status": "GOOD",
       "quantity": 2,
@@ -441,11 +441,11 @@ Xảy ra **trước** validation (file/sheet/cột sai cấu trúc):
 | field | message |
 |-------|---------|
 | `Mã hợp đồng thuê` | Không tìm thấy mã ở sheet 1 |
-| `Vị trí` | Phải điền Số phòng **hoặc** Khu vực chung |
-| `Khu vực chung` | enum: `LIVING_ROOM`, `KITCHEN`, `BATHROOM`, `BALCONY`, `GARAGE`, `OTHER` |
 | `Tên thiết bị` | không tìm thấy catalog |
 | `Trạng thái thiết bị` | `NEW`, `GOOD`, `DAMAGED`, `BROKEN` |
 | `Số lượng` | số nguyên dương |
+
+> TB bàn giao **chỉ hiển thị** — không gán phòng/khu vực. Ghi vị trí trong `Mô tả chi tiết` hoặc `Ghi chú` nếu cần.
 
 ### Đợt 1 — `3. Danh_Sach_Phong`
 

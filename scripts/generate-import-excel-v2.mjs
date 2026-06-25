@@ -187,8 +187,6 @@ function buildHandoverRowsForRooms(contractCode, roomNumbers, device = 'Quạt')
     contractCode,
     device,
     `TB chủ bàn giao phòng ${roomNumber}`,
-    roomNumber,
-    '',
     'GOOD',
     1,
     '',
@@ -310,8 +308,6 @@ const handoverHeader = [
   'Mã hợp đồng thuê',
   'Tên thiết bị',
   'Mô tả chi tiết',
-  'Số phòng',
-  'Khu vực chung',
   'Trạng thái thiết bị',
   'Số lượng',
   'Ghi chú',
@@ -331,12 +327,12 @@ const roomListRows = [
 ];
 
 const handoverRows = [
-  ['HD-WH-RENO-FURN', 'Điều hòa', 'Máy lạnh 2HP tầng 1', '101', '', 'GOOD', 2, 'Chủ bàn giao'],
-  ['HD-WH-RENO-FURN', 'Tủ lạnh', 'Tủ 250L cũ', '', 'KITCHEN', 'GOOD', 1, ''],
-  ['HD-WH-NORENO-FURN', 'Điều hòa', '3 máy lạnh các phòng', '101', '', 'GOOD', 1, 'Phòng 101'],
-  ['HD-WH-NORENO-FURN', 'Điều hòa', '', '102', '', 'GOOD', 1, 'Phòng 102'],
-  ['HD-WH-NORENO-FURN', 'Máy giặt', 'Máy giặt sân sau', '', 'GARAGE', 'GOOD', 1, ''],
-  // THEO_PHONG: bàn giao lẻ từng phòng (phòng 101–110)
+  ['HD-WH-RENO-FURN', 'Điều hòa', 'Máy lạnh 2HP tầng 1', 'GOOD', 2, 'Chủ bàn giao'],
+  ['HD-WH-RENO-FURN', 'Tủ lạnh', 'Tủ 250L cũ', 'GOOD', 1, ''],
+  ['HD-WH-NORENO-FURN', 'Điều hòa', '3 máy lạnh các phòng', 'GOOD', 1, 'Phòng 101'],
+  ['HD-WH-NORENO-FURN', 'Điều hòa', 'Máy lạnh phòng 102', 'GOOD', 1, ''],
+  ['HD-WH-NORENO-FURN', 'Máy giặt', 'Máy giặt sân sau', 'GOOD', 1, ''],
+  // THEO_PHONG: bàn giao lẻ từng phòng (phòng 101–110) — ghi vị trí trong Mô tả, không gán phòng
   ...buildHandoverRowsForRooms('HD-ROOM-RENO-FURN', buildRoomNumbers(10), 'Điều hòa'),
 ];
 
@@ -344,7 +340,7 @@ const huongDanDot1 = [
   ['Hướng dẫn — Đợt 1: Khởi tạo nhà'],
   [''],
   ['Sheet "1. Hop_Dong_Thue": tạo Property + hợp đồng thuê inbound.'],
-  ['Sheet "2. Thiet_Bi_Ban_Giao" (tùy chọn): TB chủ nhà gốc bàn giao — CHỈ HIỂN THỊ.'],
+  ['Sheet "2. Thiet_Bi_Ban_Giao" (tùy chọn): TB chủ nhà gốc bàn giao — CHỈ HIỂN THỊ, không gán phòng/khu vực.'],
   ['Sheet "3. Danh_Sach_Phong" (BẮT BUỘC nếu [THEO_PHONG]): liệt kê ĐỦ từng phòng = Tổng số phòng.'],
   ['Sheet "0. Ma_Tran_Trường_Hop": bảng demo 6 trường hợp nghiệp vụ (BE không đọc).'],
   [''],
