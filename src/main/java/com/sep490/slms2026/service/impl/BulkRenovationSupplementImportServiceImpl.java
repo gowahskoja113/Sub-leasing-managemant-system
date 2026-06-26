@@ -134,6 +134,7 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
         }
 
         propertyOnboardingService.completeRenovation(propertyId);
+        propertyOnboardingService.submitToHost(propertyId);
 
         property = propertyRepository.findById(propertyId).orElseThrow();
         return BulkImportContractResultResponse.builder()
@@ -142,7 +143,7 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
                 .propertyId(propertyId)
                 .propertyName(property.getPropertyName())
                 .finalStatus(property.getStatus().name())
-                .message("Cải tạo bổ sung — session mới đã đóng")
+                .message("Cải tạo bổ sung — đã tính lại giá và gửi Host duyệt")
                 .build();
     }
 
@@ -411,7 +412,7 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
             results.add(BulkImportContractResultResponse.builder()
                     .importStatus(IMPORT_STATUS_IMPORTED)
                     .contractCode(code)
-                    .message("Dry run — sẽ ghi cải tạo bổ sung và đóng session")
+                    .message("Dry run — sẽ ghi cải tạo bổ sung, tính lại giá và gửi Host duyệt")
                     .build());
         }
         return results;

@@ -58,6 +58,17 @@ public class PropertyOnboardingController {
         return ResponseEntity.ok(propertyOnboardingService.getHandoverEquipments(propertyId));
     }
 
+    /**
+     * Thiết bị mua mới (PURCHASED) — gồm giá, bảo hành và vị trí lắp đặt.
+     * Dùng sau import cải tạo đợt 2 hoặc cải tạo bổ sung.
+     */
+    @GetMapping("/properties/{propertyId}/purchased-equipments")
+    public ResponseEntity<List<EquipmentResponse>> getPurchasedEquipments(
+            @PathVariable Long propertyId,
+            @RequestParam(required = false) Integer sessionNumber) {
+        return ResponseEntity.ok(propertyOnboardingService.getPurchasedEquipments(propertyId, sessionNumber));
+    }
+
     @PostMapping("/properties/{propertyId}/equipments/assign")
     public ResponseEntity<EquipmentResponse> assignEquipment(
             @PathVariable Long propertyId,

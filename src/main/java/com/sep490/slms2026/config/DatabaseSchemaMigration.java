@@ -51,6 +51,38 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("equipments", "warranty_start_date", "DATE");
         addColumnIfNotExists("equipments", "warranty_end_date", "DATE");
         migrateEquipmentOperationalFields();
+        ensureHostPortalTables();
+        addColumnIfNotExists("depreciation_results", "room_floor", "NUMERIC(19, 2)");
+        addColumnIfNotExists("depreciation_results", "effective_m2", "DOUBLE PRECISION");
+        addColumnIfNotExists("depreciation_results", "weight", "DOUBLE PRECISION");
+    }
+
+    private void ensureHostPortalTables() {
+        createTableIfNotExists(
+                "host_notifications",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL,
+                dedupe_key VARCHAR(255) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                priority VARCHAR(20),
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                UNIQUE (user_id, dedupe_key)
+                """);
+        createTableIfNotExists(
+                "host_expenses",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                property_id BIGINT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+                category VARCHAR(50) NOT NULL,
+                amount NUMERIC(19, 2) NOT NULL,
+                month VARCHAR(7) NOT NULL,
+                note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
     }
 
     private void migrateEquipmentOperationalFields() {

@@ -53,7 +53,16 @@ public class DepreciationResult {
     private BigDecimal suggestedMinPrice;       // = monthlyDepreciation (hoàn vốn, chưa lời)
 
     @Column(name = "suggested_price_with_profit", nullable = false)
-    private BigDecimal suggestedPriceWithProfit; // = suggestedMinPrice × 1.10
+    private BigDecimal suggestedPriceWithProfit;
+
+    @Column(name = "room_floor")
+    private BigDecimal roomFloor;
+
+    @Column(name = "effective_m2")
+    private Double effectiveM2;
+
+    @Column(name = "weight")
+    private Double weight;
 
     @Column(name = "calculated_at", nullable = false)
     private LocalDateTime calculatedAt;

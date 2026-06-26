@@ -15,6 +15,7 @@ public class EquipmentResponse {
     private Long id;
     private Long propertyId;
     private Long roomId;
+    private String roomNumber;
     private Long catalogId;
     private String catalogName;
     private HouseArea houseArea;
