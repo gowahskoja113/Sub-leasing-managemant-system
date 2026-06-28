@@ -54,6 +54,8 @@ public class PropertyServiceImpl implements PropertyService {
             property.setCreatedBy(request.getCreatedBy());
         }
         property.setAreaSize(request.getAreaSize());
+        property.setLength(request.getLength());
+        property.setWidth(request.getWidth());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
         String shortAddress = request.getAddress().trim();
@@ -159,6 +161,8 @@ public class PropertyServiceImpl implements PropertyService {
             property.setCreatedBy(request.getCreatedBy());
         }
         property.setAreaSize(request.getAreaSize());
+        property.setLength(request.getLength());
+        property.setWidth(request.getWidth());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
 
@@ -228,6 +232,8 @@ public class PropertyServiceImpl implements PropertyService {
         response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
+        response.setLength(property.getLength());
+        response.setWidth(property.getWidth());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());

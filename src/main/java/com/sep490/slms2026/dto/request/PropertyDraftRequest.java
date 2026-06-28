@@ -26,6 +26,8 @@ public class PropertyDraftRequest {
     private UUID zoneId;
 
     private Double areaSize;
+    private Double length;
+    private Double width;
 
     @NotNull
     @Min(1)

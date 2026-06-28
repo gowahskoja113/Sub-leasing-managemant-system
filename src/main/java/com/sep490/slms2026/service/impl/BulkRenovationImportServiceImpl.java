@@ -190,6 +190,8 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                     .roomNumber(roomRow.getRoomNumber())
                     .floor(roomRow.getFloor())
                     .area(roomRow.getArea())
+                    .length(roomRow.getLength())
+                    .width(roomRow.getWidth())
                     .maxOccupants(2)
                     .propertyType(propertyType)
                     .build();
@@ -419,6 +421,14 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         if (row.getArea() == null || row.getArea() <= 0) {
             errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Diện tích phòng (m²)",
                     "Diện tích phòng phải lớn hơn 0"));
+        }
+        if (row.getLength() == null || row.getLength() <= 0) {
+            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Chiều dài (m)",
+                    "Chiều dài phải lớn hơn 0"));
+        }
+        if (row.getWidth() == null || row.getWidth() <= 0) {
+            errors.add(error(SHEET_ROOMS, row.getRowNumber(), row.getContractCode(), "Chiều rộng (m)",
+                    "Chiều rộng phải lớn hơn 0"));
         }
     }
 

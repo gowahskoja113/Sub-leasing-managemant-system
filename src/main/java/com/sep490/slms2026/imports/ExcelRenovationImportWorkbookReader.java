@@ -77,7 +77,8 @@ public class ExcelRenovationImportWorkbookReader {
                                              FormulaEvaluator evaluator) {
         Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
         requireHeaders(headers, SHEET_ROOMS,
-                "Mã hợp đồng thuê", "Số phòng", "Tầng", "Diện tích phòng (m²)");
+                "Mã hợp đồng thuê", "Số phòng", "Tầng", "Diện tích phòng (m²)",
+                "Chiều dài (m)", "Chiều rộng (m)");
 
         List<RoomImportRow> rows = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -95,6 +96,8 @@ public class ExcelRenovationImportWorkbookReader {
                     .roomNumber(readString(row, headers.get("Số phòng"), formatter, evaluator))
                     .floor(readInteger(row, headers.get("Tầng"), formatter, evaluator))
                     .area(readDouble(row, headers.get("Diện tích phòng (m²)"), formatter, evaluator))
+                    .length(readDouble(row, headers.get("Chiều dài (m)"), formatter, evaluator))
+                    .width(readDouble(row, headers.get("Chiều rộng (m)"), formatter, evaluator))
                     .note(readOptionalString(row, headers.get("Ghi chú"), formatter, evaluator))
                     .build());
         }

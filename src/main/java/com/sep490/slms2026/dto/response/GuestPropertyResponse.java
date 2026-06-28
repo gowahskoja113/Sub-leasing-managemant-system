@@ -18,6 +18,8 @@ public class GuestPropertyResponse {
     private UUID zoneId;
     private String zoneName;
     private Double areaSize;
+    private Double length;
+    private Double width;
     private Boolean wholeHouse;
     private Boolean hasRenovation;
     private Integer totalFloor;

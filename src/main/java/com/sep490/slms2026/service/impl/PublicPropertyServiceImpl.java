@@ -119,6 +119,8 @@ public class PublicPropertyServiceImpl implements PublicPropertyService {
         response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
+        response.setLength(property.getLength());
+        response.setWidth(property.getWidth());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());

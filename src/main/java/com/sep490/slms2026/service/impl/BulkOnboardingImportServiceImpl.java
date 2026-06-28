@@ -147,6 +147,8 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         draftRequest.setDescriptions(leaseRow.getDescriptions());
         draftRequest.setZoneId(districtZone.getId());
         draftRequest.setAreaSize(leaseRow.getAreaSize());
+        draftRequest.setLength(leaseRow.getLength());
+        draftRequest.setWidth(leaseRow.getWidth());
         draftRequest.setTotalFloor(leaseRow.getTotalFloor());
         draftRequest.setTotalRooms(leaseRow.getTotalRooms());
 
@@ -419,6 +421,14 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Diện tích (m²)",
                     "Diện tích phải lớn hơn 0"));
         }
+        if (row.getLength() == null || row.getLength() <= 0) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Chiều dài (m)",
+                    "Chiều dài phải lớn hơn 0"));
+        }
+        if (row.getWidth() == null || row.getWidth() <= 0) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Chiều rộng (m)",
+                    "Chiều rộng phải lớn hơn 0"));
+        }
         if (row.getTotalFloor() == null || row.getTotalFloor() <= 0) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Tổng số tầng",
                     "Tổng số tầng phải lớn hơn 0"));
@@ -571,6 +581,12 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         PropertyType propertyType = wholeHouse ? PropertyType.WHOLE_HOUSE : PropertyType.INDIVIDUAL_ROOM;
         double defaultArea = Math.max(1.0,
                 leaseRow.getAreaSize() / Math.max(leaseRow.getTotalRooms(), 1));
+        double defaultLength = wholeHouse && leaseRow.getLength() != null && leaseRow.getLength() > 0
+                ? leaseRow.getLength()
+                : Math.max(1.0, Math.sqrt(defaultArea * 1.4));
+        double defaultWidth = wholeHouse && leaseRow.getWidth() != null && leaseRow.getWidth() > 0
+                ? leaseRow.getWidth()
+                : Math.max(1.0, defaultArea / defaultLength);
 
         for (String roomNumber : roomNumbers) {
             if (roomRepository.existsByPropertyIdAndRoomNumberAndDeletedIsFalse(propertyId, roomNumber)) {
@@ -583,6 +599,8 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                     .roomNumber(roomNumber)
                     .floor(inferFloor(roomNumber, leaseRow.getTotalFloor()))
                     .area(defaultArea)
+                    .length(defaultLength)
+                    .width(defaultWidth)
                     .maxOccupants(2)
                     .propertyType(propertyType)
                     .build();

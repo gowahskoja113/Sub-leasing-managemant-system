@@ -37,6 +37,12 @@ public class Property implements Serializable {
     @Column(name = "area_size")
     private Double areaSize;
 
+    @Column(name = "length_m")
+    private Double length;
+
+    @Column(name = "width_m")
+    private Double width;
+
     @Column(name = "total_floor")
     private Integer totalFloor;
 

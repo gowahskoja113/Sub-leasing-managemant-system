@@ -73,6 +73,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .zone(zone)
                 .descriptions(request.getDescriptions())
                 .areaSize(request.getAreaSize())
+                .length(request.getLength())
+                .width(request.getWidth())
                 .totalFloor(request.getTotalFloor())
                 .totalRooms(request.getTotalRooms())
                 .imageUrls(request.getImageUrls())
@@ -1169,6 +1171,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
+        response.setLength(property.getLength());
+        response.setWidth(property.getWidth());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());

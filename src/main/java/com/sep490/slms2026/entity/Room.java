@@ -40,6 +40,12 @@ public class Room implements Serializable {
     @Column(nullable = false)
     private Double area;
 
+    @Column(name = "length_m")
+    private Double length;
+
+    @Column(name = "width_m")
+    private Double width;
+
     @Column(name = "max_occupants")
     private Integer maxOccupants;
 

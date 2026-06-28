@@ -12,5 +12,7 @@ public class RoomImportRow {
     private String roomNumber;
     private Integer floor;
     private Double area;
+    private Double length;
+    private Double width;
     private String note;
 }
