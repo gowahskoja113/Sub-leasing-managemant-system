@@ -17,6 +17,8 @@ public class LeaseContractImportRow {
     private String district;
     private String province;
     private Double areaSize;
+    private Double length;
+    private Double width;
     private Integer totalFloor;
     private Integer totalRooms;
     private String ownerName;

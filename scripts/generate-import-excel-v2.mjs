@@ -488,6 +488,12 @@ const scenarios = [
   },
 ];
 
+function inferDimensions(area) {
+  const length = Math.round(Math.sqrt(area * 1.4) * 10) / 10;
+  const width = Math.round((area / length) * 10) / 10;
+  return { length, width };
+}
+
 function buildRoomNumbers(totalRooms) {
   const rooms = [];
   let floor = 1;
@@ -517,13 +523,18 @@ function inferFloor(roomNumber, totalFloors) {
 function buildRoomListRows(scenario) {
   const n = scenario.exploitRooms;
   const perRoomArea = Math.round((scenario.area / n) * 10) / 10;
-  return buildRoomNumbers(n).map((roomNumber) => [
-    scenario.code,
-    roomNumber,
-    inferFloor(roomNumber, scenario.floors),
-    perRoomArea,
-    `Phòng ${roomNumber}`,
-  ]);
+  return buildRoomNumbers(n).map((roomNumber) => {
+    const { length, width } = inferDimensions(perRoomArea);
+    return [
+      scenario.code,
+      roomNumber,
+      inferFloor(roomNumber, scenario.floors),
+      perRoomArea,
+      length,
+      width,
+      `Phòng ${roomNumber}`,
+    ];
+  });
 }
 
 function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart, subset = null) {
@@ -596,6 +607,8 @@ const leaseHeader = [
   'Quận/Huyện',
   'Tỉnh/Thành phố',
   'Diện tích (m²)',
+  'Chiều dài (m)',
+  'Chiều rộng (m)',
   'Tổng số tầng',
   'Tổng số phòng',
   'Tên chủ nhà',
@@ -626,6 +639,8 @@ const roomListHeader = [
   'Số phòng',
   'Tầng',
   'Diện tích phòng (m²)',
+  'Chiều dài (m)',
+  'Chiều rộng (m)',
   'Ghi chú',
 ];
 
@@ -654,21 +669,26 @@ const purchasedHeader = [
 
 // --- Build data from scenarios ---
 
-const leaseRows = scenarios.map((s) => [
-  s.code,
-  s.name,
-  s.address,
-  s.district,
-  s.province,
-  s.area,
-  s.floors,
-  s.physicalRooms,
-  s.owner,
-  s.rent,
-  s.start,
-  s.end,
-  s.desc,
-]);
+const leaseRows = scenarios.map((s) => {
+  const { length, width } = inferDimensions(s.area);
+  return [
+    s.code,
+    s.name,
+    s.address,
+    s.district,
+    s.province,
+    s.area,
+    length,
+    width,
+    s.floors,
+    s.physicalRooms,
+    s.owner,
+    s.rent,
+    s.start,
+    s.end,
+    s.desc,
+  ];
+});
 
 const handoverRows = scenarios.flatMap((s) =>
   (s.handover ?? []).map((h) => [s.code, ...h]),

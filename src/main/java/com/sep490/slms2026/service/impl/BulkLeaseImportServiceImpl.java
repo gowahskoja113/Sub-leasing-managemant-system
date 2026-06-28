@@ -109,6 +109,8 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         draftRequest.setDescriptions(leaseRow.getDescriptions());
         draftRequest.setZoneId(districtZone.getId());
         draftRequest.setAreaSize(leaseRow.getAreaSize());
+        draftRequest.setLength(leaseRow.getLength());
+        draftRequest.setWidth(leaseRow.getWidth());
         draftRequest.setTotalFloor(leaseRow.getTotalFloor());
         draftRequest.setTotalRooms(leaseRow.getTotalRooms());
 
@@ -232,6 +234,14 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         if (row.getAreaSize() == null || row.getAreaSize() <= 0) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Diện tích (m²)",
                     "Diện tích phải lớn hơn 0"));
+        }
+        if (row.getLength() == null || row.getLength() <= 0) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Chiều dài (m)",
+                    "Chiều dài phải lớn hơn 0"));
+        }
+        if (row.getWidth() == null || row.getWidth() <= 0) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Chiều rộng (m)",
+                    "Chiều rộng phải lớn hơn 0"));
         }
         if (row.getTotalFloor() == null || row.getTotalFloor() <= 0) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(), "Tổng số tầng",

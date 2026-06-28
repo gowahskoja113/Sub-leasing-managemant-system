@@ -68,7 +68,8 @@ public class ExcelOnboardingWorkbookReader {
         Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
         requireHeaders(headers, SHEET_LEASE,
                 "Mã hợp đồng", "Tên tòa nhà", "Địa chỉ chi tiết", "Quận/Huyện",
-                "Tỉnh/Thành phố", "Diện tích (m²)", "Tổng số tầng", "Tổng số phòng", "Tên chủ nhà",
+                "Tỉnh/Thành phố", "Diện tích (m²)", "Chiều dài (m)", "Chiều rộng (m)",
+                "Tổng số tầng", "Tổng số phòng", "Tên chủ nhà",
                 "Tổng tiền thuê", "Ngày bắt đầu", "Ngày kết thúc", "Mô tả chi tiết");
 
         List<LeaseContractImportRow> rows = new ArrayList<>();
@@ -92,6 +93,8 @@ public class ExcelOnboardingWorkbookReader {
                     .district(readString(row, headers.get("Quận/Huyện"), formatter, evaluator))
                     .province(readString(row, headers.get("Tỉnh/Thành phố"), formatter, evaluator))
                     .areaSize(readDouble(row, headers.get("Diện tích (m²)"), formatter, evaluator))
+                    .length(readDouble(row, headers.get("Chiều dài (m)"), formatter, evaluator))
+                    .width(readDouble(row, headers.get("Chiều rộng (m)"), formatter, evaluator))
                     .totalFloor(readInteger(row, headers.get("Tổng số tầng"), formatter, evaluator))
                     .totalRooms(readInteger(row, headers.get("Tổng số phòng"), formatter, evaluator))
                     .ownerName(readString(row, headers.get("Tên chủ nhà"), formatter, evaluator))
