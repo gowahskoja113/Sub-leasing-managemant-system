@@ -16,6 +16,7 @@ public record HostContractDto(
         BigDecimal rentAmount,
         LocalDate startDate,
         LocalDate endDate,
-        String status
+        String status,
+        String equipmentSnapshot
 ) {
 }

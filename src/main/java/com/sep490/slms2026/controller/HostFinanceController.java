@@ -9,8 +9,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
 
-@RestController
-@RequestMapping("/api/v1/host")
+// @RestController
+// @RequestMapping("/api/v1/host")
 @RequiredArgsConstructor
 public class HostFinanceController {
 

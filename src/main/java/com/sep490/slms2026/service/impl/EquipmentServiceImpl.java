@@ -30,6 +30,7 @@ public class EquipmentServiceImpl implements EquipmentService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final com.sep490.slms2026.repository.EquipmentCatalogRepository equipmentCatalogRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -143,5 +144,40 @@ public class EquipmentServiceImpl implements EquipmentService {
         }
 
         return toResponse(equipment);
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
+
+        Room room = null;
+        if (request.getRoomId() != null) {
+            room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(request.getRoomId(), propertyId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ID=" + request.getRoomId()));
+        }
+
+        com.sep490.slms2026.entity.EquipmentCatalog catalog = equipmentCatalogRepository.findFirstByNameIgnoreCaseAndActiveTrue(request.getEquipmentName())
+                .orElseGet(() -> {
+                    com.sep490.slms2026.entity.EquipmentCatalog newCatalog = com.sep490.slms2026.entity.EquipmentCatalog.builder()
+                            .name(request.getEquipmentName())
+                            .description(request.getCategory())
+                            .active(true)
+                            .build();
+                    return equipmentCatalogRepository.save(newCatalog);
+                });
+
+        Equipment equipment = Equipment.builder()
+                .property(property)
+                .room(room)
+                .catalog(catalog)
+                .source(com.sep490.slms2026.enums.EquipmentSource.ADDED_BY_TENANT)
+                .status(com.sep490.slms2026.enums.EquipmentStatus.NEW)
+                .operationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
+                .price(java.math.BigDecimal.ZERO) // Hoặc null nếu không có
+                .build();
+
+        return toResponse(equipmentRepository.save(equipment));
     }
 }

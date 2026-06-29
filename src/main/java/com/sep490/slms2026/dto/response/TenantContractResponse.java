@@ -80,6 +80,9 @@ public class TenantContractResponse {
     private String documentUrl;
     private LocalDateTime documentGeneratedAt;
 
+    private String priceApprovalStatus;
+    private String priceRejectReason;
+
     public String getCode() {
         return this.contractCode;
     }

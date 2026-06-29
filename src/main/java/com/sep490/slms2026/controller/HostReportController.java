@@ -7,8 +7,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.ArrayList;
 
-@RestController
-@RequestMapping("/api/v1/host/reports")
+// @RestController
+// @RequestMapping("/api/v1/host/reports")
 public class HostReportController {
 
     @GetMapping("/financial-summary")

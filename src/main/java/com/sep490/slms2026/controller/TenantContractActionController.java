@@ -83,4 +83,29 @@ public class TenantContractActionController {
             @Valid @RequestBody ConfirmContractRequest request) {
         return ResponseEntity.ok(tenantOnboardingService.confirmContract(id, request.getOtp()));
     }
+
+    /** GET /managed — danh sách hợp đồng chờ xử lý của manager. */
+    @GetMapping("/managed")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<java.util.List<TenantContractResponse>> getManagedContracts(
+            @RequestParam(required = false) com.sep490.slms2026.enums.PriceApprovalStatus status) {
+        return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+    }
+
+    /** POST /{id}/resubmit-approval — chỉnh giá & gửi duyệt lại. */
+    @PostMapping("/{id}/resubmit-approval")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> resubmitApproval(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ResubmitApprovalRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.resubmitApproval(id, request));
+    }
+
+    /** POST /{id}/cancel — hủy hợp đồng đang chờ. */
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> cancelContract(@PathVariable Long id) {
+        tenantOnboardingService.cancelContract(id);
+        return ResponseEntity.ok().build();
+    }
 }

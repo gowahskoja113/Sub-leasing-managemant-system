@@ -125,4 +125,11 @@ public class TenantContract implements Serializable {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ContractStatus status = ContractStatus.ACTIVE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_approval_status")
+    private com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus;
+
+    @Column(name = "price_reject_reason", columnDefinition = "TEXT")
+    private String priceRejectReason;
 }

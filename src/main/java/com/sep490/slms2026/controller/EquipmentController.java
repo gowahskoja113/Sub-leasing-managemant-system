@@ -40,4 +40,12 @@ public class EquipmentController {
             @Valid @RequestBody ReassignEquipmentRequest request) {
         return ResponseEntity.ok(equipmentService.reassignEquipment(propertyId, equipmentId, request));
     }
+
+    /** POST /api/v1/properties/{propertyId}/equipments — Tạo thiết bị lắp thêm */
+    @PostMapping
+    public ResponseEntity<EquipmentResponse> createAddedEquipment(
+            @PathVariable Long propertyId,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request) {
+        return ResponseEntity.ok(equipmentService.createAddedEquipment(propertyId, request));
+    }
 }
