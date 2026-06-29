@@ -58,6 +58,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureEquipmentRecommendReplacementColumn();
         addColumnIfNotExists("tenant_contracts", "handover_acknowledged_at", "TIMESTAMP");
         addColumnIfNotExists("equipments", "qr_code", "VARCHAR(64)");
+        addColumnIfNotExists("tenant_invoices", "note", "TEXT");
         backfillEquipmentQrCodes();
     }
 

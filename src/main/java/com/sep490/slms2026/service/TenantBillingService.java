@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service;
 
+import com.sep490.slms2026.dto.request.CreateRentInvoiceRequest;
 import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
 import com.sep490.slms2026.entity.TenantContract;
@@ -24,4 +25,6 @@ public interface TenantBillingService {
     void markInvoicePaidByPayosOrderCode(Long payosOrderCode);
 
     TenantInvoice createFromUtilityInvoice(UtilityInvoice utilityInvoice, TenantContract contract);
+
+    TenantInvoiceResponse createManagerRentInvoice(Long propertyId, Long roomId, CreateRentInvoiceRequest request);
 }

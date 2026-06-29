@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.request.CreateRentInvoiceRequest;
 import com.sep490.slms2026.dto.response.TenantInvoiceItemResponse;
 import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
@@ -9,6 +10,7 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.PayosService;
+import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +35,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final TenantContractRepository tenantContractRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final PayosService payosService;
+    private final PropertyAccessService propertyAccessService;
+    private final PropertyRepository propertyRepository;
+    private final RoomRepository roomRepository;
 
     @Override
     @Transactional
@@ -159,6 +164,55 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         return tenantInvoiceRepository.save(invoice);
     }
 
+    @Override
+    @Transactional
+    public TenantInvoiceResponse createManagerRentInvoice(
+            Long propertyId, Long roomId, CreateRentInvoiceRequest request) {
+        propertyAccessService.assertCanManageProperty(propertyId);
+        loadProperty(propertyId);
+
+        YearMonth billingMonth = parseBillingMonth(request.getBillingMonth());
+        TenantContract contract = loadAndValidateContract(propertyId, roomId, request.getContractId());
+
+        var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                contract.getId(), TenantInvoiceType.RENT, billingMonth.getYear(), billingMonth.getMonthValue());
+        if (existing.isPresent()) {
+            return toResponse(existing.get());
+        }
+
+        if (contract.getRentAmount() != null
+                && contract.getRentAmount().compareTo(request.getAmount()) != 0) {
+            throw new BusinessException(
+                    "Số tiền không khớp với giá thuê trong hợp đồng (" + contract.getRentAmount() + ")");
+        }
+
+        Property property = contract.getProperty();
+        Room room = contract.getRoom();
+        UUID tenantUserId = contract.getTenant().getId();
+        LocalDateTime now = LocalDateTime.now();
+
+        TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
+                .code("HD-RENT-" + contract.getId() + "-" + billingMonth)
+                .tenantUserId(tenantUserId)
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .propertyName(property.getPropertyName())
+                .roomNumber(room != null ? room.getRoomNumber() : property.getPropertyName())
+                .billingMonth(billingMonth.getMonthValue())
+                .billingYear(billingMonth.getYear())
+                .billingPeriod("Tiền nhà tháng " + billingMonth.getMonthValue() + "/" + billingMonth.getYear())
+                .note(request.getNote())
+                .totalAmount(request.getAmount())
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(request.getAmount())
+                .status(TenantInvoiceStatus.PENDING)
+                .dueDate(request.getDueDate())
+                .createdAt(now)
+                .build());
+
+        return toResponse(invoice);
+    }
+
     private void syncInvoicesForTenant(UUID tenantUserId) {
         for (UtilityInvoice utilityInvoice : utilityInvoiceRepository.findByTenantUserId(tenantUserId)) {
             TenantContract contract = utilityInvoice.getTenantContract();
@@ -172,41 +226,50 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             if (contract.getStatus() != ContractStatus.ACTIVE) {
                 continue;
             }
-            ensureRentInvoice(contract, tenantUserId);
             ensureServiceInvoice(contract, tenantUserId);
         }
     }
 
-    private void ensureRentInvoice(TenantContract contract, UUID tenantUserId) {
-        YearMonth ym = YearMonth.now();
-        if (tenantInvoiceRepository.existsByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
-                contract.getId(), TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue())) {
-            return;
+    private TenantContract loadAndValidateContract(Long propertyId, Long roomId, Long contractId) {
+        TenantContract contract = tenantContractRepository.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng ID=" + contractId));
+
+        if (!contract.getProperty().getId().equals(propertyId)) {
+            throw new BusinessException("Hợp đồng không thuộc tòa nhà này");
         }
+        if (contract.getStatus() != ContractStatus.ACTIVE) {
+            throw new BusinessException("Chỉ gửi hóa đơn tiền nhà cho hợp đồng đang hiệu lực");
+        }
+        if (roomId != null) {
+            if (contract.getRoom() == null || !contract.getRoom().getId().equals(roomId)) {
+                throw new BusinessException("Hợp đồng không thuộc phòng này");
+            }
+            loadRoom(propertyId, roomId);
+        } else if (contract.getRoom() != null) {
+            throw new BusinessException("API nguyên căn chỉ dùng cho hợp đồng không gắn phòng");
+        }
+        return contract;
+    }
 
-        Property property = contract.getProperty();
-        Room room = contract.getRoom();
-        LocalDate dueDate = ym.atEndOfMonth().plusDays(5);
+    private YearMonth parseBillingMonth(String billingMonth) {
+        try {
+            return YearMonth.parse(billingMonth.trim());
+        } catch (Exception e) {
+            throw new BusinessException("billingMonth không hợp lệ — dùng định dạng yyyy-MM");
+        }
+    }
 
-        tenantInvoiceRepository.save(TenantInvoice.builder()
-                .code("HD-RENT-" + contract.getId() + "-" + ym)
-                .tenantUserId(tenantUserId)
-                .tenantContract(contract)
-                .invoiceType(TenantInvoiceType.RENT)
-                .propertyName(property.getPropertyName())
-                .roomNumber(room != null ? room.getRoomNumber() : property.getPropertyName())
-                .billingMonth(ym.getMonthValue())
-                .billingYear(ym.getYear())
-                .billingPeriod("01/" + String.format("%02d", ym.getMonthValue()) + " – "
-                        + ym.atEndOfMonth().getDayOfMonth() + "/" + String.format("%02d", ym.getMonthValue())
-                        + "/" + ym.getYear())
-                .totalAmount(contract.getRentAmount())
-                .lateFee(BigDecimal.ZERO)
-                .grandTotal(contract.getRentAmount())
-                .status(TenantInvoiceStatus.PENDING)
-                .dueDate(dueDate)
-                .createdAt(LocalDateTime.now())
-                .build());
+    private Property loadProperty(Long propertyId) {
+        return propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy tòa nhà với ID: " + propertyId));
+    }
+
+    private Room loadRoom(Long propertyId, Long roomId) {
+        return roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
     }
 
     private void ensureServiceInvoice(TenantContract contract, UUID tenantUserId) {

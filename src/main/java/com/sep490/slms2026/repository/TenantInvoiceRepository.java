@@ -24,6 +24,9 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
     boolean existsByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
             Long tenantContractId, TenantInvoiceType invoiceType, Integer billingYear, Integer billingMonth);
 
+    Optional<TenantInvoice> findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+            Long tenantContractId, TenantInvoiceType invoiceType, Integer billingYear, Integer billingMonth);
+
     @Query("""
             SELECT i FROM TenantInvoice i
             WHERE i.tenantUserId = :tenantUserId
