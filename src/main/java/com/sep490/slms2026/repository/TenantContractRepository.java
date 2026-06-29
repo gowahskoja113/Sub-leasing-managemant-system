@@ -139,4 +139,16 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     Optional<TenantContract> findByRoomIdAndStatus(Long roomId, ContractStatus status);
 
     Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            WHERE (:propertyId IS NULL OR c.property.id = :propertyId)
+              AND (:contractStatus IS NULL OR c.status = :contractStatus)
+              AND (:priceApprovalStatus IS NULL OR c.priceApprovalStatus = :priceApprovalStatus)
+            """)
+    Page<TenantContract> findHostContracts(
+            @Param("propertyId") Long propertyId,
+            @Param("contractStatus") ContractStatus contractStatus,
+            @Param("priceApprovalStatus") com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus,
+            Pageable pageable);
 }

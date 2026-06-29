@@ -55,6 +55,24 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("depreciation_results", "room_floor", "NUMERIC(19, 2)");
         addColumnIfNotExists("depreciation_results", "effective_m2", "DOUBLE PRECISION");
         addColumnIfNotExists("depreciation_results", "weight", "DOUBLE PRECISION");
+        ensureEquipmentRecommendReplacementColumn();
+    }
+
+    private void ensureEquipmentRecommendReplacementColumn() {
+        addColumnIfNotExists("equipments", "recommend_replacement", "BOOLEAN DEFAULT false");
+        int updated = jdbcTemplate.update(
+                "UPDATE equipments SET recommend_replacement = false WHERE recommend_replacement IS NULL");
+        if (updated > 0) {
+            log.info("Backfilled recommend_replacement=false for {} equipment rows", updated);
+        }
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE equipments ALTER COLUMN recommend_replacement SET DEFAULT false");
+            jdbcTemplate.execute(
+                    "ALTER TABLE equipments ALTER COLUMN recommend_replacement SET NOT NULL");
+        } catch (Exception e) {
+            log.warn("Could not enforce NOT NULL on equipments.recommend_replacement: {}", e.getMessage());
+        }
     }
 
     private void ensureHostPortalTables() {

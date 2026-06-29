@@ -136,10 +136,12 @@ public class HostController {
 
     @GetMapping("/contracts")
     public ResponseEntity<Page<HostContractDto>> listContracts(
+            @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(hostPortalService.listContracts(status, PageRequest.of(page, size)));
+        return ResponseEntity.ok(hostPortalService.listContracts(
+                propertyId, status, PageRequest.of(page, size)));
     }
 
     @PutMapping("/contracts/{id}/approve")

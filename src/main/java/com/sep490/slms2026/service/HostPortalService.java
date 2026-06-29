@@ -44,7 +44,7 @@ public interface HostPortalService {
 
     List<HostPropertyPerformanceRow> getPropertyPerformance(String month);
 
-    Page<HostContractDto> listContracts(String status, Pageable pageable);
+    Page<HostContractDto> listContracts(Long propertyId, String status, Pageable pageable);
 
     HostContractDto approveContract(Long contractId);
 

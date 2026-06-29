@@ -81,5 +81,5 @@ public class Equipment implements Serializable {
 
     @Column(name = "recommend_replacement")
     @Builder.Default
-    private boolean recommendReplacement = false;
+    private Boolean recommendReplacement = false;
 }

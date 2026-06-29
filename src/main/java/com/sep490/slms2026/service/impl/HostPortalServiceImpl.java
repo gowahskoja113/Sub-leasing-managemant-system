@@ -439,15 +439,25 @@ public class HostPortalServiceImpl implements HostPortalService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<HostContractDto> listContracts(String status, Pageable pageable) {
-        if (status == null || status.isBlank()) {
-            return tenantContractRepository.findAll(pageable).map(this::toContractDto);
+    public Page<HostContractDto> listContracts(Long propertyId, String status, Pageable pageable) {
+        ContractStatus contractStatus = null;
+        com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus = null;
+
+        if (status != null && !status.isBlank()) {
+            if ("PENDING".equalsIgnoreCase(status)) {
+                priceApprovalStatus = com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL;
+            } else {
+                try {
+                    contractStatus = ContractStatus.valueOf(status.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    throw new BusinessException("Trạng thái hợp đồng không hợp lệ: " + status);
+                }
+            }
         }
-        if ("PENDING".equalsIgnoreCase(status)) {
-            return tenantContractRepository.findByPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL, pageable).map(this::toContractDto);
-        }
-        ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
-        return tenantContractRepository.findByStatus(contractStatus, pageable).map(this::toContractDto);
+
+        return tenantContractRepository
+                .findHostContracts(propertyId, contractStatus, priceApprovalStatus, pageable)
+                .map(this::toContractDto);
     }
 
     @Override
@@ -758,14 +768,29 @@ public class HostPortalServiceImpl implements HostPortalService {
     }
 
     private HostContractDto toContractDto(TenantContract c) {
+        String lesseeName = null;
+        String tenantPhone = null;
+        String tenantCccd = null;
+        if (c.getTenant() != null) {
+            tenantCccd = c.getTenant().getCccd();
+            if (c.getTenant().getUser() != null) {
+                lesseeName = c.getTenant().getUser().getFullName();
+                tenantPhone = c.getTenant().getUser().getPhoneNumber();
+            }
+        }
         return HostContractDto.builder()
                 .id(String.valueOf(c.getId()))
+                .propertyId(c.getProperty().getId())
                 .code(c.getContractCode())
-                .lesseeName(c.getTenant().getUser().getFullName())
+                .lesseeName(lesseeName)
+                .tenantPhone(tenantPhone)
+                .tenantCccd(tenantCccd)
                 .propertyName(c.getProperty().getPropertyName())
                 .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : null)
                 .lessorName(c.getProperty().getPropertyName())
                 .rentAmount(c.getRentAmount())
+                .deposit(c.getDeposit())
+                .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
                 .status(c.getStatus().name())
