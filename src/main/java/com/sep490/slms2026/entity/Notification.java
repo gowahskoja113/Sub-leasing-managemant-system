@@ -19,7 +19,7 @@ public class Notification implements Serializable {
     private Long id;
 
     @Column(name = "user_id", nullable = false)
-    private Long userId; // For Host/Manager
+    private java.util.UUID userId;
 
     private String title;
 

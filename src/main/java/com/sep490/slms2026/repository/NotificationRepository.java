@@ -8,11 +8,17 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.UUID;
+
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
-    Page<Notification> findByUserIdAndReadFalse(Long userId, Pageable pageable);
-    Page<Notification> findByUserId(Long userId, Pageable pageable);
+
+    Page<Notification> findByUserIdAndReadFalse(UUID userId, Pageable pageable);
+
+    Page<Notification> findByUserId(UUID userId, Pageable pageable);
+
+    long countByUserIdAndReadFalse(UUID userId);
 
     @Modifying
     @Query("UPDATE Notification n SET n.read = true WHERE n.userId = :userId")
-    void markAllAsRead(@Param("userId") Long userId);
+    void markAllAsRead(@Param("userId") UUID userId);
 }

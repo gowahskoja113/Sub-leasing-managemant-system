@@ -367,6 +367,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             throw new BusinessException("Không thể hủy hợp đồng đã kích hoạt");
         }
+        if (contract.getRoom() != null && contract.getRoom().getStatus() == RoomStatus.RENTED) {
+            contract.getRoom().setStatus(RoomStatus.AVAILABLE);
+            roomRepository.save(contract.getRoom());
+        }
         contract.setStatus(ContractStatus.TERMINATED);
         tenantContractRepository.save(contract);
     }

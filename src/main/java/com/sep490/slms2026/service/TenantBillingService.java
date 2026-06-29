@@ -5,6 +5,7 @@ import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
+import com.sep490.slms2026.entity.TenantPaymentClaim;
 import com.sep490.slms2026.entity.UtilityInvoice;
 
 import java.util.List;
@@ -27,4 +28,8 @@ public interface TenantBillingService {
     TenantInvoice createFromUtilityInvoice(UtilityInvoice utilityInvoice, TenantContract contract);
 
     TenantInvoiceResponse createManagerRentInvoice(Long propertyId, Long roomId, CreateRentInvoiceRequest request);
+
+    void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy);
+
+    void createBankTransferClaim(TenantInvoice invoice, String transferContent);
 }

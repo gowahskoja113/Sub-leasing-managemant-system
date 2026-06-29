@@ -58,6 +58,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureEquipmentRecommendReplacementColumn();
         addColumnIfNotExists("tenant_contracts", "handover_acknowledged_at", "TIMESTAMP");
         addColumnIfNotExists("equipments", "qr_code", "VARCHAR(64)");
+        ensureNotificationsTable();
+        alterColumnToUuidIfBigint("notifications", "user_id");
+        ensureTenantPaymentClaimsTable();
         addColumnIfNotExists("tenant_invoices", "note", "TEXT");
         backfillEquipmentQrCodes();
     }
@@ -68,6 +71,38 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         if (updated > 0) {
             log.info("Backfilled qr_code for {} equipment rows", updated);
         }
+    }
+
+    private void ensureNotificationsTable() {
+        createTableIfNotExists(
+                "notifications",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL,
+                title VARCHAR(255),
+                content TEXT,
+                type VARCHAR(50),
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+    }
+
+    private void ensureTenantPaymentClaimsTable() {
+        createTableIfNotExists(
+                "tenant_payment_claims",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                tenant_invoice_id BIGINT NOT NULL REFERENCES tenant_invoices(id),
+                tenant_user_id UUID NOT NULL,
+                amount NUMERIC(19, 2) NOT NULL,
+                method VARCHAR(50) NOT NULL,
+                transfer_content TEXT,
+                status VARCHAR(30) NOT NULL DEFAULT 'PENDING_VERIFY',
+                reject_reason TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                verified_at TIMESTAMP,
+                verified_by UUID
+                """);
     }
 
     private void ensureEquipmentRecommendReplacementColumn() {

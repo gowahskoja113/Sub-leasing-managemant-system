@@ -38,6 +38,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final PropertyAccessService propertyAccessService;
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
+    private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
 
     @Override
     @Transactional
@@ -89,16 +90,57 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
             return toResponse(invoice);
         }
-        if (invoice.getPayosOrderCode() == null) {
-            throw new BusinessException("Chưa tạo link thanh toán cho hóa đơn này");
-        }
-
-        String payosStatus = payosService.getPaymentStatus(invoice.getPayosOrderCode());
-        if ("PAID".equalsIgnoreCase(payosStatus)) {
-            markPaid(invoice, "QR", "VQR-" + invoice.getPayosOrderCode());
-            invoice = tenantInvoiceRepository.save(invoice);
+        if (invoice.getPayosOrderCode() != null) {
+            String payosStatus = payosService.getPaymentStatus(invoice.getPayosOrderCode());
+            if ("PAID".equalsIgnoreCase(payosStatus)) {
+                markPaid(invoice, "QR", "VQR-" + invoice.getPayosOrderCode());
+                invoice = tenantInvoiceRepository.save(invoice);
+            } else {
+                createBankTransferClaim(invoice, null);
+            }
+        } else {
+            createBankTransferClaim(invoice, null);
         }
         return toResponse(invoice);
+    }
+
+    @Override
+    @Transactional
+    public void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy) {
+        TenantInvoice invoice = claim.getTenantInvoice();
+        claim.setStatus(PaymentClaimStatus.VERIFIED);
+        claim.setVerifiedAt(LocalDateTime.now());
+        claim.setVerifiedBy(verifiedBy);
+        tenantPaymentClaimRepository.save(claim);
+        markPaid(invoice, claim.getMethod(), "CLAIM-" + claim.getId());
+        tenantInvoiceRepository.save(invoice);
+    }
+
+    @Override
+    @Transactional
+    public void createBankTransferClaim(TenantInvoice invoice, String transferContent) {
+        if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
+            return;
+        }
+        var existing = tenantPaymentClaimRepository.findByTenantInvoiceIdAndStatus(
+                invoice.getId(), PaymentClaimStatus.PENDING_VERIFY);
+        if (existing.isPresent()) {
+            TenantPaymentClaim claim = existing.get();
+            if (transferContent != null && !transferContent.isBlank()) {
+                claim.setTransferContent(transferContent);
+                tenantPaymentClaimRepository.save(claim);
+            }
+            return;
+        }
+        tenantPaymentClaimRepository.save(TenantPaymentClaim.builder()
+                .tenantInvoice(invoice)
+                .tenantUserId(invoice.getTenantUserId())
+                .amount(invoice.getGrandTotal())
+                .method("BANK_TRANSFER")
+                .transferContent(transferContent)
+                .status(PaymentClaimStatus.PENDING_VERIFY)
+                .createdAt(LocalDateTime.now())
+                .build());
     }
 
     @Override
