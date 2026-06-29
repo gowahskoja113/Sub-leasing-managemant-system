@@ -7,6 +7,7 @@ import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import java.util.List;
 public class TenantDashboardService {
 
     private final TenantContractRepository tenantContractRepository;
+    private final UserRepository userRepository;
 
     public TenantDashboardResponse getDashboard() {
         CustomUserDetails userDetails = SecurityUtils.requireCurrentUser();
@@ -87,6 +89,16 @@ public class TenantDashboardService {
                 .status(activeContract.getStatus().name())
                 .build();
 
+        String managerName = null;
+        String managerPhone = null;
+        if (property.getManagedBy() != null) {
+            User manager = userRepository.findById(property.getManagedBy()).orElse(null);
+            if (manager != null) {
+                managerName = manager.getFullName();
+                managerPhone = manager.getPhoneNumber();
+            }
+        }
+
         TenantDashboardResponse.BuildingSummary buildingSummary = TenantDashboardResponse.BuildingSummary.builder()
                 .propertyId(property.getId())
                 .name(property.getPropertyName())
@@ -97,6 +109,8 @@ public class TenantDashboardService {
                 .serviceCharge(property.getServiceFee())
                 .hostName(null) // Mocked for now, update if userRepository is injected
                 .hostPhone(null)
+                .managerName(managerName)
+                .managerPhone(managerPhone)
                 .build();
 
         // Summary is mocked because invoice/maintenance/notification are out of scope for this document
