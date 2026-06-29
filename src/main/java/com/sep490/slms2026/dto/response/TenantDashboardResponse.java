@@ -46,6 +46,8 @@ public class TenantDashboardResponse {
         private BigDecimal serviceCharge;
         private String hostName;
         private String hostPhone;
+        private String managerName;
+        private String managerPhone;
     }
 
     @Data
