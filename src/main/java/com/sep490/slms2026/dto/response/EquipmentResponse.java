@@ -27,11 +27,12 @@ public class EquipmentResponse {
     private java.time.LocalDate warrantyStartDate;
     private java.time.LocalDate warrantyEndDate;
 
-    /** ACTIVE | DISABLED — chỉ áp dụng thiết bị PURCHASED vận hành */
+    /** ACTIVE | DISABLED — áp dụng cho các thiết bị vận hành */
     private String operationalStatus;
     private boolean currentEffective;
     private Integer renovationSessionNumber;
     private String renovationVersionLabel;
     private java.time.LocalDateTime disabledAt;
+    private String disabledReason;
     private String qrCode;
 }

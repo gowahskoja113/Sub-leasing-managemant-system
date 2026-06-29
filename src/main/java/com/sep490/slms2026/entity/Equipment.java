@@ -52,6 +52,12 @@ public class Equipment implements Serializable {
     @Column(name = "disabled_at")
     private LocalDateTime disabledAt;
 
+    @Column(name = "disabled_reason")
+    private String disabledReason;
+
+    @Column(name = "disabled_by_contract_id")
+    private Long disabledByContractId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "house_area")
     private HouseArea houseArea;
