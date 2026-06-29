@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
 
@@ -81,4 +82,17 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     @Query("SELECT DISTINCT e.catalog.name FROM Equipment e WHERE e.property.id = :propertyId "
             + "AND e.operationalStatus = 'ACTIVE' ORDER BY e.catalog.name")
     List<String> findDistinctAmenityNamesByPropertyId(@Param("propertyId") Long propertyId);
+
+    Optional<Equipment> findByQrCode(String qrCode);
+
+    @Query("""
+            SELECT e FROM Equipment e
+            WHERE e.property.id = :propertyId
+              AND (:roomId IS NULL OR e.room.id = :roomId OR e.room IS NULL)
+              AND e.operationalStatus = 'ACTIVE'
+            ORDER BY e.catalog.name, e.id
+            """)
+    List<Equipment> findActiveForTenantPlacement(
+            @Param("propertyId") Long propertyId,
+            @Param("roomId") Long roomId);
 }

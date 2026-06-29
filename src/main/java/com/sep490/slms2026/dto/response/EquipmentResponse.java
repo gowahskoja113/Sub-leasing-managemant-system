@@ -33,4 +33,5 @@ public class EquipmentResponse {
     private Integer renovationSessionNumber;
     private String renovationVersionLabel;
     private java.time.LocalDateTime disabledAt;
+    private String qrCode;
 }

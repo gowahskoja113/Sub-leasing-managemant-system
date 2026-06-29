@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -112,6 +113,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .renovationSessionNumber(sessionNumber)
                 .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
                 .disabledAt(equipment.getDisabledAt())
+                .qrCode(equipment.getQrCode())
                 .build();
     }
 
@@ -178,6 +180,79 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .price(java.math.BigDecimal.ZERO) // Hoặc null nếu không có
                 .build();
 
-        return toResponse(equipmentRepository.save(equipment));
+        return toResponse(persistWithQrCode(equipment));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getEquipmentsForCurrentTenant() {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        com.sep490.slms2026.entity.TenantContract activeContract = tenantContractRepository
+                .findByTenantId(user.getId()).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng đang hiệu lực"));
+
+        Long propertyId = activeContract.getProperty().getId();
+        Long roomId = activeContract.getRoom() != null ? activeContract.getRoom().getId() : null;
+
+        return equipmentRepository.findActiveForTenantPlacement(propertyId, roomId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentByQrCode(String qrCode) {
+        Equipment equipment = equipmentRepository.findByQrCode(qrCode)
+                .orElseGet(() -> resolveEquipmentByQrFallback(qrCode));
+
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantCanAccessEquipment(user.getId(), equipment);
+        }
+        return toResponse(equipment);
+    }
+
+    private Equipment resolveEquipmentByQrFallback(String qrCode) {
+        if (qrCode != null && qrCode.toUpperCase().startsWith("EQ-")) {
+            try {
+                Long id = Long.parseLong(qrCode.substring(3));
+                return equipmentRepository.findById(id)
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "Không tìm thấy thiết bị với mã QR: " + qrCode));
+            } catch (NumberFormatException ignored) {
+                // fall through
+            }
+        }
+        throw new ResourceNotFoundException("Không tìm thấy thiết bị với mã QR: " + qrCode);
+    }
+
+    private void assertTenantCanAccessEquipment(UUID tenantUserId, Equipment equipment) {
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> {
+                    if (c.getRoom() != null) {
+                        return equipment.getProperty().getId().equals(c.getProperty().getId())
+                                && (equipment.getRoom() == null
+                                || equipment.getRoom().getId().equals(c.getRoom().getId()));
+                    }
+                    return equipment.getProperty().getId().equals(c.getProperty().getId());
+                });
+        if (!allowed) {
+            throw new BusinessException("Bạn không có quyền xem thiết bị này");
+        }
+    }
+
+    private Equipment persistWithQrCode(Equipment equipment) {
+        Equipment saved = equipmentRepository.save(equipment);
+        if (saved.getQrCode() == null) {
+            saved.setQrCode("EQ-" + saved.getId());
+            saved = equipmentRepository.save(saved);
+        }
+        return saved;
     }
 }

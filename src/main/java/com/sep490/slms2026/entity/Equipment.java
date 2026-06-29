@@ -82,4 +82,7 @@ public class Equipment implements Serializable {
     @Column(name = "recommend_replacement")
     @Builder.Default
     private Boolean recommendReplacement = false;
+
+    @Column(name = "qr_code", unique = true)
+    private String qrCode;
 }

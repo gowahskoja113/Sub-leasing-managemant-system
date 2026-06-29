@@ -132,4 +132,7 @@ public class TenantContract implements Serializable {
 
     @Column(name = "price_reject_reason", columnDefinition = "TEXT")
     private String priceRejectReason;
+
+    @Column(name = "handover_acknowledged_at")
+    private LocalDateTime handoverAcknowledgedAt;
 }

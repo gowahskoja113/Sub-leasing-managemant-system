@@ -16,4 +16,8 @@ public interface EquipmentService {
     EquipmentResponse getEquipmentById(Long equipmentId);
 
     EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request);
+
+    List<EquipmentResponse> getEquipmentsForCurrentTenant();
+
+    EquipmentResponse getEquipmentByQrCode(String qrCode);
 }

@@ -45,6 +45,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final MeterReadingRepository meterReadingRepository;
     private final TenantContractRepository tenantContractRepository;
     private final PropertyAccessService propertyAccessService;
+    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     @Override
     @Transactional
@@ -151,6 +152,10 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .recordedAt(now)
                 .recordedBy(user.getId())
                 .build());
+
+        if (contract != null) {
+            tenantBillingService.createFromUtilityInvoice(invoice, contract);
+        }
 
         UtilityInvoiceResponse response = toResponse(invoice);
         if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {

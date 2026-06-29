@@ -56,6 +56,17 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("depreciation_results", "effective_m2", "DOUBLE PRECISION");
         addColumnIfNotExists("depreciation_results", "weight", "DOUBLE PRECISION");
         ensureEquipmentRecommendReplacementColumn();
+        addColumnIfNotExists("tenant_contracts", "handover_acknowledged_at", "TIMESTAMP");
+        addColumnIfNotExists("equipments", "qr_code", "VARCHAR(64)");
+        backfillEquipmentQrCodes();
+    }
+
+    private void backfillEquipmentQrCodes() {
+        int updated = jdbcTemplate.update(
+                "UPDATE equipments SET qr_code = 'EQ-' || id WHERE qr_code IS NULL");
+        if (updated > 0) {
+            log.info("Backfilled qr_code for {} equipment rows", updated);
+        }
     }
 
     private void ensureEquipmentRecommendReplacementColumn() {
