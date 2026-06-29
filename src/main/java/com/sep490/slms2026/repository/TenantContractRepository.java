@@ -126,8 +126,6 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     boolean hasActiveWholeHouseTenant(
             @Param("propertyId") Long propertyId, @Param("asOf") LocalDate asOf);
 
-<<<<<<< Updated upstream
-=======
     @Query("""
             SELECT c FROM TenantContract c
             JOIN FETCH c.tenant t
@@ -141,5 +139,4 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     Optional<TenantContract> findByRoomIdAndStatus(Long roomId, ContractStatus status);
 
     Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
->>>>>>> Stashed changes
 }
