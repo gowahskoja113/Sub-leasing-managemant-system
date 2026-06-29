@@ -1179,6 +1179,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
         response.setRenovationCompleted(property.isRenovationCompleted());
+        response.setElectricityUnitPrice(property.getElectricityUnitPrice());
+        response.setWaterUnitPrice(property.getWaterUnitPrice());
         return response;
     }
 

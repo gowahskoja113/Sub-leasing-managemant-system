@@ -41,4 +41,7 @@ public class PropertyResponse {
 
     // true nếu BĐS còn cho thuê được
     private Boolean rentalAvailable;
+
+    private BigDecimal electricityUnitPrice;
+    private BigDecimal waterUnitPrice;
 }

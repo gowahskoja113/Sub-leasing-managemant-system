@@ -30,4 +30,5 @@ public class RoomResponse {
     private RoomStatus status;
     private String electricMeterCode;
     private String waterMeterCode;
+    private CurrentTenantResponse currentTenant;
 }

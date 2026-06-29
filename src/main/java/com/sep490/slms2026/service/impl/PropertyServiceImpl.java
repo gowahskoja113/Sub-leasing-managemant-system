@@ -241,6 +241,8 @@ public class PropertyServiceImpl implements PropertyService {
         response.setOperationManagerId(property.getOperationManagerId());
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setImageUrls(property.getImageUrls());
+        response.setElectricityUnitPrice(property.getElectricityUnitPrice());
+        response.setWaterUnitPrice(property.getWaterUnitPrice());
         return response;
     }
 }

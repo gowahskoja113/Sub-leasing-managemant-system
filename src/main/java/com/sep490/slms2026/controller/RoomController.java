@@ -58,10 +58,11 @@ public class RoomController {
 
     /**
      * PATCH /api/v1/properties/{propertyId}/rooms/{roomId}/status
-     * Cập nhật trạng thái phòng: AVAILABLE (trống) hoặc MAINTENANCE (bảo trì).
+     * Cập nhật trạng thái phòng: AVAILABLE, MAINTENANCE hoặc DISABLED.
      * Cho phép khi tòa nhà DRAFT hoặc ACTIVE. Không cho phép khi phòng đang RENTED.
      */
     @PatchMapping("/{roomId}/status")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<RoomResponse> updateRoomStatus(
             @PathVariable Long propertyId,
             @PathVariable Long roomId,
