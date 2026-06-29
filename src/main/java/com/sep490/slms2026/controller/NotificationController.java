@@ -8,8 +8,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
 
-@RestController
-@RequestMapping("/api/v1/host/notifications")
+// @RestController
+// @RequestMapping("/api/v1/host/notifications")
 @RequiredArgsConstructor
 public class NotificationController {
 

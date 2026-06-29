@@ -31,4 +31,13 @@ public interface TenantOnboardingService {
 
     /** Chủ động hỏi PayOS trạng thái đơn & đồng bộ paymentStatus (dùng cho nút "Kiểm tra" / local không có webhook). */
     TenantContractResponse syncPaymentStatus(Long contractId);
+
+    /** Lấy danh sách hợp đồng chờ xử lý của manager (lọc theo JWT), có thể filter theo priceApprovalStatus. */
+    List<TenantContractResponse> getManagedContracts(com.sep490.slms2026.enums.PriceApprovalStatus status);
+
+    /** Chỉnh giá & gửi duyệt lại đối với HĐ đang bị từ chối hoặc chờ duyệt. */
+    TenantContractResponse resubmitApproval(Long contractId, com.sep490.slms2026.dto.request.ResubmitApprovalRequest request);
+
+    /** Hủy hợp đồng đang chờ (chưa ACTIVE). */
+    void cancelContract(Long contractId);
 }

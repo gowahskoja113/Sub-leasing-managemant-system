@@ -60,4 +60,7 @@ public class OnboardTenantRequest {
     // true (mobile): tạo HĐ ở trạng thái PENDING, phải thanh toán cọc (PayOS) + OTP rồi mới confirm.
     // false (mặc định, web): tạo HĐ ACTIVE ngay, set phòng RENTED.
     private boolean requireDepositPayment;
+
+    // true: gửi HĐ cho host duyệt giá trước khi thanh toán cọc
+    private boolean requireHostPriceApproval;
 }

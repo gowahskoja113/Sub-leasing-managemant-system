@@ -34,6 +34,7 @@ public class HostPortalServiceImpl implements HostPortalService {
     private final TenantContractRepository tenantContractRepository;
     private final InboundContractRepository inboundContractRepository;
     private final UserRepository userRepository;
+    private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
 
     @Override
     @Transactional
@@ -442,6 +443,9 @@ public class HostPortalServiceImpl implements HostPortalService {
         if (status == null || status.isBlank()) {
             return tenantContractRepository.findAll(pageable).map(this::toContractDto);
         }
+        if ("PENDING".equalsIgnoreCase(status)) {
+            return tenantContractRepository.findByPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL, pageable).map(this::toContractDto);
+        }
         ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
         return tenantContractRepository.findByStatus(contractStatus, pageable).map(this::toContractDto);
     }
@@ -451,10 +455,25 @@ public class HostPortalServiceImpl implements HostPortalService {
     public HostContractDto approveContract(Long contractId) {
         TenantContract contract = tenantContractRepository.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID=" + contractId));
-        if (contract.getStatus() != ContractStatus.PENDING) {
-            throw new BusinessException("Chỉ duyệt hợp đồng ở trạng thái PENDING");
+        if (contract.getPriceApprovalStatus() != com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL) {
+            throw new BusinessException("Chỉ duyệt hợp đồng đang chờ duyệt giá");
         }
-        contract.setStatus(ContractStatus.ACTIVE);
+        contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.APPROVED_AWAITING_DEPOSIT);
+        
+        // Notification logic
+        if (contract.getProperty().getManagedBy() != null) {
+            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
+                String token = manager.getPushToken();
+                if (token != null) {
+                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
+                    pushNotificationService.sendPushNotification(token, 
+                            "Host đã duyệt giá hợp đồng " + contract.getContractCode(), 
+                            "Vui lòng tiếp tục thu cọc để hoàn tất hợp đồng.", 
+                            data);
+                }
+            });
+        }
+
         return toContractDto(tenantContractRepository.save(contract));
     }
 
@@ -463,15 +482,26 @@ public class HostPortalServiceImpl implements HostPortalService {
     public HostContractDto rejectContract(Long contractId, String reason) {
         TenantContract contract = tenantContractRepository.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID=" + contractId));
-        if (contract.getStatus() != ContractStatus.PENDING) {
-            throw new BusinessException("Chỉ từ chối hợp đồng ở trạng thái PENDING");
+        if (contract.getPriceApprovalStatus() != com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL) {
+            throw new BusinessException("Chỉ từ chối hợp đồng đang chờ duyệt giá");
         }
-        contract.setStatus(ContractStatus.TERMINATED);
-        if (contract.getRoomConditionNote() == null || contract.getRoomConditionNote().isBlank()) {
-            contract.setRoomConditionNote("Host từ chối: " + reason);
-        } else {
-            contract.setRoomConditionNote(contract.getRoomConditionNote() + " | Host từ chối: " + reason);
+        contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.PRICE_REJECTED);
+        contract.setPriceRejectReason(reason);
+        
+        // Notification logic
+        if (contract.getProperty().getManagedBy() != null) {
+            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
+                String token = manager.getPushToken();
+                if (token != null) {
+                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
+                    pushNotificationService.sendPushNotification(token, 
+                            "Host đã từ chối giá hợp đồng " + contract.getContractCode(), 
+                            "Lý do: " + reason, 
+                            data);
+                }
+            });
         }
+        
         return toContractDto(tenantContractRepository.save(contract));
     }
 
@@ -739,6 +769,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
                 .status(c.getStatus().name())
+                .equipmentSnapshot(c.getEquipmentSnapshot())
                 .build();
     }
 
