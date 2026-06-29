@@ -20,4 +20,6 @@ public interface EquipmentService {
     List<EquipmentResponse> getEquipmentsForCurrentTenant();
 
     EquipmentResponse getEquipmentByQrCode(String qrCode);
+    
+    EquipmentResponse updateEquipmentOperationalStatus(Long equipmentId, com.sep490.slms2026.dto.request.UpdateEquipmentOperationalStatusRequest request);
 }

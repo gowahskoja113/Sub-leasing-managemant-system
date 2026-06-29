@@ -113,6 +113,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .renovationSessionNumber(sessionNumber)
                 .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
                 .disabledAt(equipment.getDisabledAt())
+                .disabledReason(equipment.getDisabledReason())
                 .qrCode(equipment.getQrCode())
                 .build();
     }
@@ -254,5 +255,23 @@ public class EquipmentServiceImpl implements EquipmentService {
             saved = equipmentRepository.save(saved);
         }
         return saved;
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse updateEquipmentOperationalStatus(Long equipmentId, com.sep490.slms2026.dto.request.UpdateEquipmentOperationalStatusRequest request) {
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID: " + equipmentId));
+        
+        equipment.setOperationalStatus(request.getOperationalStatus());
+        if (request.getOperationalStatus() == com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED) {
+            equipment.setDisabledAt(java.time.LocalDateTime.now());
+            equipment.setDisabledReason(request.getReason());
+        } else {
+            equipment.setDisabledAt(null);
+            equipment.setDisabledReason(null);
+        }
+        
+        return toResponse(equipmentRepository.save(equipment));
     }
 }

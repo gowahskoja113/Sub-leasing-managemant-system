@@ -40,6 +40,8 @@ public class OnboardTenantRequest {
     private LocalDate endDate;
 
     private String equipmentSnapshot;
+    
+    private List<Long> declinedEquipmentIds;
 
     // Số tháng cọc (1 hoặc 2) — FE tính deposit = rentAmount * depositMonths
     private Integer depositMonths;

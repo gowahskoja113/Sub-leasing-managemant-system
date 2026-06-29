@@ -95,4 +95,6 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
     List<Equipment> findActiveForTenantPlacement(
             @Param("propertyId") Long propertyId,
             @Param("roomId") Long roomId);
+
+    List<Equipment> findByDisabledByContractId(Long contractId);
 }
