@@ -13,4 +13,5 @@ public class TenantLookupResponse {
     private String phoneNumber;
     private String cccd;
     private String role;   // "ROLE_USER" / "ROLE_TENANT" / null — FE dùng để hiển thị hint
+    private boolean eligible;
 }
