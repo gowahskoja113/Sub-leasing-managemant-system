@@ -32,9 +32,12 @@ public class TenantLookupController {
             return ResponseEntity.ok(TenantLookupResponse.builder().exists(false).build());
         }
 
+        boolean eligible = (user.getRole() == Role.ROLE_USER || user.getRole() == Role.ROLE_TENANT);
+
         Tenant profile = user.getTenantProfile();
         return ResponseEntity.ok(TenantLookupResponse.builder()
                 .exists(true)
+                .eligible(eligible)
                 .fullName(user.getFullName())
                 .phoneNumber(user.getPhoneNumber())
                 .cccd(profile != null ? profile.getCccd() : null)
