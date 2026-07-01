@@ -54,6 +54,9 @@ public class User {
     @Column(name = "push_token")
     private String pushToken;
 
+    @Column(name = "is_first_login", nullable = false)
+    private boolean isFirstLogin = false;
+
     // Mối quan hệ 1-1 quay ngược lại các bảng Profile
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JsonIgnore

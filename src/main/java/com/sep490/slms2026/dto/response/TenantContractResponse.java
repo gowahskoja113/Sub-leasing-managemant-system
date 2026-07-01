@@ -83,6 +83,12 @@ public class TenantContractResponse {
     private String priceApprovalStatus;
     private String priceRejectReason;
 
+    // Các field mới cho Hợp đồng nháp (DRAFT)
+    private UUID assignedManagerId;
+    private String assignedManagerName;
+    private String draftContractFileUrl;
+    private LocalDate expectedReceptionDate;
+
     public String getCode() {
         return this.contractCode;
     }

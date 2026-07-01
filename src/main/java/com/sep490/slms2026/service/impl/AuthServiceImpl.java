@@ -86,7 +86,10 @@ public class AuthServiceImpl implements AuthService {
         final String jwt = jwtUtil.generateToken(userDetails);
         String roleName = userDetails.getAuthorities().iterator().next().getAuthority();
 
-        return new AuthResponse(jwt, userDetails.getUsername(), roleName);
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
+
+        return new AuthResponse(jwt, userDetails.getUsername(), roleName, user.isFirstLogin());
     }
 
     @Override
@@ -102,6 +105,7 @@ public class AuthServiceImpl implements AuthService {
                 .email(user.getEmail())
                 .role(user.getRole().name())
                 .avatarUrl(user.getAvatarUrl())
+                .isFirstLogin(user.isFirstLogin())
                 .build();
     }
 
@@ -117,6 +121,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setFirstLogin(false);
         userRepository.save(user);
     }
 }
