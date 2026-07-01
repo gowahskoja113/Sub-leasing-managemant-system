@@ -84,6 +84,16 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             @Param("managerUserId") UUID managerUserId, 
             @Param("status") com.sep490.slms2026.enums.PriceApprovalStatus status);
 
+    @Query("""
+            SELECT c FROM TenantContract c 
+            JOIN c.property p 
+            WHERE p.managedBy = :managerUserId 
+              AND c.status = :status
+            """)
+    List<TenantContract> findManagedContractsByStatus(
+            @Param("managerUserId") UUID managerUserId, 
+            @Param("status") ContractStatus status);
+
     Page<TenantContract> findByPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus status, Pageable pageable);
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);

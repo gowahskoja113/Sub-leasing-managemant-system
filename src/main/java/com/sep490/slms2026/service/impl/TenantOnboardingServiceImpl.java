@@ -45,7 +45,7 @@ import java.util.List;
 @Slf4j
 public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
-    private static final String DEFAULT_TENANT_PASSWORD = "123456";
+    private static final String DEFAULT_TENANT_PASSWORD = "tenant123";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -347,18 +347,20 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         java.util.UUID managerUserId = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId();
         List<TenantContract> contracts;
         if (status != null && !status.isBlank()) {
-            if ("DRAFT".equalsIgnoreCase(status)) {
-                 // DRAFT không nằm trong bảng giá, manager query tạm mọi draft của mình
-                 // Cần thêm repository query nếu muốn chính xác, ở đây tạm fetch DRAFT
-                 // (hoặc lọc từ tất cả hợp đồng của properties mà manager quản lý)
-                 // Tạm bỏ qua vì yêu cầu chính là DRAFT list chung. 
-                 throw new BusinessException("Trạng thái này chưa được hỗ trợ query manager chuyên sâu");
-            }
-            try {
-                com.sep490.slms2026.enums.PriceApprovalStatus enumStatus = com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(status.toUpperCase());
-                contracts = tenantContractRepository.findManagedContractsByApprovalStatus(managerUserId, enumStatus);
-            } catch (IllegalArgumentException e) {
-                contracts = new ArrayList<>();
+            if ("DRAFT".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status)) {
+                try {
+                    ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
+                    contracts = tenantContractRepository.findManagedContractsByStatus(managerUserId, contractStatus);
+                } catch (IllegalArgumentException e) {
+                    contracts = new ArrayList<>();
+                }
+            } else {
+                try {
+                    com.sep490.slms2026.enums.PriceApprovalStatus enumStatus = com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(status.toUpperCase());
+                    contracts = tenantContractRepository.findManagedContractsByApprovalStatus(managerUserId, enumStatus);
+                } catch (IllegalArgumentException e) {
+                    contracts = new ArrayList<>();
+                }
             }
         } else {
             contracts = tenantContractRepository.findManagedContractsByApprovalStatuses(managerUserId, 
