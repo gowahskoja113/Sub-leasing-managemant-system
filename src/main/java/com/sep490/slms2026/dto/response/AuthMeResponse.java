@@ -13,4 +13,5 @@ public class AuthMeResponse {
     private String email;
     private String role;
     private String avatarUrl;
+    private boolean isFirstLogin;
 }

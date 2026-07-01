@@ -65,4 +65,10 @@ public class OnboardTenantRequest {
 
     // true: gửi HĐ cho host duyệt giá trước khi thanh toán cọc
     private boolean requireHostPriceApproval;
+
+    // Các field mới cho Hợp đồng nháp (DRAFT)
+    private boolean draft;
+    private String assignedManagerId;
+    private String draftContractFileUrl;
+    private LocalDate expectedReceptionDate;
 }

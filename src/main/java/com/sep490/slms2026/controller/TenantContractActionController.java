@@ -26,6 +26,14 @@ public class TenantContractActionController {
     private final TenantOnboardingService tenantOnboardingService;
     private final TenantContractDocumentService tenantContractDocumentService;
 
+    /** GET / — danh sách HĐ (vd list DRAFT). */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+    }
+
     /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
@@ -88,8 +96,26 @@ public class TenantContractActionController {
     @GetMapping("/managed")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<java.util.List<TenantContractResponse>> getManagedContracts(
-            @RequestParam(required = false) com.sep490.slms2026.enums.PriceApprovalStatus status) {
+            @RequestParam(required = false) String status) {
         return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+    }
+
+    /** PUT /{id} — Cập nhật thông tin hợp đồng nháp. */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> updateDraftContract(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.UpdateDraftContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.updateDraftContract(id, request));
+    }
+
+    /** PATCH /{id}/assign-manager — Gán quản lý đón khách. */
+    @PatchMapping("/{id}/assign-manager")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> assignManager(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.AssignManagerRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.assignManager(id, request));
     }
 
     /** POST /{id}/resubmit-approval — chỉnh giá & gửi duyệt lại. */
