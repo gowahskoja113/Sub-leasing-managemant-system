@@ -14,5 +14,16 @@ public interface MaintenanceService {
     MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
     MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
     MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type);
-    Page<MaintenanceRequestResponse> getRequests(Pageable pageable);
+    Page<MaintenanceRequestResponse> getRequests(
+            String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable);
+
+    MaintenanceRequestResponse createRequest(com.sep490.slms2026.dto.request.MaintenanceCreateRequest request);
+
+    Page<MaintenanceRequestResponse> getMyRequests(Pageable pageable);
+
+    MaintenanceRequestResponse getRequestById(Long id);
+
+    com.sep490.slms2026.dto.response.MaintenanceDashboardResponse getDashboardStats();
+
+    java.util.List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 }

@@ -66,9 +66,9 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     @Query("""
             SELECT c FROM TenantContract c 
             JOIN c.property p 
-            WHERE p.managedBy = :managerUserId 
+            WHERE (p.managedBy = :managerUserId OR c.assignedManager.id = :managerUserId)
               AND (c.priceApprovalStatus IN :statuses 
-                   OR (c.status = com.sep490.slms2026.enums.ContractStatus.PENDING AND c.priceApprovalStatus IS NULL))
+                   OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
             """)
     List<TenantContract> findManagedContractsByApprovalStatuses(
             @Param("managerUserId") UUID managerUserId, 

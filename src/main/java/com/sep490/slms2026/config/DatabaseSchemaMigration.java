@@ -63,6 +63,37 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureTenantPaymentClaimsTable();
         addColumnIfNotExists("tenant_invoices", "note", "TEXT");
         backfillEquipmentQrCodes();
+        ensureMaintenanceTables();
+        ensureTenantPendingChargesTable();
+    }
+
+    private void ensureTenantPendingChargesTable() {
+        createTableIfNotExists(
+                "tenant_pending_charges",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                tenant_contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                amount NUMERIC(19, 2) NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                note TEXT,
+                status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+    }
+
+    private void ensureMaintenanceTables() {
+        createTableIfNotExists(
+                "maintenance_timelines",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                maintenance_request_id BIGINT NOT NULL REFERENCES maintenance_requests(id) ON DELETE CASCADE,
+                old_status VARCHAR(50),
+                new_status VARCHAR(50) NOT NULL,
+                note TEXT,
+                changed_by UUID,
+                changed_by_name VARCHAR(255),
+                changed_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
     }
 
     private void backfillEquipmentQrCodes() {
@@ -199,10 +230,11 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                         'ACTIVE',
                         'DISABLED',
                         'MAINTENANCE',
-                        'INACTIVE'
+                        'INACTIVE',
+                        'RENTED'
                     ))
                 """);
-        log.info("Ensured properties_status_check constraint includes RENOVATION_COMPLETED");
+        log.info("Ensured properties_status_check constraint includes RENOVATION_COMPLETED and RENTED");
     }
 
     private void ensureEquipmentCatalogSchema() {
