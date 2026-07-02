@@ -16,19 +16,28 @@ public class MaintenanceRequestResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     
-    private LocalDateTime acknowledgedAt;
-    private String scheduledSlots;
-    private String confirmedSlot;
-    private String onHoldReason;
-    private ApprovalStatus approvalStatus;
-    private LocalDateTime doneAt;
-    private LocalDateTime tenantConfirmedAt;
-    private Integer reopenCount;
-    private String technicianId;
-    private CostPaidBy costPaidBy;
-    private DamageCause cause;
-    private BigDecimal repairCost;
+    private String requestCode;
+    
+    private java.util.UUID tenantId;
+    private String tenantName;
+    private String tenantPhone;
+    
+    private Long roomId;
+    private String roomName;
+    private Long propertyId;
+    private String propertyName;
+    
+    private Long equipmentId;
+    private String equipmentName;
+    
+    private java.util.UUID assignedManagerId;
+    private String assignedManagerName;
+    
+    private String scheduledDate;
+    private LocalDateTime resolvedAt;
+    private java.math.BigDecimal repairCost;
     private String resolutionNote;
-    private String beforeImageUrls;
-    private String afterImageUrls;
+    
+    private java.util.List<String> images;
+    private java.util.List<MaintenanceTimelineResponse> timeline;
 }

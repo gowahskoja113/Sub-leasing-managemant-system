@@ -88,6 +88,8 @@ public class TenantContractResponse {
     private String assignedManagerName;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
+    
+    private List<HouseholdMemberResponse> householdMembers;
 
     public String getCode() {
         return this.contractCode;

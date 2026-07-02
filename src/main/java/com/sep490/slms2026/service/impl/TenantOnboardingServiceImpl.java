@@ -435,18 +435,21 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Chỉ có thể cập nhật hợp đồng ở trạng thái nháp");
         }
         
-        contract.setRentAmount(request.getRentAmount());
-        contract.setDeposit(request.getDeposit());
-        contract.setDepositMonths(request.getDepositMonths());
-        contract.setMoveInDate(request.getMoveInDate());
-        contract.setStartDate(request.getMoveInDate());
-        contract.setEndDate(request.getEndDate());
-        contract.setEquipmentSnapshot(request.getEquipmentSnapshot());
-        contract.setInitialElectricReading(request.getInitialElectricReading());
-        contract.setInitialWaterReading(request.getInitialWaterReading());
-        contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
-        contract.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
-        contract.setRoomConditionNote(request.getRoomConditionNote());
+        if (request.getRentAmount() != null) contract.setRentAmount(request.getRentAmount());
+        if (request.getDeposit() != null) contract.setDeposit(request.getDeposit());
+        if (request.getDepositMonths() != null) contract.setDepositMonths(request.getDepositMonths());
+        if (request.getMoveInDate() != null) {
+            contract.setMoveInDate(request.getMoveInDate());
+            contract.setStartDate(request.getMoveInDate());
+        }
+        if (request.getEndDate() != null) contract.setEndDate(request.getEndDate());
+        if (request.getEquipmentSnapshot() != null) contract.setEquipmentSnapshot(request.getEquipmentSnapshot());
+        if (request.getInitialElectricReading() != null) contract.setInitialElectricReading(request.getInitialElectricReading());
+        if (request.getInitialWaterReading() != null) contract.setInitialWaterReading(request.getInitialWaterReading());
+        if (request.getElectricMeterImageUrl() != null) contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
+        if (request.getWaterMeterImageUrl() != null) contract.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
+        if (request.getRoomConditionNote() != null) contract.setRoomConditionNote(request.getRoomConditionNote());
+        if (request.getExpectedReceptionDate() != null) contract.setExpectedReceptionDate(request.getExpectedReceptionDate());
         
         if (request.getRoomConditionUrls() != null) {
             contract.setRoomConditionUrls(new ArrayList<>(request.getRoomConditionUrls()));
@@ -661,6 +664,16 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
                 .draftContractFileUrl(c.getDraftContractFileUrl())
                 .expectedReceptionDate(c.getExpectedReceptionDate())
+                .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
+                        .map(hm -> com.sep490.slms2026.dto.response.HouseholdMemberResponse.builder()
+                                .id(hm.getId())
+                                .fullName(hm.getFullName())
+                                .relation(hm.getRelation())
+                                .phone(hm.getPhone())
+                                .dateOfBirth(hm.getDateOfBirth())
+                                .cccd(hm.getCccd())
+                                .build())
+                        .collect(java.util.stream.Collectors.toList()) : null)
                 .build();
     }
 }

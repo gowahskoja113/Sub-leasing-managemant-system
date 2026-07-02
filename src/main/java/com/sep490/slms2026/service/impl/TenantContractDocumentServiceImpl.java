@@ -3,6 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.config.ContractDocumentUploadProperties;
 import com.sep490.slms2026.config.ContractLessorProperties;
 import com.sep490.slms2026.dto.response.TenantContractDocumentResponse;
+import com.sep490.slms2026.dto.response.HouseholdMemberResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.entity.HouseholdMember;
 import com.sep490.slms2026.entity.Property;
@@ -245,7 +246,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     private TenantContractResponse toContractResponse(TenantContract c) {
         Tenant tenant = c.getTenant();
-        User tenantUser = tenant.getUser();
+        User tenantUser = tenant != null ? tenant.getUser() : null;
         Room room = c.getRoom();
         Property property = c.getProperty();
 
@@ -280,10 +281,10 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .propertyId(property.getId())
                 .roomId(room != null ? room.getId() : null)
                 .roomNumber(room != null ? room.getRoomNumber() : null)
-                .tenantUserId(tenant.getId())
-                .tenantFullName(tenantUser.getFullName())
-                .tenantPhone(tenantUser.getPhoneNumber())
-                .tenantCccd(tenant.getCccd())
+                .tenantUserId(tenant != null ? tenant.getId() : null)
+                .tenantFullName(tenantUser != null ? tenantUser.getFullName() : c.getDraftTenantName())
+                .tenantPhone(tenantUser != null ? tenantUser.getPhoneNumber() : c.getDraftTenantPhone())
+                .tenantCccd(tenant != null ? tenant.getCccd() : c.getDraftTenantCccd())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
@@ -308,9 +309,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .type(type)
                 .lessorName("Ban Quản Lý") // fallback or get from property if possible
                 .lessorPhone("")
-                .lesseeName(tenantUser.getFullName())
-                .lesseeCccd(tenant.getCccd())
-                .lesseePhone(tenantUser.getPhoneNumber())
+                .lesseeName(tenantUser != null ? tenantUser.getFullName() : c.getDraftTenantName())
+                .lesseeCccd(tenant != null ? tenant.getCccd() : c.getDraftTenantCccd())
+                .lesseePhone(tenantUser != null ? tenantUser.getPhoneNumber() : c.getDraftTenantPhone())
                 .propertyName(propertyNameStr)
                 .notes(c.getRoomConditionNote())
                 .signedAt(c.getDocumentGeneratedAt() != null ? c.getDocumentGeneratedAt() : c.getPaidAt())
@@ -318,6 +319,20 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .terminationReason(null)
                 .pdfUrl(c.getDocumentUrl())
                 .equipmentList(equipmentList)
+                .draftContractFileUrl(c.getDraftContractFileUrl())
+                .expectedReceptionDate(c.getExpectedReceptionDate())
+                .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
+                .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
+                .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
+                        .map(hm -> HouseholdMemberResponse.builder()
+                                .id(hm.getId())
+                                .fullName(hm.getFullName())
+                                .relation(hm.getRelation())
+                                .phone(hm.getPhone())
+                                .dateOfBirth(hm.getDateOfBirth())
+                                .cccd(hm.getCccd())
+                                .build())
+                        .collect(Collectors.toList()) : null)
                 .build();
     }
 

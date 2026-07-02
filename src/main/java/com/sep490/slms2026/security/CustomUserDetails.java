@@ -22,6 +22,10 @@ public class CustomUserDetails implements UserDetails {
         return user.getId();
     }
 
+    public String getFullName() {
+        return user.getFullName();
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Giữ nguyên logic thêm Role của bồ, nhớ thêm "ROLE_" nếu cấu hình HasRole ở Controller yêu cầu nhé
