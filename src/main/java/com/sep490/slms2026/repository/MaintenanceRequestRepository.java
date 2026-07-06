@@ -22,12 +22,12 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'IN_PROGRESS' AND m.deleted = false")
     long countInProgress();
     
-    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'DONE' AND m.deleted = false")
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false")
     long countResolved();
     
     @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CANCELLED' AND m.deleted = false")
     long countCancelled();
     
-    @org.springframework.data.jpa.repository.Query("SELECT SUM(m.repairCost) FROM MaintenanceRequest m WHERE m.status = 'DONE' AND m.deleted = false")
+    @org.springframework.data.jpa.repository.Query("SELECT SUM(m.repairCost) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false")
     java.math.BigDecimal sumRepairCost();
 }
