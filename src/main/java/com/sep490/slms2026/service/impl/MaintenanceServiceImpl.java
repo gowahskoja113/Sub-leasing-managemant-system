@@ -43,6 +43,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final com.sep490.slms2026.repository.TenantContractRepository tenantContractRepository;
     private final com.sep490.slms2026.repository.TenantRepository tenantRepository;
     private final com.sep490.slms2026.repository.UserRepository userRepository;
+    private final com.sep490.slms2026.repository.NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
 
     @Override
@@ -110,6 +111,29 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req = repository.save(req);
         addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
         
+        // Notify manager
+        if (req.getProperty() != null && req.getProperty().getManagedBy() != null) {
+            java.util.UUID managerId = req.getProperty().getManagedBy();
+            String title = "Yêu cầu bảo trì mới";
+            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber();
+            
+            com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
+                    .userId(managerId)
+                    .title(title)
+                    .content(body)
+                    .type("MAINTENANCE")
+                    .build();
+            notificationRepository.save(notification);
+            
+            final Long requestId = req.getId();
+            userRepository.findById(managerId).ifPresent(manager -> {
+                String token = manager.getPushToken();
+                if (token != null && !token.isBlank()) {
+                    pushNotificationService.sendPushNotification(token, title, body, java.util.Map.of("requestId", requestId));
+                }
+            });
+        }
+        
         return convertToResponse(req);
     }
 
@@ -160,10 +184,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         timelineRepository.save(timeline);
         
         if (req.getTenant() != null && req.getTenant().getUser() != null) {
+            String title = "Cập nhật yêu cầu bảo trì";
+            String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
+            
+            com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
+                    .userId(req.getTenant().getUser().getId())
+                    .title(title)
+                    .content(body)
+                    .type("MAINTENANCE")
+                    .build();
+            notificationRepository.save(notification);
+            
             String token = req.getTenant().getUser().getPushToken();
             if (token != null && !token.isBlank()) {
-                String title = "Cập nhật yêu cầu bảo trì";
-                String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
                 pushNotificationService.sendPushNotification(token, title, body, java.util.Map.of("requestId", req.getId()));
             }
         }
