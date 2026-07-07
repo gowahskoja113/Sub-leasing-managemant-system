@@ -274,18 +274,20 @@ const scenarios = [
     rent: 195_000_000,
     start: '2026-08-01',
     end: '2027-07-31',
-    desc: 'Không cải tạo lớn — chỉ mua TB mới nguyên căn.',
+    desc: 'Cải tạo nhẹ — chủ yếu mua TB mới nguyên căn.',
     phase2: true,
     exploitation: 'NGUYEN_CAN',
     exploitRooms: null,
     handover: [],
-    renovations: [],
+    renovations: [
+      ['EQUIPMENT', 'Thiết bị', 2_000_000, 'Hoàn thiện lắp đặt trước bàn giao TB mới'],
+    ],
     purchasedWholeHouse: [
       ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 12_000_000, 24, '2026-09-01', '2028-08-31', ''],
       ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THEM_MOI', 1, 8_500_000, 24, '2026-09-01', '2028-08-31', ''],
       ['', 'BATHROOM', 'Máy giặt', 'NEW', 'THEM_MOI', 1, 6_200_000, 12, '2026-09-01', '2027-08-31', 'Máy giặt cửa trước'],
     ],
-    matrixNote: 'NGUYEN_CAN — không dòng cải tạo, chỉ mua TB',
+    matrixNote: 'NGUYEN_CAN — 1 hạng mục cải tạo nhẹ + mua TB',
   },
   {
     code: 'HD-WH-RENO-MINIMAL',

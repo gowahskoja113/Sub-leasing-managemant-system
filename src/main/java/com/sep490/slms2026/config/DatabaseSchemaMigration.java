@@ -65,6 +65,49 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         backfillEquipmentQrCodes();
         ensureMaintenanceTables();
         ensureTenantPendingChargesTable();
+        ensureViewingLeadTables();
+    }
+
+    private void ensureViewingLeadTables() {
+        createTableIfNotExists(
+                "property_viewing_leads",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                customer_name VARCHAR(255) NOT NULL,
+                customer_phone VARCHAR(20) NOT NULL,
+                note TEXT,
+                status VARCHAR(30) NOT NULL DEFAULT 'NEW',
+                assigned_manager_id UUID,
+                created_by UUID,
+                linked_user_id UUID,
+                preferred_viewing_at TIMESTAMP,
+                scheduled_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "viewing_lead_properties",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                lead_id BIGINT NOT NULL REFERENCES property_viewing_leads(id) ON DELETE CASCADE,
+                property_id BIGINT NOT NULL REFERENCES properties(id),
+                room_id BIGINT REFERENCES rooms(id),
+                interest_type VARCHAR(20) NOT NULL,
+                note TEXT
+                """);
+        addColumnIfNotExists("viewing_lead_properties", "interest_type", "VARCHAR(20)");
+        jdbcTemplate.update(
+                """
+                UPDATE viewing_lead_properties
+                SET interest_type = CASE WHEN room_id IS NULL THEN 'WHOLE_HOUSE' ELSE 'ROOM' END
+                WHERE interest_type IS NULL
+                """);
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE viewing_lead_properties ALTER COLUMN interest_type SET NOT NULL");
+        } catch (Exception e) {
+            log.warn("Could not enforce NOT NULL on viewing_lead_properties.interest_type: {}", e.getMessage());
+        }
     }
 
     private void ensureTenantPendingChargesTable() {
