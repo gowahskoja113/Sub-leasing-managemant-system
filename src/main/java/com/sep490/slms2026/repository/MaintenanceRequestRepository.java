@@ -111,4 +111,22 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     
     @org.springframework.data.jpa.repository.Query("SELECT SUM(m.repairCost) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false")
     java.math.BigDecimal sumRepairCost();
+
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    long countAllByManager(@Param("managerId") UUID managerId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'PENDING' AND m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    long countPendingByManager(@Param("managerId") UUID managerId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'IN_PROGRESS' AND m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    long countInProgressByManager(@Param("managerId") UUID managerId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    long countResolvedByManager(@Param("managerId") UUID managerId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CANCELLED' AND m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    long countCancelledByManager(@Param("managerId") UUID managerId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT SUM(m.repairCost) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false AND (m.property.managedBy = :managerId OR m.property.operationManagerId = :managerId)")
+    java.math.BigDecimal sumRepairCostByManager(@Param("managerId") UUID managerId);
 }

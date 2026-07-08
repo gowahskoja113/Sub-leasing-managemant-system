@@ -132,7 +132,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getProperty() != null && req.getProperty().getManagedBy() != null) {
             java.util.UUID managerId = req.getProperty().getManagedBy();
             String title = "Yêu cầu bảo trì mới";
-            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber();
+            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber() + " (#" + req.getId() + ")";
             
             com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
                     .userId(managerId)
@@ -167,6 +167,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public MaintenanceDashboardResponse getDashboardStats() {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        
+        if ("ROLE_MANAGER".equals(role)) {
+            UUID managerId = user.getId();
+            return MaintenanceDashboardResponse.builder()
+                    .total(repository.countAllByManager(managerId))
+                    .pending(repository.countPendingByManager(managerId))
+                    .inProgress(repository.countInProgressByManager(managerId))
+                    .resolved(repository.countResolvedByManager(managerId))
+                    .cancelled(repository.countCancelledByManager(managerId))
+                    .totalRepairCost(repository.sumRepairCostByManager(managerId) != null ? repository.sumRepairCostByManager(managerId) : java.math.BigDecimal.ZERO)
+                    .build();
+        }
+
         return MaintenanceDashboardResponse.builder()
                 .total(repository.countAll())
                 .pending(repository.countPending())
@@ -201,6 +216,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         timelineRepository.save(timeline);
         
         if (req.getTenant() != null && req.getTenant().getUser() != null) {
+            if (user != null && user.getId().equals(req.getTenant().getUser().getId())) {
+                return;
+            }
             String title = "Cập nhật yêu cầu bảo trì";
             String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
             
@@ -414,7 +432,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             addTimeline(req, oldStatus, MaintenanceStatus.CONFIRMED, "Khách thuê xác nhận hoàn tất");
         } else {
             req.setStatus(MaintenanceStatus.REOPENED);
-            req.setReopenCount(req.getReopenCount() + 1);
+            req.setReopenCount(req.getReopenCount() == null ? 1 : req.getReopenCount() + 1);
             addTimeline(req, oldStatus, MaintenanceStatus.REOPENED, "Khách thuê KHÔNG HÀI LÒNG, yêu cầu xử lý lại");
         }
         repository.save(req);
