@@ -14,18 +14,16 @@ public class LeaseContractImportRow {
     private String contractCode;
     private String propertyName;
     private String address;
-    private String ward;
     private String district;
     private String province;
     private Double areaSize;
+    private Double length;
+    private Double width;
     private Integer totalFloor;
     private Integer totalRooms;
     private String ownerName;
     private BigDecimal totalRentAmount;
     private LocalDate startDate;
     private LocalDate endDate;
-    private String leaseType;
-    private String hasRenovationRaw;
-    private BigDecimal hostContingencyPercent;
     private String descriptions;
 }

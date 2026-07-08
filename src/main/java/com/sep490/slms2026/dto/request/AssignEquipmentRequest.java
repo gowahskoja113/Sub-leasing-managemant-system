@@ -40,4 +40,15 @@ public class AssignEquipmentRequest {
     private BigDecimal price;
 
     private String note;
+
+    private Integer warrantyMonths;
+
+    private java.time.LocalDate warrantyStartDate;
+
+    private java.time.LocalDate warrantyEndDate;
+
+    /**
+     * THEM_MOI (mặc định) | THAY_THE — khi import Excel cải tạo.
+     */
+    private com.sep490.slms2026.enums.EquipmentImportAction importAction;
 }

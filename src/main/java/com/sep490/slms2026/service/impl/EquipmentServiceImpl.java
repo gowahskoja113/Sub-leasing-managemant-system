@@ -15,12 +15,17 @@ import com.sep490.slms2026.repository.EquipmentMaintenanceHistoryRepository;
 import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
+import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
+import com.sep490.slms2026.enums.ContractStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +35,8 @@ public class EquipmentServiceImpl implements EquipmentService {
     private final PropertyRepository propertyRepository;
     private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
     private final RoomRepository roomRepository;
+    private final TenantContractRepository tenantContractRepository;
+    private final com.sep490.slms2026.repository.EquipmentCatalogRepository equipmentCatalogRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -155,11 +162,16 @@ public class EquipmentServiceImpl implements EquipmentService {
     // ========== PRIVATE MAPPERS ==========
 
     private EquipmentResponse toResponse(Equipment equipment) {
+        Integer sessionNumber = equipment.getRenovationSession() != null
+                ? equipment.getRenovationSession().getSessionNumber() : null;
+        com.sep490.slms2026.enums.EquipmentOperationalStatus opStatus = equipment.getOperationalStatus() != null
+                ? equipment.getOperationalStatus() : com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE;
         return EquipmentResponse.builder()
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
                 .roomId(equipment.getRoom() != null ? equipment.getRoom().getId() : null)
                 .roomName(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
+                .roomNumber(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .catalogId(equipment.getCatalog().getId())
                 .catalogName(equipment.getCatalog().getName())
                 .houseArea(equipment.getHouseArea())
@@ -174,6 +186,15 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .warrantyExpiredDate(equipment.getWarrantyExpiredDate())
                 .maintenanceCount(equipment.getMaintenanceCount())
                 .lastMaintenanceDate(equipment.getLastMaintenanceDate())
+                .warrantyMonths(equipment.getWarrantyMonths())
+                .warrantyStartDate(equipment.getWarrantyStartDate())
+                .warrantyEndDate(equipment.getWarrantyEndDate())
+                .operationalStatus(opStatus.name())
+                .currentEffective(opStatus == com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
+                .renovationSessionNumber(sessionNumber)
+                .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
+                .disabledAt(equipment.getDisabledAt())
+                .disabledReason(equipment.getDisabledReason())
                 .build();
     }
 
@@ -187,5 +208,131 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .repairCost(history.getRepairCost())
                 .note(history.getNote())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request) {
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà với ID: " + propertyId));
+
+        Room room = null;
+        if (request.getRoomId() != null) {
+            room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(request.getRoomId(), propertyId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ID=" + request.getRoomId()));
+        }
+
+        com.sep490.slms2026.entity.EquipmentCatalog catalog = equipmentCatalogRepository.findFirstByNameIgnoreCaseAndActiveTrue(request.getEquipmentName())
+                .orElseGet(() -> {
+                    com.sep490.slms2026.entity.EquipmentCatalog newCatalog = com.sep490.slms2026.entity.EquipmentCatalog.builder()
+                            .name(request.getEquipmentName())
+                            .description(request.getCategory())
+                            .active(true)
+                            .build();
+                    return equipmentCatalogRepository.save(newCatalog);
+                });
+
+        Equipment equipment = Equipment.builder()
+                .property(property)
+                .room(room)
+                .catalog(catalog)
+                .source(com.sep490.slms2026.enums.EquipmentSource.ADDED_BY_TENANT)
+                .status(com.sep490.slms2026.enums.EquipmentStatus.NEW)
+                .operationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
+                .price(java.math.BigDecimal.ZERO) // Hoặc null nếu không có
+                .build();
+
+        return toResponse(persistWithQrCode(equipment));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getEquipmentsForCurrentTenant() {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        com.sep490.slms2026.entity.TenantContract activeContract = tenantContractRepository
+                .findByTenantId(user.getId()).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng đang hiệu lực"));
+
+        Long propertyId = activeContract.getProperty().getId();
+        Long roomId = activeContract.getRoom() != null ? activeContract.getRoom().getId() : null;
+
+        return equipmentRepository.findActiveForTenantPlacement(propertyId, roomId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentByQrCode(String qrCode) {
+        Equipment equipment = equipmentRepository.findByQrCode(qrCode)
+                .orElseGet(() -> resolveEquipmentByQrFallback(qrCode));
+
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantCanAccessEquipment(user.getId(), equipment);
+        }
+        return toResponse(equipment);
+    }
+
+    private Equipment resolveEquipmentByQrFallback(String qrCode) {
+        if (qrCode != null && qrCode.toUpperCase().startsWith("EQ-")) {
+            try {
+                Long id = Long.parseLong(qrCode.substring(3));
+                return equipmentRepository.findById(id)
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "Không tìm thấy thiết bị với mã QR: " + qrCode));
+            } catch (NumberFormatException ignored) {
+                // fall through
+            }
+        }
+        throw new ResourceNotFoundException("Không tìm thấy thiết bị với mã QR: " + qrCode);
+    }
+
+    private void assertTenantCanAccessEquipment(UUID tenantUserId, Equipment equipment) {
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> {
+                    if (c.getRoom() != null) {
+                        return equipment.getProperty().getId().equals(c.getProperty().getId())
+                                && (equipment.getRoom() == null
+                                || equipment.getRoom().getId().equals(c.getRoom().getId()));
+                    }
+                    return equipment.getProperty().getId().equals(c.getProperty().getId());
+                });
+        if (!allowed) {
+            throw new BusinessException("Bạn không có quyền xem thiết bị này");
+        }
+    }
+
+    private Equipment persistWithQrCode(Equipment equipment) {
+        Equipment saved = equipmentRepository.save(equipment);
+        if (saved.getQrCode() == null) {
+            saved.setQrCode("EQ-" + saved.getId());
+            saved = equipmentRepository.save(saved);
+        }
+        return saved;
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse updateEquipmentOperationalStatus(Long equipmentId, com.sep490.slms2026.dto.request.UpdateEquipmentOperationalStatusRequest request) {
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID: " + equipmentId));
+        
+        equipment.setOperationalStatus(request.getOperationalStatus());
+        if (request.getOperationalStatus() == com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED) {
+            equipment.setDisabledAt(java.time.LocalDateTime.now());
+            equipment.setDisabledReason(request.getReason());
+        } else {
+            equipment.setDisabledAt(null);
+            equipment.setDisabledReason(null);
+        }
+        
+        return toResponse(equipmentRepository.save(equipment));
     }
 }

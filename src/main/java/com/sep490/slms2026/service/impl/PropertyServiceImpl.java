@@ -1,9 +1,11 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
+import com.sep490.slms2026.dto.response.HandoverEquipmentResponse;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Zone;
+import com.sep490.slms2026.repository.HandoverEquipmentRepository;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -36,6 +38,8 @@ public class PropertyServiceImpl implements PropertyService {
     private final PropertyDeletionService propertyDeletionService;
     private final TenantContractRepository tenantContractRepository;
     private final RoomRepository roomRepository;
+    private final HandoverEquipmentRepository handoverEquipmentRepository;
+    private final RenovationSessionViewMapper renovationSessionViewMapper;
 
     @Override
     @Transactional
@@ -50,6 +54,8 @@ public class PropertyServiceImpl implements PropertyService {
             property.setCreatedBy(request.getCreatedBy());
         }
         property.setAreaSize(request.getAreaSize());
+        property.setLength(request.getLength());
+        property.setWidth(request.getWidth());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
         String shortAddress = request.getAddress().trim();
@@ -82,7 +88,24 @@ public class PropertyServiceImpl implements PropertyService {
         String zoneFullName = buildZoneFullName(property.getZone());
         String shortAddress = property.getAddress().replace(", " + zoneFullName, "");
 
-        return mapToResponse(property, shortAddress);
+        PropertyResponse response = mapToResponse(property, shortAddress);
+        response.setHandoverEquipments(handoverEquipmentRepository.findByPropertyIdOrderByIdAsc(id).stream()
+                .map(he -> HandoverEquipmentResponse.builder()
+                        .id(he.getId())
+                        .catalogId(he.getCatalog().getId())
+                        .catalogName(he.getCatalog().getName())
+                        .description(he.getDescription())
+                        .roomNumber(he.getRoomNumber())
+                        .houseArea(he.getHouseArea())
+                        .status(he.getStatus())
+                        .quantity(he.getQuantity())
+                        .note(he.getNote())
+                        .build())
+                .toList());
+        response.setActiveRenovationSession(
+                renovationSessionViewMapper.findActiveSession(id).orElse(null));
+        response.setRenovationSessions(renovationSessionViewMapper.listHistoryNewestFirst(id));
+        return response;
     }
 
     @Override
@@ -138,6 +161,8 @@ public class PropertyServiceImpl implements PropertyService {
             property.setCreatedBy(request.getCreatedBy());
         }
         property.setAreaSize(request.getAreaSize());
+        property.setLength(request.getLength());
+        property.setWidth(request.getWidth());
         property.setImageUrls(request.getImageUrls());
         property.setDescriptions(request.getDescriptions());
 
@@ -152,7 +177,7 @@ public class PropertyServiceImpl implements PropertyService {
         assertAddressAvailable(fullAddress, id);
         property.setAddress(fullAddress);
 
-        if (property.getStatus() != PropertyStatus.ACTIVE) {
+        if (property.getStatus() != PropertyStatus.ACTIVE && property.getStatus() != PropertyStatus.RENTED) {
             if (request.getTotalFloor() != null) {
                 property.setTotalFloor(request.getTotalFloor());
             }
@@ -207,6 +232,8 @@ public class PropertyServiceImpl implements PropertyService {
         response.setTotalFloor(property.getTotalFloor());
         response.setTotalRooms(property.getTotalRooms());
         response.setAreaSize(property.getAreaSize());
+        response.setLength(property.getLength());
+        response.setWidth(property.getWidth());
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());
@@ -214,6 +241,8 @@ public class PropertyServiceImpl implements PropertyService {
         response.setOperationManagerId(property.getOperationManagerId());
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setImageUrls(property.getImageUrls());
+        response.setElectricityUnitPrice(property.getElectricityUnitPrice());
+        response.setWaterUnitPrice(property.getWaterUnitPrice());
         return response;
     }
 }

@@ -18,6 +18,8 @@ public class PropertyResponse {
     private UUID zoneId;
     private String zoneName;
     private Double areaSize;
+    private Double length;
+    private Double width;
     private Boolean wholeHouse;
     private Boolean hasRenovation;
     private Integer totalFloor;
@@ -29,6 +31,17 @@ public class PropertyResponse {
     private boolean renovationCompleted;
     private List<String> imageUrls;
 
-    // true nếu BĐS còn cho thuê được (nhà nguyên căn chưa có HĐ active / nhà chia phòng còn phòng trống)
+    private List<HandoverEquipmentResponse> handoverEquipments;
+
+    /** Đợt cải tạo đang có hiệu lực (status ACTIVE), null nếu chưa có */
+    private RenovationSessionResponse activeRenovationSession;
+
+    /** Lịch sử tất cả đợt cải tạo — mới nhất trước */
+    private List<RenovationSessionResponse> renovationSessions;
+
+    // true nếu BĐS còn cho thuê được
     private Boolean rentalAvailable;
+
+    private BigDecimal electricityUnitPrice;
+    private BigDecimal waterUnitPrice;
 }

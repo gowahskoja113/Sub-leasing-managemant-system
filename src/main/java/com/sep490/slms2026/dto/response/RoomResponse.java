@@ -21,6 +21,8 @@ public class RoomResponse {
     private BigDecimal price;
     private BigDecimal deposit;
     private Double area;
+    private Double length;
+    private Double width;
     private Integer maxOccupants;
     private String structureDescription;
     private String imageUrls;
@@ -28,4 +30,5 @@ public class RoomResponse {
     private RoomStatus status;
     private String electricMeterCode;
     private String waterMeterCode;
+    private CurrentTenantResponse currentTenant;
 }

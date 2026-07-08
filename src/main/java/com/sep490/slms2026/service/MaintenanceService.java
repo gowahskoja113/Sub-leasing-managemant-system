@@ -1,8 +1,6 @@
 package com.sep490.slms2026.service;
 
-import com.sep490.slms2026.dto.request.CreateMaintenanceRequest;
-import com.sep490.slms2026.dto.request.ResolveMaintenanceRequest;
-import com.sep490.slms2026.dto.request.UpdateMaintenanceStatusRequest;
+import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
 import com.sep490.slms2026.enums.MaintenanceCategory;
@@ -16,27 +14,32 @@ import java.util.UUID;
 
 public interface MaintenanceService {
 
-    /** Tenant tạo yêu cầu bảo trì */
+    // --- Methods from feature/maintenance ---
     MaintenanceRequestResponse createRequest(CreateMaintenanceRequest dto, UUID currentUserId);
-
-    /** Tenant xem danh sách request của mình (paging, filter status) */
     Page<MaintenanceRequestResponse> getMyRequests(UUID tenantUserId, MaintenanceStatus status, Pageable pageable);
-
-    /** Xem chi tiết 1 request (phân quyền tenant/OM/admin) */
     MaintenanceRequestResponse getRequestById(Long id, UUID currentUserId);
-
-    /** OM/Admin xem tất cả request (filter nhiều field, paging) */
     Page<MaintenanceRequestResponse> getAllRequests(
             MaintenanceStatus status, MaintenancePriority priority,
             Long propertyId, Long roomId, MaintenanceCategory category,
             Pageable pageable, UUID currentUserId);
-
-    /** OM đổi trạng thái (PENDING→IN_PROGRESS, PENDING→CANCELLED, IN_PROGRESS→CANCELLED) */
     MaintenanceRequestResponse updateStatus(Long id, UpdateMaintenanceStatusRequest dto, UUID currentUserId);
-
-    /** OM hoàn tất sửa chữa */
     MaintenanceRequestResponse resolveRequest(Long id, ResolveMaintenanceRequest dto, UUID currentUserId);
-
-    /** Admin/Owner dashboard tổng hợp */
     MaintenanceDashboardResponse getDashboard(Long propertyId, LocalDateTime from, LocalDateTime to);
+
+    // --- Methods from main ---
+    MaintenanceRequestResponse acknowledge(Long id, MaintenanceAcknowledgeRequest request);
+    MaintenanceRequestResponse schedule(Long id, MaintenanceScheduleRequest request);
+    MaintenanceRequestResponse confirmSchedule(Long id, MaintenanceConfirmScheduleRequest request);
+    MaintenanceRequestResponse updateStatus(Long id, MaintenanceStatusRequest request);
+    MaintenanceRequestResponse resolve(Long id, MaintenanceResolveRequest request);
+    MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
+    MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
+    MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type);
+    Page<MaintenanceRequestResponse> getRequests(
+            String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable);
+    MaintenanceRequestResponse createRequest(com.sep490.slms2026.dto.request.MaintenanceCreateRequest request);
+    Page<MaintenanceRequestResponse> getMyRequests(Pageable pageable);
+    MaintenanceRequestResponse getRequestById(Long id);
+    com.sep490.slms2026.dto.response.MaintenanceDashboardResponse getDashboardStats();
+    java.util.List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 }

@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.response.PropertyPurgeResponse;
+import com.sep490.slms2026.entity.InboundContract;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -27,6 +28,7 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
     private final InboundContractRepository inboundContractRepository;
     private final DepreciationResultRepository depreciationResultRepository;
     private final MonthlyReadingRepository monthlyReadingRepository;
+    private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final JdbcTemplate jdbcTemplate;
 
     @Override
@@ -64,7 +66,8 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
                     "Không thể xóa căn nhà đã có chỉ số điện nước. Chỉ dùng cho dữ liệu onboarding/import sai.");
         }
 
-        String contractCode = inboundContractRepository.findContractCodeByPropertyId(propertyId)
+        String contractCode = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
+                .map(InboundContract::getContractCode)
                 .orElse(null);
 
         int equipmentsDeleted = (int) equipmentRepository.countByPropertyId(propertyId);
@@ -98,6 +101,7 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
     private void bulkDeleteDependentRecords(Long propertyId) {
         depreciationResultRepository.deleteByPropertyId(propertyId);
         equipmentRepository.deleteByPropertyId(propertyId);
+        handoverEquipmentRepository.deleteByPropertyId(propertyId);
         monthlyReadingRepository.deleteByPropertyId(propertyId);
         inboundContractRepository.deleteByPropertyId(propertyId);
         renovationLineRepository.deleteByPropertyId(propertyId);

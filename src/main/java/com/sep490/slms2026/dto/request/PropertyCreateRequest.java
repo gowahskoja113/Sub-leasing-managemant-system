@@ -15,6 +15,8 @@ public class PropertyCreateRequest {
     private UUID zoneId;
     private Boolean wholeHouse;
     private Double areaSize;
+    private Double length;
+    private Double width;
     private Integer totalFloor;
     private Integer totalRooms;
     private Long createdBy;

@@ -29,6 +29,12 @@ public class User {
     @Column(nullable = false, unique = true)
     private String phoneNumber;
 
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(nullable = false, unique = true)
     private String fullName;
 
@@ -47,6 +53,9 @@ public class User {
     // Push token (FCM / Expo) cho thông báo đẩy — chủ yếu dùng cho tenant
     @Column(name = "push_token")
     private String pushToken;
+
+    @Column(name = "is_first_login", nullable = false)
+    private boolean isFirstLogin = false;
 
     // Mối quan hệ 1-1 quay ngược lại các bảng Profile
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)

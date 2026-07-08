@@ -2,6 +2,7 @@ package com.sep490.slms2026.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.sep490.slms2026.service.PayosService;
+import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ public class PayosWebhookController {
 
     private final PayosService payosService;
     private final TenantOnboardingService tenantOnboardingService;
+    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     @PostMapping("/webhook")
     public ResponseEntity<Map<String, Object>> handleWebhook(@RequestBody JsonNode payload) {
@@ -44,7 +46,8 @@ public class PayosWebhookController {
             long orderCode = data.path("orderCode").asLong(0);
             if ("00".equals(code) && orderCode > 0) {
                 tenantOnboardingService.markDepositPaid(orderCode);
-                log.info("PayOS: đã ghi nhận thanh toán cọc orderCode={}", orderCode);
+                tenantBillingService.markInvoicePaidByPayosOrderCode(orderCode);
+                log.info("PayOS: đã ghi nhận thanh toán orderCode={}", orderCode);
             }
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {

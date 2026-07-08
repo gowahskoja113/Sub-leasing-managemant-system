@@ -69,5 +69,9 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     @Query("SELECT p.id FROM Property p WHERE p.operationManagerId = :managerId")
     List<Long> findIdsByOperationManagerId(@Param("managerId") UUID managerId);
 
+    List<Property> findByStatus(PropertyStatus status);
+
     Page<Property> findByStatusAndOperationManagerIdIsNotNull(PropertyStatus status, Pageable pageable);
+
+    Page<Property> findByStatusInAndOperationManagerIdIsNotNull(List<PropertyStatus> statuses, Pageable pageable);
 }

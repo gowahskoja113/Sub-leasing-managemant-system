@@ -31,7 +31,7 @@ public class TenantContract implements Serializable {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "tenant_user_id", nullable = false)
+    @JoinColumn(name = "tenant_user_id", nullable = true)
     private Tenant tenant;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -110,6 +110,13 @@ public class TenantContract implements Serializable {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** URL public file hợp đồng DOCX đã xuất (lưu local giống ảnh property). */
+    @Column(name = "document_url")
+    private String documentUrl;
+
+    @Column(name = "document_generated_at")
+    private LocalDateTime documentGeneratedAt;
+
     // Thành viên ở cùng
     @OneToMany(mappedBy = "tenantContract", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
@@ -118,4 +125,34 @@ public class TenantContract implements Serializable {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ContractStatus status = ContractStatus.ACTIVE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_approval_status")
+    private com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus;
+
+    @Column(name = "price_reject_reason", columnDefinition = "TEXT")
+    private String priceRejectReason;
+
+    @Column(name = "handover_acknowledged_at")
+    private LocalDateTime handoverAcknowledgedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_manager_id")
+    private User assignedManager;
+
+    @Column(name = "draft_contract_file_url", length = 512)
+    private String draftContractFileUrl;
+
+    @Column(name = "expected_reception_date")
+    private LocalDate expectedReceptionDate;
+
+    // Các field lưu tạm khi hợp đồng ở trạng thái DRAFT (chưa tạo account)
+    @Column(name = "draft_tenant_name")
+    private String draftTenantName;
+
+    @Column(name = "draft_tenant_phone")
+    private String draftTenantPhone;
+
+    @Column(name = "draft_tenant_cccd")
+    private String draftTenantCccd;
 }

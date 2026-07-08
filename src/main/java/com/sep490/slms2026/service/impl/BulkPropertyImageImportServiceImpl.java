@@ -44,6 +44,20 @@ public class BulkPropertyImageImportServiceImpl implements BulkPropertyImageImpo
         }
 
         List<ParsedZipImage> parsedImages = zipParser.parse(zipFile);
+
+        if (parsedImages.isEmpty()) {
+            return BulkImportImagesResponse.builder()
+                    .dryRun(dryRun)
+                    .contractsInZip(0)
+                    .contractsMatched(0)
+                    .contractsNotFound(0)
+                    .imagesAttached(0)
+                    .results(List.of())
+                    .warnings(List.of(
+                            "Zip không chứa ảnh hợp lệ — bỏ qua. Các căn không có ảnh giữ imageUrls = null."))
+                    .build();
+        }
+
         Map<String, List<ParsedZipImage>> imagesByContract = groupByContractCode(parsedImages);
 
         List<BulkImportImageContractResult> results = new ArrayList<>();
@@ -85,9 +99,23 @@ public class BulkPropertyImageImportServiceImpl implements BulkPropertyImageImpo
                         .propertyId(property.getId())
                         .propertyName(property.getPropertyName())
                         .imagesAttached(contractImages.size())
-                        .message("Sẽ gán " + contractImages.size() + " ảnh khi import")
+                        .message(contractImages.isEmpty()
+                                ? "Không có ảnh trong zip — giữ imageUrls null"
+                                : "Sẽ gán " + contractImages.size() + " ảnh khi import")
                         .build());
                 totalImagesAttached += contractImages.size();
+                continue;
+            }
+
+            if (contractImages.isEmpty()) {
+                results.add(BulkImportImageContractResult.builder()
+                        .status(STATUS_ATTACHED)
+                        .contractCode(contract.getContractCode())
+                        .propertyId(property.getId())
+                        .propertyName(property.getPropertyName())
+                        .imagesAttached(0)
+                        .message("Không có ảnh — giữ imageUrls null")
+                        .build());
                 continue;
             }
 

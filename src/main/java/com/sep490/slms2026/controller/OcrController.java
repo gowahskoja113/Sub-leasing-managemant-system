@@ -1,6 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.OcrMeterRequest;
+import com.sep490.slms2026.dto.response.OcrEvnBillResponse;
 import com.sep490.slms2026.dto.response.OcrMeterResponse;
 import com.sep490.slms2026.service.OcrService;
 import jakarta.validation.Valid;
@@ -24,5 +25,15 @@ public class OcrController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<OcrMeterResponse> readMeter(@Valid @RequestBody OcrMeterRequest request) {
         return ResponseEntity.ok(ocrService.readMeter(request.getImageUrl()));
+    }
+
+    /**
+     * POST /api/v1/ocr/evn-bill
+     * Nhận URL ảnh hóa đơn EVN -> trả tổng kWh, tổng tiền, kỳ thanh toán.
+     */
+    @PostMapping("/evn-bill")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<OcrEvnBillResponse> readEvnBill(@Valid @RequestBody OcrMeterRequest request) {
+        return ResponseEntity.ok(ocrService.readEvnBill(request.getImageUrl()));
     }
 }

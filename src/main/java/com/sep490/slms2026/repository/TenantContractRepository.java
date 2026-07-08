@@ -2,9 +2,16 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +25,33 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null)
     boolean existsByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
+    // Kiểm tra HĐ chồng lấn khoảng [moveInDate, endDate] cho phòng cụ thể
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM TenantContract c
+            WHERE c.room.id = :roomId
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+              AND c.moveInDate < :newEnd
+              AND (c.endDate IS NULL OR c.endDate > :newStart)
+            """)
+    boolean existsOverlappingContractByRoom(@Param("roomId") Long roomId,
+                                            @Param("newStart") LocalDate newStart,
+                                            @Param("newEnd") LocalDate newEnd);
+
+    // Kiểm tra HĐ chồng lấn khoảng [moveInDate, endDate] cho thuê nguyên căn (room IS NULL)
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NULL
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+              AND c.moveInDate < :newEnd
+              AND (c.endDate IS NULL OR c.endDate > :newStart)
+            """)
+    boolean existsOverlappingContractByProperty(@Param("propertyId") Long propertyId,
+                                                @Param("newStart") LocalDate newStart,
+                                                @Param("newEnd") LocalDate newEnd);
+
     // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
     List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
 
@@ -25,5 +59,107 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     List<TenantContract> findByTenantId(UUID tenantUserId);
 
+    List<TenantContract> findByStatus(ContractStatus status);
+
+    Page<TenantContract> findByStatus(ContractStatus status, Pageable pageable);
+
+    @Query("""
+            SELECT c FROM TenantContract c 
+            JOIN c.property p 
+            WHERE (p.managedBy = :managerUserId OR c.assignedManager.id = :managerUserId)
+              AND (c.priceApprovalStatus IN :statuses 
+                   OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
+            """)
+    List<TenantContract> findManagedContractsByApprovalStatuses(
+            @Param("managerUserId") UUID managerUserId, 
+            @Param("statuses") List<com.sep490.slms2026.enums.PriceApprovalStatus> statuses);
+
+    @Query("""
+            SELECT c FROM TenantContract c 
+            JOIN c.property p 
+            WHERE p.managedBy = :managerUserId 
+              AND c.priceApprovalStatus = :status
+            """)
+    List<TenantContract> findManagedContractsByApprovalStatus(
+            @Param("managerUserId") UUID managerUserId, 
+            @Param("status") com.sep490.slms2026.enums.PriceApprovalStatus status);
+
+    @Query("""
+            SELECT c FROM TenantContract c 
+            JOIN c.property p 
+            WHERE p.managedBy = :managerUserId 
+              AND c.status = :status
+            """)
+    List<TenantContract> findManagedContractsByStatus(
+            @Param("managerUserId") UUID managerUserId, 
+            @Param("status") ContractStatus status);
+
+    Page<TenantContract> findByPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus status, Pageable pageable);
+
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
+
+
+    @Query("""
+            SELECT COALESCE(SUM(c.rentAmount), 0)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.paymentStatus = com.sep490.slms2026.enums.PaymentStatus.PAID
+              AND c.paidAt IS NOT NULL
+              AND c.paidAt >= :monthStart
+              AND c.paidAt < :monthEnd
+            """)
+    BigDecimal sumPaidRentByPropertyAndMonth(
+            @Param("propertyId") Long propertyId,
+            @Param("monthStart") LocalDateTime monthStart,
+            @Param("monthEnd") LocalDateTime monthEnd);
+
+    @Query("""
+            SELECT COUNT(DISTINCT c.room.id)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NOT NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.moveInDate <= :asOf
+              AND (c.endDate IS NULL OR c.endDate >= :asOf)
+            """)
+    long countOccupiedRooms(@Param("propertyId") Long propertyId, @Param("asOf") LocalDate asOf);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+              AND c.moveInDate <= :asOf
+              AND (c.endDate IS NULL OR c.endDate >= :asOf)
+            """)
+    boolean hasActiveWholeHouseTenant(
+            @Param("propertyId") Long propertyId, @Param("asOf") LocalDate asOf);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.tenant t
+            JOIN FETCH t.user
+            LEFT JOIN FETCH c.room
+            WHERE c.property.id = :propertyId
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+            """)
+    List<TenantContract> findActiveWithTenantByPropertyId(@Param("propertyId") Long propertyId);
+
+    Optional<TenantContract> findByRoomIdAndStatus(Long roomId, ContractStatus status);
+
+    Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            WHERE (:propertyId IS NULL OR c.property.id = :propertyId)
+              AND (:contractStatus IS NULL OR c.status = :contractStatus)
+              AND (:priceApprovalStatus IS NULL OR c.priceApprovalStatus = :priceApprovalStatus)
+            """)
+    Page<TenantContract> findHostContracts(
+            @Param("propertyId") Long propertyId,
+            @Param("contractStatus") ContractStatus contractStatus,
+            @Param("priceApprovalStatus") com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus,
+            Pageable pageable);
 }

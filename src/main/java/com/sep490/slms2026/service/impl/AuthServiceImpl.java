@@ -1,6 +1,8 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.AuthRequest;
+import com.sep490.slms2026.dto.request.ChangePasswordRequest;
+import com.sep490.slms2026.dto.response.AuthMeResponse;
 import com.sep490.slms2026.dto.response.AuthResponse;
 import com.sep490.slms2026.entity.Admin;
 import com.sep490.slms2026.entity.OperationManagement;
@@ -84,6 +86,42 @@ public class AuthServiceImpl implements AuthService {
         final String jwt = jwtUtil.generateToken(userDetails);
         String roleName = userDetails.getAuthorities().iterator().next().getAuthority();
 
-        return new AuthResponse(jwt, userDetails.getUsername(), roleName);
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
+
+        return new AuthResponse(jwt, userDetails.getUsername(), roleName, user.isFirstLogin());
+    }
+
+    @Override
+    public AuthMeResponse getMe() {
+        com.sep490.slms2026.security.CustomUserDetails userDetails = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        User user = userRepository.findById(userDetails.getId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+        return AuthMeResponse.builder()
+                .id(user.getId().toString())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .phone(user.getPhoneNumber())
+                .email(user.getEmail())
+                .role(user.getRole().name())
+                .avatarUrl(user.getAvatarUrl())
+                .isFirstLogin(user.isFirstLogin())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        com.sep490.slms2026.security.CustomUserDetails userDetails = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        User user = userRepository.findById(userDetails.getId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new com.sep490.slms2026.exception.BusinessException("Mật khẩu cũ không đúng");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setFirstLogin(false);
+        userRepository.save(user);
     }
 }

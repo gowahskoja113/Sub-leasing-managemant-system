@@ -24,6 +24,23 @@ spring:
       max-request-size: 210MB
 
 app:
+  cors:
+    allowed-origin-patterns:
+      - http://localhost:*
+      - http://127.0.0.1:*
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
+    exposed-headers:
+      - Authorization
+    allow-credentials: true
+    max-age-seconds: 3600
   qr:
     base-url: https://localhost:8080/maintenance/scan
   upload:

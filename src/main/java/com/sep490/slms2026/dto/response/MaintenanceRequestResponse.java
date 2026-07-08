@@ -1,12 +1,12 @@
 package com.sep490.slms2026.dto.response;
 
-import com.sep490.slms2026.enums.MaintenanceCategory;
-import com.sep490.slms2026.enums.MaintenancePriority;
-import com.sep490.slms2026.enums.MaintenanceStatus;
+import com.sep490.slms2026.enums.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Flat DTO theo contract section 3 — MaintenanceRequestResponse.
@@ -17,49 +17,46 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Data
 public class MaintenanceRequestResponse {
 
     private Long id;
-    private String requestCode;
-    private MaintenanceStatus status;
-    private MaintenanceCategory category;
-    private MaintenancePriority priority;
+    private String title;
     private String description;
-
-    // Tenant info
-    private Long tenantId;
+    private String category;
+    private String priority;
+    private MaintenanceStatus status;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    
+    private String requestCode;
+    
+    private UUID tenantId;
     private String tenantName;
     private String tenantPhone;
 
-    // Room & Property
     private Long roomId;
     private String roomName;
     private Long propertyId;
     private String propertyName;
-
-    // Equipment (nullable)
+    
     private Long equipmentId;
     private String equipmentName;
-
-    // Assigned Manager (nullable)
-    private Long assignedManagerId;
+    
+    private UUID assignedManagerId;
     private String assignedManagerName;
-
-    // Resolution fields (nullable)
-    private LocalDateTime scheduledDate;
-    private Long repairCost;
-    private String resolutionNote;
+    
+    private String scheduledDate;
     private LocalDateTime resolvedAt;
-
-    // Images
+    private BigDecimal repairCost;
+    private String resolutionNote;
+    
     private List<String> images;
+    
+    // Main's timeline
+    private List<MaintenanceTimelineResponse> timeline;
 
-    // Audit timeline
-    private List<TimelineEntry> timeline;
-
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
-
+    // Timeline entry class from feature/maintenance (kept for compatibility)
     @Getter
     @Setter
     @NoArgsConstructor

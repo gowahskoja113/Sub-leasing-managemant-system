@@ -3,44 +3,497 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.CreateMaintenanceRequest;
 import com.sep490.slms2026.dto.request.ResolveMaintenanceRequest;
 import com.sep490.slms2026.dto.request.UpdateMaintenanceStatusRequest;
+import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
+import com.sep490.slms2026.dto.response.MaintenanceTimelineResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.*;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.MaintenanceService;
+import com.sep490.slms2026.service.PushNotificationService;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.criteria.Predicate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @RequiredArgsConstructor
 public class MaintenanceServiceImpl implements MaintenanceService {
 
-    private final MaintenanceRequestRepository requestRepository;
+    // Main dependencies
+    private final MaintenanceRequestRepository repository;
+    private final MaintenanceTimelineRepository timelineRepository;
+    private final TenantPendingChargeRepository tenantPendingChargeRepository;
+    private final com.sep490.slms2026.service.PropertyImageStorage imageStorage;
+    private final RoomRepository roomRepository;
+    private final EquipmentRepository equipmentRepository;
+    private final ExpenseRepository expenseRepository;
+    private final PropertyRepository propertyRepository;
+    private final TenantContractRepository tenantContractRepository;
+    private final TenantRepository tenantRepository;
+    private final UserRepository userRepository;
+    private final NotificationRepository notificationRepository;
+    private final PushNotificationService pushNotificationService;
+
+    // HEAD dependencies
     private final MaintenanceHistoryRepository historyRepository;
     private final MaintenanceImageRepository imageRepository;
-    private final EquipmentRepository equipmentRepository;
     private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
-    private final RoomRepository roomRepository;
-    private final PropertyRepository propertyRepository;
-    private final UserRepository userRepository;
 
-    // Simple counter for request code — in production use DB sequence
     private static final AtomicLong CODE_COUNTER = new AtomicLong(1);
 
-    // ========== CREATE ==========
+    // ==========================================
+    // METHODS FROM MAIN BRANCH
+    // ==========================================
+
+    @Override
+    public Page<MaintenanceRequestResponse> getRequests(
+            String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable) {
+            
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+
+        Specification<MaintenanceRequest> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.isFalse(root.get("deleted")));
+
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), MaintenanceStatus.valueOf(status.toUpperCase())));
+            }
+            if (priority != null && !priority.isBlank()) {
+                predicates.add(cb.equal(root.get("priority"), priority));
+            }
+            if (category != null && !category.isBlank()) {
+                predicates.add(cb.equal(root.get("category"), category));
+            }
+            if (propertyId != null) {
+                predicates.add(cb.equal(root.join("property").get("id"), propertyId));
+            }
+            if (roomId != null) {
+                predicates.add(cb.equal(root.join("room").get("id"), roomId));
+            }
+
+            if ("ROLE_TENANT".equals(role)) {
+                predicates.add(cb.equal(root.join("tenant").join("user").get("id"), user.getId()));
+            } else if ("ROLE_MANAGER".equals(role)) {
+                Predicate managedBy = cb.equal(root.join("property").get("managedBy"), user.getId());
+                Predicate opManager = cb.equal(root.join("property").get("operationManagerId"), user.getId());
+                predicates.add(cb.or(managedBy, opManager));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::convertToResponse);
+    }
+
+    @Override
+    public MaintenanceRequestResponse createRequest(com.sep490.slms2026.dto.request.MaintenanceCreateRequest request) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        com.sep490.slms2026.entity.Tenant tenant = tenantRepository.findById(user.getId())
+                .orElseThrow(() -> new com.sep490.slms2026.exception.ResourceNotFoundException("Không tìm thấy tenant"));
+                
+        com.sep490.slms2026.entity.Room room = roomRepository.findById(request.getRoomId())
+                .orElseThrow(() -> new com.sep490.slms2026.exception.ResourceNotFoundException("Phòng không tồn tại"));
+
+        MaintenanceRequest req = MaintenanceRequest.builder()
+                .tenant(tenant)
+                .property(room.getProperty())
+                .room(room)
+                .title(request.getDescription())
+                .description(request.getDescription())
+                .category(request.getCategory())
+                .priority(request.getPriority())
+                .equipmentId(request.getEquipmentId())
+                .beforeImageUrls(request.getImages() != null ? String.join(",", request.getImages()) : null)
+                .status(MaintenanceStatus.PENDING)
+                .build();
+                
+        req = repository.save(req);
+        addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
+        
+        // Notify manager
+        if (req.getProperty() != null && req.getProperty().getManagedBy() != null) {
+            java.util.UUID managerId = req.getProperty().getManagedBy();
+            String title = "Yêu cầu bảo trì mới";
+            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber();
+            
+            com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
+                    .userId(managerId)
+                    .title(title)
+                    .content(body)
+                    .type("MAINTENANCE")
+                    .build();
+            notificationRepository.save(notification);
+            
+            final Long requestId = req.getId();
+            userRepository.findById(managerId).ifPresent(manager -> {
+                String token = manager.getPushToken();
+                if (token != null && !token.isBlank()) {
+                    pushNotificationService.sendPushNotification(token, title, body, java.util.Map.of("requestId", requestId));
+                }
+            });
+        }
+        
+        return convertToResponse(req);
+    }
+
+    @Override
+    public Page<MaintenanceRequestResponse> getMyRequests(Pageable pageable) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        return repository.findByTenantIdAndDeletedFalse(user.getId(), pageable).map(this::convertToResponse);
+    }
+
+    @Override
+    public MaintenanceRequestResponse getRequestById(Long id) {
+        return convertToResponse(repository.findById(id).orElseThrow(() -> new com.sep490.slms2026.exception.ResourceNotFoundException("Không tìm thấy request")));
+    }
+
+    @Override
+    public MaintenanceDashboardResponse getDashboardStats() {
+        return MaintenanceDashboardResponse.builder()
+                .total(repository.countAll())
+                .pending(repository.countPending())
+                .inProgress(repository.countInProgress())
+                .resolved(repository.countResolved())
+                .cancelled(repository.countCancelled())
+                .totalRepairCost(repository.sumRepairCost() != null ? repository.sumRepairCost() : java.math.BigDecimal.ZERO)
+                .build();
+    }
+
+    @Override
+    public List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId) {
+        return repository.findByEquipmentIdAndDeletedFalseOrderByCreatedAtDesc(equipmentId)
+                .stream().map(this::convertToResponse).collect(Collectors.toList());
+    }
+
+    private void addTimeline(MaintenanceRequest req, MaintenanceStatus oldStatus, MaintenanceStatus newStatus, String note) {
+        CustomUserDetails user = null;
+        try {
+            user = SecurityUtils.requireCurrentUser();
+        } catch (Exception e) {
+            // Ignore for system automated actions
+        }
+        MaintenanceTimeline timeline = MaintenanceTimeline.builder()
+                .maintenanceRequest(req)
+                .oldStatus(oldStatus)
+                .newStatus(newStatus)
+                .note(note)
+                .changedBy(user != null ? user.getId() : null)
+                .changedByName(user != null ? user.getFullName() : "System")
+                .build();
+        timelineRepository.save(timeline);
+        
+        if (req.getTenant() != null && req.getTenant().getUser() != null) {
+            String title = "Cập nhật yêu cầu bảo trì";
+            String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
+            
+            com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
+                    .userId(req.getTenant().getUser().getId())
+                    .title(title)
+                    .content(body)
+                    .type("MAINTENANCE")
+                    .build();
+            notificationRepository.save(notification);
+            
+            String token = req.getTenant().getUser().getPushToken();
+            if (token != null && !token.isBlank()) {
+                pushNotificationService.sendPushNotification(token, title, body, java.util.Map.of("requestId", req.getId()));
+            }
+        }
+    }
+
+    @Override
+    public MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        java.util.List<String> newUrls = new java.util.ArrayList<>();
+        String prefix = "MAINT-" + id;
+        
+        for (org.springframework.web.multipart.MultipartFile file : files) {
+            try {
+                String url = imageStorage.store(prefix, file.getOriginalFilename(), file.getBytes());
+                newUrls.add(url);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to upload photo", e);
+            }
+        }
+        
+        if (!newUrls.isEmpty()) {
+            if ("BEFORE".equalsIgnoreCase(type)) {
+                String existing = req.getBeforeImageUrls();
+                req.setBeforeImageUrls(existing == null || existing.isEmpty() ? String.join(",", newUrls) : existing + "," + String.join(",", newUrls));
+            } else if ("AFTER".equalsIgnoreCase(type)) {
+                String existing = req.getAfterImageUrls();
+                req.setAfterImageUrls(existing == null || existing.isEmpty() ? String.join(",", newUrls) : existing + "," + String.join(",", newUrls));
+            } else {
+                throw new IllegalArgumentException("Type must be BEFORE or AFTER");
+            }
+            repository.save(req);
+        }
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse acknowledge(Long id, MaintenanceAcknowledgeRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        req.setStatus(MaintenanceStatus.ACKNOWLEDGED);
+        req.setAcknowledgedAt(LocalDateTime.now());
+        req.setTechnicianId(request.getTechnicianId());
+        repository.save(req);
+        addTimeline(req, oldStatus, MaintenanceStatus.ACKNOWLEDGED, "Tiếp nhận yêu cầu, phân công: " + request.getTechnicianId());
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse schedule(Long id, MaintenanceScheduleRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        req.setStatus(MaintenanceStatus.SCHEDULED);
+        req.setScheduledSlots(String.join(",", request.getScheduledSlots()));
+        repository.save(req);
+        addTimeline(req, oldStatus, MaintenanceStatus.SCHEDULED, "Đề xuất lịch sửa chữa");
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse confirmSchedule(Long id, MaintenanceConfirmScheduleRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        req.setConfirmedSlot(request.getSlot());
+        repository.save(req);
+        addTimeline(req, oldStatus, req.getStatus(), "Khách chọn lịch: " + request.getSlot());
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse updateStatus(Long id, MaintenanceStatusRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        req.setStatus(request.getStatus());
+        req.setOnHoldReason(request.getOnHoldReason());
+        
+        if (request.getStatus() == MaintenanceStatus.IN_PROGRESS) {
+            if (req.getBeforeImageUrls() == null || req.getBeforeImageUrls().isEmpty()) {
+                throw new com.sep490.slms2026.exception.BusinessException("Bắt buộc phải có ảnh trước sửa chữa để đổi trạng thái Đang xử lý");
+            }
+            if (req.getRoom() != null) {
+                req.getRoom().setStatus(com.sep490.slms2026.enums.RoomStatus.MAINTENANCE);
+                roomRepository.save(req.getRoom());
+            }
+        } else if (request.getStatus() == MaintenanceStatus.CANCELLED) {
+            CustomUserDetails user = SecurityUtils.requireCurrentUser();
+            String roleName = user.getAuthorities().iterator().next().getAuthority();
+            if ("ROLE_TENANT".equals(roleName)) {
+                throw new org.springframework.security.access.AccessDeniedException("Tenant không có quyền hủy yêu cầu");
+            }
+            if (req.getRoom() != null) {
+                boolean hasActiveContract = tenantContractRepository.existsByRoomIdAndStatus(req.getRoom().getId(), com.sep490.slms2026.enums.ContractStatus.ACTIVE);
+                req.getRoom().setStatus(hasActiveContract ? com.sep490.slms2026.enums.RoomStatus.RENTED : com.sep490.slms2026.enums.RoomStatus.AVAILABLE);
+                roomRepository.save(req.getRoom());
+            }
+        }
+        
+        repository.save(req);
+        addTimeline(req, oldStatus, request.getStatus(), request.getOnHoldReason() != null ? request.getOnHoldReason() : "Cập nhật trạng thái");
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse resolve(Long id, MaintenanceResolveRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        
+        if (req.getAfterImageUrls() == null || req.getAfterImageUrls().isEmpty()) {
+            throw new com.sep490.slms2026.exception.BusinessException("Bắt buộc phải có ảnh sau sửa chữa để hoàn tất");
+        }
+        
+        MaintenanceStatus oldStatus = req.getStatus();
+        req.setRepairCost(request.getRepairCost());
+        req.setCostPaidBy(request.getCostPaidBy());
+        req.setCause(request.getCause());
+        req.setResolutionNote(request.getResolutionNote());
+        req.setEquipmentId(request.getEquipmentId());
+        
+        // thresholds
+        if (request.getRepairCost() != null && request.getRepairCost().doubleValue() > 2000000) {
+            req.setStatus(MaintenanceStatus.PENDING_APPROVAL);
+        } else {
+            req.setStatus(MaintenanceStatus.DONE);
+            req.setDoneAt(LocalDateTime.now());
+        }
+        
+        if (request.getEquipmentId() != null) {
+            equipmentRepository.findById(request.getEquipmentId()).ifPresent(eq -> {
+                // If repair cost > 1 million or cause is severe, recommend replacement
+                if (request.getRepairCost() != null && request.getRepairCost().doubleValue() > 1000000) {
+                    eq.setRecommendReplacement(true);
+                    equipmentRepository.save(eq);
+                }
+            });
+        }
+        
+        repository.save(req);
+        addTimeline(req, oldStatus, req.getStatus(), "Giải quyết yêu cầu: " + request.getResolutionNote());
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        if (request.isApprove()) {
+            req.setStatus(MaintenanceStatus.DONE);
+            req.setDoneAt(LocalDateTime.now());
+            addTimeline(req, oldStatus, MaintenanceStatus.DONE, "Chủ nhà phê duyệt chi phí > 2tr");
+        } else {
+            req.setStatus(MaintenanceStatus.IN_PROGRESS);
+            addTimeline(req, oldStatus, MaintenanceStatus.IN_PROGRESS, "Chủ nhà TỪ CHỐI chi phí");
+        }
+        repository.save(req);
+        return convertToResponse(req);
+    }
+
+    @Override
+    public MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request) {
+        MaintenanceRequest req = repository.findById(id).orElseThrow();
+        MaintenanceStatus oldStatus = req.getStatus();
+        if (request.isAccept()) {
+            req.setStatus(MaintenanceStatus.CONFIRMED);
+            req.setTenantConfirmedAt(LocalDateTime.now());
+            
+            // Auto Expense creation for Host
+            if (req.getCostPaidBy() == com.sep490.slms2026.enums.CostPaidBy.HOST && req.getRepairCost() != null) {
+                com.sep490.slms2026.entity.Expense expense = new com.sep490.slms2026.entity.Expense();
+                expense.setProperty(req.getProperty());
+                expense.setCategory(com.sep490.slms2026.enums.ExpenseCategory.MAINTENANCE);
+                expense.setAmount(req.getRepairCost());
+                expense.setMonth(java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")));
+                expense.setNote("Chi phí bảo trì ticket #" + req.getId() + ": " + req.getTitle());
+                expense.setCreatedBy("SYSTEM");
+                expenseRepository.save(expense);
+            } else if (req.getCostPaidBy() == com.sep490.slms2026.enums.CostPaidBy.TENANT && req.getRepairCost() != null) {
+                com.sep490.slms2026.entity.TenantContract activeContract = tenantContractRepository
+                        .findByRoomIdAndStatus(req.getRoom().getId(), com.sep490.slms2026.enums.ContractStatus.ACTIVE)
+                        .orElse(null);
+                
+                if (activeContract != null) {
+                    TenantPendingCharge charge = TenantPendingCharge.builder()
+                            .tenantContract(activeContract)
+                            .amount(req.getRepairCost())
+                            .category("MAINTENANCE")
+                            .note("Chi phí bảo trì ticket #" + req.getId() + ": " + req.getTitle())
+                            .status("PENDING")
+                            .build();
+                    tenantPendingChargeRepository.save(charge);
+                }
+            }
+            
+            // Revert room status
+            if (req.getRoom() != null) {
+                boolean hasActiveContract = tenantContractRepository.existsByRoomIdAndStatus(req.getRoom().getId(), com.sep490.slms2026.enums.ContractStatus.ACTIVE);
+                req.getRoom().setStatus(hasActiveContract ? com.sep490.slms2026.enums.RoomStatus.RENTED : com.sep490.slms2026.enums.RoomStatus.AVAILABLE);
+                roomRepository.save(req.getRoom());
+            }
+            
+            addTimeline(req, oldStatus, MaintenanceStatus.CONFIRMED, "Khách thuê xác nhận hoàn tất");
+        } else {
+            req.setStatus(MaintenanceStatus.REOPENED);
+            req.setReopenCount(req.getReopenCount() + 1);
+            addTimeline(req, oldStatus, MaintenanceStatus.REOPENED, "Khách thuê KHÔNG HÀI LÒNG, yêu cầu xử lý lại");
+        }
+        repository.save(req);
+        return convertToResponse(req);
+    }
+
+    private MaintenanceRequestResponse convertToResponse(MaintenanceRequest req) {
+        MaintenanceRequestResponse res = new MaintenanceRequestResponse();
+        res.setId(req.getId());
+        res.setRequestCode("M-" + req.getId());
+        res.setTitle(req.getTitle());
+        res.setStatus(req.getStatus());
+        res.setCategory(req.getCategory());
+        res.setPriority(req.getPriority());
+        res.setDescription(req.getDescription());
+        
+        if (req.getTenant() != null && req.getTenant().getUser() != null) {
+            res.setTenantId(req.getTenant().getUser().getId());
+            res.setTenantName(req.getTenant().getUser().getFullName());
+            res.setTenantPhone(req.getTenant().getUser().getPhoneNumber());
+        }
+        
+        if (req.getRoom() != null) {
+            res.setRoomId(req.getRoom().getId());
+            res.setRoomName(req.getRoom().getRoomNumber());
+        }
+        
+        if (req.getProperty() != null) {
+            res.setPropertyId(req.getProperty().getId());
+            res.setPropertyName(req.getProperty().getPropertyName());
+        }
+        
+        if (req.getEquipmentId() != null) {
+            equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
+                res.setEquipmentId(eq.getId());
+                res.setEquipmentName(eq.getCatalog() != null ? eq.getCatalog().getName() : null);
+            });
+        }
+        
+        if (req.getProperty() != null && req.getProperty().getManagedBy() != null) {
+            res.setAssignedManagerId(req.getProperty().getManagedBy());
+            userRepository.findById(req.getProperty().getManagedBy()).ifPresent(manager -> {
+                res.setAssignedManagerName(manager.getFullName());
+            });
+        }
+        
+        res.setScheduledDate(req.getConfirmedSlot() != null ? req.getConfirmedSlot() : req.getScheduledSlots());
+        res.setResolvedAt(req.getDoneAt());
+        res.setRepairCost(req.getRepairCost());
+        res.setResolutionNote(req.getResolutionNote());
+        
+        List<String> images = new ArrayList<>();
+        if (req.getBeforeImageUrls() != null && !req.getBeforeImageUrls().isBlank()) {
+            images.addAll(List.of(req.getBeforeImageUrls().split(",")));
+        }
+        if (req.getAfterImageUrls() != null && !req.getAfterImageUrls().isBlank()) {
+            images.addAll(List.of(req.getAfterImageUrls().split(",")));
+        }
+        res.setImages(images);
+        
+        List<MaintenanceTimeline> timelines = timelineRepository.findByMaintenanceRequestIdOrderByChangedAtAsc(req.getId());
+        res.setTimeline(timelines.stream().map(t -> MaintenanceTimelineResponse.builder()
+                .oldStatus(t.getOldStatus() != null ? t.getOldStatus().name() : null)
+                .newStatus(t.getNewStatus() != null ? t.getNewStatus().name() : null)
+                .note(t.getNote())
+                .changedBy(t.getChangedBy() != null ? t.getChangedBy().toString() : null)
+                .changedByName(t.getChangedByName())
+                .changedAt(t.getChangedAt())
+                .build()).collect(Collectors.toList()));
+                
+        res.setCreatedAt(req.getCreatedAt());
+        res.setUpdatedAt(req.getUpdatedAt());
+        
+        return res;
+    }
+
+    // ==========================================
+    // METHODS FROM FEATURE/MAINTENANCE BRANCH
+    // ==========================================
 
     @Override
     @Transactional
@@ -61,17 +514,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         MaintenanceRequest request = MaintenanceRequest.builder()
                 .requestCode(generateRequestCode())
-                .tenant(tenant)
+                // In main branch, tenant is Tenant entity, so we wrap User
+                .tenant(tenantRepository.findById(tenant.getId()).orElse(null))
                 .room(room)
                 .property(property)
                 .equipment(equipment)
-                .category(dto.getCategory())
-                .priority(dto.getPriority())
+                .category(dto.getCategory() != null ? dto.getCategory().name() : null)
+                .priority(dto.getPriority() != null ? dto.getPriority().name() : null)
                 .description(dto.getDescription())
                 .status(MaintenanceStatus.PENDING)
                 .build();
 
-        request = requestRepository.save(request);
+        request = repository.save(request);
 
         // Save images
         if (dto.getImages() != null && !dto.getImages().isEmpty()) {
@@ -90,29 +544,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return toResponse(request);
     }
 
-    // ========== TENANT: MY REQUESTS ==========
-
     @Override
     @Transactional(readOnly = true)
     public Page<MaintenanceRequestResponse> getMyRequests(UUID tenantUserId,
                                                            MaintenanceStatus status,
                                                            Pageable pageable) {
-        return requestRepository.findByTenantIdAndOptionalStatus(tenantUserId, status, pageable)
+        return repository.findByTenantIdAndOptionalStatus(tenantUserId, status, pageable)
                 .map(this::toResponse);
     }
-
-    // ========== GET BY ID ==========
 
     @Override
     @Transactional(readOnly = true)
     public MaintenanceRequestResponse getRequestById(Long id, UUID currentUserId) {
         MaintenanceRequest request = findRequestById(id);
-        // Security: tenant chỉ xem request của mình
-        // (OM/Admin sẽ được check ở controller level bằng @PreAuthorize)
         return toResponse(request);
     }
-
-    // ========== MANAGER/ADMIN: GET ALL ==========
 
     @Override
     @Transactional(readOnly = true)
@@ -124,22 +570,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         User user = findUserById(currentUserId);
 
         if (user.getRole() == Role.ROLE_MANAGER) {
-            // OM chỉ xem request thuộc property mình phụ trách
             List<Long> managedPropertyIds = propertyRepository.findIdsByOperationManagerId(currentUserId);
             if (managedPropertyIds.isEmpty()) {
                 return Page.empty(pageable);
             }
-            return requestRepository.findByPropertyIdInWithFilters(
+            return repository.findByPropertyIdInWithFilters(
                     managedPropertyIds, status, priority, propertyId, roomId, category, pageable)
                     .map(this::toResponse);
         }
 
-        // Admin/Owner: xem toàn hệ thống
-        return requestRepository.findAllWithFilters(status, priority, propertyId, roomId, category, pageable)
+        return repository.findAllWithFilters(status, priority, propertyId, roomId, category, pageable)
                 .map(this::toResponse);
     }
-
-    // ========== UPDATE STATUS ==========
 
     @Override
     @Transactional
@@ -149,30 +591,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceStatus oldStatus = request.getStatus();
         MaintenanceStatus newStatus = dto.getStatus();
 
-        // Validate transitions theo contract
         validateStatusTransition(oldStatus, newStatus);
-
         request.setStatus(newStatus);
 
-        // Tự set assignedManager khi rời PENDING
         if (oldStatus == MaintenanceStatus.PENDING && request.getAssignedManager() == null) {
             request.setAssignedManager(manager);
         }
 
-        // Set scheduled date nếu có
         if (dto.getScheduledDate() != null) {
             request.setScheduledDate(dto.getScheduledDate());
         }
 
-        requestRepository.save(request);
-
-        // Ghi maintenance_history
+        repository.save(request);
         saveHistory(request, oldStatus, newStatus, manager, dto.getNote());
-
         return toResponse(request);
     }
-
-    // ========== RESOLVE ==========
 
     @Override
     @Transactional
@@ -186,23 +619,20 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         MaintenanceStatus oldStatus = request.getStatus();
 
-        // 1. status=RESOLVED, resolved_at=now, lưu repair_cost, resolution_note
         request.setStatus(MaintenanceStatus.RESOLVED);
         request.setResolvedAt(LocalDateTime.now());
-        request.setRepairCost(dto.getRepairCost());
+        // Map Long to BigDecimal
+        request.setRepairCost(dto.getRepairCost() != null ? java.math.BigDecimal.valueOf(dto.getRepairCost()) : null);
         request.setResolutionNote(dto.getResolutionNote());
 
-        // Ensure assigned manager is set
         if (request.getAssignedManager() == null) {
             request.setAssignedManager(manager);
         }
 
-        requestRepository.save(request);
+        repository.save(request);
 
-        // 2. Ghi maintenance_history
         saveHistory(request, oldStatus, MaintenanceStatus.RESOLVED, manager, dto.getResolutionNote());
 
-        // 3. Nếu có equipment_id: ghi equipment_maintenance_history, maintenance_count++, status=GOOD
         if (request.getEquipment() != null) {
             Equipment equipment = request.getEquipment();
 
@@ -221,31 +651,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             equipmentRepository.save(equipment);
         }
 
-        // 4. Tạo expense MAINTENANCE — placeholder (uncomment khi có ExpenseService)
-        // if (dto.getRepairCost() != null && dto.getRepairCost() > 0) {
-        //     expenseService.createExpense("MAINTENANCE", request.getProperty().getId(),
-        //             request.getRoom().getId(), request.getId(), dto.getRepairCost(),
-        //             "Chi phí sửa chữa " + request.getRequestCode());
-        // }
-
-        // 5. Push notification REQUEST_RESOLVED cho tenant — placeholder
-        // notificationService.send(NotificationEvent.REQUEST_RESOLVED, request.getTenant().getId(),
-        //         "maintenance", request.getId());
-
         return toResponse(request);
     }
-
-    // ========== DASHBOARD ==========
 
     @Override
     @Transactional(readOnly = true)
     public MaintenanceDashboardResponse getDashboard(Long propertyId, LocalDateTime from, LocalDateTime to) {
-        long total = requestRepository.countWithFilters(propertyId, from, to);
-        long pending = requestRepository.countByStatusWithFilters(MaintenanceStatus.PENDING, propertyId, from, to);
-        long inProgress = requestRepository.countByStatusWithFilters(MaintenanceStatus.IN_PROGRESS, propertyId, from, to);
-        long resolved = requestRepository.countByStatusWithFilters(MaintenanceStatus.RESOLVED, propertyId, from, to);
-        long cancelled = requestRepository.countByStatusWithFilters(MaintenanceStatus.CANCELLED, propertyId, from, to);
-        long totalRepairCost = requestRepository.sumRepairCostWithFilters(propertyId, from, to);
+        long total = repository.countWithFilters(propertyId, from, to);
+        long pending = repository.countByStatusWithFilters(MaintenanceStatus.PENDING, propertyId, from, to);
+        long inProgress = repository.countByStatusWithFilters(MaintenanceStatus.IN_PROGRESS, propertyId, from, to);
+        long resolved = repository.countByStatusWithFilters(MaintenanceStatus.RESOLVED, propertyId, from, to);
+        long cancelled = repository.countByStatusWithFilters(MaintenanceStatus.CANCELLED, propertyId, from, to);
+        long totalRepairCostLong = repository.sumRepairCostWithFilters(propertyId, from, to);
 
         return MaintenanceDashboardResponse.builder()
                 .total(total)
@@ -253,11 +670,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .inProgress(inProgress)
                 .resolved(resolved)
                 .cancelled(cancelled)
-                .totalRepairCost(totalRepairCost)
+                .totalRepairCost(java.math.BigDecimal.valueOf(totalRepairCostLong))
                 .build();
     }
-
-    // ========== PRIVATE HELPERS ==========
 
     private void validateStatusTransition(MaintenanceStatus from, MaintenanceStatus to) {
         boolean valid = switch (from) {
@@ -290,7 +705,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private MaintenanceRequest findRequestById(Long id) {
-        return requestRepository.findById(id)
+        return repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy yêu cầu bảo trì ID=" + id));
     }
@@ -301,80 +716,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                         "Không tìm thấy người dùng ID=" + userId));
     }
 
-    /**
-     * Map entity → flat DTO theo contract section 3.
-     * Includes tenant/room/property/equipment names + timeline.
-     */
     private MaintenanceRequestResponse toResponse(MaintenanceRequest request) {
-        // Images
-        List<String> imageUrls = request.getImages() != null
-                ? request.getImages().stream().map(MaintenanceImage::getImageUrl).toList()
-                : List.of();
-
-        // Timeline (audit)
-        List<MaintenanceHistory> histories =
-                historyRepository.findByMaintenanceRequestIdOrderByChangedAtAsc(request.getId());
-        List<MaintenanceRequestResponse.TimelineEntry> timeline = histories.stream()
-                .map(h -> MaintenanceRequestResponse.TimelineEntry.builder()
-                        .oldStatus(h.getOldStatus())
-                        .newStatus(h.getNewStatus())
-                        .note(h.getNote())
-                        .changedBy(h.getChangedByUser() != null ? Long.valueOf(h.getChangedByUser().getId().hashCode()) : null)
-                        .changedByName(h.getChangedByUser() != null ? h.getChangedByUser().getFullName() : null)
-                        .changedAt(h.getChangedAt())
-                        .build())
-                .toList();
-
-        MaintenanceRequestResponse.MaintenanceRequestResponseBuilder builder = MaintenanceRequestResponse.builder()
-                .id(request.getId())
-                .requestCode(request.getRequestCode())
-                .status(request.getStatus())
-                .category(request.getCategory())
-                .priority(request.getPriority())
-                .description(request.getDescription())
-                .scheduledDate(request.getScheduledDate())
-                .repairCost(request.getRepairCost())
-                .resolutionNote(request.getResolutionNote())
-                .resolvedAt(request.getResolvedAt())
-                .images(imageUrls)
-                .timeline(timeline)
-                .createdAt(request.getCreatedAt())
-                .updatedAt(request.getUpdatedAt());
-
-        // Tenant info
-        if (request.getTenant() != null) {
-            builder.tenantId(Long.valueOf(request.getTenant().getId().hashCode()))
-                    .tenantName(request.getTenant().getFullName())
-                    .tenantPhone(request.getTenant().getPhoneNumber());
-        }
-
-        // Room info
-        if (request.getRoom() != null) {
-            builder.roomId(request.getRoom().getId())
-                    .roomName(request.getRoom().getRoomNumber());
-        }
-
-        // Property info
-        if (request.getProperty() != null) {
-            builder.propertyId(request.getProperty().getId())
-                    .propertyName(request.getProperty().getPropertyName());
-        }
-
-        // Equipment info
-        if (request.getEquipment() != null) {
-            Equipment eq = request.getEquipment();
-            builder.equipmentId(eq.getId())
-                    .equipmentName(eq.getEquipmentName() != null
-                            ? eq.getEquipmentName()
-                            : eq.getCatalog().getName());
-        }
-
-        // Assigned manager info
-        if (request.getAssignedManager() != null) {
-            builder.assignedManagerId(Long.valueOf(request.getAssignedManager().getId().hashCode()))
-                    .assignedManagerName(request.getAssignedManager().getFullName());
-        }
-
-        return builder.build();
+        // We use the convertToResponse from main to unify the DTO mapping
+        return convertToResponse(request);
     }
 }

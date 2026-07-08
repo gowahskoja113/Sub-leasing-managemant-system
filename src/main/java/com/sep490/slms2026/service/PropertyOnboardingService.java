@@ -15,6 +15,10 @@ public interface PropertyOnboardingService {
 
     List<EquipmentManifestResponse> saveEquipmentManifest(Long propertyId, SaveEquipmentManifestRequest request);
 
+    /** Bổ sung manifest TB mua mới — không xóa manifest hiện có (dùng cho cải tạo lần 2+). */
+    List<EquipmentManifestResponse> appendPurchasedEquipmentManifest(Long propertyId,
+                                                                     SaveEquipmentManifestRequest request);
+
     List<EquipmentManifestResponse> getEquipmentManifest(Long propertyId);
 
     EquipmentResponse assignEquipment(Long propertyId, AssignEquipmentRequest request);
@@ -54,6 +58,14 @@ public interface PropertyOnboardingService {
     EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request);
 
     List<RenovationCategoryResponse> listRenovationCategories();
+
+    List<HandoverEquipmentResponse> getHandoverEquipments(Long propertyId);
+
+    /**
+     * Thiết bị mua mới (PURCHASED) — dùng khi import cải tạo / cải tạo bổ sung.
+     * {@code sessionNumber} tùy chọn: lọc theo phiên cải tạo (v2, v3…); bỏ trống = tất cả PURCHASED của nhà.
+     */
+    List<EquipmentResponse> getPurchasedEquipments(Long propertyId, Integer sessionNumber);
 
     PropertyPurgeResponse purgeProperty(Long propertyId);
 }

@@ -19,6 +19,7 @@ public class EquipmentResponse {
     private Long propertyId;
     private Long roomId;
     private String roomName;
+    private String roomNumber;
     private Long catalogId;
     private String catalogName;
     private HouseArea houseArea;
@@ -27,12 +28,25 @@ public class EquipmentResponse {
     private java.math.BigDecimal price;
     private String note;
 
-    // New fields per contract
+    // New fields per contract (maintenance)
     private String equipmentName;
     private String category;
-    private String qrCode;
     private LocalDate installationDate;
     private LocalDate warrantyExpiredDate;
     private int maintenanceCount;
     private LocalDateTime lastMaintenanceDate;
+
+    // Fields from main
+    private Integer warrantyMonths;
+    private java.time.LocalDate warrantyStartDate;
+    private java.time.LocalDate warrantyEndDate;
+
+    /** ACTIVE | DISABLED — áp dụng cho các thiết bị vận hành */
+    private String operationalStatus;
+    private boolean currentEffective;
+    private Integer renovationSessionNumber;
+    private String renovationVersionLabel;
+    private java.time.LocalDateTime disabledAt;
+    private String disabledReason;
+    private String qrCode;
 }

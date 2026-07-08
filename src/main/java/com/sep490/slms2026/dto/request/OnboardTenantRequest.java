@@ -36,10 +36,12 @@ public class OnboardTenantRequest {
     @DecimalMin(value = "0.0", inclusive = true, message = "Tiền cọc không hợp lệ")
     private BigDecimal deposit;
 
-    // Optional
+    @NotNull(message = "Thiếu ngày kết thúc hợp đồng")
     private LocalDate endDate;
 
     private String equipmentSnapshot;
+    
+    private List<Long> declinedEquipmentIds;
 
     // Số tháng cọc (1 hoặc 2) — FE tính deposit = rentAmount * depositMonths
     private Integer depositMonths;
@@ -60,4 +62,13 @@ public class OnboardTenantRequest {
     // true (mobile): tạo HĐ ở trạng thái PENDING, phải thanh toán cọc (PayOS) + OTP rồi mới confirm.
     // false (mặc định, web): tạo HĐ ACTIVE ngay, set phòng RENTED.
     private boolean requireDepositPayment;
+
+    // true: gửi HĐ cho host duyệt giá trước khi thanh toán cọc
+    private boolean requireHostPriceApproval;
+
+    // Các field mới cho Hợp đồng nháp (DRAFT)
+    private boolean draft;
+    private String assignedManagerId;
+    private String draftContractFileUrl;
+    private LocalDate expectedReceptionDate;
 }

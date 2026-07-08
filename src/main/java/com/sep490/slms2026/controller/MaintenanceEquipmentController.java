@@ -24,15 +24,15 @@ public class MaintenanceEquipmentController {
 
     private final EquipmentService equipmentService;
 
-    /** GET /api/v1/equipment/{id} — chi tiết 1 thiết bị */
-    @GetMapping("/{id}")
+    /** GET /api/v1/equipment/{id}/feature — chi tiết 1 thiết bị */
+    @GetMapping("/{id}/feature")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER')")
     public ResponseEntity<EquipmentResponse> getEquipmentById(@PathVariable Long id) {
         return ResponseEntity.ok(equipmentService.getEquipmentById(id));
     }
 
-    /** PUT /api/v1/equipment/{id} — sửa thông tin thiết bị */
-    @PutMapping("/{id}")
+    /** PUT /api/v1/equipment/{id}/feature — sửa thông tin thiết bị */
+    @PutMapping("/{id}/feature")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<EquipmentResponse> updateEquipment(
             @PathVariable Long id,
@@ -40,8 +40,8 @@ public class MaintenanceEquipmentController {
         return ResponseEntity.ok(equipmentService.updateEquipment(id, dto));
     }
 
-    /** PATCH /api/v1/equipment/{id}/status — đổi lifecycle (GOOD/MAINTENANCE/BROKEN/DISPOSED) */
-    @PatchMapping("/{id}/status")
+    /** PATCH /api/v1/equipment/{id}/status-feature — đổi lifecycle (GOOD/MAINTENANCE/BROKEN/DISPOSED) */
+    @PatchMapping("/{id}/status-feature")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<EquipmentResponse> updateEquipmentStatus(
             @PathVariable Long id,
@@ -50,16 +50,16 @@ public class MaintenanceEquipmentController {
         return ResponseEntity.ok(equipmentService.updateEquipmentStatus(id, status));
     }
 
-    /** GET /api/v1/equipment?roomId= — thiết bị theo phòng (cho OM mobile) */
-    @GetMapping
+    /** GET /api/v1/equipment/feature?roomId= — thiết bị theo phòng (cho OM mobile) */
+    @GetMapping("/feature")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER')")
     public ResponseEntity<List<EquipmentResponse>> getEquipmentsByRoom(
             @RequestParam Long roomId) {
         return ResponseEntity.ok(equipmentService.getEquipmentsByRoom(roomId));
     }
 
-    /** GET /api/v1/equipment/{id}/maintenance-history — lịch sử bảo trì thiết bị */
-    @GetMapping("/{id}/maintenance-history")
+    /** GET /api/v1/equipment/{id}/maintenance-history-feature — lịch sử bảo trì thiết bị */
+    @GetMapping("/{id}/maintenance-history-feature")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER')")
     public ResponseEntity<List<EquipmentMaintenanceHistoryResponse>> getEquipmentMaintenanceHistory(
             @PathVariable Long id) {

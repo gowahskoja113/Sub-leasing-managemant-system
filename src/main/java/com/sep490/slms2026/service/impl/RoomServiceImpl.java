@@ -3,10 +3,13 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.AddRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
+import com.sep490.slms2026.dto.response.CurrentTenantResponse;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
+import com.sep490.slms2026.entity.TenantContract;
+import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -15,6 +18,7 @@ import com.sep490.slms2026.mapper.RoomMapper;
 import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
+import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -31,6 +37,7 @@ public class RoomServiceImpl implements RoomService {
     private final RoomRepository roomRepository;
     private final PropertyRepository propertyRepository;
     private final EquipmentRepository equipmentRepository;
+    private final TenantContractRepository tenantContractRepository;
     private final RoomMapper roomMapper;
 
     @Override
@@ -89,10 +96,31 @@ public class RoomServiceImpl implements RoomService {
                     "Không tìm thấy tòa nhà với ID: " + propertyId);
         }
 
+        Map<Long, TenantContract> activeContractsByRoom = tenantContractRepository
+                .findActiveWithTenantByPropertyId(propertyId)
+                .stream()
+                .filter(contract -> contract.getRoom() != null)
+                .collect(Collectors.toMap(
+                        contract -> contract.getRoom().getId(),
+                        contract -> contract,
+                        (left, right) -> left));
+
         return roomRepository.findByPropertyIdWithProperty(propertyId)
                 .stream()
-                .map(roomMapper::toResponse)
+                .map(room -> enrichRoomResponse(room, activeContractsByRoom.get(room.getId())))
                 .toList();
+    }
+
+    private RoomResponse enrichRoomResponse(Room room, TenantContract activeContract) {
+        RoomResponse response = roomMapper.toResponse(room);
+        if (room.getStatus() == RoomStatus.RENTED && activeContract != null
+                && activeContract.getStatus() == ContractStatus.ACTIVE) {
+            response.setCurrentTenant(CurrentTenantResponse.builder()
+                    .fullName(activeContract.getTenant().getUser().getFullName())
+                    .phone(activeContract.getTenant().getUser().getPhoneNumber())
+                    .build());
+        }
+        return response;
     }
 
     @Override
@@ -135,9 +163,15 @@ public class RoomServiceImpl implements RoomService {
         }
 
         RoomStatus newStatus = request.getStatus();
-        if (newStatus != RoomStatus.AVAILABLE && newStatus != RoomStatus.MAINTENANCE) {
+        if (newStatus != RoomStatus.AVAILABLE
+                && newStatus != RoomStatus.MAINTENANCE
+                && newStatus != RoomStatus.DISABLED) {
             throw new BusinessException(
-                    "Chỉ cho phép cập nhật trạng thái AVAILABLE hoặc MAINTENANCE");
+                    "Chỉ cho phép cập nhật trạng thái AVAILABLE, MAINTENANCE hoặc DISABLED");
+        }
+        if (!isAllowedStatusTransition(room.getStatus(), newStatus)) {
+            throw new BusinessException(
+                    "Không thể chuyển trạng thái từ " + room.getStatus() + " sang " + newStatus);
         }
 
         room.setStatus(newStatus);
@@ -230,5 +264,17 @@ public class RoomServiceImpl implements RoomService {
                     "Số tầng của phòng (" + floor + ") vượt quá tổng số tầng của tòa nhà ("
                             + property.getTotalFloor() + ")");
         }
+    }
+
+    private boolean isAllowedStatusTransition(RoomStatus current, RoomStatus target) {
+        if (current == target) {
+            return true;
+        }
+        return switch (current) {
+            case AVAILABLE -> target == RoomStatus.MAINTENANCE || target == RoomStatus.DISABLED;
+            case MAINTENANCE -> target == RoomStatus.AVAILABLE || target == RoomStatus.DISABLED;
+            case DISABLED -> target == RoomStatus.AVAILABLE || target == RoomStatus.MAINTENANCE;
+            default -> false;
+        };
     }
 }

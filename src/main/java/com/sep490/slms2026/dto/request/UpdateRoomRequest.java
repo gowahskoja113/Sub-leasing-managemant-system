@@ -29,6 +29,14 @@ public class UpdateRoomRequest {
     @DecimalMin(value = "0.0", inclusive = false, message = "Diện tích phải lớn hơn 0")
     private Double area;
 
+    @NotNull(message = "Chiều dài không được để trống")
+    @DecimalMin(value = "0.0", inclusive = false, message = "Chiều dài phải lớn hơn 0")
+    private Double length;
+
+    @NotNull(message = "Chiều rộng không được để trống")
+    @DecimalMin(value = "0.0", inclusive = false, message = "Chiều rộng phải lớn hơn 0")
+    private Double width;
+
     @Min(value = 1, message = "Số người ở tối đa phải ít nhất là 1")
     private Integer maxOccupants;
 

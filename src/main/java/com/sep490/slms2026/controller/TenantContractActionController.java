@@ -1,8 +1,12 @@
 package com.sep490.slms2026.controller;
 
-import com.sep490.slms2026.dto.request.ConfirmContractRequest;
+import com.sep490.slms2026.dto.response.TenantContractDocumentResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.dto.request.ConfirmContractRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 /**
- * Các thao tác trên hợp đồng thuê theo ID (thanh toán cọc, xác nhận, xem trạng thái).
+ * Các thao tác trên hợp đồng thuê theo ID (thanh toán cọc, xác nhận, xuất file, xem trạng thái).
  */
 @RestController
 @RequestMapping("/api/v1/tenant-contracts")
@@ -20,12 +24,41 @@ import java.util.Map;
 public class TenantContractActionController {
 
     private final TenantOnboardingService tenantOnboardingService;
+    private final TenantContractDocumentService tenantContractDocumentService;
 
-    /** GET /{id} — xem chi tiết/trạng thái HĐ (mobile poll trạng thái thanh toán). */
-    @GetMapping("/{id}")
+    /** GET / — danh sách HĐ (vd list DRAFT). */
+    @GetMapping
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+    }
+
+    /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<TenantContractResponse> get(@PathVariable Long id) {
-        return ResponseEntity.ok(tenantOnboardingService.getContract(id));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        return ResponseEntity.ok(tenantContractDocumentService.getContractForUser(
+                id, user.getId(), role));
+    }
+
+    /** POST /{id}/document — xuất DOCX, lưu storage, trả URL (manager/admin). */
+    @PostMapping("/{id}/document")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractDocumentResponse> generateDocument(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantContractDocumentService.generateAndStore(id));
+    }
+
+    /** GET /{id}/document — lấy URL file đã lưu (manager hoặc khách thuê). */
+    @GetMapping("/{id}/document")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        tenantContractDocumentService.getContractForUser(id, user.getId(), role);
+        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id));
     }
 
     /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc qua PayOS. */
@@ -57,5 +90,48 @@ public class TenantContractActionController {
             @PathVariable Long id,
             @Valid @RequestBody ConfirmContractRequest request) {
         return ResponseEntity.ok(tenantOnboardingService.confirmContract(id, request.getOtp()));
+    }
+
+    /** GET /managed — danh sách hợp đồng chờ xử lý của manager. */
+    @GetMapping("/managed")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<java.util.List<TenantContractResponse>> getManagedContracts(
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+    }
+
+    /** PUT /{id} — Cập nhật thông tin hợp đồng nháp. */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> updateDraftContract(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.UpdateDraftContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.updateDraftContract(id, request));
+    }
+
+    /** PATCH /{id}/assign-manager — Gán quản lý đón khách. */
+    @PatchMapping("/{id}/assign-manager")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> assignManager(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.AssignManagerRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.assignManager(id, request));
+    }
+
+    /** POST /{id}/resubmit-approval — chỉnh giá & gửi duyệt lại. */
+    @PostMapping("/{id}/resubmit-approval")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> resubmitApproval(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ResubmitApprovalRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.resubmitApproval(id, request));
+    }
+
+    /** POST /{id}/cancel — hủy hợp đồng đang chờ. */
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> cancelContract(@PathVariable Long id) {
+        tenantOnboardingService.cancelContract(id);
+        return ResponseEntity.ok().build();
     }
 }

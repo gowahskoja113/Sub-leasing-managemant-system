@@ -7,6 +7,7 @@ import com.sep490.slms2026.enums.MaintenanceStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceRequest, Long> {
+public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceRequest, Long>, JpaSpecificationExecutor<MaintenanceRequest> {
 
     // --- Tenant: chỉ request của chính mình ---
     @Query("SELECT r FROM MaintenanceRequest r WHERE r.tenant.id = :tenantId " +
@@ -86,4 +87,28 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
             @Param("propertyId") Long propertyId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to);
+
+    Page<MaintenanceRequest> findByTenantIdAndDeletedFalse(java.util.UUID tenantId, Pageable pageable);
+    
+    Page<MaintenanceRequest> findByDeletedFalse(Pageable pageable);
+    
+    java.util.List<MaintenanceRequest> findByEquipmentIdAndDeletedFalseOrderByCreatedAtDesc(Long equipmentId);
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.deleted = false")
+    long countAll();
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'PENDING' AND m.deleted = false")
+    long countPending();
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'IN_PROGRESS' AND m.deleted = false")
+    long countInProgress();
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false")
+    long countResolved();
+    
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CANCELLED' AND m.deleted = false")
+    long countCancelled();
+    
+    @org.springframework.data.jpa.repository.Query("SELECT SUM(m.repairCost) FROM MaintenanceRequest m WHERE m.status IN ('DONE', 'CONFIRMED') AND m.deleted = false")
+    java.math.BigDecimal sumRepairCost();
 }
