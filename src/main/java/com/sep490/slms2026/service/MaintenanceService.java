@@ -1,11 +1,20 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.*;
+import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
+import com.sep490.slms2026.enums.MaintenanceCategory;
+import com.sep490.slms2026.enums.MaintenancePriority;
+import com.sep490.slms2026.enums.MaintenanceStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 public interface MaintenanceService {
+
+    // --- Methods from main ---
     MaintenanceRequestResponse acknowledge(Long id, MaintenanceAcknowledgeRequest request);
     MaintenanceRequestResponse schedule(Long id, MaintenanceScheduleRequest request);
     MaintenanceRequestResponse confirmSchedule(Long id, MaintenanceConfirmScheduleRequest request);
@@ -16,14 +25,9 @@ public interface MaintenanceService {
     MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type);
     Page<MaintenanceRequestResponse> getRequests(
             String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable);
-
     MaintenanceRequestResponse createRequest(com.sep490.slms2026.dto.request.MaintenanceCreateRequest request);
-
     Page<MaintenanceRequestResponse> getMyRequests(Pageable pageable);
-
     MaintenanceRequestResponse getRequestById(Long id);
-
     com.sep490.slms2026.dto.response.MaintenanceDashboardResponse getDashboardStats();
-
     java.util.List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 }

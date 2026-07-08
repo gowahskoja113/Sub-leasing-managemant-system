@@ -1,12 +1,25 @@
 package com.sep490.slms2026.dto.response;
 
 import com.sep490.slms2026.enums.*;
-import lombok.Data;
+import lombok.*;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 
+/**
+ * Flat DTO theo contract section 3 — MaintenanceRequestResponse.
+ * Dùng chung cho cả list (Page) và detail.
+ */
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 @Data
 public class MaintenanceRequestResponse {
+
     private Long id;
     private String title;
     private String description;
@@ -18,10 +31,10 @@ public class MaintenanceRequestResponse {
     
     private String requestCode;
     
-    private java.util.UUID tenantId;
+    private UUID tenantId;
     private String tenantName;
     private String tenantPhone;
-    
+
     private Long roomId;
     private String roomName;
     private Long propertyId;
@@ -30,14 +43,31 @@ public class MaintenanceRequestResponse {
     private Long equipmentId;
     private String equipmentName;
     
-    private java.util.UUID assignedManagerId;
+    private UUID assignedManagerId;
     private String assignedManagerName;
     
     private String scheduledDate;
     private LocalDateTime resolvedAt;
-    private java.math.BigDecimal repairCost;
+    private BigDecimal repairCost;
     private String resolutionNote;
     
-    private java.util.List<String> images;
-    private java.util.List<MaintenanceTimelineResponse> timeline;
+    private List<String> images;
+    
+    // Main's timeline
+    private List<MaintenanceTimelineResponse> timeline;
+
+    // Timeline entry class from feature/maintenance (kept for compatibility)
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class TimelineEntry {
+        private MaintenanceStatus oldStatus;
+        private MaintenanceStatus newStatus;
+        private String note;
+        private Long changedBy;
+        private String changedByName;
+        private LocalDateTime changedAt;
+    }
 }

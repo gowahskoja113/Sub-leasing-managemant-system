@@ -9,6 +9,7 @@ public enum MaintenanceStatus {
     PENDING_APPROVAL,
     DONE,
     CONFIRMED,
+    RESOLVED,
     REOPENED,
     CANCELLED
 }

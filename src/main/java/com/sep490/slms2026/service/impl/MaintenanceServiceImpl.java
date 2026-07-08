@@ -1,16 +1,14 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.*;
+import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
 import com.sep490.slms2026.dto.response.MaintenanceTimelineResponse;
-import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
-import com.sep490.slms2026.entity.MaintenanceRequest;
-import com.sep490.slms2026.entity.MaintenanceTimeline;
-import com.sep490.slms2026.entity.TenantPendingCharge;
-import com.sep490.slms2026.enums.MaintenanceStatus;
-import com.sep490.slms2026.repository.MaintenanceRequestRepository;
-import com.sep490.slms2026.repository.MaintenanceTimelineRepository;
-import com.sep490.slms2026.repository.TenantPendingChargeRepository;
+import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.*;
+import com.sep490.slms2026.exception.BusinessException;
+import com.sep490.slms2026.exception.ResourceNotFoundException;
+import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.PushNotificationService;
 import com.sep490.slms2026.security.CustomUserDetails;
@@ -20,31 +18,40 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.criteria.Predicate;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @RequiredArgsConstructor
 public class MaintenanceServiceImpl implements MaintenanceService {
 
+    // Main dependencies
     private final MaintenanceRequestRepository repository;
     private final MaintenanceTimelineRepository timelineRepository;
     private final TenantPendingChargeRepository tenantPendingChargeRepository;
     private final com.sep490.slms2026.service.PropertyImageStorage imageStorage;
-    private final com.sep490.slms2026.repository.RoomRepository roomRepository;
-    private final com.sep490.slms2026.repository.EquipmentRepository equipmentRepository;
-    private final com.sep490.slms2026.repository.ExpenseRepository expenseRepository;
-    private final com.sep490.slms2026.repository.PropertyRepository propertyRepository;
-    private final com.sep490.slms2026.repository.TenantContractRepository tenantContractRepository;
-    private final com.sep490.slms2026.repository.TenantRepository tenantRepository;
-    private final com.sep490.slms2026.repository.UserRepository userRepository;
-    private final com.sep490.slms2026.repository.NotificationRepository notificationRepository;
+    private final RoomRepository roomRepository;
+    private final EquipmentRepository equipmentRepository;
+    private final ExpenseRepository expenseRepository;
+    private final PropertyRepository propertyRepository;
+    private final TenantContractRepository tenantContractRepository;
+    private final TenantRepository tenantRepository;
+    private final UserRepository userRepository;
+    private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+
+    // ==========================================
+    // METHODS FROM MAIN BRANCH
+    // ==========================================
 
     @Override
     public Page<MaintenanceRequestResponse> getRequests(
@@ -115,7 +122,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getProperty() != null && req.getProperty().getManagedBy() != null) {
             java.util.UUID managerId = req.getProperty().getManagedBy();
             String title = "Yêu cầu bảo trì mới";
-            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber();
+            String body = "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng " + req.getRoom().getRoomNumber() + " (#" + req.getId() + ")";
             
             com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
                     .userId(managerId)
@@ -150,6 +157,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public MaintenanceDashboardResponse getDashboardStats() {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        
+        if ("ROLE_MANAGER".equals(role)) {
+            UUID managerId = user.getId();
+            return MaintenanceDashboardResponse.builder()
+                    .total(repository.countAllByManager(managerId))
+                    .pending(repository.countPendingByManager(managerId))
+                    .inProgress(repository.countInProgressByManager(managerId))
+                    .resolved(repository.countResolvedByManager(managerId))
+                    .cancelled(repository.countCancelledByManager(managerId))
+                    .totalRepairCost(repository.sumRepairCostByManager(managerId) != null ? repository.sumRepairCostByManager(managerId) : java.math.BigDecimal.ZERO)
+                    .build();
+        }
+
         return MaintenanceDashboardResponse.builder()
                 .total(repository.countAll())
                 .pending(repository.countPending())
@@ -184,6 +206,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         timelineRepository.save(timeline);
         
         if (req.getTenant() != null && req.getTenant().getUser() != null) {
+            if (user != null && user.getId().equals(req.getTenant().getUser().getId())) {
+                return;
+            }
             String title = "Cập nhật yêu cầu bảo trì";
             String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
             
@@ -397,7 +422,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             addTimeline(req, oldStatus, MaintenanceStatus.CONFIRMED, "Khách thuê xác nhận hoàn tất");
         } else {
             req.setStatus(MaintenanceStatus.REOPENED);
-            req.setReopenCount(req.getReopenCount() + 1);
+            req.setReopenCount(req.getReopenCount() == null ? 1 : req.getReopenCount() + 1);
             addTimeline(req, oldStatus, MaintenanceStatus.REOPENED, "Khách thuê KHÔNG HÀI LÒNG, yêu cầu xử lý lại");
         }
         repository.save(req);
@@ -473,4 +498,5 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         
         return res;
     }
+
 }

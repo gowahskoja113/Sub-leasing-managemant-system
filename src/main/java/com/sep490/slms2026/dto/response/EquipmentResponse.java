@@ -5,6 +5,9 @@ import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.HouseArea;
 import lombok.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -15,6 +18,7 @@ public class EquipmentResponse {
     private Long id;
     private Long propertyId;
     private Long roomId;
+    private String roomName;
     private String roomNumber;
     private Long catalogId;
     private String catalogName;
@@ -23,6 +27,16 @@ public class EquipmentResponse {
     private EquipmentStatus status;
     private java.math.BigDecimal price;
     private String note;
+
+    // New fields per contract (maintenance)
+    private String equipmentName;
+    private String category;
+    private LocalDate installationDate;
+    private LocalDate warrantyExpiredDate;
+    private int maintenanceCount;
+    private LocalDateTime lastMaintenanceDate;
+
+    // Fields from main
     private Integer warrantyMonths;
     private java.time.LocalDate warrantyStartDate;
     private java.time.LocalDate warrantyEndDate;

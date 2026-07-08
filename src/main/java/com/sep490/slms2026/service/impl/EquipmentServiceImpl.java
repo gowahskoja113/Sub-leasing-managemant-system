@@ -1,13 +1,17 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.ReassignEquipmentRequest;
+import com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.entity.Equipment;
+import com.sep490.slms2026.entity.EquipmentMaintenanceHistory;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
+import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
+import com.sep490.slms2026.repository.EquipmentMaintenanceHistoryRepository;
 import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
@@ -29,6 +33,7 @@ public class EquipmentServiceImpl implements EquipmentService {
 
     private final EquipmentRepository equipmentRepository;
     private final PropertyRepository propertyRepository;
+    private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
     private final com.sep490.slms2026.repository.EquipmentCatalogRepository equipmentCatalogRepository;
@@ -61,6 +66,72 @@ public class EquipmentServiceImpl implements EquipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentById(Long id) {
+        Equipment equipment = equipmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+        return toResponse(equipment);
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse updateEquipment(Long id, EquipmentResponse dto) {
+        Equipment equipment = equipmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+
+        if (dto.getEquipmentName() != null) {
+            equipment.setEquipmentName(dto.getEquipmentName());
+        }
+        if (dto.getCategory() != null) {
+            equipment.setEquipmentCategory(dto.getCategory());
+        }
+        if (dto.getQrCode() != null) {
+            equipment.setQrCode(dto.getQrCode());
+        }
+        if (dto.getInstallationDate() != null) {
+            equipment.setInstallationDate(dto.getInstallationDate());
+        }
+        if (dto.getWarrantyExpiredDate() != null) {
+            equipment.setWarrantyExpiredDate(dto.getWarrantyExpiredDate());
+        }
+        if (dto.getNote() != null) {
+            equipment.setNote(dto.getNote());
+        }
+
+        return toResponse(equipmentRepository.save(equipment));
+    }
+
+    @Override
+    @Transactional
+    public EquipmentResponse updateEquipmentStatus(Long id, EquipmentStatus status) {
+        Equipment equipment = equipmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+        equipment.setStatus(status);
+        return toResponse(equipmentRepository.save(equipment));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getEquipmentsByRoom(Long roomId) {
+        return equipmentRepository.findByRoomId(roomId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistory(Long equipmentId) {
+        if (!equipmentRepository.existsById(equipmentId)) {
+            throw new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + equipmentId);
+        }
+        return equipmentHistoryRepository.findByEquipmentIdOrderByMaintenanceDateDesc(equipmentId)
+                .stream()
+                .map(this::toHistoryResponse)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public EquipmentResponse reassignEquipment(Long propertyId,
                                                Long equipmentId,
@@ -88,6 +159,8 @@ public class EquipmentServiceImpl implements EquipmentService {
         return toResponse(equipmentRepository.save(equipment));
     }
 
+    // ========== PRIVATE MAPPERS ==========
+
     private EquipmentResponse toResponse(Equipment equipment) {
         Integer sessionNumber = equipment.getRenovationSession() != null
                 ? equipment.getRenovationSession().getSessionNumber() : null;
@@ -97,6 +170,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
                 .roomId(equipment.getRoom() != null ? equipment.getRoom().getId() : null)
+                .roomName(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .roomNumber(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .catalogId(equipment.getCatalog().getId())
                 .catalogName(equipment.getCatalog().getName())
@@ -105,6 +179,13 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .status(equipment.getStatus())
                 .price(equipment.getPrice())
                 .note(equipment.getNote())
+                .equipmentName(equipment.getEquipmentName())
+                .category(equipment.getEquipmentCategory())
+                .qrCode(equipment.getQrCode())
+                .installationDate(equipment.getInstallationDate())
+                .warrantyExpiredDate(equipment.getWarrantyExpiredDate())
+                .maintenanceCount(equipment.getMaintenanceCount())
+                .lastMaintenanceDate(equipment.getLastMaintenanceDate())
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
@@ -114,39 +195,19 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .renovationVersionLabel(sessionNumber != null ? "v" + sessionNumber : null)
                 .disabledAt(equipment.getDisabledAt())
                 .disabledReason(equipment.getDisabledReason())
-                .qrCode(equipment.getQrCode())
                 .build();
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public EquipmentResponse getEquipmentById(Long equipmentId) {
-        Equipment equipment = equipmentRepository.findById(equipmentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID: " + equipmentId));
-
-        CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
-
-        if ("ROLE_TENANT".equals(role)) {
-            // Kiểm tra xem thiết bị có thuộc phòng/nhà mà tenant đang thuê hay không
-            List<com.sep490.slms2026.entity.TenantContract> contracts = tenantContractRepository.findByTenantId(user.getId());
-            boolean hasAccess = contracts.stream()
-                    .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                    .anyMatch(c -> {
-                        if (c.getRoom() != null) {
-                            return equipment.getRoom() != null && equipment.getRoom().getId().equals(c.getRoom().getId());
-                        } else {
-                            // Whole house
-                            return equipment.getProperty() != null && equipment.getProperty().getId().equals(c.getProperty().getId());
-                        }
-                    });
-
-            if (!hasAccess) {
-                throw new BusinessException("Bạn không có quyền xem thông tin thiết bị này");
-            }
-        }
-
-        return toResponse(equipment);
+    private EquipmentMaintenanceHistoryResponse toHistoryResponse(EquipmentMaintenanceHistory history) {
+        return EquipmentMaintenanceHistoryResponse.builder()
+                .id(history.getId())
+                .equipmentId(history.getEquipment().getId())
+                .maintenanceRequestId(history.getMaintenanceRequest().getId())
+                .requestCode(history.getMaintenanceRequest().getRequestCode())
+                .maintenanceDate(history.getMaintenanceDate())
+                .repairCost(history.getRepairCost())
+                .note(history.getNote())
+                .build();
     }
 
     @Override
