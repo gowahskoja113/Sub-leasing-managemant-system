@@ -14,18 +14,6 @@ import java.util.UUID;
 
 public interface MaintenanceService {
 
-    // --- Methods from feature/maintenance ---
-    MaintenanceRequestResponse createRequest(CreateMaintenanceRequest dto, UUID currentUserId);
-    Page<MaintenanceRequestResponse> getMyRequests(UUID tenantUserId, MaintenanceStatus status, Pageable pageable);
-    MaintenanceRequestResponse getRequestById(Long id, UUID currentUserId);
-    Page<MaintenanceRequestResponse> getAllRequests(
-            MaintenanceStatus status, MaintenancePriority priority,
-            Long propertyId, Long roomId, MaintenanceCategory category,
-            Pageable pageable, UUID currentUserId);
-    MaintenanceRequestResponse updateStatus(Long id, UpdateMaintenanceStatusRequest dto, UUID currentUserId);
-    MaintenanceRequestResponse resolveRequest(Long id, ResolveMaintenanceRequest dto, UUID currentUserId);
-    MaintenanceDashboardResponse getDashboard(Long propertyId, LocalDateTime from, LocalDateTime to);
-
     // --- Methods from main ---
     MaintenanceRequestResponse acknowledge(Long id, MaintenanceAcknowledgeRequest request);
     MaintenanceRequestResponse schedule(Long id, MaintenanceScheduleRequest request);
