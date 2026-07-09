@@ -3,11 +3,14 @@ package com.sep490.slms2026.controller;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
+import com.sep490.slms2026.dto.response.TenantPendingChargeResponse;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
 import com.sep490.slms2026.service.TenantBillingService;
+import com.sep490.slms2026.service.TenantPendingChargeService;
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +25,14 @@ public class TenantMeController {
 
     private final TenantBillingService tenantBillingService;
     private final EquipmentService equipmentService;
+    private final TenantPendingChargeService pendingChargeService;
+
+    @GetMapping("/pending-charges")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<List<TenantPendingChargeResponse>> listPendingCharges() {
+        return ResponseEntity.ok(pendingChargeService.getPendingChargesForTenant(currentUserId()));
+    }
+
 
     @GetMapping("/invoices")
     @PreAuthorize("hasRole('TENANT')")

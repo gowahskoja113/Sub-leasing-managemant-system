@@ -473,6 +473,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         res.setResolvedAt(req.getDoneAt());
         res.setRepairCost(req.getRepairCost());
         res.setResolutionNote(req.getResolutionNote());
+        res.setCostPaidBy(req.getCostPaidBy());
+        res.setCause(req.getCause());
+        res.setReopenCount(req.getReopenCount());
         
         List<String> images = new ArrayList<>();
         if (req.getBeforeImageUrls() != null && !req.getBeforeImageUrls().isBlank()) {

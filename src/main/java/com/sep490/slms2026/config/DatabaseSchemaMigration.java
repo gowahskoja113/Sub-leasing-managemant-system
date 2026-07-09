@@ -66,6 +66,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceTables();
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
+        ensureEquipmentsMaintenanceCountColumn();
+
     }
 
     private void ensureViewingLeadTables() {
@@ -110,6 +112,11 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         }
     }
 
+    private void ensureEquipmentsMaintenanceCountColumn() {
+        addColumnIfNotExists("equipments", "maintenance_count", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+
     private void ensureTenantPendingChargesTable() {
         createTableIfNotExists(
                 "tenant_pending_charges",
@@ -122,7 +129,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
                 """);
+        addColumnIfNotExists("tenant_pending_charges", "invoice_id", "BIGINT REFERENCES tenant_invoices(id)");
     }
+
 
     private void ensureMaintenanceTables() {
         createTableIfNotExists(
