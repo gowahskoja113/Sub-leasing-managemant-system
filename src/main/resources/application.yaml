@@ -83,3 +83,9 @@ springdoc:
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
+
+# Cấu hình job nhắc nợ + phí trễ hạn
+billing:
+  reminder-days-before: 3
+  late-fee-percent: 2
+  overdue-renotify-days: 7

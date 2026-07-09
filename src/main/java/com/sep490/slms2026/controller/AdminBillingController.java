@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+import com.sep490.slms2026.service.BillingCronService;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
@@ -19,6 +22,13 @@ import java.util.List;
 public class AdminBillingController {
 
     private final AdminBillingService adminBillingService;
+    private final BillingCronService billingCronService;
+
+    @PostMapping("/billing/run-daily-sweep")
+    public ResponseEntity<Map<String, Integer>> runDailySweep() {
+        return ResponseEntity.ok(billingCronService.runDailySweep());
+    }
+
 
     @GetMapping("/invoices")
     public ResponseEntity<Page<AdminInvoiceDto>> listInvoices(
