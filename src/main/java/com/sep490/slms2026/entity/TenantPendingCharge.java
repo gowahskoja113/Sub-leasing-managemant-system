@@ -24,6 +24,10 @@ public class TenantPendingCharge implements Serializable {
     @JoinColumn(name = "tenant_contract_id", nullable = false)
     private TenantContract tenantContract;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "invoice_id")
+    private TenantInvoice invoice;
+
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 

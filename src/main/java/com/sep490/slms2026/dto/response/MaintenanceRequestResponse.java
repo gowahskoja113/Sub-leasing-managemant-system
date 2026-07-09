@@ -51,7 +51,12 @@ public class MaintenanceRequestResponse {
     private BigDecimal repairCost;
     private String resolutionNote;
     
+    private CostPaidBy costPaidBy;
+    private DamageCause cause;
+    private Integer reopenCount;
+    
     private List<String> images;
+
     
     // Main's timeline
     private List<MaintenanceTimelineResponse> timeline;
