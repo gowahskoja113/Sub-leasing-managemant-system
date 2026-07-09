@@ -9,6 +9,8 @@ import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.dto.request.ConfirmContractRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -49,6 +51,26 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractDocumentResponse> generateDocument(@PathVariable Long id) {
         return ResponseEntity.ok(tenantContractDocumentService.generateAndStore(id));
+    }
+
+    /**
+     * POST /{id}/draft-document — xuất DOCX nháp từ template (không lưu BE).
+     * FE nhận file → upload Cloudinary → PUT draftContractFileUrl.
+     */
+    @PostMapping("/{id}/draft-document")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<byte[]> generateDraftDocument(@PathVariable Long id) {
+        TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
+                id,
+                SecurityUtils.requireCurrentUser().getId(),
+                SecurityUtils.requireCurrentUser().getAuthorities().iterator().next().getAuthority());
+        byte[] docx = tenantContractDocumentService.renderDraftDocument(id);
+        String filename = "DRAFT-" + contract.getContractCode() + ".docx";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .body(docx);
     }
 
     /** GET /{id}/document — lấy URL file đã lưu (manager hoặc khách thuê). */

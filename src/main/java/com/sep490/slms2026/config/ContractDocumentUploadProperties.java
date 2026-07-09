@@ -19,4 +19,7 @@ public class ContractDocumentUploadProperties {
 
     /** Classpath tới template Word (placeholder ${...}). */
     private String templateClasspath = "templates/contract/tenant-rental-template.docx";
+
+    /** Classpath tới template HĐ nháp căn hộ (DRAFT onboarding). */
+    private String draftTemplateClasspath = "templates/contract/tenant-apartment-draft-template.docx";
 }

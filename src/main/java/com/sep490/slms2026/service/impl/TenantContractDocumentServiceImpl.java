@@ -79,6 +79,14 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     @Override
     @Transactional(readOnly = true)
+    public byte[] renderDraftDocument(Long contractId) {
+        TenantContract contract = loadAndSync(contractId);
+        assertCanGenerateDraft(contract);
+        return renderDocx(contract, uploadProperties.getDraftTemplateClasspath());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public TenantContractDocumentResponse getDocument(Long contractId) {
         TenantContract contract = loadAndSync(contractId);
         if (contract.getDocumentUrl() == null) {
@@ -124,20 +132,32 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         }
     }
 
+    private void assertCanGenerateDraft(TenantContract contract) {
+        if (contract.getStatus() != ContractStatus.DRAFT) {
+            throw new BusinessException("Chỉ xuất file nháp khi hợp đồng đang ở trạng thái DRAFT");
+        }
+    }
+
     private void assertCanView(TenantContract contract, UUID userId, String roleName) {
         Role role = Role.valueOf(roleName);
         if (role == Role.ROLE_ADMIN || role == Role.ROLE_MANAGER) {
             return;
         }
-        if (role == Role.ROLE_TENANT && contract.getTenant().getId().equals(userId)) {
+        if (role == Role.ROLE_TENANT) {
+            if (contract.getTenant() == null || !contract.getTenant().getId().equals(userId)) {
+                throw new BusinessException("Bạn không có quyền xem hợp đồng này");
+            }
             return;
         }
         throw new BusinessException("Bạn không có quyền xem hợp đồng này");
     }
 
     private byte[] renderDocx(TenantContract contract) {
+        return renderDocx(contract, uploadProperties.getTemplateClasspath());
+    }
+
+    private byte[] renderDocx(TenantContract contract, String classpath) {
         Map<String, String> vars = buildVariables(contract);
-        String classpath = uploadProperties.getTemplateClasspath();
         try (InputStream in = new ClassPathResource(classpath).getInputStream()) {
             return DocxTemplateRenderer.render(in, vars);
         } catch (IOException ex) {
@@ -151,14 +171,15 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
      */
     private Map<String, String> buildVariables(TenantContract contract) {
         Tenant tenant = contract.getTenant();
-        User tenantUser = tenant.getUser();
+        User tenantUser = tenant != null ? tenant.getUser() : null;
         Property property = contract.getProperty();
         Room room = contract.getRoom();
         Zone zone = property.getZone();
 
         LocalDate signDate = contract.getDocumentGeneratedAt() != null
                 ? contract.getDocumentGeneratedAt().toLocalDate()
-                : (contract.getPaidAt() != null ? contract.getPaidAt().toLocalDate() : LocalDate.now());
+                : (contract.getExpectedReceptionDate() != null ? contract.getExpectedReceptionDate()
+                : (contract.getPaidAt() != null ? contract.getPaidAt().toLocalDate() : LocalDate.now()));
 
         Map<String, String> vars = new HashMap<>();
         vars.put("contractCode", contract.getContractCode());
@@ -167,9 +188,12 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         vars.put("signMonth", String.valueOf(signDate.getMonthValue()));
         vars.put("signYear", String.valueOf(signDate.getYear()));
 
-        vars.put("tenantFullName", tenantUser.getFullName());
-        vars.put("tenantCccd", nullToEmpty(tenant.getCccd()));
-        vars.put("tenantPhone", nullToEmpty(tenantUser.getPhoneNumber()));
+        vars.put("tenantFullName", tenantUser != null
+                ? nullToEmpty(tenantUser.getFullName()) : nullToEmpty(contract.getDraftTenantName()));
+        vars.put("tenantCccd", tenant != null
+                ? nullToEmpty(tenant.getCccd()) : nullToEmpty(contract.getDraftTenantCccd()));
+        vars.put("tenantPhone", tenantUser != null
+                ? nullToEmpty(tenantUser.getPhoneNumber()) : nullToEmpty(contract.getDraftTenantPhone()));
         vars.put("tenantAddress", "");
         vars.put("tenantEmail", "");
 
@@ -180,6 +204,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 : ContractTemplateConstants.PROPERTY_TYPE_ROOM);
         vars.put("zoneName", zone != null ? nullToEmpty(zone.getName()) : "");
         vars.put("roomNumber", room != null ? room.getRoomNumber() : "—");
+        vars.put("rentalUnit", formatRentalUnit(property, room));
         vars.put("areaSize", property.getAreaSize() != null ? String.valueOf(property.getAreaSize()) : "");
         vars.put("totalFloor", property.getTotalFloor() != null ? String.valueOf(property.getTotalFloor()) : "");
         vars.put("propertyDescription", nullToEmpty(property.getDescriptions()));
@@ -360,5 +385,16 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             return "";
         }
         return String.valueOf(ChronoUnit.MONTHS.between(start, end));
+    }
+
+    private static String formatRentalUnit(Property property, Room room) {
+        StringBuilder sb = new StringBuilder(nullToEmpty(property.getPropertyName()));
+        if (room != null && room.getRoomNumber() != null && !room.getRoomNumber().isBlank()) {
+            sb.append(" - Phòng ").append(room.getRoomNumber());
+        }
+        if (property.getAddress() != null && !property.getAddress().isBlank()) {
+            sb.append(" (").append(property.getAddress()).append(")");
+        }
+        return sb.toString();
     }
 }
