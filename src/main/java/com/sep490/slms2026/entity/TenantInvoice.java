@@ -77,6 +77,9 @@ public class TenantInvoice implements Serializable {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
+    @Column(name = "last_reminder_date")
+    private LocalDate lastReminderDate;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
