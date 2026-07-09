@@ -691,6 +691,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
                 .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
                 .draftContractFileUrl(c.getDraftContractFileUrl())
+                .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())
                 .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
                         .map(hm -> com.sep490.slms2026.dto.response.HouseholdMemberResponse.builder()

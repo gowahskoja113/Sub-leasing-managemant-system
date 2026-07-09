@@ -31,6 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -81,6 +87,26 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                     "Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl");
         }
         return toDocumentResponse(contract);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] downloadContractDocument(Long contractId, UUID userId, String roleName) {
+        TenantContract contract = loadAndSync(contractId);
+        assertCanView(contract, userId, roleName);
+        String url = resolveContractFileUrl(contract);
+        if (url == null || url.isBlank()) {
+            throw new BusinessException(
+                    "Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl");
+        }
+        try {
+            return fetchContractFileBytes(url);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("Không tải được file hợp đồng: " + ex.getMessage());
+        } catch (IOException ex) {
+            throw new BusinessException("Không tải được file hợp đồng: " + ex.getMessage());
+        }
     }
 
     @Override
@@ -146,6 +172,32 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             return contract.getDraftContractFileUrl();
         }
         return contract.getDocumentUrl();
+    }
+
+    private byte[] fetchContractFileBytes(String url) throws IOException, InterruptedException {
+        String marker = "/uploads/contracts/";
+        int localIdx = url.indexOf(marker);
+        if (localIdx >= 0) {
+            String relative = url.substring(localIdx + marker.length());
+            Path file = Path.of(uploadProperties.getDir()).toAbsolutePath().normalize().resolve(relative);
+            if (Files.isRegularFile(file)) {
+                return Files.readAllBytes(file);
+            }
+        }
+
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() >= 400) {
+            throw new BusinessException("Không tải được file hợp đồng từ storage: HTTP " + response.statusCode());
+        }
+        byte[] body = response.body();
+        if (body == null || body.length == 0) {
+            throw new BusinessException("File hợp đồng trống hoặc không tồn tại");
+        }
+        return body;
     }
 
     /**
@@ -331,6 +383,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .pdfUrl(resolveContractFileUrl(c))
                 .equipmentList(equipmentList)
                 .draftContractFileUrl(c.getDraftContractFileUrl())
+                .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())
                 .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
                 .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)

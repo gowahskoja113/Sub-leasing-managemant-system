@@ -140,7 +140,8 @@ sequenceDiagram
 | Cập nhật HĐ | PUT | `/api/v1/tenant-contracts/{id}` | Partial body; chỉ `DRAFT` |
 | Chi tiết HĐ | GET | `/api/v1/tenant-contracts/{id}` | Có `draftContractFileUrl`, `documentUrl` |
 | Danh sách HĐ | GET | `/api/v1/tenant-contracts?status=DRAFT` | |
-| **Xem URL file** | GET | `/api/v1/tenant-contracts/{id}/document` | Trả `{ documentUrl }` từ Cloudinary |
+| **Xem URL file** | GET | `/api/v1/tenant-contracts/{id}/document` | Metadata JSON |
+| **View / tải file DOCX** | GET | `/api/v1/tenant-contracts/{id}/document/download` | Binary — nút View Contract |
 | Gán manager | PATCH | `/api/v1/tenant-contracts/{id}/assign-manager` | |
 | Hủy | POST | `/api/v1/tenant-contracts/{id}/cancel` | |
 
@@ -338,35 +339,52 @@ Chỉ khi `status = DRAFT`. Gửi partial body:
 3. Upload Cloudinary lại
 4. `PUT` `draftContractFileUrl` mới
 
-### 6.6. Xem lại file HĐ
+### 6.6. Xem lại file HĐ (nút **View Contract**)
+
+**Khuyên dùng:** `GET /tenant-contracts/{id}/document/download` — BE proxy file qua JWT (ổn trên Web + Mobile).
 
 ```typescript
-function getContractFileUrl(contract: TenantContractResponse): string | null {
-  return contract.draftContractFileUrl ?? contract.documentUrl ?? null;
-}
-
-// Hoặc gọi API metadata
-async function fetchDocumentUrl(contractId: number, token: string): Promise<string> {
-  const res = await fetch(`/api/v1/tenant-contracts/${contractId}/document`, {
+async function viewContract(contractId: number, contractCode: string, token: string) {
+  const res = await fetch(`/api/v1/tenant-contracts/${contractId}/document/download`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.documentUrl;
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  // Web: mở tab mới (trình duyệt có thể tải .docx hoặc mở app Office)
+  window.open(objectUrl, "_blank");
+
+  // Mobile (Expo): Sharing.shareAsync(localUri) sau khi ghi FileSystem
 }
+```
+
+| Cách | API | Khi nào dùng |
+|------|-----|--------------|
+| **Tải/xem file (khuyên dùng)** | `GET .../document/download` | Nút View Contract — có JWT, không phụ thuộc CORS Cloudinary |
+| Lấy URL metadata | `GET .../document` | Chỉ cần link, embed iframe |
+| Từ chi tiết HĐ | `GET .../{id}` | Đọc `contractFileAvailable`, `documentUrl` |
+
+**Bật nút View Contract khi:**
+
+```typescript
+const canView = contract.contractFileAvailable === true;
+// hoặc: !!(contract.draftContractFileUrl ?? contract.documentUrl)
 ```
 
 | Trường hợp | Cách xem |
 |------------|----------|
-| Đã upload Cloudinary | Mở `draftContractFileUrl` / `documentUrl` (tab mới, WebView, share sheet) |
-| Chưa có URL | Hiện "Chưa có file — tạo hợp đồng" + nút gọi lại bước render |
-| `status != DRAFT` | **Không** gọi `draft-document` — chỉ mở URL đã lưu |
+| Đã upload Cloudinary | `GET .../document/download` |
+| Chưa có URL | Ẩn nút / hiện "Chưa có file — tạo hợp đồng" |
+| `status != DRAFT` | Vẫn xem được — **cùng file** đã lưu từ bước Admin |
 
-**Lỗi khi chưa có file:**
+**Lỗi khi chưa có file (422):**
 
 ```
 Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl
 ```
+
+> **Lưu ý:** `.docx` thường không preview inline trong browser như PDF — user có thể cần tải về hoặc mở bằng Word/WPS. Trên mobile dùng share sheet.
 
 ---
 
@@ -488,7 +506,7 @@ Template: `src/main/resources/templates/contract/tenant-apartment-draft-template
 
 - [ ] Tạo HĐ với `draft: true`
 - [ ] Sau tạo: gọi `POST /draft-document` → upload Cloudinary → `PUT draftContractFileUrl`
-- [ ] Xem file qua `draftContractFileUrl` / `documentUrl`
+- [ ] Nút View Contract: `GET .../document/download` khi `contractFileAvailable=true`
 - [ ] Sửa HĐ DRAFT: PUT → render lại → upload lại
 - [ ] `deposit-payment` khi sẵn sàng thu cọc
 - [ ] Poll `paymentStatus=PAID` (không chờ `documentUrl` mới)

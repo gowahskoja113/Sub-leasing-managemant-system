@@ -86,6 +86,26 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantContractDocumentService.getDocument(id));
     }
 
+    /**
+     * GET /{id}/document/download — tải/xem file DOCX đã lưu (qua JWT, không cần mở URL Cloudinary trực tiếp).
+     * FE: fetch → blob → mở tab mới / share / Office viewer.
+     */
+    @GetMapping("/{id}/document/download")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
+                id, user.getId(), role);
+        byte[] docx = tenantContractDocumentService.downloadContractDocument(id, user.getId(), role);
+        String filename = contract.getContractCode() + ".docx";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .body(docx);
+    }
+
     /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc qua PayOS. */
     @PostMapping("/{id}/deposit-payment")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

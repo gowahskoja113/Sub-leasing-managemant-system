@@ -92,6 +92,9 @@ public class TenantContractResponse {
     
     private List<HouseholdMemberResponse> householdMembers;
 
+    /** true nếu đã có file HĐ (Cloudinary hoặc legacy) — FE bật nút View Contract. */
+    private Boolean contractFileAvailable;
+
     public String getCode() {
         return this.contractCode;
     }
