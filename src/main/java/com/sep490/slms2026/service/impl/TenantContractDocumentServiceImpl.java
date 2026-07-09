@@ -18,7 +18,6 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
-import com.sep490.slms2026.service.ContractDocumentStorage;
 import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
@@ -55,26 +54,14 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private static final NumberFormat VND = NumberFormat.getInstance(new Locale("vi", "VN"));
 
     private final TenantContractRepository tenantContractRepository;
-    private final ContractDocumentStorage contractDocumentStorage;
     private final ContractDocumentUploadProperties uploadProperties;
     private final ContractLessorProperties lessorProperties;
     private final EquipmentRepository equipmentRepository;
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public TenantContractDocumentResponse generateAndStore(Long contractId) {
-        TenantContract contract = loadAndSync(contractId);
-        assertCanGenerate(contract);
-
-        byte[] docx = renderDocx(contract);
-        String filename = contract.getContractCode() + ".docx";
-        String url = contractDocumentStorage.store(contract.getContractCode(), filename, docx);
-
-        contract.setDocumentUrl(url);
-        contract.setDocumentGeneratedAt(LocalDateTime.now());
-        tenantContractRepository.save(contract);
-
-        return toDocumentResponse(contract);
+        return getDocument(contractId);
     }
 
     @Override
@@ -82,15 +69,16 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     public byte[] renderDraftDocument(Long contractId) {
         TenantContract contract = loadAndSync(contractId);
         assertCanGenerateDraft(contract);
-        return renderDocx(contract, uploadProperties.getDraftTemplateClasspath());
+        return renderDocx(contract);
     }
 
     @Override
     @Transactional(readOnly = true)
     public TenantContractDocumentResponse getDocument(Long contractId) {
         TenantContract contract = loadAndSync(contractId);
-        if (contract.getDocumentUrl() == null) {
-            throw new BusinessException("Hợp đồng chưa có file — gọi POST .../document để xuất");
+        if (resolveContractFileUrl(contract) == null) {
+            throw new BusinessException(
+                    "Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl");
         }
         return toDocumentResponse(contract);
     }
@@ -124,14 +112,6 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         return contract;
     }
 
-    private void assertCanGenerate(TenantContract contract) {
-        if (contract.getStatus() != ContractStatus.ACTIVE
-                && contract.getPaymentStatus() != PaymentStatus.PAID) {
-            throw new BusinessException(
-                    "Chỉ xuất hợp đồng khi đã thanh toán cọc hoặc hợp đồng đã kích hoạt");
-        }
-    }
-
     private void assertCanGenerateDraft(TenantContract contract) {
         if (contract.getStatus() != ContractStatus.DRAFT) {
             throw new BusinessException("Chỉ xuất file nháp khi hợp đồng đang ở trạng thái DRAFT");
@@ -153,16 +133,19 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     }
 
     private byte[] renderDocx(TenantContract contract) {
-        return renderDocx(contract, uploadProperties.getTemplateClasspath());
-    }
-
-    private byte[] renderDocx(TenantContract contract, String classpath) {
         Map<String, String> vars = buildVariables(contract);
-        try (InputStream in = new ClassPathResource(classpath).getInputStream()) {
+        try (InputStream in = new ClassPathResource(uploadProperties.getTemplateClasspath()).getInputStream()) {
             return DocxTemplateRenderer.render(in, vars);
         } catch (IOException ex) {
             throw new BusinessException("Không đọc được template hợp đồng: " + ex.getMessage());
         }
+    }
+
+    private static String resolveContractFileUrl(TenantContract contract) {
+        if (contract.getDraftContractFileUrl() != null && !contract.getDraftContractFileUrl().isBlank()) {
+            return contract.getDraftContractFileUrl();
+        }
+        return contract.getDocumentUrl();
     }
 
     /**
@@ -194,6 +177,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 ? nullToEmpty(tenant.getCccd()) : nullToEmpty(contract.getDraftTenantCccd()));
         vars.put("tenantPhone", tenantUser != null
                 ? nullToEmpty(tenantUser.getPhoneNumber()) : nullToEmpty(contract.getDraftTenantPhone()));
+        vars.put("tenantDob", formatDate(tenant != null && tenant.getDateOfBirth() != null
+                ? tenant.getDateOfBirth() : contract.getDraftTenantDob()));
         vars.put("tenantAddress", "");
         vars.put("tenantEmail", "");
 
@@ -261,7 +246,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         return TenantContractDocumentResponse.builder()
                 .contractId(contract.getId())
                 .contractCode(contract.getContractCode())
-                .documentUrl(contract.getDocumentUrl())
+                .documentUrl(resolveContractFileUrl(contract))
                 .documentGeneratedAt(contract.getDocumentGeneratedAt())
                 .effective(TenantContractStatusHelper.isEffective(contract.getStatus(), contract.getEndDate()))
                 .effectiveLabel(TenantContractStatusHelper.effectiveLabel(
@@ -310,6 +295,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .tenantFullName(tenantUser != null ? tenantUser.getFullName() : c.getDraftTenantName())
                 .tenantPhone(tenantUser != null ? tenantUser.getPhoneNumber() : c.getDraftTenantPhone())
                 .tenantCccd(tenant != null ? tenant.getCccd() : c.getDraftTenantCccd())
+                .tenantDateOfBirth(tenant != null ? tenant.getDateOfBirth() : c.getDraftTenantDob())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
@@ -329,7 +315,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
-                .documentUrl(c.getDocumentUrl())
+                .documentUrl(resolveContractFileUrl(c))
                 .documentGeneratedAt(c.getDocumentGeneratedAt())
                 .type(type)
                 .lessorName("Ban Quản Lý") // fallback or get from property if possible
@@ -342,7 +328,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .signedAt(c.getDocumentGeneratedAt() != null ? c.getDocumentGeneratedAt() : c.getPaidAt())
                 .terminatedAt(c.getStatus() == ContractStatus.TERMINATED ? LocalDateTime.now() : null)
                 .terminationReason(null)
-                .pdfUrl(c.getDocumentUrl())
+                .pdfUrl(resolveContractFileUrl(c))
                 .equipmentList(equipmentList)
                 .draftContractFileUrl(c.getDraftContractFileUrl())
                 .expectedReceptionDate(c.getExpectedReceptionDate())

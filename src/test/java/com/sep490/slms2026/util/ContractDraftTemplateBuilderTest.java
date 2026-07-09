@@ -15,15 +15,20 @@ class ContractDraftTemplateBuilderTest {
 
     @Test
     void buildApartmentDraftTemplate_fromSourceDocx() throws Exception {
-        Path source = Path.of("docs/Template_contract (1).docx");
-        assertTrue(Files.exists(source), "Thiếu file mẫu: docs/Template_contract (1).docx");
+        Path source = Path.of("docs/Template_contract_source.docx");
+        if (!Files.exists(source)) {
+            source = Path.of("docs/Template_contract (1).docx");
+        }
+        assertTrue(Files.exists(source), "Thiếu file mẫu: docs/Template_contract_source.docx hoặc docs/Template_contract (1).docx");
 
         try (InputStream in = Files.newInputStream(source)) {
             byte[] template = ApartmentDraftTemplateBuilder.buildFromSource(in);
 
-            Path out = Path.of("src/main/resources/templates/contract/tenant-apartment-draft-template.docx");
-            Files.createDirectories(out.getParent());
-            Files.write(out, template);
+            Path classpathOut = Path.of("src/main/resources/templates/contract/tenant-apartment-draft-template.docx");
+            Path docsOut = Path.of("docs/Template_contract (1).docx");
+            Files.createDirectories(classpathOut.getParent());
+            Files.write(classpathOut, template);
+            Files.write(docsOut, template);
 
             Map<String, String> sample = new HashMap<>();
             sample.put("contractCode", "TC-TEST-001");
@@ -33,6 +38,7 @@ class ContractDraftTemplateBuilderTest {
             sample.put("signYear", "2026");
             sample.put("tenantFullName", "Nguyễn Văn A");
             sample.put("tenantCccd", "001234567890");
+            sample.put("tenantDob", "01/01/1990");
             sample.put("tenantAddress", "123 Đường ABC, Q1");
             sample.put("tenantPhone", "0901234567");
             sample.put("householdMembers", "Không có thành viên ở cùng.");

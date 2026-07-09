@@ -8,16 +8,19 @@ import java.util.UUID;
 
 public interface TenantContractDocumentService {
 
-    /** Xuất DOCX từ template, lưu storage, cập nhật documentUrl trên HĐ. */
+    /**
+     * Trả metadata + URL file HĐ đã lưu (ưu tiên {@code draftContractFileUrl} từ Cloudinary).
+     * Không render/lưu file mới trên BE.
+     */
     TenantContractDocumentResponse generateAndStore(Long contractId);
 
     /**
-     * Xuất file DOCX nháp cho HĐ {@code DRAFT} — chỉ render, không lưu storage.
-     * FE tự upload lên Cloudinary và cập nhật {@code draftContractFileUrl}.
+     * Render DOCX từ template — chỉ khi {@code status = DRAFT}.
+     * FE nhận file → upload Cloudinary → PUT {@code draftContractFileUrl}.
      */
     byte[] renderDraftDocument(Long contractId);
 
-    /** Trả metadata + URL file đã lưu (không tạo mới nếu chưa có — dùng generateAndStore). */
+    /** Trả metadata + URL file HĐ (ưu tiên {@code draftContractFileUrl}). */
     TenantContractDocumentResponse getDocument(Long contractId);
 
     TenantContractResponse getContractForUser(Long contractId, UUID userId, String roleName);

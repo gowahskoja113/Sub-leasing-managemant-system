@@ -46,7 +46,10 @@ public class TenantContractActionController {
                 id, user.getId(), role));
     }
 
-    /** POST /{id}/document — xuất DOCX, lưu storage, trả URL (manager/admin). */
+    /**
+     * POST /{id}/document — trả URL file HĐ đã lưu (ưu tiên draftContractFileUrl).
+     * Không render/lưu file mới trên BE.
+     */
     @PostMapping("/{id}/document")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractDocumentResponse> generateDocument(@PathVariable Long id) {
@@ -54,7 +57,7 @@ public class TenantContractActionController {
     }
 
     /**
-     * POST /{id}/draft-document — xuất DOCX nháp từ template (không lưu BE).
+     * POST /{id}/draft-document — render DOCX từ tenant-apartment-draft-template (chỉ DRAFT).
      * FE nhận file → upload Cloudinary → PUT draftContractFileUrl.
      */
     @PostMapping("/{id}/draft-document")
@@ -73,7 +76,7 @@ public class TenantContractActionController {
                 .body(docx);
     }
 
-    /** GET /{id}/document — lấy URL file đã lưu (manager hoặc khách thuê). */
+    /** GET /{id}/document — lấy URL file HĐ (ưu tiên draftContractFileUrl trên Cloudinary). */
     @GetMapping("/{id}/document")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {

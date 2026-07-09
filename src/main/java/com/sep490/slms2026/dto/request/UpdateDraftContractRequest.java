@@ -34,4 +34,7 @@ public class UpdateDraftContractRequest {
     private UUID assignedManagerId;
     private LocalDate expectedReceptionDate;
     private String draftContractFileUrl;
+
+    /** Ngày sinh khách chính. */
+    private LocalDate dateOfBirth;
 }

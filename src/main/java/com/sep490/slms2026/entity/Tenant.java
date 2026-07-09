@@ -27,4 +27,7 @@ public class Tenant {
 
     @Column(name = "cccd")
     private String cccd;
+
+    @Column(name = "date_of_birth")
+    private java.time.LocalDate dateOfBirth;
 }

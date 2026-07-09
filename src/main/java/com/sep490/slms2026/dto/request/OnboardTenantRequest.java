@@ -71,4 +71,7 @@ public class OnboardTenantRequest {
     private String assignedManagerId;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
+
+    /** Ngày sinh khách chính (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
+    private LocalDate dateOfBirth;
 }

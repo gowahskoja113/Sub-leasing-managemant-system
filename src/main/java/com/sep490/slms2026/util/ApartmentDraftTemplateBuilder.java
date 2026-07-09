@@ -48,7 +48,10 @@ public final class ApartmentDraftTemplateBuilder {
             throw new IOException("Không tìm thấy " + DOCUMENT_XML + " trong file DOCX");
         }
 
-        String xml = replaceTextNodes(new String(documentXml, StandardCharsets.UTF_8));
+        String xml = new String(documentXml, StandardCharsets.UTF_8);
+        if (!xml.contains("${contractCode}") && !xml.contains("${tenantFullName}")) {
+            xml = replaceTextNodes(xml);
+        }
         entries.put(DOCUMENT_XML, xml.getBytes(StandardCharsets.UTF_8));
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -85,11 +88,25 @@ public final class ApartmentDraftTemplateBuilder {
                 replacement = "";
             } else if (trimmed.equals("Ông/bà:") && inTenantBSection(history)) {
                 replacement = "Ông/bà: ${tenantFullName}";
+            } else if (isOnlyDots(text) && inTenantBSection(history)
+                    && containsRecent(history, "Ông/bà:") && !containsRecent(history, "${tenantFullName}")) {
+                replacement = "";
             } else if (isOnlyDots(text) && containsRecent(history, "${tenantFullName}")) {
+                replacement = "";
+            } else if (isTenantCccdPrefix(trimmed) && inTenantBSection(history)
+                    && containsRecent(history, "${tenantFullName}")
+                    && !containsRecent(history, "${tenantCccd}")) {
                 replacement = "";
             } else if (trimmed.equals("CCCD:") && inTenantBSection(history)) {
                 replacement = "Số CCCD: ${tenantCccd}";
             } else if (isOnlyDots(text) && containsRecent(history, "${tenantCccd}")) {
+                replacement = "";
+            } else if (trimmed.startsWith("Cấp ngày:") && inTenantBSection(history)
+                    && containsRecent(history, "${tenantCccd}")) {
+                replacement = "Ngày sinh: ${tenantDob}";
+            } else if ((trimmed.startsWith("Nơi cấp:") || isOnlyDots(text))
+                    && inTenantBSection(history) && containsRecent(history, "${tenantDob}")
+                    && !containsRecent(history, "HKTT:")) {
                 replacement = "";
             } else if (trimmed.startsWith("HKTT:") && inTenantBSection(history)) {
                 replacement = "HKTT: ${tenantAddress}";
@@ -142,7 +159,7 @@ public final class ApartmentDraftTemplateBuilder {
                 replacement = "";
             }
 
-            history.add(text);
+            history.add(replacement);
             matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(1) + replacement + matcher.group(3)));
         }
         matcher.appendTail(sb);
@@ -160,6 +177,10 @@ public final class ApartmentDraftTemplateBuilder {
             }
         }
         return seenB;
+    }
+
+    private static boolean isTenantCccdPrefix(String trimmed) {
+        return "Số".equals(trimmed) || "Số ".equals(trimmed) || trimmed.matches("S[oố]\\s*");
     }
 
     private static boolean isOnlyDots(String text) {
