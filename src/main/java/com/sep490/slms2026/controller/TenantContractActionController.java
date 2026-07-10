@@ -183,11 +183,22 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.resubmitApproval(id, request));
     }
 
-    /** POST /{id}/cancel — hủy hợp đồng đang chờ. */
+    /** POST /{id}/cancel — hủy hợp đồng chưa ACTIVE (DRAFT / PENDING). */
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<Void> cancelContract(@PathVariable Long id) {
         tenantOnboardingService.cancelContract(id);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * POST /{id}/terminate — thanh lý HĐ đang ACTIVE / EXPIRED (trả phòng sớm, vi phạm, thỏa thuận).
+     */
+    @PostMapping("/{id}/terminate")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> terminateActiveContract(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.TerminateContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.terminateActiveContract(id, request));
     }
 }

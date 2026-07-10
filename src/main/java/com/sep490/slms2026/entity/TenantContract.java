@@ -163,4 +163,17 @@ public class TenantContract implements Serializable {
 
     @Column(name = "draft_tenant_dob")
     private LocalDate draftTenantDob;
+
+    @Column(name = "terminated_at")
+    private LocalDateTime terminatedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "termination_type")
+    private com.sep490.slms2026.enums.ContractTerminationType terminationType;
+
+    @Column(name = "termination_reason", columnDefinition = "TEXT")
+    private String terminationReason;
+
+    @Column(name = "termination_note", columnDefinition = "TEXT")
+    private String terminationNote;
 }

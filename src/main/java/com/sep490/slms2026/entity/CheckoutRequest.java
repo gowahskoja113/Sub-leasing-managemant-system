@@ -45,4 +45,19 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    @Column(name = "reviewed_by")
+    private UUID reviewedBy;
+
+    @Column(name = "manager_note", columnDefinition = "TEXT")
+    private String managerNote;
+
+    @Column(name = "reject_reason", columnDefinition = "TEXT")
+    private String rejectReason;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
 }

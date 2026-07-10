@@ -45,6 +45,13 @@ public class TenantMeLifecycleController {
         return ResponseEntity.ok(tenantCheckoutService.getRequest(currentUserId(), id));
     }
 
+    /** DELETE /checkout-requests/{id} — tenant hủy yêu cầu đang PENDING. */
+    @DeleteMapping("/checkout-requests/{id}")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<CheckoutRequestResponse> cancelCheckoutRequest(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantCheckoutService.cancelRequest(currentUserId(), id));
+    }
+
     @GetMapping("/handover")
     @PreAuthorize("hasRole('TENANT')")
     public ResponseEntity<TenantHandoverResponse> getHandover() {

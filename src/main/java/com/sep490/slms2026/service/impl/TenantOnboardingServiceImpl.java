@@ -3,6 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
 import com.sep490.slms2026.dto.request.HouseholdMemberRequest;
 import com.sep490.slms2026.dto.request.OnboardTenantRequest;
+import com.sep490.slms2026.dto.request.TerminateContractRequest;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.entity.HouseholdMember;
 import com.sep490.slms2026.entity.Property;
@@ -13,6 +14,7 @@ import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.OtpPurpose;
 import com.sep490.slms2026.enums.PaymentStatus;
+import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UserStatus;
@@ -400,14 +402,66 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     public void cancelContract(Long contractId) {
         TenantContract contract = findContract(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
-            throw new BusinessException("Không thể hủy hợp đồng đã kích hoạt");
+            throw new BusinessException("Không thể hủy hợp đồng đã kích hoạt — dùng API thanh lý (/terminate)");
         }
-        if (contract.getRoom() != null && contract.getRoom().getStatus() == RoomStatus.RENTED) {
-            contract.getRoom().setStatus(RoomStatus.AVAILABLE);
-            roomRepository.save(contract.getRoom());
+        if (contract.getStatus() == ContractStatus.TERMINATED) {
+            return;
         }
-        
-        List<com.sep490.slms2026.entity.Equipment> disabledEquipments = equipmentRepository.findByDisabledByContractId(contract.getId());
+        releaseContractOccupancy(contract);
+        contract.setStatus(ContractStatus.TERMINATED);
+        contract.setTerminatedAt(LocalDateTime.now());
+        tenantContractRepository.save(contract);
+    }
+
+    @Override
+    @Transactional
+    public TenantContractResponse terminateActiveContract(Long contractId, TerminateContractRequest request) {
+        TenantContract contract = findContract(contractId);
+        if (contract.getStatus() == ContractStatus.TERMINATED) {
+            throw new BusinessException("Hợp đồng đã được thanh lý trước đó");
+        }
+        if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.EXPIRED) {
+            throw new BusinessException("Chỉ thanh lý được hợp đồng đang ACTIVE hoặc EXPIRED");
+        }
+
+        LocalDate effectiveDate = request.getEffectiveDate() != null
+                ? request.getEffectiveDate()
+                : LocalDate.now();
+        if (effectiveDate.isBefore(contract.getStartDate())) {
+            throw new BusinessException("Ngày chấm dứt không được trước ngày bắt đầu hợp đồng");
+        }
+
+        releaseContractOccupancy(contract);
+
+        LocalDateTime now = LocalDateTime.now();
+        contract.setStatus(ContractStatus.TERMINATED);
+        contract.setTerminatedAt(now);
+        contract.setTerminationType(request.getType());
+        contract.setTerminationReason(request.getReason().trim());
+        contract.setTerminationNote(request.getNote() != null ? request.getNote().trim() : null);
+        contract.setEndDate(effectiveDate);
+
+        TenantContract saved = tenantContractRepository.save(contract);
+        return toResponse(saved);
+    }
+
+    private void releaseContractOccupancy(TenantContract contract) {
+        Room room = contract.getRoom();
+        if (room != null && room.getStatus() == RoomStatus.RENTED) {
+            room.setStatus(RoomStatus.AVAILABLE);
+            roomRepository.save(room);
+        }
+
+        Property property = contract.getProperty();
+        if (room == null
+                && Boolean.TRUE.equals(property.getWholeHouse())
+                && property.getStatus() == PropertyStatus.RENTED) {
+            property.setStatus(PropertyStatus.ACTIVE);
+            propertyRepository.save(property);
+        }
+
+        List<com.sep490.slms2026.entity.Equipment> disabledEquipments =
+                equipmentRepository.findByDisabledByContractId(contract.getId());
         for (com.sep490.slms2026.entity.Equipment eq : disabledEquipments) {
             eq.setOperationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE);
             eq.setDisabledAt(null);
@@ -417,9 +471,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (!disabledEquipments.isEmpty()) {
             equipmentRepository.saveAll(disabledEquipments);
         }
-
-        contract.setStatus(ContractStatus.TERMINATED);
-        tenantContractRepository.save(contract);
     }
 
     @Override
@@ -715,6 +766,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .selectedEquipmentIds(contractEquipmentService.getSelectedIds(c))
                 .selectedExistingIds(contractEquipmentService.getSelectedExistingIds(c))
                 .selectedAddedIds(contractEquipmentService.getSelectedAddedIds(c))
+                .notes(c.getRoomConditionNote())
+                .signedAt(c.getDocumentGeneratedAt() != null ? c.getDocumentGeneratedAt() : c.getPaidAt())
+                .terminatedAt(c.getTerminatedAt())
+                .terminationReason(c.getTerminationReason())
+                .terminationType(c.getTerminationType() != null ? c.getTerminationType().name() : null)
                 .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
                         .map(hm -> com.sep490.slms2026.dto.response.HouseholdMemberResponse.builder()
                                 .id(hm.getId())

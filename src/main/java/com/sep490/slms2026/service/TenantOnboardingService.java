@@ -41,6 +41,11 @@ public interface TenantOnboardingService {
     /** Hủy hợp đồng đang chờ (chưa ACTIVE). */
     void cancelContract(Long contractId);
 
+    /**
+     * Thanh lý / chấm dứt HĐ đang ACTIVE (hoặc EXPIRED) — trả phòng sớm, vi phạm, thỏa thuận.
+     */
+    TenantContractResponse terminateActiveContract(Long contractId, com.sep490.slms2026.dto.request.TerminateContractRequest request);
+
     /** Lấy danh sách hợp đồng lọc theo trạng thái (nháp). */
     List<TenantContractResponse> getContractsByStatus(String status);
 

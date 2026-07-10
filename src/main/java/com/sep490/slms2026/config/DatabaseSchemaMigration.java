@@ -68,7 +68,37 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
         ensureTenantContractEquipmentsTable();
+        addColumnIfNotExists("tenant_contracts", "terminated_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "termination_type", "VARCHAR(50)");
+        addColumnIfNotExists("tenant_contracts", "termination_reason", "TEXT");
+        addColumnIfNotExists("tenant_contracts", "termination_note", "TEXT");
+        ensureCheckoutRequestsTable();
 
+    }
+
+    private void ensureCheckoutRequestsTable() {
+        createTableIfNotExists(
+                "checkout_requests",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                tenant_user_id UUID NOT NULL,
+                tenant_contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                expected_move_out_date DATE NOT NULL,
+                reason TEXT NOT NULL,
+                note TEXT,
+                status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                reviewed_at TIMESTAMP,
+                reviewed_by UUID,
+                manager_note TEXT,
+                reject_reason TEXT,
+                completed_at TIMESTAMP
+                """);
+        addColumnIfNotExists("checkout_requests", "reviewed_at", "TIMESTAMP");
+        addColumnIfNotExists("checkout_requests", "reviewed_by", "UUID");
+        addColumnIfNotExists("checkout_requests", "manager_note", "TEXT");
+        addColumnIfNotExists("checkout_requests", "reject_reason", "TEXT");
+        addColumnIfNotExists("checkout_requests", "completed_at", "TIMESTAMP");
     }
 
     private void ensureTenantContractEquipmentsTable() {
