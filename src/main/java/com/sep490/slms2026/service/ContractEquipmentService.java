@@ -36,6 +36,9 @@ public interface ContractEquipmentService {
 
   void disableDeclinedForActiveContract(TenantContract contract);
 
+  /** Khôi phục thiết bị DISABLE do HĐ này (khi terminate / hết hạn / hủy). */
+  void restoreDisabledByContract(Long contractId);
+
   List<EquipmentItem> mapSelectedToItems(TenantContract contract);
 
   List<EquipmentItem> mapAvailableToItems(Long propertyId, Long roomId);

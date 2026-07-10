@@ -131,6 +131,24 @@ class ContractEquipmentServiceImplTest {
     assertEquals("EXISTING", items.get(0).getSource());
   }
 
+  @Test
+  void restoreDisabledByContract_reactivatesEquipment() {
+    Equipment declined =
+        Equipment.builder()
+            .id(40L)
+            .catalog(bed.getCatalog())
+            .operationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED)
+            .disabledByContractId(99L)
+            .disabledReason("Khách không nhận")
+            .build();
+    when(equipmentRepository.findByDisabledByContractId(99L)).thenReturn(List.of(declined));
+
+    service.restoreDisabledByContract(99L);
+
+    assertEquals(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE, declined.getOperationalStatus());
+    assertEquals(null, declined.getDisabledByContractId());
+  }
+
   private static Equipment equipment(Long id, String name, EquipmentStatus status) {
     EquipmentCatalog catalog = new EquipmentCatalog();
     catalog.setName(name);

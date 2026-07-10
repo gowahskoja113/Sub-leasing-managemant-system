@@ -19,6 +19,7 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.TenantContractDocumentService;
+import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
@@ -63,6 +64,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private final ContractDocumentUploadProperties uploadProperties;
     private final ContractLessorProperties lessorProperties;
     private final ContractEquipmentService contractEquipmentService;
+    private final TenantOnboardingService tenantOnboardingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -122,9 +124,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     public List<TenantContractResponse> listContractsForTenant(UUID tenantUserId) {
         List<TenantContract> contracts = tenantContractRepository.findByTenantId(tenantUserId);
         for (TenantContract contract : contracts) {
-            if (TenantContractStatusHelper.syncExpiredIfNeeded(contract)) {
-                tenantContractRepository.save(contract);
-            }
+            tenantOnboardingService.syncExpiredIfNeeded(contract);
         }
         return contracts.stream().map(this::toContractResponse).toList();
     }
@@ -132,9 +132,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private TenantContract loadAndSync(Long contractId) {
         TenantContract contract = tenantContractRepository.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID: " + contractId));
-        if (TenantContractStatusHelper.syncExpiredIfNeeded(contract)) {
-            tenantContractRepository.save(contract);
-        }
+        tenantOnboardingService.syncExpiredIfNeeded(contract);
         return contract;
     }
 

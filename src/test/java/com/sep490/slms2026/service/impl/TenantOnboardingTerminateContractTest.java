@@ -9,7 +9,6 @@ import com.sep490.slms2026.enums.ContractTerminationType;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BusinessException;
-import com.sep490.slms2026.repository.EquipmentRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
@@ -43,7 +42,6 @@ class TenantOnboardingTerminateContractTest {
   @Mock private TenantContractRepository tenantContractRepository;
   @Mock private com.sep490.slms2026.service.PayosService payosService;
   @Mock private com.sep490.slms2026.service.OtpService otpService;
-  @Mock private EquipmentRepository equipmentRepository;
   @Mock private ContractEquipmentService contractEquipmentService;
   @Mock private com.sep490.slms2026.repository.NotificationRepository notificationRepository;
   @Mock private com.sep490.slms2026.service.PushNotificationService pushNotificationService;
@@ -77,7 +75,6 @@ class TenantOnboardingTerminateContractTest {
 
     when(tenantContractRepository.findById(42L)).thenReturn(Optional.of(contract));
     when(tenantContractRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-    when(equipmentRepository.findByDisabledByContractId(42L)).thenReturn(java.util.List.of());
     when(contractEquipmentService.mapSelectedToItems(any())).thenReturn(java.util.List.of());
     when(contractEquipmentService.mapAvailableToItems(any(), any())).thenReturn(java.util.List.of());
     when(contractEquipmentService.getSelectedIds(any())).thenReturn(java.util.List.of());
@@ -100,6 +97,7 @@ class TenantOnboardingTerminateContractTest {
     assertEquals(RoomStatus.AVAILABLE, room.getStatus());
     assertEquals(ContractStatus.TERMINATED, response.getStatus());
     verify(roomRepository).save(room);
+    verify(contractEquipmentService).restoreDisabledByContract(42L);
   }
 
   @Test

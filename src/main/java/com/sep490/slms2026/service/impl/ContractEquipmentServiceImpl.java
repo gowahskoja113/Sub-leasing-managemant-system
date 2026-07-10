@@ -151,6 +151,24 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
   }
 
   @Override
+  public void restoreDisabledByContract(Long contractId) {
+    if (contractId == null) {
+      return;
+    }
+    List<Equipment> disabled = equipmentRepository.findByDisabledByContractId(contractId);
+    if (disabled.isEmpty()) {
+      return;
+    }
+    for (Equipment eq : disabled) {
+      eq.setOperationalStatus(EquipmentOperationalStatus.ACTIVE);
+      eq.setDisabledAt(null);
+      eq.setDisabledReason(null);
+      eq.setDisabledByContractId(null);
+    }
+    equipmentRepository.saveAll(disabled);
+  }
+
+  @Override
   public List<EquipmentItem> mapSelectedToItems(TenantContract contract) {
     if (contract.getSelectedEquipments() == null || contract.getSelectedEquipments().isEmpty()) {
       return List.of();

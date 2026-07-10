@@ -61,7 +61,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final TenantContractRepository tenantContractRepository;
     private final PayosService payosService;
     private final OtpService otpService;
-    private final com.sep490.slms2026.repository.EquipmentRepository equipmentRepository;
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
@@ -460,17 +459,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             propertyRepository.save(property);
         }
 
-        List<com.sep490.slms2026.entity.Equipment> disabledEquipments =
-                equipmentRepository.findByDisabledByContractId(contract.getId());
-        for (com.sep490.slms2026.entity.Equipment eq : disabledEquipments) {
-            eq.setOperationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE);
-            eq.setDisabledAt(null);
-            eq.setDisabledReason(null);
-            eq.setDisabledByContractId(null);
-        }
-        if (!disabledEquipments.isEmpty()) {
-            equipmentRepository.saveAll(disabledEquipments);
-        }
+        contractEquipmentService.restoreDisabledByContract(contract.getId());
     }
 
     @Override
@@ -606,21 +595,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .toList();
     }
 
-    private void syncExpiredIfNeeded(TenantContract contract) {
+    @Override
+    @Transactional
+    public void syncExpiredIfNeeded(TenantContract contract) {
         if (TenantContractStatusHelper.syncExpiredIfNeeded(contract)) {
             tenantContractRepository.save(contract);
-            
-            // Reactivate equipments if contract expired
-            List<com.sep490.slms2026.entity.Equipment> disabledEquipments = equipmentRepository.findByDisabledByContractId(contract.getId());
-            for (com.sep490.slms2026.entity.Equipment eq : disabledEquipments) {
-                eq.setOperationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE);
-                eq.setDisabledAt(null);
-                eq.setDisabledReason(null);
-                eq.setDisabledByContractId(null);
-            }
-            if (!disabledEquipments.isEmpty()) {
-                equipmentRepository.saveAll(disabledEquipments);
-            }
+            contractEquipmentService.restoreDisabledByContract(contract.getId());
         }
     }
 

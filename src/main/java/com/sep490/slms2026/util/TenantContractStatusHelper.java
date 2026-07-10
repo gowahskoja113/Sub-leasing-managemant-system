@@ -30,7 +30,10 @@ public final class TenantContractStatusHelper {
     }
 
     /**
-     * Tự chuyển ACTIVE → EXPIRED khi đã quá endDate.
+     * Tự chuyển ACTIVE → EXPIRED khi đã quá endDate (chỉ đổi status trên entity).
+     * Caller cần save entity và gọi {@link com.sep490.slms2026.service.ContractEquipmentService#restoreDisabledByContract}
+     * hoặc {@link com.sep490.slms2026.service.TenantOnboardingService#syncExpiredIfNeeded} để khôi phục thiết bị.
+     *
      * @return true nếu entity bị đổi status (caller nên save).
      */
     public static boolean syncExpiredIfNeeded(TenantContract contract) {
