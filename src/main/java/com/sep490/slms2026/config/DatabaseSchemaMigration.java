@@ -67,7 +67,21 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
+        ensureTenantContractEquipmentsTable();
 
+    }
+
+    private void ensureTenantContractEquipmentsTable() {
+        createTableIfNotExists(
+                "tenant_contract_equipments",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                tenant_contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id) ON DELETE CASCADE,
+                equipment_id BIGINT NOT NULL REFERENCES equipments(id),
+                condition_at_signing VARCHAR(50),
+                quantity INT NOT NULL DEFAULT 1,
+                UNIQUE (tenant_contract_id, equipment_id)
+                """);
     }
 
     private void ensureViewingLeadTables() {

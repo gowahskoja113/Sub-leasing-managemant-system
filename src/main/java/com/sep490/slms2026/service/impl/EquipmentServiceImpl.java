@@ -239,7 +239,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .source(com.sep490.slms2026.enums.EquipmentSource.ADDED_BY_TENANT)
                 .status(com.sep490.slms2026.enums.EquipmentStatus.NEW)
                 .operationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
-                .price(java.math.BigDecimal.ZERO) // Hoặc null nếu không có
+                .price(request.getCost() != null ? request.getCost() : java.math.BigDecimal.ZERO)
                 .build();
 
         return toResponse(persistWithQrCode(equipment));

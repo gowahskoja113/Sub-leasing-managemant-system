@@ -1,5 +1,6 @@
 package com.sep490.slms2026.dto.request;
 
+import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -21,6 +22,17 @@ public class UpdateDraftContractRequest {
     private BigDecimal deposit;
     private LocalDate endDate;
     private String equipmentSnapshot;
+
+    /** Thiết bị có sẵn khách nhận. Gửi [] nếu không nhận món nào. */
+    private List<Long> selectedEquipmentIds;
+
+    /** Thiết bị lắp thêm inline (chưa có trong DB). Gửi [] để xóa hết lắp thêm. */
+    private List<ContractAddedEquipmentRequest> addedEquipments;
+
+    /** ID thiết bị lắp thêm đã POST /equipments trước đó. Gửi [] để xóa hết lắp thêm. */
+    private List<Long> addedEquipmentIds;
+
+    /** @deprecated Dùng {@link #selectedEquipmentIds}. */
     private List<Long> declinedEquipmentIds;
     private Integer depositMonths;
     private BigDecimal initialElectricReading;

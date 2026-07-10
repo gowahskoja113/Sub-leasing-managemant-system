@@ -1,5 +1,6 @@
 package com.sep490.slms2026.dto.response;
 
+import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -23,6 +24,8 @@ public class TenantHandoverResponse {
     private List<String> roomConditionUrls;
     private String roomConditionNote;
     private String equipmentSnapshot;
+    /** Thiết bị khách nhận bàn giao (có cấu trúc). */
+    private List<EquipmentItem> equipmentList;
     private boolean acknowledged;
     private LocalDateTime acknowledgedAt;
 }

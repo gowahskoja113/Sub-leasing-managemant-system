@@ -41,7 +41,20 @@ public class TenantContractResponse {
     private LocalDateTime terminatedAt;
     private String terminationReason;
     private String pdfUrl;
+    /** Thiết bị khách nhận bàn giao theo HĐ (đã chọn). */
     private List<EquipmentItem> equipmentList;
+
+    /** Thiết bị ACTIVE trong phạm vi HĐ — dùng cho checkbox chọn lúc tạo/sửa draft. */
+    private List<EquipmentItem> availableEquipmentList;
+
+    /** ID thiết bị đã chọn (tiện cho FE đồng bộ checkbox). */
+    private List<Long> selectedEquipmentIds;
+
+    /** ID thiết bị có sẵn đã chọn (subset của selectedEquipmentIds). */
+    private List<Long> selectedExistingIds;
+
+    /** ID thiết bị lắp thêm đã gắn HĐ. */
+    private List<Long> selectedAddedIds;
 
     private String contractCode;
     private BigDecimal rentAmount;

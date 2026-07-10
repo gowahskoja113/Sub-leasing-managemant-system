@@ -48,7 +48,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import com.sep490.slms2026.repository.EquipmentRepository;
+import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 
 @Service
@@ -62,7 +62,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private final TenantContractRepository tenantContractRepository;
     private final ContractDocumentUploadProperties uploadProperties;
     private final ContractLessorProperties lessorProperties;
-    private final EquipmentRepository equipmentRepository;
+    private final ContractEquipmentService contractEquipmentService;
 
     @Override
     @Transactional(readOnly = true)
@@ -314,29 +314,13 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
         String type = (room == null) ? "WHOLE_HOUSE" : "ROOM";
         String propertyNameStr = property.getPropertyName();
-        
-        List<EquipmentItem> equipmentList = null;
-        if (room != null) {
-            equipmentList = equipmentRepository.findByRoomId(room.getId()).stream()
-                .map(eq -> EquipmentItem.builder()
-                        .id(eq.getId())
-                        .name(eq.getCatalog() != null ? eq.getCatalog().getName() : "")
-                        .condition(eq.getStatus() != null ? eq.getStatus().name() : "Tốt")
-                        .quantity(1)
-                        .build())
-                .collect(Collectors.toList());
-        } else {
-            // For whole house, we can query by propertyId and roomId is null
-            // Actually findByPropertyId returns all equipments. Wait, whole house means all equipments in property
-            equipmentList = equipmentRepository.findByPropertyId(property.getId()).stream()
-                .map(eq -> EquipmentItem.builder()
-                        .id(eq.getId())
-                        .name(eq.getCatalog() != null ? eq.getCatalog().getName() : "")
-                        .condition(eq.getStatus() != null ? eq.getStatus().name() : "Tốt")
-                        .quantity(1)
-                        .build())
-                .collect(Collectors.toList());
-        }
+
+        List<EquipmentItem> equipmentList = contractEquipmentService.mapSelectedToItems(c);
+        List<EquipmentItem> availableEquipmentList = contractEquipmentService.mapAvailableToItems(
+                property.getId(), room != null ? room.getId() : null);
+        List<Long> selectedEquipmentIds = contractEquipmentService.getSelectedIds(c);
+        List<Long> selectedExistingIds = contractEquipmentService.getSelectedExistingIds(c);
+        List<Long> selectedAddedIds = contractEquipmentService.getSelectedAddedIds(c);
 
         return TenantContractResponse.builder()
                 .id(c.getId())
@@ -382,6 +366,10 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .terminationReason(null)
                 .pdfUrl(resolveContractFileUrl(c))
                 .equipmentList(equipmentList)
+                .availableEquipmentList(availableEquipmentList)
+                .selectedEquipmentIds(selectedEquipmentIds)
+                .selectedExistingIds(selectedExistingIds)
+                .selectedAddedIds(selectedAddedIds)
                 .draftContractFileUrl(c.getDraftContractFileUrl())
                 .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())

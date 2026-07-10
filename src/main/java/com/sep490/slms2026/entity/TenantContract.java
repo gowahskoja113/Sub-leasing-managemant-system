@@ -122,6 +122,11 @@ public class TenantContract implements Serializable {
     @Builder.Default
     private List<HouseholdMember> householdMembers = new ArrayList<>();
 
+    /** Thiết bị khách nhận bàn giao (subset theo deal từng HĐ). */
+    @OneToMany(mappedBy = "tenantContract", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<TenantContractEquipment> selectedEquipments = new ArrayList<>();
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ContractStatus status = ContractStatus.ACTIVE;

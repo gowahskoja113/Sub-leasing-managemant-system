@@ -1,8 +1,10 @@
 package com.sep490.slms2026.dto.response;
 
+import com.sep490.slms2026.enums.EquipmentStatus;
+import com.sep490.slms2026.enums.HouseArea;
+import java.math.BigDecimal;
 import lombok.Builder;
 import lombok.Data;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -44,5 +46,13 @@ public class TenantContractDetailResponse {
         private String name;
         private String condition;
         private Integer quantity;
+        /** EXISTING = có sẵn trong nhà; ADDED = lắp thêm theo deal. */
+        private String source;
+        /** ROOM = thuộc phòng; SHARED = khu vực chung. */
+        private String scope;
+        private String roomNumber;
+        private HouseArea houseArea;
+        /** Chi phí (chỉ có khi source = ADDED). */
+        private BigDecimal cost;
     }
 }

@@ -1,5 +1,6 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 import com.sep490.slms2026.dto.response.TenantContractDocumentResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.security.CustomUserDetails;
@@ -44,6 +45,16 @@ public class TenantContractActionController {
         String role = user.getAuthorities().iterator().next().getAuthority();
         return ResponseEntity.ok(tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role));
+    }
+
+    /**
+     * GET /{id}/available-equipments — thiết bị ACTIVE trong phạm vi HĐ (checkbox chọn bàn giao).
+     */
+    @GetMapping("/{id}/available-equipments")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<java.util.List<EquipmentItem>> getAvailableEquipments(@PathVariable Long id) {
+        TenantContractResponse contract = tenantOnboardingService.getContract(id);
+        return ResponseEntity.ok(contract.getAvailableEquipmentList());
     }
 
     /**

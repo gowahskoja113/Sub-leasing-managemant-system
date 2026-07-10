@@ -6,6 +6,7 @@ import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.TenantHandoverService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class TenantHandoverServiceImpl implements TenantHandoverService {
 
     private final TenantContractRepository tenantContractRepository;
+    private final ContractEquipmentService contractEquipmentService;
 
     @Override
     @Transactional(readOnly = true)
@@ -64,6 +66,7 @@ public class TenantHandoverServiceImpl implements TenantHandoverService {
                 .roomConditionUrls(photos)
                 .roomConditionNote(contract.getRoomConditionNote())
                 .equipmentSnapshot(contract.getEquipmentSnapshot())
+                .equipmentList(contractEquipmentService.mapSelectedToItems(contract))
                 .acknowledged(contract.getHandoverAcknowledgedAt() != null)
                 .acknowledgedAt(contract.getHandoverAcknowledgedAt())
                 .build();

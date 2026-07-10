@@ -40,7 +40,23 @@ public class OnboardTenantRequest {
     private LocalDate endDate;
 
     private String equipmentSnapshot;
-    
+
+    /** Thiết bị có sẵn khách nhận bàn giao (subset inventory). BE tự sinh phần EXISTING trong equipmentSnapshot. */
+    private List<Long> selectedEquipmentIds;
+
+    /**
+     * Thiết bị lắp thêm chưa có trong hệ thống — BE tạo Equipment (ADDED_BY_TENANT) và gộp snapshot.
+     * Gửi {@code []} để xóa toàn bộ lắp thêm khi update.
+     */
+    private List<ContractAddedEquipmentRequest> addedEquipments;
+
+    /**
+     * ID thiết bị lắp thêm đã tạo trước qua POST /properties/{id}/equipments.
+     * Gửi {@code []} để xóa toàn bộ lắp thêm (khi không dùng addedEquipments inline).
+     */
+    private List<Long> addedEquipmentIds;
+
+    /** @deprecated Dùng {@link #selectedEquipmentIds}. */
     private List<Long> declinedEquipmentIds;
 
     // Số tháng cọc (1 hoặc 2) — FE tính deposit = rentAmount * depositMonths

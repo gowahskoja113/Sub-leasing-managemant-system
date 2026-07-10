@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
 import com.sep490.slms2026.dto.request.HouseholdMemberRequest;
 import com.sep490.slms2026.dto.request.OnboardTenantRequest;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
@@ -22,6 +23,7 @@ import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.NotificationRepository;
+import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PushNotificationService;
@@ -58,6 +60,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final PayosService payosService;
     private final OtpService otpService;
     private final com.sep490.slms2026.repository.EquipmentRepository equipmentRepository;
+    private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
 
@@ -179,6 +182,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             }
         }
 
+        contractEquipmentService.resolveAndApplyHandover(
+                contract,
+                request.getSelectedEquipmentIds(),
+                request.getDeclinedEquipmentIds(),
+                request.getAddedEquipments(),
+                request.getAddedEquipmentIds());
+
         TenantContract saved = tenantContractRepository.save(contract);
 
         if (request.isDraft() && saved.getAssignedManager() != null) {
@@ -192,15 +202,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             roomRepository.save(room);
         }
 
-        if (request.getDeclinedEquipmentIds() != null && !request.getDeclinedEquipmentIds().isEmpty()) {
-            List<com.sep490.slms2026.entity.Equipment> declinedEquipments = equipmentRepository.findAllById(request.getDeclinedEquipmentIds());
-            for (com.sep490.slms2026.entity.Equipment eq : declinedEquipments) {
-                eq.setOperationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED);
-                eq.setDisabledAt(LocalDateTime.now());
-                eq.setDisabledReason("Khách không nhận · HĐ " + saved.getContractCode());
-                eq.setDisabledByContractId(saved.getId());
-            }
-            equipmentRepository.saveAll(declinedEquipments);
+        if (saved.getStatus() == ContractStatus.ACTIVE) {
+            contractEquipmentService.disableDeclinedForActiveContract(saved);
         }
 
         return toResponse(saved);
@@ -300,6 +303,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         contract.setStatus(ContractStatus.ACTIVE);
         TenantContract saved = tenantContractRepository.save(contract);
+        contractEquipmentService.disableDeclinedForActiveContract(saved);
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
     }
@@ -448,7 +452,19 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             contract.setStartDate(request.getMoveInDate());
         }
         if (request.getEndDate() != null) contract.setEndDate(request.getEndDate());
-        if (request.getEquipmentSnapshot() != null) contract.setEquipmentSnapshot(request.getEquipmentSnapshot());
+        if (request.getSelectedEquipmentIds() != null
+                || request.getDeclinedEquipmentIds() != null
+                || request.getAddedEquipments() != null
+                || request.getAddedEquipmentIds() != null) {
+            contractEquipmentService.resolveAndApplyHandover(
+                    contract,
+                    request.getSelectedEquipmentIds(),
+                    request.getDeclinedEquipmentIds(),
+                    request.getAddedEquipments(),
+                    request.getAddedEquipmentIds());
+        } else if (request.getEquipmentSnapshot() != null) {
+            contract.setEquipmentSnapshot(request.getEquipmentSnapshot());
+        }
         if (request.getInitialElectricReading() != null) contract.setInitialElectricReading(request.getInitialElectricReading());
         if (request.getInitialWaterReading() != null) contract.setInitialWaterReading(request.getInitialWaterReading());
         if (request.getElectricMeterImageUrl() != null) contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
@@ -693,6 +709,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .draftContractFileUrl(c.getDraftContractFileUrl())
                 .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())
+                .equipmentList(contractEquipmentService.mapSelectedToItems(c))
+                .availableEquipmentList(contractEquipmentService.mapAvailableToItems(
+                        c.getProperty().getId(), room != null ? room.getId() : null))
+                .selectedEquipmentIds(contractEquipmentService.getSelectedIds(c))
+                .selectedExistingIds(contractEquipmentService.getSelectedExistingIds(c))
+                .selectedAddedIds(contractEquipmentService.getSelectedAddedIds(c))
                 .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
                         .map(hm -> com.sep490.slms2026.dto.response.HouseholdMemberResponse.builder()
                                 .id(hm.getId())
