@@ -110,6 +110,14 @@ public class TenantContract implements Serializable {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** Khách xác nhận đã trả cọc tiền mặt. */
+    @Column(name = "deposit_cash_tenant_confirmed_at")
+    private LocalDateTime depositCashTenantConfirmedAt;
+
+    /** Manager xác nhận đã nhận cọc tiền mặt. */
+    @Column(name = "deposit_cash_manager_confirmed_at")
+    private LocalDateTime depositCashManagerConfirmedAt;
+
     /** URL public file hợp đồng DOCX đã xuất (lưu local giống ảnh property). */
     @Column(name = "document_url")
     private String documentUrl;

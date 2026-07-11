@@ -68,6 +68,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
         ensureTenantContractEquipmentsTable();
+        addColumnIfNotExists("tenant_contracts", "deposit_cash_tenant_confirmed_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "deposit_cash_manager_confirmed_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "terminated_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "termination_type", "VARCHAR(50)");
         addColumnIfNotExists("tenant_contracts", "termination_reason", "TEXT");

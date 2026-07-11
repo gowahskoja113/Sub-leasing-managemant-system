@@ -50,6 +50,8 @@ public class SecurityConfig {
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/tenant-contracts/*/deposit-cash-paid").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/properties/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/uploads/properties/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/uploads/contracts/**").permitAll()

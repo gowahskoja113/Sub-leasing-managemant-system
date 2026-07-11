@@ -80,11 +80,15 @@ public class TenantContractResponse {
     private List<String> roomConditionUrls;
     private String roomConditionNote;
 
-    // Thanh toán cọc (PayOS)
+    // Thanh toán cọc (PayOS / tiền mặt)
     private PaymentStatus paymentStatus;
     private Long payosOrderCode;
     private String payosCheckoutUrl;
     private String payosQrCode;
+    private Boolean depositCashTenantConfirmed;
+    private Boolean depositCashManagerConfirmed;
+    private LocalDateTime depositCashTenantConfirmedAt;
+    private LocalDateTime depositCashManagerConfirmedAt;
 
     // Onboarding: thông tin tài khoản tenant sau confirm
     private String  tenantUsername;        // = SĐT khách (username đăng nhập)

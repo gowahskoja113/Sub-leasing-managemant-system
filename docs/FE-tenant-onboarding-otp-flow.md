@@ -1,0 +1,501 @@
+# Onboarding khách thuê + Thanh toán cọc + OTP — Hướng dẫn FE
+
+Tài liệu mô tả **luồng đón khách mới** từ tạo HĐ nháp → chụp hiện trạng / OCR điện nước → thu cọc (QR hoặc tiền mặt) → OTP xác nhận → **ACTIVE**.
+
+**Tham chiếu thêm:**
+- Thiết bị bàn giao: [`FE-contract-handover-equipment.md`](./FE-contract-handover-equipment.md)
+- Xem file HĐ: [`FE-view-contract.md`](./FE-view-contract.md)
+
+---
+
+## 1. Tóm tắt nhanh
+
+| Giai đoạn | Trạng thái HĐ | `paymentStatus` | Việc FE |
+|-----------|---------------|-----------------|---------|
+| Tạo nháp | `DRAFT` | `PENDING` | Form khách, ảnh phòng, chỉ số điện/nước |
+| Sẵn sàng thu cọc | `DRAFT` hoặc `PENDING` | `PENDING` | Chọn QR PayOS **hoặc** tiền mặt |
+| Đã thu cọc | `PENDING` | `PAID` | Gửi/nhận OTP, manager nhập OTP |
+| Hoàn tất | `ACTIVE` | `PAID` | Phòng `RENTED`, tenant có thể đăng nhập |
+
+```
+[Manager tạo DRAFT]
+        │
+        ▼
+[Onboarding: ảnh hiện trạng + OCR điện/nước + thiết bị + HĐ nháp DOCX]
+        │
+        ▼
+[Thu cọc]
+   ├─ QR PayOS ──► PAID (webhook / check-payment) ──► Manager /send-otp
+   └─ Tiền mặt ──► Tenant /deposit-cash-paid + Manager /deposit-cash-received
+                   ──► PAID + OTP tự gửi (Twilio)
+        │
+        ▼
+[Tenant đọc OTP SMS → đọc cho Manager]
+        │
+        ▼
+[Manager POST /confirm { otp }] ──► ACTIVE
+```
+
+---
+
+## 2. Trạng thái & field quan trọng
+
+### 2.1. `status` (hợp đồng)
+
+| Giá trị | Ý nghĩa |
+|---------|---------|
+| `DRAFT` | Nháp — chưa tạo tài khoản tenant |
+| `PENDING` | Chờ thu cọc / chờ OTP / chờ kích hoạt |
+| `ACTIVE` | Đang hiệu lực |
+| `TERMINATED` | Đã thanh lý |
+
+### 2.2. `paymentStatus` (cọc)
+
+| Giá trị | Ý nghĩa |
+|---------|---------|
+| `PENDING` | Chưa thu cọc |
+| `PAID` | Đã thu cọc — được phép gửi OTP & confirm |
+
+### 2.3. Field tiền mặt (mới)
+
+```json
+{
+  "depositCashTenantConfirmed": false,
+  "depositCashManagerConfirmed": false,
+  "depositCashTenantConfirmedAt": null,
+  "depositCashManagerConfirmedAt": null
+}
+```
+
+Khi **cả hai** = `true` → BE set `paymentStatus = PAID` và **tự gửi OTP** (tiền mặt).
+
+### 2.4. Field thanh toán QR
+
+```json
+{
+  "payosOrderCode": 1720000000000,
+  "payosCheckoutUrl": "https://pay.payos.vn/...",
+  "payosQrCode": "data:image/png;base64,..."
+}
+```
+
+Chỉ có sau `POST /deposit-payment`.
+
+---
+
+## 3. Luồng chi tiết theo bước
+
+### Bước 1 — Tạo hợp đồng nháp
+
+**Auth:** `MANAGER` / `ADMIN`
+
+```http
+POST /api/v1/properties/{propertyId}/rooms/{roomId}/tenant-contract
+Authorization: Bearer {managerToken}
+Content-Type: application/json
+```
+
+```json
+{
+  "draft": true,
+  "fullName": "Nguyễn Văn A",
+  "cccd": "001234567890",
+  "phoneNumber": "0352393203",
+  "dateOfBirth": "1995-06-15",
+  "moveInDate": "2026-07-11",
+  "endDate": "2027-07-11",
+  "rentAmount": 5000000,
+  "deposit": 5000000,
+  "depositMonths": 1,
+  "assignedManagerId": "uuid-manager",
+  "selectedEquipmentIds": [12, 15],
+  "requireDepositPayment": true
+}
+```
+
+**Lưu ý:**
+- `draft: true` → `status = DRAFT`, **chưa** tạo user tenant
+- `moveInDate` khi **không** draft phải = hôm nay; draft có thể set ngày tương lai nhưng khi thu cọc phải ≥ hôm nay
+- Thuê nguyên căn: `POST /api/v1/properties/{propertyId}/tenant-contract` (không có `roomId`)
+
+**Response:** lưu `id` (contractId), `contractCode`, `status: "DRAFT"`.
+
+---
+
+### Bước 2 — Onboarding: hiện trạng phòng + chỉ số điện nước
+
+#### 2a. Upload ảnh (FE → Cloudinary)
+
+FE upload trước, lấy URL public.
+
+#### 2b. OCR đồng hồ (tuỳ chọn)
+
+**Auth:** `MANAGER` / `ADMIN`
+
+```http
+POST /api/v1/ocr/meter
+Authorization: Bearer {managerToken}
+
+{ "imageUrl": "https://res.cloudinary.com/.../electric-meter.jpg" }
+```
+
+**Response gợi ý:**
+
+```json
+{
+  "suggestedReading": 12345,
+  "candidates": [12345, 1234],
+  "rawText": "..."
+}
+```
+
+FE cho user chọn/chỉnh số rồi lưu vào draft.
+
+#### 2c. Cập nhật draft
+
+```http
+PUT /api/v1/tenant-contracts/{contractId}
+Authorization: Bearer {managerToken}
+```
+
+```json
+{
+  "initialElectricReading": 12345,
+  "initialWaterReading": 56,
+  "electricMeterImageUrl": "https://res.cloudinary.com/.../electric.jpg",
+  "waterMeterImageUrl": "https://res.cloudinary.com/.../water.jpg",
+  "roomConditionUrls": [
+    "https://res.cloudinary.com/.../room-1.jpg",
+    "https://res.cloudinary.com/.../room-2.jpg"
+  ],
+  "roomConditionNote": "Tường có vết bẩn nhẹ góc phải"
+}
+```
+
+#### 2d. Xuất HĐ nháp DOCX (tuỳ chọn)
+
+```http
+POST /api/v1/tenant-contracts/{id}/draft-document   → binary DOCX
+```
+
+FE upload DOCX lên Cloudinary → `PUT` lại với `draftContractFileUrl`.
+
+---
+
+### Bước 3 — Thu cọc
+
+Chọn **một** trong hai nhánh.
+
+---
+
+#### Nhánh A — QR PayOS
+
+**Auth:** `MANAGER` / `ADMIN`
+
+```http
+POST /api/v1/tenant-contracts/{contractId}/deposit-payment
+Authorization: Bearer {managerToken}
+```
+
+- Nếu HĐ đang `DRAFT` → BE chuyển sang `PENDING`
+- Trả `payosQrCode`, `payosCheckoutUrl`
+
+**FE hiển thị QR** cho khách quét.
+
+**Đồng bộ trạng thái thanh toán:**
+
+| Cách | API |
+|------|-----|
+| Tự động (prod) | PayOS webhook → BE set `PAID` |
+| Thủ công (dev/local) | `POST /api/v1/tenant-contracts/{id}/check-payment` |
+
+Poll `GET /api/v1/tenant-contracts/{id}` cho đến khi `paymentStatus === "PAID"`.
+
+**Sau khi PAID — Manager chủ động gửi OTP:**
+
+```http
+POST /api/v1/tenant-contracts/{contractId}/send-otp
+Authorization: Bearer {managerToken}
+```
+
+```json
+{ "success": true, "message": "Đã gửi mã OTP tới số điện thoại khách thuê" }
+```
+
+> QR **không** tự gửi OTP. Manager phải bấm **Gửi OTP**.
+
+---
+
+#### Nhánh B — Tiền mặt
+
+Cần **xác nhận 2 chiều**. Thứ tự 2 API không bắt buộc.
+
+**B1 — Khách xác nhận đã trả**
+
+```http
+POST /api/v1/tenant-contracts/{contractId}/deposit-cash-paid
+Content-Type: application/json
+```
+
+> **Không cần JWT** — dùng khi khách chưa có tài khoản tenant.
+
+```json
+{
+  "phoneNumber": "0352393203"
+}
+```
+
+`phoneNumber` **phải khớp** SĐT trên HĐ (`tenantPhone` / `draftTenantPhone`).  
+Hỗ trợ format `0352393203`, `84352393203`, `+84352393203`.
+
+**B2 — Manager xác nhận đã nhận**
+
+```http
+POST /api/v1/tenant-contracts/{contractId}/deposit-cash-received
+Authorization: Bearer {managerToken}
+```
+
+**Khi cả hai đã xác nhận:**
+- `paymentStatus` → `PAID`
+- `depositCashTenantConfirmed` / `depositCashManagerConfirmed` → `true`
+- BE **tự gửi OTP** qua Twilio Verify tới SĐT khách
+- **Không cần** gọi `/send-otp` thêm (gọi lại vẫn được nếu muốn gửi mã mới)
+
+---
+
+### Bước 4 — Xác nhận OTP & kích hoạt HĐ
+
+1. Khách nhận SMS (Twilio Verify), ví dụ:  
+   `Mã xác thực SLMS của bạn là: 123456`
+2. Khách **đọc mã cho manager** (tenant không nhập OTP trên app manager)
+3. Manager nhập OTP:
+
+```http
+POST /api/v1/tenant-contracts/{contractId}/confirm
+Authorization: Bearer {managerToken}
+Content-Type: application/json
+
+{ "otp": "123456" }
+```
+
+**Kết quả:**
+- `status` → `ACTIVE`
+- Phòng → `RENTED`
+- Tạo/nâng tài khoản tenant (nếu trước đó là DRAFT)
+- Response có thể có `tenantUsername`, `tenantAccountCreated`, `tenantRolePromoted`
+
+---
+
+## 4. Bảng API đầy đủ
+
+| Bước | Method | Path | Auth |
+|------|--------|------|------|
+| Tạo draft | `POST` | `/api/v1/properties/{propertyId}/rooms/{roomId}/tenant-contract` | Manager |
+| Cập nhật draft | `PUT` | `/api/v1/tenant-contracts/{id}` | Manager |
+| OCR đồng hồ | `POST` | `/api/v1/ocr/meter` | Manager |
+| Chi tiết HĐ | `GET` | `/api/v1/tenant-contracts/{id}` | Manager / Tenant |
+| Tạo QR cọc | `POST` | `/api/v1/tenant-contracts/{id}/deposit-payment` | Manager |
+| Kiểm tra PayOS | `POST` | `/api/v1/tenant-contracts/{id}/check-payment` | Manager |
+| Khách đã trả tiền mặt | `POST` | `/api/v1/tenant-contracts/{id}/deposit-cash-paid` | **Public** |
+| Manager đã nhận tiền mặt | `POST` | `/api/v1/tenant-contracts/{id}/deposit-cash-received` | Manager |
+| Gửi OTP (QR) | `POST` | `/api/v1/tenant-contracts/{id}/send-otp` | Manager |
+| Kích hoạt HĐ | `POST` | `/api/v1/tenant-contracts/{id}/confirm` | Manager |
+| Hủy HĐ chưa ACTIVE | `POST` | `/api/v1/tenant-contracts/{id}/cancel` | Manager |
+
+---
+
+## 5. Gợi ý UI theo màn hình
+
+### Manager app
+
+| Màn hình | Hành động |
+|----------|-----------|
+| Tạo HĐ | `draft: true`, chọn phòng, nhập khách |
+| Onboarding | Camera ảnh phòng, chụp đồng hồ, gọi OCR, lưu draft |
+| Thu cọc | Tab **QR** / **Tiền mặt** |
+| QR | Hiện `payosQrCode`, nút "Kiểm tra thanh toán", sau PAID → nút **Gửi OTP** |
+| Tiền mặt | Nút **Đã nhận tiền** → `/deposit-cash-received`; hiện trạng thái chờ khách xác nhận |
+| Hoàn tất | Input 6 số OTP → **Xác nhận HĐ** |
+
+### Tenant (tiền mặt — chưa login)
+
+| Màn hình | Hành động |
+|----------|-----------|
+| Xác nhận cọc | Nhập SĐT (pre-fill) → **Tôi đã trả tiền** → `/deposit-cash-paid` |
+| Chờ SMS | Hiện "Kiểm tra tin nhắn OTP và đọc cho quản lý" |
+
+### Điều kiện bật nút (FE)
+
+```ts
+const canSendOtp = contract.paymentStatus === 'PAID' && contract.status !== 'ACTIVE';
+const canConfirm = contract.paymentStatus === 'PAID' && contract.status !== 'ACTIVE';
+const canCashTenant = contract.paymentStatus !== 'PAID' && !contract.depositCashTenantConfirmed;
+const canCashManager = contract.paymentStatus !== 'PAID' && !contract.depositCashManagerConfirmed;
+const showQrCheck = contract.payosOrderCode != null && contract.paymentStatus !== 'PAID';
+```
+
+---
+
+## 6. Lỗi thường gặp
+
+| HTTP / message | Nguyên nhân | FE xử lý |
+|----------------|-------------|----------|
+| `Chưa thanh toán cọc, không thể gửi OTP` | `paymentStatus !== PAID` | Hoàn tất bước thu cọc trước |
+| `Số điện thoại không khớp với hợp đồng` | SĐT `/deposit-cash-paid` sai | Báo nhập đúng SĐT trên HĐ |
+| `Mã OTP không đúng` / `đã hết hạn` | OTP sai hoặc quá 5 phút | Nút "Gửi lại OTP" → `/send-otp` |
+| `Ngày vào ở không hợp lệ để thu cọc` | `moveInDate` < hôm nay | Sửa ngày vào ở trên draft |
+| `Hợp đồng cần được chủ nhà duyệt giá...` | `requireHostPriceApproval` chưa duyệt | Chờ host duyệt giá |
+
+---
+
+## 7. Hướng dẫn test
+
+### 7.1. Chuẩn bị môi trường
+
+**`.env` BE (Twilio Verify):**
+
+```env
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_VERIFY_SERVICE_SID=VA...
+TWILIO_OTP_EXPIRY_MINUTES=5
+TWILIO_OTP_MAX_ATTEMPTS=5
+```
+
+**Twilio trial:** chỉ gửi SMS tới số đã **Verified** trên Console (`+84352393203`).
+
+**Restart BE** sau khi sửa `.env`.
+
+**Tài khoản test:**
+- Manager JWT (Swagger `/swagger-ui.html` hoặc login API)
+- SĐT khách = số đã verify Twilio
+
+---
+
+### 7.2. Test nhanh — Tiền mặt + OTP (khuyến nghị capstone)
+
+Thay `{contractId}`, token, SĐT thực tế.
+
+```bash
+# 1. Tạo draft (Swagger hoặc curl)
+POST /api/v1/properties/1/rooms/5/tenant-contract
+{ "draft": true, "phoneNumber": "0352393203", ... }
+
+# 2. Cập nhật ảnh + chỉ số
+PUT /api/v1/tenant-contracts/{contractId}
+{ "roomConditionUrls": [...], "initialElectricReading": 100, ... }
+
+# 3a. Khách xác nhận đã trả (KHÔNG cần token)
+POST /api/v1/tenant-contracts/{contractId}/deposit-cash-paid
+{ "phoneNumber": "0352393203" }
+
+# 3b. Manager xác nhận đã nhận
+POST /api/v1/tenant-contracts/{contractId}/deposit-cash-received
+Authorization: Bearer {managerToken}
+
+# 4. Kiểm tra PAID + SMS OTP trên điện thoại
+GET /api/v1/tenant-contracts/{contractId}
+→ paymentStatus: "PAID", depositCashTenantConfirmed: true, depositCashManagerConfirmed: true
+
+# 5. Manager nhập OTP từ SMS
+POST /api/v1/tenant-contracts/{contractId}/confirm
+{ "otp": "123456" }
+
+# 6. Xác nhận ACTIVE
+GET /api/v1/tenant-contracts/{contractId}
+→ status: "ACTIVE"
+```
+
+**Checklist pass:**
+- [ ] SMS nhận được trên SĐT verified
+- [ ] OTP 6 số verify thành công
+- [ ] `status = ACTIVE`, `paymentStatus = PAID`
+- [ ] Phòng chuyển `RENTED`
+
+---
+
+### 7.3. Test — QR PayOS
+
+```bash
+# 1–2. Giống trên (tạo draft + onboarding)
+
+# 3. Tạo QR
+POST /api/v1/tenant-contracts/{contractId}/deposit-payment
+
+# 4. Khách quét QR / thanh toán PayOS sandbox
+#    Hoặc dev: POST /check-payment sau khi thanh toán
+
+# 5. Manager GỬI OTP thủ công
+POST /api/v1/tenant-contracts/{contractId}/send-otp
+
+# 6. Confirm OTP
+POST /api/v1/tenant-contracts/{contractId}/confirm
+{ "otp": "......" }
+```
+
+---
+
+### 7.4. Test khi Twilio chưa cấu hình (dev)
+
+Nếu thiếu `TWILIO_*` env:
+- BE vẫn chạy, **không gửi SMS**
+- Log server in: `[DEV] Twilio Verify chưa cấu hình — mã OTP xxxxxx cho +84...`
+- FE/QA đọc OTP từ **log console BE** để test `/confirm`
+
+---
+
+### 7.5. Debug Twilio
+
+| Vấn đề | Kiểm tra |
+|--------|----------|
+| Không nhận SMS | Console → **Monitor → Logs → Verify** |
+| Trial chặn SĐT | Chỉ dùng số **Verified Caller IDs** |
+| OTP confirm fail | OTP hết hạn 5 phút → gọi lại `/send-otp` |
+| Custom code lỗi | Verify Service **SLMS** bật **Custom code** |
+
+---
+
+## 8. Khác biệt QR vs Tiền mặt (tóm tắt cho FE)
+
+| | QR PayOS | Tiền mặt |
+|---|----------|----------|
+| API thu cọc | `/deposit-payment` | `/deposit-cash-paid` + `/deposit-cash-received` |
+| Ai xác nhận thanh toán | PayOS / webhook | Tenant + Manager |
+| Gửi OTP | Manager **thủ công** `/send-otp` | BE **tự gửi** khi đủ 2 xác nhận |
+| JWT tenant | Không cần | `/deposit-cash-paid` **public** |
+| Bước confirm | Giống nhau: `/confirm` | Giống nhau: `/confirm` |
+
+---
+
+## 9. Sequence diagram
+
+```mermaid
+sequenceDiagram
+    participant M as Manager App
+    participant BE as Backend
+    participant T as Tenant (SMS/App)
+    participant Pay as PayOS / Twilio
+
+    M->>BE: POST tenant-contract (draft=true)
+    M->>BE: PUT draft (ảnh, chỉ số, OCR)
+    alt QR
+        M->>BE: POST deposit-payment
+        BE-->>M: payosQrCode
+        T->>Pay: Quét QR thanh toán
+        Pay->>BE: Webhook PAID
+        M->>BE: POST send-otp
+        BE->>Pay: Twilio Verify SMS
+    else Tiền mặt
+        T->>BE: POST deposit-cash-paid (phone)
+        M->>BE: POST deposit-cash-received
+        BE->>Pay: Twilio Verify SMS (auto)
+    end
+    Pay-->>T: SMS OTP
+    T->>M: Đọc mã OTP
+    M->>BE: POST confirm { otp }
+    BE-->>M: status ACTIVE
+```
+
+---
+
+*Tài liệu đồng bộ với BE: Twilio Verify API + luồng cọc tiền mặt (`deposit-cash-*`). Cập nhật lần cuối: 2026-07-11.*

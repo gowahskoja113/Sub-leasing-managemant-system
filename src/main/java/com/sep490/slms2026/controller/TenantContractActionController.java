@@ -8,6 +8,7 @@ import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.dto.request.ConfirmContractRequest;
+import com.sep490.slms2026.dto.request.ConfirmDepositCashRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -129,6 +130,25 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractResponse> checkPayment(@PathVariable Long id) {
         return ResponseEntity.ok(tenantOnboardingService.syncPaymentStatus(id));
+    }
+
+    /**
+     * POST /{id}/deposit-cash-paid — khách xác nhận đã trả cọc tiền mặt.
+     * Public (không JWT): xác thực bằng SĐT khớp với HĐ — phù hợp onboarding khi chưa có tài khoản tenant.
+     */
+    @PostMapping("/{id}/deposit-cash-paid")
+    public ResponseEntity<TenantContractResponse> confirmDepositCashPaid(
+            @PathVariable Long id,
+            @Valid @RequestBody ConfirmDepositCashRequest request) {
+        return ResponseEntity.ok(
+                tenantOnboardingService.confirmDepositCashByTenant(id, request.getPhoneNumber()));
+    }
+
+    /** POST /{id}/deposit-cash-received — manager xác nhận đã nhận cọc tiền mặt. */
+    @PostMapping("/{id}/deposit-cash-received")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> confirmDepositCashReceived(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantOnboardingService.confirmDepositCashByManager(id));
     }
 
     /** POST /{id}/send-otp — gửi OTP SMS tới SĐT khách thuê (Twilio). */

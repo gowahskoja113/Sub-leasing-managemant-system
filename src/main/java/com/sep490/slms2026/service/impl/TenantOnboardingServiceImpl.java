@@ -223,27 +223,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     public TenantContractResponse createDepositPayment(Long contractId) {
         TenantContract contract = findContract(contractId);
         if (contract.getStatus() == ContractStatus.DRAFT) {
-            Room room = contract.getRoom();
-            if (room != null) {
-                if (room.getStatus() == RoomStatus.RENTED) {
-                    throw new BusinessException("Phòng đã được thuê bởi hợp đồng khác");
-                }
-                if (tenantContractRepository.existsByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)) {
-                    throw new BusinessException("Phòng này đã có hợp đồng đang hiệu lực");
-                }
-            }
+            ensureRoomAvailableForDeposit(contract);
             if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
                 throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
             }
             contract.setStatus(ContractStatus.PENDING);
         }
 
-        if (contract.getPriceApprovalStatus() != null && contract.getPriceApprovalStatus() != com.sep490.slms2026.enums.PriceApprovalStatus.APPROVED_AWAITING_DEPOSIT) {
-            throw new BusinessException("Hợp đồng cần được chủ nhà duyệt giá trước khi thanh toán cọc");
-        }
-        if (contract.getPaymentStatus() == PaymentStatus.PAID) {
-            throw new BusinessException("Hợp đồng này đã thanh toán cọc");
-        }
+        ensureDepositPaymentAllowed(contract);
         BigDecimal deposit = contract.getDeposit() != null ? contract.getDeposit() : BigDecimal.ZERO;
         long amount = deposit.longValue();
         if (amount <= 0) {
@@ -275,7 +262,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Chưa thanh toán cọc, không thể hoàn tất hợp đồng");
         }
 
-        String tenantPhone = contract.getTenant() != null ? contract.getTenant().getUser().getPhoneNumber() : contract.getDraftTenantPhone();
+        String tenantPhone = resolveTenantPhone(contract);
         if (tenantPhone == null) {
             throw new BusinessException("Không tìm thấy số điện thoại khách thuê để gửi OTP");
         }
@@ -319,11 +306,46 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() != PaymentStatus.PAID) {
             throw new BusinessException("Chưa thanh toán cọc, không thể gửi OTP xác nhận");
         }
-        String tenantPhone = contract.getTenant() != null ? contract.getTenant().getUser().getPhoneNumber() : contract.getDraftTenantPhone();
+        String tenantPhone = resolveTenantPhone(contract);
         if (tenantPhone == null) {
             throw new BusinessException("Không tìm thấy số điện thoại khách thuê để gửi OTP");
         }
         otpService.sendOtp(tenantPhone, OtpPurpose.CONTRACT_CONFIRM, contractId);
+    }
+
+    @Override
+    @Transactional
+    public TenantContractResponse confirmDepositCashByTenant(Long contractId, String phoneNumber) {
+        TenantContract contract = findContract(contractId);
+        ensureCashDepositAllowed(contract);
+
+        String normalizedInput = TwilioServiceImpl.formatVietnamesePhone(phoneNumber);
+        String contractPhone = resolveTenantPhone(contract);
+        if (contractPhone == null) {
+            throw new BusinessException("Hợp đồng chưa có số điện thoại khách thuê");
+        }
+        if (!normalizedInput.equals(TwilioServiceImpl.formatVietnamesePhone(contractPhone))) {
+            throw new BusinessException("Số điện thoại không khớp với hợp đồng");
+        }
+
+        if (contract.getDepositCashTenantConfirmedAt() == null) {
+            contract.setDepositCashTenantConfirmedAt(LocalDateTime.now());
+            tenantContractRepository.save(contract);
+        }
+        return tryFinalizeCashDeposit(contract);
+    }
+
+    @Override
+    @Transactional
+    public TenantContractResponse confirmDepositCashByManager(Long contractId) {
+        TenantContract contract = findContract(contractId);
+        ensureCashDepositAllowed(contract);
+
+        if (contract.getDepositCashManagerConfirmedAt() == null) {
+            contract.setDepositCashManagerConfirmedAt(LocalDateTime.now());
+            tenantContractRepository.save(contract);
+        }
+        return tryFinalizeCashDeposit(contract);
     }
 
     @Override
@@ -586,6 +608,76 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID: " + contractId));
     }
 
+    private String resolveTenantPhone(TenantContract contract) {
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            return contract.getTenant().getUser().getPhoneNumber();
+        }
+        return contract.getDraftTenantPhone();
+    }
+
+    private void ensureDepositPaymentAllowed(TenantContract contract) {
+        if (contract.getPriceApprovalStatus() != null
+                && contract.getPriceApprovalStatus()
+                        != com.sep490.slms2026.enums.PriceApprovalStatus.APPROVED_AWAITING_DEPOSIT) {
+            throw new BusinessException("Hợp đồng cần được chủ nhà duyệt giá trước khi thanh toán cọc");
+        }
+        if (contract.getPaymentStatus() == PaymentStatus.PAID) {
+            throw new BusinessException("Hợp đồng này đã thanh toán cọc");
+        }
+        BigDecimal deposit = contract.getDeposit() != null ? contract.getDeposit() : BigDecimal.ZERO;
+        if (deposit.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Số tiền cọc không hợp lệ");
+        }
+    }
+
+    private void ensureCashDepositAllowed(TenantContract contract) {
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            throw new BusinessException("Hợp đồng đã được kích hoạt");
+        }
+        if (contract.getStatus() == ContractStatus.TERMINATED) {
+            throw new BusinessException("Hợp đồng đã bị hủy");
+        }
+        ensureDepositPaymentAllowed(contract);
+    }
+
+    private void ensureRoomAvailableForDeposit(TenantContract contract) {
+        Room room = contract.getRoom();
+        if (room != null) {
+            if (room.getStatus() == RoomStatus.RENTED) {
+                throw new BusinessException("Phòng đã được thuê bởi hợp đồng khác");
+            }
+            if (tenantContractRepository.existsByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)) {
+                throw new BusinessException("Phòng này đã có hợp đồng đang hiệu lực");
+            }
+        }
+    }
+
+    private TenantContractResponse tryFinalizeCashDeposit(TenantContract contract) {
+        if (contract.getDepositCashTenantConfirmedAt() == null
+                || contract.getDepositCashManagerConfirmedAt() == null) {
+            return toResponse(contract);
+        }
+
+        if (contract.getStatus() == ContractStatus.DRAFT) {
+            ensureRoomAvailableForDeposit(contract);
+            if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
+                throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
+            }
+            contract.setStatus(ContractStatus.PENDING);
+        }
+
+        contract.setPaymentStatus(PaymentStatus.PAID);
+        contract.setPaidAt(LocalDateTime.now());
+        TenantContract saved = tenantContractRepository.save(contract);
+
+        try {
+            sendContractConfirmOtp(saved.getId());
+        } catch (Exception e) {
+            log.warn("Không tự gửi OTP sau xác nhận cọc tiền mặt HĐ {}: {}", saved.getId(), e.getMessage());
+        }
+        return toResponse(saved);
+    }
+
     @Override
     @Transactional
     public List<TenantContractResponse> getContractsByProperty(Long propertyId) {
@@ -728,6 +820,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
+                .depositCashTenantConfirmed(c.getDepositCashTenantConfirmedAt() != null)
+                .depositCashManagerConfirmed(c.getDepositCashManagerConfirmedAt() != null)
+                .depositCashTenantConfirmedAt(c.getDepositCashTenantConfirmedAt())
+                .depositCashManagerConfirmedAt(c.getDepositCashManagerConfirmedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)
                 .tenantRolePromoted(rolePromoted)
