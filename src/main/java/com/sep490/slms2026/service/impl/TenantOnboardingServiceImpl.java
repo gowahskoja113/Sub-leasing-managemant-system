@@ -888,8 +888,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         String token = manager.getPushToken();
         if (token != null && !token.isBlank()) {
-            pushNotificationService.sendPushNotification(
-                    token, title, body, Map.of("contractId", contract.getId()));
+            Map<String, Object> data = Map.of(
+                    "screen", "ResumeContract",
+                    "params", Map.of("contractId", contract.getId()));
+            pushNotificationService.sendPushNotification(token, title, body, data);
         }
     }
 
