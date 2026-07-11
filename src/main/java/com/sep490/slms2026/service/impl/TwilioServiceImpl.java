@@ -3,8 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.service.TwilioService;
 import com.twilio.Twilio;
-import com.twilio.rest.api.v2010.account.Message;
-import com.twilio.type.PhoneNumber;
+import com.twilio.rest.verify.v2.service.Verification;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,8 +20,8 @@ public class TwilioServiceImpl implements TwilioService {
     @Value("${twilio.auth-token:}")
     private String authToken;
 
-    @Value("${twilio.from-number:}")
-    private String fromNumber;
+    @Value("${twilio.verify-service-sid:}")
+    private String verifyServiceSid;
 
     @PostConstruct
     void init() {
@@ -35,27 +34,27 @@ public class TwilioServiceImpl implements TwilioService {
     public boolean isConfigured() {
         return StringUtils.hasText(accountSid)
                 && StringUtils.hasText(authToken)
-                && StringUtils.hasText(fromNumber);
+                && StringUtils.hasText(verifyServiceSid);
     }
 
     @Override
-    public void sendSms(String toPhoneNumber, String message) {
+    public void sendOtp(String toPhoneNumber, String code) {
         String formattedTo = formatVietnamesePhone(toPhoneNumber);
 
         if (!isConfigured()) {
-            log.warn("[DEV] Twilio chưa cấu hình — SMS tới {}: {}", formattedTo, message);
+            log.warn("[DEV] Twilio Verify chưa cấu hình — OTP {} tới {}", code, formattedTo);
             return;
         }
 
         try {
-            Message.creator(
-                    new PhoneNumber(formattedTo),
-                    new PhoneNumber(fromNumber),
-                    message
-            ).create();
-            log.info("Đã gửi SMS Twilio tới {}", formattedTo);
+            Verification.creator(verifyServiceSid, formattedTo, "sms")
+                    .setCustomCode(code)
+                    .setLocale("vi")
+                    .setCustomFriendlyName("SLMS")
+                    .create();
+            log.info("Đã gửi OTP Twilio Verify tới {}", formattedTo);
         } catch (Exception e) {
-            log.error("Gửi SMS Twilio thất bại tới {}: {}", formattedTo, e.getMessage());
+            log.error("Gửi OTP Twilio Verify thất bại tới {}: {}", formattedTo, e.getMessage());
             throw new BusinessException("Không gửi được SMS OTP. Vui lòng thử lại sau.");
         }
     }

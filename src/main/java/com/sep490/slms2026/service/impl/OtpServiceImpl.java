@@ -47,11 +47,10 @@ public class OtpServiceImpl implements OtpService {
                 .build();
         otpVerificationRepository.save(otp);
 
-        String message = buildMessage(code, purpose);
-        twilioService.sendSms(normalizedPhone, message);
+        twilioService.sendOtp(normalizedPhone, code);
 
         if (!twilioService.isConfigured()) {
-            log.warn("[DEV] Twilio chưa cấu hình — mã OTP {} cho {} (purpose={}, ref={})",
+            log.warn("[DEV] Twilio Verify chưa cấu hình — mã OTP {} cho {} (purpose={}, ref={})",
                     code, normalizedPhone, purpose, referenceId);
         }
     }
@@ -92,12 +91,5 @@ public class OtpServiceImpl implements OtpService {
     private static String generateCode() {
         int value = RANDOM.nextInt(1_000_000);
         return String.format("%06d", value);
-    }
-
-    private String buildMessage(String code, OtpPurpose purpose) {
-        return switch (purpose) {
-            case CONTRACT_CONFIRM -> "[SLMS] Ma xac nhan hop dong cua ban la: " + code
-                    + ". Hieu luc " + expiryMinutes + " phut. Khong chia se ma nay.";
-        };
     }
 }

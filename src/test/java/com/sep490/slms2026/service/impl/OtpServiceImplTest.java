@@ -52,7 +52,7 @@ class OtpServiceImplTest {
         assertEquals(OtpPurpose.CONTRACT_CONFIRM, saved.getPurpose());
         assertEquals(42L, saved.getReferenceId());
         assertEquals(6, saved.getCode().length());
-        verify(twilioService).sendSms(anyString(), anyString());
+        verify(twilioService).sendOtp(anyString(), anyString());
     }
 
     @Test

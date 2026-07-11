@@ -4,5 +4,5 @@ public interface TwilioService {
 
     boolean isConfigured();
 
-    void sendSms(String toPhoneNumber, String message);
+    void sendOtp(String toPhoneNumber, String code);
 }
