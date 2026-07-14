@@ -47,10 +47,12 @@ public class TwilioServiceImpl implements TwilioService {
         }
 
         try {
+            // Friendly name lấy từ Verify Service trên Console (VD: "Verify") —
+            // không dùng setCustomFriendlyName (cần Sales enable, lỗi 60204).
+            // Service phải bật Enable Custom Verification Code.
             Verification.creator(verifyServiceSid, formattedTo, "sms")
                     .setCustomCode(code)
                     .setLocale("vi")
-                    .setCustomFriendlyName("SLMS")
                     .create();
             log.info("Đã gửi OTP Twilio Verify tới {}", formattedTo);
         } catch (Exception e) {
