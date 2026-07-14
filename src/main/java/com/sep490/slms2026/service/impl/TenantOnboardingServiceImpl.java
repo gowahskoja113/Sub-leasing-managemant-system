@@ -514,19 +514,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             contract.setStartDate(request.getMoveInDate());
         }
         if (request.getEndDate() != null) contract.setEndDate(request.getEndDate());
-        if (request.getSelectedEquipmentIds() != null
-                || request.getDeclinedEquipmentIds() != null
-                || request.getAddedEquipments() != null
-                || request.getAddedEquipmentIds() != null) {
-            contractEquipmentService.resolveAndApplyHandover(
-                    contract,
-                    request.getSelectedEquipmentIds(),
-                    request.getDeclinedEquipmentIds(),
-                    request.getAddedEquipments(),
-                    request.getAddedEquipmentIds());
-        } else if (request.getEquipmentSnapshot() != null) {
-            contract.setEquipmentSnapshot(request.getEquipmentSnapshot());
-        }
+        // Luôn đồng bộ nội thất có sẵn từ nhà/phòng (không cần checkbox).
+        // addedEquipments / addedEquipmentIds null = giữ phần lắp thêm hiện có.
+        contractEquipmentService.resolveAndApplyHandover(
+                contract,
+                request.getSelectedEquipmentIds(),
+                request.getDeclinedEquipmentIds(),
+                request.getAddedEquipments(),
+                request.getAddedEquipmentIds());
         if (request.getInitialElectricReading() != null) contract.setInitialElectricReading(request.getInitialElectricReading());
         if (request.getInitialWaterReading() != null) contract.setInitialWaterReading(request.getInitialWaterReading());
         if (request.getElectricMeterImageUrl() != null) contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());

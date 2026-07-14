@@ -23,7 +23,10 @@ public class UpdateDraftContractRequest {
     private LocalDate endDate;
     private String equipmentSnapshot;
 
-    /** Thiết bị có sẵn khách nhận. Gửi [] nếu không nhận món nào. */
+    /**
+     * Legacy — không cần gửi. BE tự gắn toàn bộ nội thất ACTIVE của nhà/phòng.
+     * Chỉ gửi nếu muốn giới hạn subset (không khuyến nghị).
+     */
     private List<Long> selectedEquipmentIds;
 
     /** Thiết bị lắp thêm inline (chưa có trong DB). Gửi [] để xóa hết lắp thêm. */
@@ -32,7 +35,7 @@ public class UpdateDraftContractRequest {
     /** ID thiết bị lắp thêm đã POST /equipments trước đó. Gửi [] để xóa hết lắp thêm. */
     private List<Long> addedEquipmentIds;
 
-    /** @deprecated Dùng {@link #selectedEquipmentIds}. */
+    /** @deprecated Không dùng — BE lấy hết nội thất nhà. */
     private List<Long> declinedEquipmentIds;
     private Integer depositMonths;
     private BigDecimal initialElectricReading;

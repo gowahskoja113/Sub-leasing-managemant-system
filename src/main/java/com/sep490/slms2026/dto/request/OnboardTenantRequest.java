@@ -41,7 +41,10 @@ public class OnboardTenantRequest {
 
     private String equipmentSnapshot;
 
-    /** Thiết bị có sẵn khách nhận bàn giao (subset inventory). BE tự sinh phần EXISTING trong equipmentSnapshot. */
+    /**
+     * Legacy — không cần gửi. BE tự gắn toàn bộ nội thất ACTIVE của nhà/phòng vào HĐ.
+     * Chỉ gửi nếu muốn giới hạn subset (không khuyến nghị).
+     */
     private List<Long> selectedEquipmentIds;
 
     /**
@@ -56,7 +59,7 @@ public class OnboardTenantRequest {
      */
     private List<Long> addedEquipmentIds;
 
-    /** @deprecated Dùng {@link #selectedEquipmentIds}. */
+    /** @deprecated Không dùng — BE lấy hết nội thất nhà, không còn decline checkbox. */
     private List<Long> declinedEquipmentIds;
 
     // Số tháng cọc (1 hoặc 2) — FE tính deposit = rentAmount * depositMonths

@@ -58,12 +58,7 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
       List<Long> declinedEquipmentIds,
       List<ContractAddedEquipmentRequest> addedEquipments,
       List<Long> addedEquipmentIds) {
-    boolean touchExisting = selectedEquipmentIds != null || declinedEquipmentIds != null;
     boolean touchAdded = addedEquipments != null || addedEquipmentIds != null;
-
-    if (!touchExisting && !touchAdded) {
-      return;
-    }
 
     Long propertyId = contract.getProperty().getId();
     Long roomId = contract.getRoom() != null ? contract.getRoom().getId() : null;
@@ -72,34 +67,20 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
         existingInventory.stream().collect(Collectors.toMap(Equipment::getId, e -> e, (a, b) -> a));
 
     List<TenantContractEquipment> previousAdded = collectAddedSelections(contract);
-    List<Long> previousExistingIds = getSelectedExistingIds(contract);
+
+    // EXISTING: bỏ checkbox → mặc định lấy hết nội thất ACTIVE trong nhà/phòng.
+    // FE vẫn có thể gửi selectedEquipmentIds / declinedEquipmentIds (legacy).
+    List<Long> resolvedExisting =
+        resolveExistingSelected(selectedEquipmentIds, declinedEquipmentIds, existingInventory);
+    validateSelectedIds(resolvedExisting, existingById.keySet());
 
     List<TenantContractEquipment> nextExisting = new ArrayList<>();
-    List<TenantContractEquipment> nextAdded = new ArrayList<>();
-
-    if (touchExisting) {
-      List<Long> resolvedExisting =
-          resolveExistingSelected(selectedEquipmentIds, declinedEquipmentIds, existingInventory);
-      validateSelectedIds(resolvedExisting, existingById.keySet());
-      for (Long id : resolvedExisting) {
-        Equipment eq = existingById.get(id);
-        nextExisting.add(linkEquipment(contract, eq, eq.getStatus()));
-      }
-    } else {
-      for (Long id : previousExistingIds) {
-        Equipment eq =
-            existingById.get(id) != null
-                ? existingById.get(id)
-                : equipmentRepository
-                    .findById(id)
-                    .orElseThrow(
-                        () ->
-                            new BusinessException(
-                                "Thiết bị có sẵn ID " + id + " không còn trong phạm vi hợp đồng"));
-        nextExisting.add(linkEquipment(contract, eq, eq.getStatus()));
-      }
+    for (Long id : resolvedExisting) {
+      Equipment eq = existingById.get(id);
+      nextExisting.add(linkEquipment(contract, eq, eq.getStatus()));
     }
 
+    List<TenantContractEquipment> nextAdded = new ArrayList<>();
     if (touchAdded) {
       removeOrphanAddedEquipments(previousAdded);
       if (addedEquipments != null) {
@@ -263,11 +244,15 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
     if (selectedEquipmentIds != null) {
       return selectedEquipmentIds;
     }
-    Set<Long> declined = new HashSet<>(declinedEquipmentIds);
-    return existingInventory.stream()
-        .map(Equipment::getId)
-        .filter(id -> !declined.contains(id))
-        .toList();
+    if (declinedEquipmentIds != null) {
+      Set<Long> declined = new HashSet<>(declinedEquipmentIds);
+      return existingInventory.stream()
+          .map(Equipment::getId)
+          .filter(id -> !declined.contains(id))
+          .toList();
+    }
+    // Mặc định: toàn bộ nội thất ACTIVE trong nhà/phòng đã chọn
+    return existingInventory.stream().map(Equipment::getId).toList();
   }
 
   private void validateSelectedIds(List<Long> selectedIds, Set<Long> scopeIds) {

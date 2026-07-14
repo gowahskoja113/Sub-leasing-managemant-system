@@ -9,17 +9,21 @@ import java.util.List;
 
 public interface ContractEquipmentService {
 
-  /** Inventory có sẵn (INITIAL_HANDOVER / PURCHASED) — dùng cho checkbox. */
+  /** Inventory có sẵn (INITIAL_HANDOVER / PURCHASED) trong nhà/phòng — ghi vào HĐ. */
   List<Equipment> findExistingInventory(Long propertyId, Long roomId);
 
   /** Toàn bộ ACTIVE trong phạm vi (gồm ADDED_BY_TENANT đã tạo). */
   List<Equipment> findInScope(Long propertyId, Long roomId);
 
   /**
-   * Áp dụng bàn giao đầy đủ: thiết bị có sẵn + lắp thêm. Mỗi nhóm null = không đổi nhóm đó.
+   * Áp dụng bàn giao: thiết bị có sẵn + lắp thêm.
    *
-   * <p>{@code selectedEquipmentIds} chỉ ID inventory có sẵn. {@code addedEquipments} tạo mới inline.
-   * {@code addedEquipmentIds} tham chiếu thiết bị đã POST /equipments trước đó.
+   * <p><b>Có sẵn (EXISTING):</b> {@code selectedEquipmentIds == null} và
+   * {@code declinedEquipmentIds == null} → tự lấy <b>toàn bộ</b> inventory ACTIVE
+   * trong phạm vi property/room (không cần checkbox FE). Gửi list tường minh vẫn được
+   * hỗ trợ (legacy).
+   *
+   * <p>{@code addedEquipments} / {@code addedEquipmentIds}: null = giữ phần lắp thêm hiện có.
    */
   void resolveAndApplyHandover(
       TenantContract contract,

@@ -49,6 +49,16 @@ class ContractEquipmentServiceImplTest {
   }
 
   @Test
+  void applyHandover_nullSelection_autoSelectsAllExisting() {
+    when(equipmentRepository.findActiveForTenantPlacement(1L, null)).thenReturn(List.of(bed, fridge));
+
+    service.resolveAndApplyHandover(contract, null, null, null, null);
+
+    assertEquals(List.of(10L, 20L), service.getSelectedIds(contract));
+    assertEquals("Giường (Tốt) x1, Tủ lạnh (Mới) x1", contract.getEquipmentSnapshot());
+  }
+
+  @Test
   void applySelection_buildsSnapshotForSelectedOnly() {
     when(equipmentRepository.findActiveForTenantPlacement(1L, null)).thenReturn(List.of(bed, fridge));
 
