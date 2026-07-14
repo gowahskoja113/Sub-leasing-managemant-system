@@ -15,7 +15,7 @@ public interface TenantContractDocumentService {
     TenantContractDocumentResponse generateAndStore(Long contractId);
 
     /**
-     * Render DOCX từ template — chỉ khi {@code status = DRAFT}.
+     * Render PDF từ template apartment-draft (fill DOCX rồi convert) — chỉ khi {@code status = DRAFT}.
      * FE nhận file → upload Cloudinary → PUT {@code draftContractFileUrl}.
      */
     byte[] renderDraftDocument(Long contractId);
@@ -24,7 +24,7 @@ public interface TenantContractDocumentService {
     TenantContractDocumentResponse getDocument(Long contractId);
 
     /**
-     * Tải nội dung file DOCX đã lưu (Cloudinary hoặc legacy local) — dùng cho nút View Contract trên FE.
+     * Tải nội dung file HĐ đã lưu (PDF/DOCX trên Cloudinary hoặc legacy local) — dùng cho nút View Contract trên FE.
      */
     byte[] downloadContractDocument(Long contractId, UUID userId, String roleName);
 

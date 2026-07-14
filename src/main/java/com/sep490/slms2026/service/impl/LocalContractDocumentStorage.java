@@ -47,16 +47,17 @@ public class LocalContractDocumentStorage implements ContractDocumentStorage {
     }
 
     private String sanitizeFilename(String filename) {
-        String name = filename == null ? "hop-dong.docx" : filename.trim();
+        String name = filename == null ? "hop-dong.pdf" : filename.trim();
         int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
         if (slash >= 0) {
             name = name.substring(slash + 1);
         }
         if (name.isBlank()) {
-            name = "hop-dong.docx";
+            name = "hop-dong.pdf";
         }
-        if (!name.toLowerCase(Locale.ROOT).endsWith(".docx")) {
-            name = name + ".docx";
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) {
+            name = name + ".pdf";
         }
         return UNSAFE.matcher(name.toLowerCase(Locale.ROOT)).replaceAll("_");
     }

@@ -69,7 +69,7 @@ public class TenantContractActionController {
     }
 
     /**
-     * POST /{id}/draft-document — render DOCX từ tenant-apartment-draft-template (chỉ DRAFT).
+     * POST /{id}/draft-document — render PDF từ tenant-apartment-draft-template (chỉ DRAFT).
      * FE nhận file → upload Cloudinary → PUT draftContractFileUrl.
      */
     @PostMapping("/{id}/draft-document")
@@ -79,13 +79,12 @@ public class TenantContractActionController {
                 id,
                 SecurityUtils.requireCurrentUser().getId(),
                 SecurityUtils.requireCurrentUser().getAuthorities().iterator().next().getAuthority());
-        byte[] docx = tenantContractDocumentService.renderDraftDocument(id);
-        String filename = "DRAFT-" + contract.getContractCode() + ".docx";
+        byte[] pdf = tenantContractDocumentService.renderDraftDocument(id);
+        String filename = "DRAFT-" + contract.getContractCode() + ".pdf";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                .body(docx);
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(pdf);
     }
 
     /** GET /{id}/document — lấy URL file HĐ (ưu tiên draftContractFileUrl trên Cloudinary). */
@@ -99,8 +98,8 @@ public class TenantContractActionController {
     }
 
     /**
-     * GET /{id}/document/download — tải/xem file DOCX đã lưu (qua JWT, không cần mở URL Cloudinary trực tiếp).
-     * FE: fetch → blob → mở tab mới / share / Office viewer.
+     * GET /{id}/document/download — tải/xem file HĐ đã lưu (PDF ưu tiên; còn hỗ trợ DOCX cũ).
+     * FE: fetch → blob → mở tab mới / PDF viewer.
      */
     @GetMapping("/{id}/document/download")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
@@ -109,13 +108,38 @@ public class TenantContractActionController {
         String role = user.getAuthorities().iterator().next().getAuthority();
         TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role);
-        byte[] docx = tenantContractDocumentService.downloadContractDocument(id, user.getId(), role);
-        String filename = contract.getContractCode() + ".docx";
+        byte[] file = tenantContractDocumentService.downloadContractDocument(id, user.getId(), role);
+        String storedUrl = contract.getDraftContractFileUrl() != null
+                ? contract.getDraftContractFileUrl()
+                : contract.getDocumentUrl();
+        boolean isPdf = isPdfFile(storedUrl, file);
+        String filename = contract.getContractCode() + (isPdf ? ".pdf" : ".docx");
+        MediaType mediaType = isPdf
+                ? MediaType.APPLICATION_PDF
+                : MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                .body(docx);
+                .contentType(mediaType)
+                .body(file);
+    }
+
+    private static boolean isPdfFile(String url, byte[] content) {
+        if (url != null) {
+            String lower = url.toLowerCase();
+            int q = lower.indexOf('?');
+            if (q >= 0) {
+                lower = lower.substring(0, q);
+            }
+            if (lower.endsWith(".pdf")) {
+                return true;
+            }
+            if (lower.endsWith(".docx")) {
+                return false;
+            }
+        }
+        return content != null && content.length >= 4
+                && content[0] == '%' && content[1] == 'P' && content[2] == 'D' && content[3] == 'F';
     }
 
     /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc qua PayOS. */

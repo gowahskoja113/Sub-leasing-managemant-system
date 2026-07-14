@@ -1,9 +1,12 @@
 # View Contract — Hướng dẫn triển khai FE
 
+> **Cập nhật 2026-07:** File hợp đồng đã đổi sang **PDF**. Guide đầy đủ (xuất + upload + xem): [`FE-contract-pdf-document.md`](./FE-contract-pdf-document.md).  
+> Các mẫu DOCX / MIME Word bên dưới chỉ còn áp dụng cho **file cũ** còn trên Cloudinary.
+
 Tài liệu **chỉ cho phần xem hợp đồng thuê** (nút **View Contract** / **Xem hợp đồng**).
 
-**Luồng tạo file trước đó:** Admin `POST /draft-document` → upload Cloudinary → `PUT draftContractFileUrl`  
-**Tham chiếu đầy đủ:** [`FE-tenant-draft-contract-document.md`](./FE-tenant-draft-contract-document.md)
+**Luồng tạo file trước đó:** Admin `POST /draft-document` → upload Cloudinary (PDF) → `PUT draftContractFileUrl`  
+**Tham chiếu đầy đủ:** [`FE-contract-pdf-document.md`](./FE-contract-pdf-document.md)
 
 ---
 

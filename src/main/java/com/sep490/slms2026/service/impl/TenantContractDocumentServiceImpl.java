@@ -22,6 +22,7 @@ import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
+import com.sep490.slms2026.util.DocxToPdfConverter;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import com.sep490.slms2026.util.VietnameseNumberToWords;
 import lombok.RequiredArgsConstructor;
@@ -77,7 +78,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     public byte[] renderDraftDocument(Long contractId) {
         TenantContract contract = loadAndSync(contractId);
         assertCanGenerateDraft(contract);
-        return renderDocx(contract);
+        return renderPdf(contract);
     }
 
     @Override
@@ -156,12 +157,16 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         throw new BusinessException("Bạn không có quyền xem hợp đồng này");
     }
 
-    private byte[] renderDocx(TenantContract contract) {
+    /**
+     * Fill {@code tenant-apartment-draft-template.docx} rồi convert sang PDF.
+     */
+    private byte[] renderPdf(TenantContract contract) {
         Map<String, String> vars = buildVariables(contract);
         try (InputStream in = new ClassPathResource(uploadProperties.getTemplateClasspath()).getInputStream()) {
-            return DocxTemplateRenderer.render(in, vars);
+            byte[] docx = DocxTemplateRenderer.render(in, vars);
+            return DocxToPdfConverter.convert(docx);
         } catch (IOException ex) {
-            throw new BusinessException("Không đọc được template hợp đồng: " + ex.getMessage());
+            throw new BusinessException("Không tạo được PDF hợp đồng: " + ex.getMessage());
         }
     }
 
