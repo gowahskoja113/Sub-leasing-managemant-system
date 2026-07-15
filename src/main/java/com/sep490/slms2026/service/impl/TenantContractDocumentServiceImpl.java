@@ -74,13 +74,12 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public byte[] renderDraftDocument(Long contractId) {
         TenantContract contract = loadAndSync(contractId);
         assertCanGenerateDraft(contract);
-        // Đồng bộ toàn bộ nội thất ACTIVE của nhà/phòng trước khi xuất PDF
-        contractEquipmentService.resolveAndApplyHandover(contract, null, null, null, null);
-        tenantContractRepository.save(contract);
+        // Nội thất đã gắn lúc createDraft — chỉ đọc để render PDF, không re-resolve
+        // (tránh duplicate key trên tenant_contract_equipment do clear+add cùng equipment_id)
         return renderPdf(contract);
     }
 
