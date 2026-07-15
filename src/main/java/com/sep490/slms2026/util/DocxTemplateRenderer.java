@@ -7,8 +7,6 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
-import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTFonts;
-import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -38,7 +36,7 @@ public final class DocxTemplateRenderer {
                     }
                 }
             }
-            // Ép toàn bộ document sang Times New Roman (ascii + eastAsia + cs)
+            // Ép toàn bộ document sang Times New Roman
             // để PDF convert không lệch font chỗ có/không có placeholder.
             normalizeAllFonts(doc);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -66,17 +64,18 @@ public final class DocxTemplateRenderer {
         }
     }
 
+    /**
+     * Dùng API XWPFRun (POI 5.x) — tránh CTRPr.isSetRFonts/getRFonts
+     * vì schema ooxml-lite trên một số classpath không có các method đó.
+     */
     static void forceTimesNewRoman(XWPFRun run) {
         if (run == null) {
             return;
         }
         run.setFontFamily(TIMES_NEW_ROMAN);
-        CTRPr rPr = run.getCTR().isSetRPr() ? run.getCTR().getRPr() : run.getCTR().addNewRPr();
-        CTFonts fonts = rPr.isSetRFonts() ? rPr.getRFonts() : rPr.addNewRFonts();
-        fonts.setAscii(TIMES_NEW_ROMAN);
-        fonts.setHAnsi(TIMES_NEW_ROMAN);
-        fonts.setCs(TIMES_NEW_ROMAN);
-        fonts.setEastAsia(TIMES_NEW_ROMAN);
+        run.setFontFamily(TIMES_NEW_ROMAN, XWPFRun.FontCharRange.eastAsia);
+        run.setFontFamily(TIMES_NEW_ROMAN, XWPFRun.FontCharRange.cs);
+        run.setFontFamily(TIMES_NEW_ROMAN, XWPFRun.FontCharRange.hAnsi);
     }
 
     private static void replaceInParagraph(XWPFParagraph paragraph, Map<String, String> variables) {
@@ -160,10 +159,8 @@ public final class DocxTemplateRenderer {
         }
 
         static RunStyle from(XWPFRun run) {
-            int size = run.getFontSize();
-            if (size <= 0) {
-                size = 12;
-            }
+            Double sizeObj = run.getFontSizeAsDouble();
+            int size = (sizeObj == null || sizeObj <= 0) ? 12 : sizeObj.intValue();
             UnderlinePatterns underline = run.getUnderline();
             if (underline == null) {
                 underline = UnderlinePatterns.NONE;
