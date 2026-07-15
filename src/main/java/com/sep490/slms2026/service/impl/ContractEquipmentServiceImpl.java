@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -81,8 +82,8 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
     }
 
     List<TenantContractEquipment> nextAdded = new ArrayList<>();
+    List<Equipment> orphanAddedToDelete = List.of();
     if (touchAdded) {
-      removeOrphanAddedEquipments(previousAdded);
       if (addedEquipments != null) {
         for (ContractAddedEquipmentRequest req : addedEquipments) {
           Equipment created = createAddedEquipment(contract, req);
@@ -94,14 +95,60 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
           nextAdded.add(linkEquipment(contract, eq, eq.getStatus()));
         }
       }
+      Set<Long> keptAddedEquipmentIds =
+          nextAdded.stream().map(tce -> tce.getEquipment().getId()).collect(Collectors.toSet());
+      orphanAddedToDelete =
+          previousAdded.stream()
+              .map(TenantContractEquipment::getEquipment)
+              .filter(eq -> !keptAddedEquipmentIds.contains(eq.getId()))
+              .toList();
     } else {
       nextAdded.addAll(previousAdded);
     }
 
-    contract.getSelectedEquipments().clear();
-    contract.getSelectedEquipments().addAll(nextExisting);
-    contract.getSelectedEquipments().addAll(nextAdded);
+    List<TenantContractEquipment> desired = new ArrayList<>(nextExisting.size() + nextAdded.size());
+    desired.addAll(nextExisting);
+    desired.addAll(nextAdded);
+    // Diff-based: giữ TenantContractEquipment đã persist — tránh clear+addAll cùng equipment_id
+    // (Hibernate INSERT trước DELETE → unique (tenant_contract_id, equipment_id)).
+    syncSelectedEquipments(contract, desired);
     contract.setEquipmentSnapshot(buildEquipmentSnapshot(contract.getSelectedEquipments()));
+
+    if (!orphanAddedToDelete.isEmpty()) {
+      equipmentRepository.deleteAll(orphanAddedToDelete);
+    }
+  }
+
+  /**
+   * Đồng bộ collection theo equipment_id: giữ entity cũ, chỉ remove/add phần diff.
+   */
+  private void syncSelectedEquipments(TenantContract contract, List<TenantContractEquipment> desired) {
+    List<TenantContractEquipment> selected = contract.getSelectedEquipments();
+    Map<Long, TenantContractEquipment> currentByEqId =
+        selected.stream()
+            .collect(
+                Collectors.toMap(
+                    tce -> tce.getEquipment().getId(), tce -> tce, (a, b) -> a));
+
+    Map<Long, TenantContractEquipment> nextByEqId = new LinkedHashMap<>();
+    for (TenantContractEquipment link : desired) {
+      Long eqId = link.getEquipment().getId();
+      TenantContractEquipment existing = currentByEqId.get(eqId);
+      if (existing != null) {
+        existing.setConditionAtSigning(link.getConditionAtSigning());
+        existing.setQuantity(link.getQuantity() != null ? link.getQuantity() : 1);
+        nextByEqId.put(eqId, existing);
+      } else {
+        nextByEqId.put(eqId, link);
+      }
+    }
+
+    selected.removeIf(tce -> !nextByEqId.containsKey(tce.getEquipment().getId()));
+    for (TenantContractEquipment link : nextByEqId.values()) {
+      if (!selected.contains(link)) {
+        selected.add(link);
+      }
+    }
   }
 
   @Override
@@ -229,14 +276,6 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
     return contract.getSelectedEquipments().stream()
         .filter(tce -> resolveContractSource(tce.getEquipment()) == ContractEquipmentSource.ADDED)
         .toList();
-  }
-
-  private void removeOrphanAddedEquipments(List<TenantContractEquipment> removedSelections) {
-    if (removedSelections.isEmpty()) {
-      return;
-    }
-    List<Equipment> toDelete = removedSelections.stream().map(TenantContractEquipment::getEquipment).toList();
-    equipmentRepository.deleteAll(toDelete);
   }
 
   private List<Long> resolveExistingSelected(

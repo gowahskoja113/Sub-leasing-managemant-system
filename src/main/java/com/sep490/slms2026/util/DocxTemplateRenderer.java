@@ -7,6 +7,8 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTFonts;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,7 +19,7 @@ import java.util.Map;
 /** Thay placeholder {@code ${key}} trong file DOCX (paragraph + table). */
 public final class DocxTemplateRenderer {
 
-    private static final String DEFAULT_FONT = "Times New Roman";
+    static final String TIMES_NEW_ROMAN = "Times New Roman";
 
     private DocxTemplateRenderer() {
     }
@@ -36,10 +38,45 @@ public final class DocxTemplateRenderer {
                     }
                 }
             }
+            // Ép toàn bộ document sang Times New Roman (ascii + eastAsia + cs)
+            // để PDF convert không lệch font chỗ có/không có placeholder.
+            normalizeAllFonts(doc);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
             return out.toByteArray();
         }
+    }
+
+    private static void normalizeAllFonts(XWPFDocument doc) {
+        for (XWPFParagraph paragraph : doc.getParagraphs()) {
+            for (XWPFRun run : paragraph.getRuns()) {
+                forceTimesNewRoman(run);
+            }
+        }
+        for (XWPFTable table : doc.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                        for (XWPFRun run : paragraph.getRuns()) {
+                            forceTimesNewRoman(run);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static void forceTimesNewRoman(XWPFRun run) {
+        if (run == null) {
+            return;
+        }
+        run.setFontFamily(TIMES_NEW_ROMAN);
+        CTRPr rPr = run.getCTR().isSetRPr() ? run.getCTR().getRPr() : run.getCTR().addNewRPr();
+        CTFonts fonts = rPr.isSetRFonts() ? rPr.getRFonts() : rPr.addNewRFonts();
+        fonts.setAscii(TIMES_NEW_ROMAN);
+        fonts.setHAnsi(TIMES_NEW_ROMAN);
+        fonts.setCs(TIMES_NEW_ROMAN);
+        fonts.setEastAsia(TIMES_NEW_ROMAN);
     }
 
     private static void replaceInParagraph(XWPFParagraph paragraph, Map<String, String> variables) {
@@ -83,7 +120,7 @@ public final class DocxTemplateRenderer {
     }
 
     private static void applyStyle(XWPFRun run, RunStyle style) {
-        run.setFontFamily(style.fontFamily);
+        forceTimesNewRoman(run);
         if (style.fontSize > 0) {
             run.setFontSize(style.fontSize);
         }
@@ -112,7 +149,6 @@ public final class DocxTemplateRenderer {
     }
 
     private record RunStyle(
-            String fontFamily,
             int fontSize,
             boolean bold,
             boolean italic,
@@ -120,14 +156,10 @@ public final class DocxTemplateRenderer {
             String color
     ) {
         static RunStyle defaults() {
-            return new RunStyle(DEFAULT_FONT, 12, false, false, UnderlinePatterns.NONE, "000000");
+            return new RunStyle(12, false, false, UnderlinePatterns.NONE, "000000");
         }
 
         static RunStyle from(XWPFRun run) {
-            String family = run.getFontFamily();
-            if (family == null || family.isBlank()) {
-                family = DEFAULT_FONT;
-            }
             int size = run.getFontSize();
             if (size <= 0) {
                 size = 12;
@@ -137,7 +169,6 @@ public final class DocxTemplateRenderer {
                 underline = UnderlinePatterns.NONE;
             }
             return new RunStyle(
-                    family,
                     size,
                     run.isBold(),
                     run.isItalic(),

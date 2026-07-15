@@ -66,6 +66,8 @@ payos:
   # URL FE/mobile sẽ redirect về sau khi thanh toán (deep link hoặc trang web)
   return-url: ${PAYOS_RETURN_URL:slms://payment-success}
   cancel-url: ${PAYOS_CANCEL_URL:slms://payment-cancel}
+  # Sandbox: chia số tiền gửi PayOS (HĐ vẫn ghi số gốc). Production đặt PAYOS_AMOUNT_DIVISOR=1
+  amount-divisor: ${PAYOS_AMOUNT_DIVISOR:1000}
 
 # Gửi OTP qua Twilio Verify (https://www.twilio.com/console/verify/services).
 twilio:

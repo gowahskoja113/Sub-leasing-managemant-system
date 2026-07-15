@@ -39,6 +39,12 @@ public class PayosServiceImpl implements PayosService {
     private String returnUrl;
     @Value("${payos.cancel-url:}")
     private String cancelUrl;
+    /**
+     * Chia số tiền gửi PayOS (sandbox test). Hợp đồng/hóa đơn vẫn giữ số gốc.
+     * Ví dụ 2_500_000 ÷ 1000 = 2_500 VND trên PayOS. Production: đặt = 1.
+     */
+    @Value("${payos.amount-divisor:1000}")
+    private long amountDivisor;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -57,11 +63,12 @@ public class PayosServiceImpl implements PayosService {
         if (!isConfigured()) {
             throw new BusinessException("Chưa cấu hình PayOS (PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY).");
         }
+        long chargeAmount = toPayosChargeAmount(amount);
         // mô tả tối đa 25 ký tự theo giới hạn PayOS
         String desc = description.length() > 25 ? description.substring(0, 25) : description;
 
         // Chữ ký theo PayOS: các field sắp theo alphabet
-        String dataToSign = "amount=" + amount
+        String dataToSign = "amount=" + chargeAmount
                 + "&cancelUrl=" + cancelUrl
                 + "&description=" + desc
                 + "&orderCode=" + orderCode
@@ -70,7 +77,7 @@ public class PayosServiceImpl implements PayosService {
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("orderCode", orderCode);
-        body.put("amount", amount);
+        body.put("amount", chargeAmount);
         body.put("description", desc);
         body.put("cancelUrl", cancelUrl);
         body.put("returnUrl", returnUrl);
@@ -97,7 +104,8 @@ public class PayosServiceImpl implements PayosService {
             JsonNode data = root.path("data");
             PaymentLink link = new PaymentLink();
             link.orderCode = data.path("orderCode").asLong(orderCode);
-            link.amount = data.path("amount").asLong(amount);
+            // Trả về số gốc trên HĐ/hóa đơn — không phải số đã ÷ divisor trên PayOS
+            link.amount = amount;
             link.checkoutUrl = data.path("checkoutUrl").asText(null);
             link.qrCode = data.path("qrCode").asText(null);
             link.paymentLinkId = data.path("paymentLinkId").asText(null);
@@ -108,6 +116,23 @@ public class PayosServiceImpl implements PayosService {
             log.error("Lỗi gọi PayOS", e);
             throw new BusinessException("Không kết nối được PayOS. Vui lòng thử lại.");
         }
+    }
+
+    /** Số gửi PayOS = amount / divisor (tối thiểu 1). */
+    private long toPayosChargeAmount(long amount) {
+        if (amount <= 0) {
+            throw new BusinessException("Số tiền thanh toán không hợp lệ");
+        }
+        long divisor = amountDivisor <= 0 ? 1L : amountDivisor;
+        long charged = amount / divisor;
+        if (charged < 1) {
+            throw new BusinessException(
+                    "Số tiền sau khi chia (÷" + divisor + ") quá nhỏ để tạo thanh toán PayOS");
+        }
+        if (divisor > 1) {
+            log.info("PayOS amount-divisor={}: gốc {} → charge {}", divisor, amount, charged);
+        }
+        return charged;
     }
 
     @Override
