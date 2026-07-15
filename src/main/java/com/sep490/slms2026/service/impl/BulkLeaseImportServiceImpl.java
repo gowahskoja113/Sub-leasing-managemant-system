@@ -295,7 +295,13 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                 });
 
         try {
-            EquipmentStatus.valueOf(normalizeOptional(row.getStatusRaw()));
+            EquipmentStatus status = EquipmentStatus.valueOf(normalizeOptional(row.getStatusRaw()));
+            // Bàn giao chủ nhà gốc: ghi nhận cả DAMAGED/BROKEN (không gán vào nhà; đợt 2 mua mới)
+            if (status != EquipmentStatus.NEW && status != EquipmentStatus.GOOD
+                    && status != EquipmentStatus.DAMAGED && status != EquipmentStatus.BROKEN) {
+                errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Trạng thái thiết bị",
+                        "Giá trị không hợp lệ (NEW, GOOD, DAMAGED, BROKEN)"));
+            }
         } catch (IllegalArgumentException ex) {
             errors.add(error(SHEET_HANDOVER, row.getRowNumber(), row.getContractCode(), "Trạng thái thiết bị",
                     "Giá trị enum không hợp lệ (NEW, GOOD, DAMAGED, BROKEN)"));

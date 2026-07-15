@@ -438,6 +438,7 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
     return switch (status) {
       case NEW -> "Mới";
       case GOOD -> "Tốt";
+      case DAMAGED -> "Hư hỏng nhẹ";
       case MAINTENANCE -> "Bảo trì";
       case BROKEN -> "Hỏng";
       case DISPOSED -> "Thanh lý";
