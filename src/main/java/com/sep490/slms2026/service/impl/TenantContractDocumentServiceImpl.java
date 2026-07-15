@@ -110,7 +110,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new BusinessException("Không tải được file hợp đồng: " + ex.getMessage());
-        } catch (IOException ex) {
+        } catch (IOException | IllegalArgumentException ex) {
             throw new BusinessException("Không tải được file hợp đồng: " + ex.getMessage());
         }
     }
@@ -170,6 +170,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             return DocxToPdfConverter.convert(docx);
         } catch (IOException ex) {
             throw new BusinessException("Không tạo được PDF hợp đồng: " + ex.getMessage());
+        } catch (RuntimeException ex) {
+            throw new BusinessException(
+                    "Không tạo được PDF hợp đồng (HĐ " + contract.getContractCode() + "): " + ex.getMessage());
         }
     }
 
@@ -191,10 +194,20 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             }
         }
 
+        final URI uri;
+        try {
+            uri = URI.create(url.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("URL file hợp đồng không hợp lệ: " + url);
+        }
+        if (uri.getScheme() == null || uri.getHost() == null) {
+            throw new BusinessException("URL file hợp đồng không hợp lệ: " + url);
+        }
+
         HttpClient client = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
+        HttpRequest request = HttpRequest.newBuilder(uri).GET().build();
         HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
         if (response.statusCode() >= 400) {
             throw new BusinessException("Không tải được file hợp đồng từ storage: HTTP " + response.statusCode());

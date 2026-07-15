@@ -1,415 +1,321 @@
-# Hợp đồng PDF — Hướng dẫn triển khai FE
+# FE — Hợp đồng PDF (tạo / upload / xem)
 
-**Breaking change:** BE không còn trả **DOCX**. `POST .../draft-document` và (file mới) download là **PDF** — nội dung giữ từ template `tenant-apartment-draft-template.docx`.
-
-| Trước | Sau |
-|-------|-----|
-| `DRAFT-{code}.docx` | `DRAFT-{code}.pdf` |
-| `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | `application/pdf` |
-| Preview kém trên browser | Browser / iframe preview PDF được |
-
-**Auth các API dưới:** JWT `ROLE_MANAGER` / `ROLE_ADMIN` (trừ View Contract: thêm `ROLE_TENANT` cho HĐ của mình).
+**Gửi team FE** · Cập nhật **2026-07-15**
 
 ---
 
-## 1. Luồng tổng quat
+## TL;DR — FE cần làm gì ngay
+
+1. **Đổi hết DOCX → PDF** (filename, MIME, Cloudinary endpoint)
+2. **Upload Cloudinary** dùng `raw/upload`, không dùng `image/upload`
+3. **Lưu URL** bằng `secure_url` từ Cloudinary → `PUT draftContractFileUrl`
+4. **Xem file** qua `GET .../document/download` + JWT — **không** mở URL Cloudinary trực tiếp
+5. **Bỏ checkbox** nội thất — BE tự gắn hết thiết bị nhà (xem [`FE-contract-handover-equipment.md`](./FE-contract-handover-equipment.md))
+6. **Đọc lỗi BE** từ field `error` (422), đừng chỉ hiện `Request failed with status code 400`
+
+---
+
+## Luồng chuẩn
 
 ```
-[Admin/Manager — tạo nháp]
+Tạo HĐ nháp (POST/PUT onboard)
         │
         ▼
-POST /tenant-contracts/{id}/draft-document
-        │  Response: binary PDF
-        ▼
-FE upload PDF → Cloudinary  (resource_type: raw hoặc auto, filename .pdf)
+POST /tenant-contracts/{id}/draft-document     ← BE trả binary PDF
         │
         ▼
-PUT /tenant-contracts/{id}  { "draftContractFileUrl": "https://..." }
+FE upload PDF → Cloudinary (raw/upload)
+        │
+        ▼
+PUT /tenant-contracts/{id}
+     { "draftContractFileUrl": "https://res.cloudinary.com/.../xxx.pdf" }
         │
         ▼
 contractFileAvailable = true
 
-[User bấm View Contract]
+─── Khi user bấm Xem ───
+
+GET /tenant-contracts/{id}/document/download   ← BE proxy từ Cloudinary
         │
         ▼
-GET /tenant-contracts/{id}/document/download
-        │  Response: binary PDF (file cũ .docx vẫn tải được)
-        ▼
-Web: blob + window.open / <iframe>
-Mobile: lưu .pdf + mở PDF viewer / share
+FE: blob → preview PDF (tab / iframe / share mobile)
 ```
-
-> **Không** mở `draftContractFileUrl` (Cloudinary) trực tiếp trên client — luôn tải qua BE `/document/download` kèm JWT.
 
 ---
 
-## 2. Xuất file nháp (tạo PDF)
-
-### 2.1. API
+## 1. API tạo PDF
 
 ```http
 POST /api/v1/tenant-contracts/{contractId}/draft-document
-Authorization: Bearer {managerToken}
+Authorization: Bearer {token}
 ```
 
 | | |
 |--|--|
-| **Điều kiện** | HĐ `status = DRAFT` |
-| **Response 200** | Body binary PDF |
-| **Content-Type** | `application/pdf` |
-| **Content-Disposition** | `attachment; filename="DRAFT-{contractCode}.pdf"` |
+| Điều kiện | `status === "DRAFT"` |
+| Success 200 | Body = **binary PDF** |
+| Content-Type | `application/pdf` |
+| Content-Disposition | `attachment; filename="DRAFT-{contractCode}.pdf"` |
 
-Lỗi thường gặp:
+**Không gửi body.** Chỉ cần JWT + `contractId`.
 
-| HTTP | Ý nghĩa | FE |
-|------|---------|-----|
-| **422** | Không phải DRAFT / lỗi render PDF | Toast message từ BE |
-| **404** | Không có HĐ | Redirect / toast |
-| **401/403** | Token / quyền | Login lại / không đủ quyền |
+---
 
-### 2.2. Code mẫu — lấy PDF rồi upload Cloudinary
+## 2. Upload Cloudinary (hay lỗi 400 ở đây)
+
+PDF **không phải ảnh**. Nếu FE vẫn gọi `/image/upload` hoặc hard-code `.docx` → Cloudinary trả **400** → toast *"Request failed with status code 400"* dù BE đã OK.
+
+```typescript
+const form = new FormData();
+form.append("file", pdfBlob, "DRAFT-TC-2026-00042.pdf"); // bắt buộc .pdf
+form.append("upload_preset", UPLOAD_PRESET);
+form.append("resource_type", "raw");
+
+const res = await fetch(
+  `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`,
+  { method: "POST", body: form },
+);
+```
+
+**Lưu URL:** dùng `response.secure_url` nguyên vẹn — **đừng** tự ghép URL, đừng thêm khoảng trắng / ký tự lạ.
+
+```typescript
+await fetch(`${API_BASE}/tenant-contracts/${id}`, {
+  method: "PUT",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ draftContractFileUrl: secureUrl }),
+});
+```
+
+---
+
+## 3. API xem / tải
+
+```http
+GET /api/v1/tenant-contracts/{contractId}/document/download
+Authorization: Bearer {token}
+```
+
+- Phân quyền: ADMIN, MANAGER, TENANT (tenant chỉ HĐ của mình)
+- File mới: `application/pdf`, filename `{contractCode}.pdf`
+- HĐ cũ còn `.docx` trên Cloudinary: BE vẫn trả DOCX — **đọc `Content-Type`**, đừng hard-code
+
+Nút View chỉ bật khi `contractFileAvailable === true`.
+
+---
+
+## 4. Xử lý lỗi (quan trọng — đã fix BE 2026-07-15)
+
+### Mã HTTP từ BE
+
+| HTTP | Ý nghĩa | FE làm gì |
+|------|---------|-----------|
+| **422** | Lỗi nghiệp vụ — đọc message | Hiện `error` trong body (xem bên dưới) |
+| **400** | Body JSON / validation sai | Kiểm tra payload `PUT` |
+| **401 / 403** | Auth / quyền | Login lại |
+| **404** | Không có HĐ | Toast + redirect |
+| **500** | Lỗi hệ thống BE | Báo BE kèm `contractId` + thời điểm |
+
+### Format body lỗi BE (422)
+
+```json
+{
+  "timestamp": "2026-07-15T16:30:00",
+  "status": 422,
+  "error": "Không tạo được PDF hợp đồng (HĐ TC-2026-00042): ..."
+}
+```
+
+**Helper đọc lỗi:**
+
+```typescript
+async function readApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return json.error ?? json.message ?? text;
+  } catch {
+    return text || `HTTP ${res.status}`;
+  }
+}
+
+// Dùng khi draft-document fail:
+if (!res.ok) {
+  throw new Error(await readApiError(res));
+}
+```
+
+### Phân biệt lỗi BE vs Cloudinary
+
+| Triệu chứng | Request đỏ trong Network | Nguyên nhân |
+|-------------|---------------------------|-------------|
+| Tạo HĐ OK, toast *"KHÔNG sinh được file"* | `POST .../draft-document` → **422** | BE: template / dữ liệu HĐ / convert PDF |
+| Cùng toast | `POST .../draft-document` → **200**, `api.cloudinary.com` → **400** | **FE:** upload sai (image thay raw, thiếu .pdf) |
+| Cùng toast | `PUT .../tenant-contracts/{id}` → **400** | **FE:** body validation |
+| Xem HĐ lỗi | `GET .../document/download` → **422** | Chưa `PUT` URL / URL Cloudinary hỏng |
+
+> Toast generic *"Request failed with status code 400"* **không đủ** — mở Network tab, xem **URL request nào** 400.
+
+---
+
+## 5. Code mẫu — full flow tạo file sau onboard
 
 ```typescript
 const API_BASE = "/api/v1";
 
-export async function renderDraftContractPdf(
+export async function generateAndSaveContractPdf(
   contractId: number,
   token: string,
-): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(
+  cloud: { cloudName: string; uploadPreset: string },
+) {
+  // 1. BE sinh PDF
+  const draftRes = await fetch(
     `${API_BASE}/tenant-contracts/${contractId}/draft-document`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    },
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
   );
-
-  if (!res.ok) {
-    throw new Error((await res.text()) || `HTTP ${res.status}`);
+  if (!draftRes.ok) {
+    throw new Error(await readApiError(draftRes));
   }
 
-  const blob = await res.blob();
-  // Ép MIME PDF (một số browser trả octet-stream)
+  const raw = await draftRes.blob();
   const pdfBlob =
-    blob.type === "application/pdf"
-      ? blob
-      : new Blob([blob], { type: "application/pdf" });
+    raw.type === "application/pdf"
+      ? raw
+      : new Blob([raw], { type: "application/pdf" });
 
-  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const disposition = draftRes.headers.get("Content-Disposition") ?? "";
   const match = disposition.match(/filename="?([^"]+)"?/);
   const filename = match?.[1] ?? `DRAFT-${contractId}.pdf`;
 
-  return { blob: pdfBlob, filename };
-}
-
-/** Upload lên Cloudinary — giữ extension .pdf */
-export async function uploadContractPdfToCloudinary(
-  blob: Blob,
-  filename: string,
-  cloudName: string,
-  uploadPreset: string,
-): Promise<string> {
+  // 2. Cloudinary
   const form = new FormData();
-  form.append("file", blob, filename); // phải có .pdf
-  form.append("upload_preset", uploadPreset);
-  // PDF không phải image → dùng raw (hoặc auto tùy preset)
+  form.append("file", pdfBlob, filename);
+  form.append("upload_preset", cloud.uploadPreset);
   form.append("resource_type", "raw");
 
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`,
+  const uploadRes = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloud.cloudName}/raw/upload`,
     { method: "POST", body: form },
   );
-
-  if (!res.ok) {
-    throw new Error("Upload Cloudinary thất bại");
+  if (!uploadRes.ok) {
+    const err = await uploadRes.text();
+    throw new Error(`Upload Cloudinary thất bại (${uploadRes.status}): ${err}`);
   }
+  const { secure_url } = await uploadRes.json();
 
-  const data = await res.json();
-  // secure_url sẽ dạng .../DRAFT-TC-xxx.pdf
-  return data.secure_url as string;
-}
-
-export async function saveDraftContractFileUrl(
-  contractId: number,
-  draftContractFileUrl: string,
-  token: string,
-) {
-  const res = await fetch(`${API_BASE}/tenant-contracts/${contractId}`, {
+  // 3. Lưu URL
+  const putRes = await fetch(`${API_BASE}/tenant-contracts/${contractId}`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ draftContractFileUrl }),
+    body: JSON.stringify({ draftContractFileUrl: secure_url }),
   });
-
-  if (!res.ok) {
-    throw new Error((await res.text()) || `HTTP ${res.status}`);
+  if (!putRes.ok) {
+    throw new Error(await readApiError(putRes));
   }
-  return res.json();
-}
-
-/** Handler nút "Xuất / Tạo hợp đồng nháp" */
-export async function handleGenerateDraftDocument(
-  contractId: number,
-  token: string,
-  cloud: { cloudName: string; uploadPreset: string },
-) {
-  const { blob, filename } = await renderDraftContractPdf(contractId, token);
-  const url = await uploadContractPdfToCloudinary(
-    blob,
-    filename,
-    cloud.cloudName,
-    cloud.uploadPreset,
-  );
-  return saveDraftContractFileUrl(contractId, url, token);
+  return putRes.json();
 }
 ```
-
-### 2.3. Checklist tạo file
-
-- [ ] Gọi `POST .../draft-document` khi HĐ còn `DRAFT`
-- [ ] Upload Cloudinary với **filename `.pdf`** + `resource_type=raw` (hoặc `auto`)
-- [ ] `PUT` lại `draftContractFileUrl`
-- [ ] UI: sau khi xong, `contractFileAvailable === true` → bật **View Contract**
-- [ ] Đổi label / icon: “Xuất PDF” thay “Xuất Word/DOCX” nếu UI đang ghi DOCX
 
 ---
 
-## 3. View Contract (xem / tải PDF)
-
-Tài liệu View cũ: [`FE-view-contract.md`](./FE-view-contract.md) — phần MIME/DOCX đã **lỗi thời**; làm theo mục này.
-
-### 3.1. Điều kiện hiện nút
+## 6. Code mẫu — xem PDF (Web)
 
 ```typescript
-function canViewContract(contract: {
-  contractFileAvailable?: boolean;
-}): boolean {
-  return contract.contractFileAvailable === true;
-}
-```
-
-Field từ `GET /api/v1/tenant-contracts/{id}`:
-
-```json
-{
-  "id": 42,
-  "contractCode": "TC-2026-00042",
-  "contractFileAvailable": true,
-  "draftContractFileUrl": "https://res.cloudinary.com/.../DRAFT-TC-2026-00042.pdf",
-  "documentUrl": "https://res.cloudinary.com/.../DRAFT-TC-2026-00042.pdf",
-  "pdfUrl": "https://res.cloudinary.com/.../DRAFT-TC-2026-00042.pdf"
-}
-```
-
-> `documentUrl` / `pdfUrl` / `draftContractFileUrl` cùng URL đã lưu. **Chỉ** dùng để biết có file — xem file qua `/document/download`.
-
-### 3.2. API download
-
-```http
-GET /api/v1/tenant-contracts/{contractId}/document/download
-Authorization: Bearer {accessToken}
-```
-
-| | File mới (PDF) | File cũ còn trên Cloudinary (DOCX) |
-|--|----------------|-------------------------------------|
-| **Content-Type** | `application/pdf` | `application/...wordprocessingml.document` |
-| **Content-Disposition** | `inline; filename="{code}.pdf"` | `inline; filename="{code}.docx"` |
-| **Phân quyền** | ADMIN / MANAGER / TENANT (HĐ của mình) | giống trái |
-
-BE tự nhận MIME theo đuôi URL / magic bytes — FE đọc `Content-Type` response, **đừng hard-code DOCX**.
-
-### 3.3. Web (React) — preview PDF
-
-```typescript
-export async function downloadContractFile(
-  contractId: number,
-  token: string,
-): Promise<{ blob: Blob; filename: string; mimeType: string }> {
+export async function viewContractPdf(contractId: number, token: string) {
   const res = await fetch(
     `${API_BASE}/tenant-contracts/${contractId}/document/download`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-
   if (!res.ok) {
-    throw new Error((await res.text()) || `HTTP ${res.status}`);
+    throw new Error(await readApiError(res));
   }
 
-  const mimeType = res.headers.get("Content-Type") ?? "application/pdf";
-  const raw = await res.blob();
-  const blob = new Blob([raw], { type: mimeType.split(";")[0].trim() });
-
-  const disposition = res.headers.get("Content-Disposition") ?? "";
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  const filename =
-    match?.[1] ??
-    `contract-${contractId}.${mimeType.includes("pdf") ? "pdf" : "docx"}`;
-
-  return { blob, filename, mimeType };
-}
-
-async function handleViewContract(contractId: number, token: string) {
-  const { blob, filename, mimeType } = await downloadContractFile(
-    contractId,
-    token,
-  );
+  const mime = (res.headers.get("Content-Type") ?? "application/pdf").split(";")[0];
+  const blob = new Blob([await res.blob()], { type: mime });
   const url = URL.createObjectURL(blob);
 
-  if (mimeType.includes("pdf")) {
-    // Preview PDF trong tab mới
+  if (mime.includes("pdf")) {
     window.open(url, "_blank", "noopener,noreferrer");
   } else {
-    // Legacy DOCX: download hoặc mở app
+    // legacy DOCX
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = `contract-${contractId}.docx`;
     a.click();
   }
-
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 ```
 
-Gợi ý UI preview in-page:
-
-```tsx
-{/* sau khi có blob URL PDF */}
-<iframe title="Hợp đồng" src={pdfBlobUrl} className="h-[80vh] w-full" />
-```
-
-### 3.4. Mobile (Expo) — PDF
-
-```typescript
-import * as FileSystem from "expo-file-system";
-import * as Sharing from "expo-sharing";
-import * as IntentLauncher from "expo-intent-launcher"; // Android mở PDF (tuỳ chọn)
-import { Platform } from "react-native";
-
-async function viewContractMobile(
-  contractId: number,
-  contractCode: string,
-  token: string,
-) {
-  const url = `${API_BASE}/tenant-contracts/${contractId}/document/download`;
-  const localUri = `${FileSystem.cacheDirectory}${contractCode}.pdf`;
-
-  const result = await FileSystem.downloadAsync(url, localUri, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (result.status !== 200) {
-    throw new Error("Không tải được hợp đồng");
-  }
-
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(result.uri, {
-      mimeType: "application/pdf",
-      UTI: "com.adobe.pdf", // iOS
-      dialogTitle: "Xem hợp đồng thuê",
-    });
-    return;
-  }
-
-  if (Platform.OS === "android") {
-    const contentUri = await FileSystem.getContentUriAsync(result.uri);
-    await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-      data: contentUri,
-      flags: 1,
-      type: "application/pdf",
-    });
-  }
-}
-```
+Mobile (Expo): `FileSystem.downloadAsync` → `Sharing.shareAsync` với `mimeType: "application/pdf"`.
 
 ---
 
-## 4. Lỗi thường gặp
+## 7. Nội thất trên HĐ
 
-| HTTP | Nguyên nhân | FE |
-|------|-------------|-----|
-| **422** download | Chưa `PUT draftContractFileUrl` | *"Chưa có file hợp đồng — Admin cần xuất PDF và lưu trước."* |
-| **422** draft-document | HĐ không còn `DRAFT` | Chỉ hiện nút Xuất khi `status === "DRAFT"` |
-| **403** | Không quyền | Toast quyền |
-| **401** | Token hết hạn | Login lại |
+BE **tự lấy hết** thiết bị ACTIVE của nhà/phòng — **không gửi** `selectedEquipmentIds`, **không** checkbox.
 
-Message BE khi chưa có file:
-
-```
-Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl
-```
+Chi tiết: [`FE-contract-handover-equipment.md`](./FE-contract-handover-equipment.md)
 
 ---
 
-## 5. Migration / tương thích
+## 8. Migration DOCX → PDF
 
-| Trường hợp | FE làm gì |
-|------------|-----------|
-| HĐ mới sau deploy | Upload **`.pdf`**, view như PDF |
-| HĐ cũ đã có `.docx` trên Cloudinary | `/document/download` vẫn trả DOCX — đọc `Content-Type`, đừng assume PDF |
-| UI đang hard-code `.docx` / Office MIME | Đổi sang PDF + fallback theo header |
+| | Trước | Sau |
+|--|-------|-----|
+| File xuất | `.docx` | `.pdf` |
+| Cloudinary | thường `image/upload` | **`raw/upload`** |
+| View | Office viewer | PDF viewer / iframe |
+| HĐ cũ còn `.docx` | — | Vẫn xem được qua `/document/download` (đọc Content-Type) |
 
-Không bắt buộc migrate file cũ sang PDF. Muốn thống nhất PDF: Admin mở HĐ `DRAFT` còn sửa được → xuất lại → upload PDF mới → `PUT` URL mới.
-
----
-
-## 6. Checklist FE
-
-**Tạo file**
-
-- [ ] `POST .../draft-document` → lưu blob PDF
-- [ ] Cloudinary upload `.pdf` (`raw`/`auto`)
-- [ ] `PUT { draftContractFileUrl }`
-- [ ] Bỏ text/UI “DOCX / Word” nếu còn
-
-**Xem file**
-
-- [ ] Nút View khi `contractFileAvailable === true`
-- [ ] `GET .../document/download` + Bearer
-- [ ] Web: preview PDF (tab / iframe)
-- [ ] Mobile: mime `application/pdf`
-- [ ] Không mở URL Cloudinary trực tiếp
-- [ ] Fallback DOCX cũ theo `Content-Type`
-
-**Test**
-
-- [ ] DRAFT: Xuất PDF → upload → View preview được tiếng Việt
-- [ ] PENDING / ACTIVE: View vẫn mở file đã lưu
-- [ ] Tenant chỉ xem HĐ của mình
-- [ ] HĐ cũ `.docx` vẫn tải được (nếu còn)
+HĐ cũ muốn PDF: mở lại DRAFT → xuất lại → upload PDF mới → `PUT` URL mới.
 
 ---
 
-## 7. Test nhanh (curl)
+## 9. Checklist FE
 
-```bash
-# 1. Xuất PDF nháp
-curl -X POST -H "Authorization: Bearer {TOKEN}" \
-  -o DRAFT-TC.pdf \
-  http://localhost:8080/api/v1/tenant-contracts/42/draft-document
+**Bắt buộc**
 
-# 2. Sau khi PUT draftContractFileUrl — tải xem
-curl -H "Authorization: Bearer {TOKEN}" \
-  -o contract.pdf \
-  http://localhost:8080/api/v1/tenant-contracts/42/document/download
+- [ ] `POST draft-document` nhận PDF, không expect DOCX
+- [ ] Cloudinary: `raw/upload`, filename `.pdf`
+- [ ] `PUT` dùng `secure_url` từ Cloudinary
+- [ ] View: `GET document/download` + Bearer
+- [ ] Parse lỗi từ `error` (422), log Network khi fail
+- [ ] Bỏ checkbox nội thất
 
-file DRAFT-TC.pdf   # kỳ vọng: PDF document
-```
+**Không làm**
 
-Mở PDF bằng Chrome/Edge để kiểm tra tiếng Việt (Times New Roman / font hệ thống trên server BE).
+- [ ] Hard-code `.docx` / MIME Word
+- [ ] Mở `draftContractFileUrl` trực tiếp (thiếu JWT)
+- [ ] Gửi `selectedEquipmentIds: []` (sẽ gắn 0 thiết bị nếu gửi nhầm)
 
 ---
 
-## 8. FAQ
+## 10. Debug khi gặp lỗi
 
-**BE có lưu file lên máy chủ không?**  
-Không trên luồng chính. FE nhận bytes → Cloudinary → `PUT` URL.
+1. Network tab → request nào fail? (draft-document / cloudinary / PUT / download)
+2. Copy response body → gửi BE nếu là 422/500
+3. Với Cloudinary 400: kiểm tra endpoint `raw`, preset, file có extension `.pdf`
+4. Với download 422 *"URL không hợp lệ"*: kiểm tra `draftContractFileUrl` trong DB/response có đúng URL Cloudinary không
 
-**Có cần đổi payload `PUT` không?**  
-Không — vẫn field `draftContractFileUrl`, chỉ đổi nội dung file sang PDF.
+---
 
-**`pdfUrl` trong response?**  
-Alias cùng URL file đã lưu (trước đây từng trỏ DOCX). Có thể dùng thay `documentUrl`.
+## 11. FAQ
 
-**Xuất lại khi đã PENDING/ACTIVE?**  
-`POST .../draft-document` chỉ cho `DRAFT`. View dùng file đã lưu.
+**Q: BE có lưu file trên server không?**  
+A: Không. FE upload Cloudinary, BE chỉ lưu URL.
+
+**Q: `pdfUrl` vs `documentUrl` vs `draftContractFileUrl`?**  
+A: Cùng một URL đã lưu. Chỉ dùng để biết có file; xem qua `/document/download`.
+
+**Q: Sau ACTIVE có file mới không?**  
+A: Không. View luôn dùng file đã lưu lúc tạo nháp.
+
+**Q: Liên hệ BE khi nào?**  
+A: `draft-document` hoặc `download` trả **422/500** kèm message — gửi `contractId` + response body + screenshot Network.

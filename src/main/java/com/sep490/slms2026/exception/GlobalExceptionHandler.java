@@ -1,6 +1,7 @@
 package com.sep490.slms2026.exception;
 
-import com.sep490.slms2026.dto.response.BulkImportErrorResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -18,11 +19,11 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDeniedException(AccessDeniedException ex) {
-        // In log chi tiết ra console để dễ debug
-        System.err.println("[SLMS DEBUG LỖI 403] Hệ thống từ chối quyền truy cập: " + ex.getMessage());
-        ex.printStackTrace();
+        log.warn("[403] Access denied: {}", ex.getMessage());
 
         Map<String, Object> body = new HashMap<>();
         body.put("status", HttpStatus.FORBIDDEN.value());
@@ -41,16 +42,21 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(body, HttpStatus.PAYLOAD_TOO_LARGE);
     }
 
+    /**
+     * Catch-all cho RuntimeException chưa có handler riêng.
+     * BusinessException / AccessDeniedException… vẫn ưu tiên handler cụ thể hơn.
+     * Trả 500 (không phải 400) để FE phân biệt lỗi hệ thống vs validation.
+     */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException ex) {
-        System.err.println("[SLMS RUNTIME ERROR]: " + ex.getMessage());
+        log.error("[RUNTIME] {}: {}", ex.getClass().getName(), ex.getMessage(), ex);
 
         Map<String, Object> body = new HashMap<>();
-        body.put("status", HttpStatus.BAD_REQUEST.value());
-        body.put("error", "Bad Request");
-        body.put("message", ex.getMessage());
+        body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        body.put("error", "Internal Server Error");
+        body.put("message", ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
 
-        return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+        return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -124,6 +130,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+        log.error("[UNHANDLED] {}: {}", ex.getClass().getName(), ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
