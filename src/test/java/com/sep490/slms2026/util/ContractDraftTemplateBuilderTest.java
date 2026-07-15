@@ -39,6 +39,8 @@ class ContractDraftTemplateBuilderTest {
             sample.put("tenantFullName", "Nguyễn Văn A");
             sample.put("tenantCccd", "001234567890");
             sample.put("tenantDob", "01/01/1990");
+            sample.put("tenantCccdIssueDate", "15/03/2021");
+            sample.put("tenantCccdIssuePlace", "CA TP. Hồ Chí Minh");
             sample.put("tenantAddress", "123 Đường ABC, Q1");
             sample.put("tenantPhone", "0901234567");
             sample.put("householdMembers", "Không có thành viên ở cùng.");

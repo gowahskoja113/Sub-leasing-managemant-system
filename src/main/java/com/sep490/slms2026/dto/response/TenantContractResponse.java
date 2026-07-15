@@ -28,6 +28,8 @@ public class TenantContractResponse {
     private String tenantPhone;
     private String tenantCccd;
     private LocalDate tenantDateOfBirth;
+    private LocalDate tenantCccdIssueDate;
+    private String tenantCccdIssuePlace;
 
     private String type;
     private String lessorName;

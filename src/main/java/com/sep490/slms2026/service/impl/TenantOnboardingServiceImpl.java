@@ -166,6 +166,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .draftTenantPhone(request.isDraft() ? request.getPhoneNumber() : null)
                 .draftTenantCccd(request.isDraft() ? request.getCccd() : null)
                 .draftTenantDob(request.isDraft() ? request.getDateOfBirth() : null)
+                .draftTenantCccdIssueDate(request.isDraft() ? request.getCccdIssueDate() : null)
+                .draftTenantCccdIssuePlace(request.isDraft() ? request.getCccdIssuePlace() : null)
                 .build();
 
         // Thành viên ở cùng (bỏ qua dòng trống)
@@ -275,7 +277,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     contract.getDraftTenantPhone(),
                     contract.getDraftTenantName(),
                     contract.getDraftTenantCccd(),
-                    contract.getDraftTenantDob());
+                    contract.getDraftTenantDob(),
+                    contract.getDraftTenantCccdIssueDate(),
+                    contract.getDraftTenantCccdIssuePlace());
             contract.setTenant(result.tenant);
             accountCreated = result.created;
             rolePromoted = result.promoted;
@@ -537,6 +541,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (request.getPhoneNumber() != null) contract.setDraftTenantPhone(request.getPhoneNumber());
         if (request.getCccd() != null) contract.setDraftTenantCccd(request.getCccd());
         if (request.getDateOfBirth() != null) contract.setDraftTenantDob(request.getDateOfBirth());
+        if (request.getCccdIssueDate() != null) contract.setDraftTenantCccdIssueDate(request.getCccdIssueDate());
+        if (request.getCccdIssuePlace() != null) contract.setDraftTenantCccdIssuePlace(request.getCccdIssuePlace());
         if (request.getDraftContractFileUrl() != null) contract.setDraftContractFileUrl(request.getDraftContractFileUrl());
 
         boolean notifyManager = false;
@@ -707,10 +713,15 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getPhoneNumber(),
                 request.getFullName(),
                 request.getCccd(),
-                request.getDateOfBirth()).tenant;
+                request.getDateOfBirth(),
+                request.getCccdIssueDate(),
+                request.getCccdIssuePlace()).tenant;
     }
 
-    private TenantCreationResult getOrCreateTenant(String phone, String fullName, String cccd, LocalDate dateOfBirth) {
+    private TenantCreationResult getOrCreateTenant(String phone, String fullName, String cccd,
+                                                   LocalDate dateOfBirth,
+                                                   LocalDate cccdIssueDate,
+                                                   String cccdIssuePlace) {
 
         // Tái dùng tài khoản đã có theo SĐT (đồng bộ với chức năng tra cứu tự điền)
         User existing = userRepository.findByPhoneNumber(phone).orElse(null);
@@ -733,11 +744,21 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 profile.setUser(existing);
                 profile.setCccd(cccd);
                 profile.setDateOfBirth(dateOfBirth);
+                profile.setCccdIssueDate(cccdIssueDate);
+                profile.setCccdIssuePlace(cccdIssuePlace);
                 existing.setTenantProfile(profile);
                 existing = userRepository.save(existing);
                 profile = existing.getTenantProfile();
-            } else if (dateOfBirth != null) {
-                profile.setDateOfBirth(dateOfBirth);
+            } else {
+                if (dateOfBirth != null) {
+                    profile.setDateOfBirth(dateOfBirth);
+                }
+                if (cccdIssueDate != null) {
+                    profile.setCccdIssueDate(cccdIssueDate);
+                }
+                if (cccdIssuePlace != null && !cccdIssuePlace.isBlank()) {
+                    profile.setCccdIssuePlace(cccdIssuePlace);
+                }
             }
             return new TenantCreationResult(profile, false, promoted);
         }
@@ -757,6 +778,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         profile.setUser(user);
         profile.setCccd(cccd);
         profile.setDateOfBirth(dateOfBirth);
+        profile.setCccdIssueDate(cccdIssueDate);
+        profile.setCccdIssuePlace(cccdIssuePlace);
         user.setTenantProfile(profile);
 
         try {
@@ -796,6 +819,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantPhone(tenantUser != null ? tenantUser.getPhoneNumber() : c.getDraftTenantPhone())
                 .tenantCccd(tenant != null ? tenant.getCccd() : c.getDraftTenantCccd())
                 .tenantDateOfBirth(tenant != null ? tenant.getDateOfBirth() : c.getDraftTenantDob())
+                .tenantCccdIssueDate(tenant != null ? tenant.getCccdIssueDate() : c.getDraftTenantCccdIssueDate())
+                .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())

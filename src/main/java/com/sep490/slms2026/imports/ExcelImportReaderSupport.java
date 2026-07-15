@@ -173,12 +173,32 @@ public final class ExcelImportReaderSupport {
         if (raw.isBlank()) {
             return null;
         }
-        try {
-            return LocalDate.parse(raw, DATE_FORMAT);
-        } catch (DateTimeParseException ex) {
+        return parseFlexibleDate(raw);
+    }
+
+    /** Hỗ trợ YYYY-MM-DD, DD/MM/YYYY, D/M/YYYY. */
+    public static LocalDate parseFlexibleDate(String raw) {
+        if (raw == null || raw.isBlank()) {
             return null;
         }
+        String value = raw.trim();
+        for (DateTimeFormatter formatter : FLEXIBLE_DATE_FORMATS) {
+            try {
+                return LocalDate.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+                // try next
+            }
+        }
+        return null;
     }
+
+    private static final java.util.List<DateTimeFormatter> FLEXIBLE_DATE_FORMATS = java.util.List.of(
+            DATE_FORMAT,
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+            DateTimeFormatter.ofPattern("d-M-yyyy"),
+            DateTimeFormatter.ofPattern("dd-MM-yyyy")
+    );
 
     public static String readOptionalAction(Row row,
                                             Map<String, Integer> headers,

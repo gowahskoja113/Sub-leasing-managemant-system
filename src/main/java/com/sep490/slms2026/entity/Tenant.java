@@ -30,4 +30,12 @@ public class Tenant {
 
     @Column(name = "date_of_birth")
     private java.time.LocalDate dateOfBirth;
+
+    /** Ngày cấp CCCD */
+    @Column(name = "cccd_issue_date")
+    private java.time.LocalDate cccdIssueDate;
+
+    /** Nơi cấp CCCD */
+    @Column(name = "cccd_issue_place")
+    private String cccdIssuePlace;
 }

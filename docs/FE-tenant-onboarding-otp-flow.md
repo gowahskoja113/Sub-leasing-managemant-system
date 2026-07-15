@@ -102,6 +102,8 @@ Content-Type: application/json
   "cccd": "001234567890",
   "phoneNumber": "0352393203",
   "dateOfBirth": "1995-06-15",
+  "cccdIssueDate": "2021-03-10",
+  "cccdIssuePlace": "CA TP. Hồ Chí Minh",
   "moveInDate": "2026-07-11",
   "endDate": "2027-07-11",
   "rentAmount": 5000000,

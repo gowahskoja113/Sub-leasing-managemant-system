@@ -52,4 +52,10 @@ public class UpdateDraftContractRequest {
 
     /** Ngày sinh khách chính. */
     private LocalDate dateOfBirth;
+
+    /** Ngày cấp CCCD. */
+    private LocalDate cccdIssueDate;
+
+    /** Nơi cấp CCCD. */
+    private String cccdIssuePlace;
 }

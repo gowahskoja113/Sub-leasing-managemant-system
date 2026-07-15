@@ -93,4 +93,10 @@ public class OnboardTenantRequest {
 
     /** Ngày sinh khách chính (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
     private LocalDate dateOfBirth;
+
+    /** Ngày cấp CCCD (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
+    private LocalDate cccdIssueDate;
+
+    /** Nơi cấp CCCD (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
+    private String cccdIssuePlace;
 }

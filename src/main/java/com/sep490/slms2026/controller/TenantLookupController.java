@@ -41,6 +41,9 @@ public class TenantLookupController {
                 .fullName(user.getFullName())
                 .phoneNumber(user.getPhoneNumber())
                 .cccd(profile != null ? profile.getCccd() : null)
+                .dateOfBirth(profile != null ? profile.getDateOfBirth() : null)
+                .cccdIssueDate(profile != null ? profile.getCccdIssueDate() : null)
+                .cccdIssuePlace(profile != null ? profile.getCccdIssuePlace() : null)
                 .role(user.getRole() != null ? user.getRole().name() : null)
                 .build());
     }

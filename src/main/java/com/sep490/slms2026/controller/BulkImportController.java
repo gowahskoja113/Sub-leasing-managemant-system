@@ -8,6 +8,7 @@ import com.sep490.slms2026.service.BulkOnboardingImportService;
 import com.sep490.slms2026.service.BulkPropertyImageImportService;
 import com.sep490.slms2026.service.BulkRenovationImportService;
 import com.sep490.slms2026.service.BulkRenovationSupplementImportService;
+import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ public class BulkImportController {
     private final BulkRenovationImportService bulkRenovationImportService;
     private final BulkRenovationSupplementImportService bulkRenovationSupplementImportService;
     private final BulkPropertyImageImportService bulkPropertyImageImportService;
+    private final BulkTenantDraftContractImportService bulkTenantDraftContractImportService;
 
     /**
      * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao). Luôn nguyên căn.
@@ -86,6 +88,19 @@ public class BulkImportController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
         return ResponseEntity.ok(bulkPropertyImageImportService.importFromZip(file, dryRun));
+    }
+
+    /**
+     * Import hàng loạt hợp đồng thuê nháp (DRAFT) từ Excel.
+     * BĐS phải đã tồn tại — map theo Mã HĐ inbound / Mã BĐS / Tên tòa nhà.
+     * File mẫu: docs/SLMS2026_import_tenant_draft_contracts.xlsx
+     */
+    @PostMapping(value = "/tenant-draft-contracts-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    public ResponseEntity<BulkImportResponse> importTenantDraftContractsExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
+        return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun));
     }
 
     /**

@@ -104,8 +104,12 @@ public final class ApartmentDraftTemplateBuilder {
             } else if (trimmed.startsWith("Cấp ngày:") && inTenantBSection(history)
                     && containsRecent(history, "${tenantCccd}")) {
                 replacement = "Ngày sinh: ${tenantDob}";
-            } else if ((trimmed.startsWith("Nơi cấp:") || isOnlyDots(text))
-                    && inTenantBSection(history) && containsRecent(history, "${tenantDob}")
+            } else if (trimmed.startsWith("Nơi cấp:") && inTenantBSection(history)
+                    && containsRecent(history, "${tenantDob}")
+                    && !containsRecent(history, "${tenantCccdIssueDate}")) {
+                replacement = "Cấp ngày: ${tenantCccdIssueDate} — Nơi cấp: ${tenantCccdIssuePlace}";
+            } else if (isOnlyDots(text) && inTenantBSection(history)
+                    && containsRecent(history, "${tenantCccdIssuePlace}")
                     && !containsRecent(history, "HKTT:")) {
                 replacement = "";
             } else if (trimmed.startsWith("HKTT:") && inTenantBSection(history)) {

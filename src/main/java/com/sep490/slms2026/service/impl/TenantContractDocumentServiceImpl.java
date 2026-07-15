@@ -250,6 +250,10 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 ? nullToEmpty(tenantUser.getPhoneNumber()) : nullToEmpty(contract.getDraftTenantPhone()));
         vars.put("tenantDob", formatDate(tenant != null && tenant.getDateOfBirth() != null
                 ? tenant.getDateOfBirth() : contract.getDraftTenantDob()));
+        vars.put("tenantCccdIssueDate", formatDate(tenant != null && tenant.getCccdIssueDate() != null
+                ? tenant.getCccdIssueDate() : contract.getDraftTenantCccdIssueDate()));
+        vars.put("tenantCccdIssuePlace", tenant != null
+                ? nullToEmpty(tenant.getCccdIssuePlace()) : nullToEmpty(contract.getDraftTenantCccdIssuePlace()));
         vars.put("tenantAddress", "");
         vars.put("tenantEmail", "");
 
@@ -351,6 +355,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .tenantPhone(tenantUser != null ? tenantUser.getPhoneNumber() : c.getDraftTenantPhone())
                 .tenantCccd(tenant != null ? tenant.getCccd() : c.getDraftTenantCccd())
                 .tenantDateOfBirth(tenant != null ? tenant.getDateOfBirth() : c.getDraftTenantDob())
+                .tenantCccdIssueDate(tenant != null ? tenant.getCccdIssueDate() : c.getDraftTenantCccdIssueDate())
+                .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
