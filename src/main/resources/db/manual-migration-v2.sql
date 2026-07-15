@@ -36,3 +36,16 @@ ALTER TABLE properties ADD CONSTRAINT properties_status_check
         'MAINTENANCE',
         'INACTIVE'
     ));
+
+-- Bổ sung DAMAGED vào EquipmentStatus (bàn giao chủ nhà gốc)
+ALTER TABLE handover_equipments DROP CONSTRAINT IF EXISTS handover_equipments_status_check;
+ALTER TABLE handover_equipments ADD CONSTRAINT handover_equipments_status_check
+    CHECK (status IN ('NEW', 'GOOD', 'DAMAGED', 'MAINTENANCE', 'BROKEN', 'DISPOSED'));
+
+ALTER TABLE equipments DROP CONSTRAINT IF EXISTS equipments_status_check;
+ALTER TABLE equipments ADD CONSTRAINT equipments_status_check
+    CHECK (status IN ('NEW', 'GOOD', 'DAMAGED', 'MAINTENANCE', 'BROKEN', 'DISPOSED'));
+
+ALTER TABLE equipment_manifests DROP CONSTRAINT IF EXISTS equipment_manifests_status_check;
+ALTER TABLE equipment_manifests ADD CONSTRAINT equipment_manifests_status_check
+    CHECK (status IN ('NEW', 'GOOD', 'DAMAGED', 'MAINTENANCE', 'BROKEN', 'DISPOSED'));

@@ -47,6 +47,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "document_url", "VARCHAR(1024)");
         addColumnIfNotExists("tenant_contracts", "document_generated_at", "TIMESTAMP");
         ensureHandoverEquipmentTable();
+        ensureHandoverEquipmentStatusConstraint();
         addColumnIfNotExists("equipments", "warranty_months", "INTEGER");
         addColumnIfNotExists("equipments", "warranty_start_date", "DATE");
         addColumnIfNotExists("equipments", "warranty_end_date", "DATE");
@@ -303,6 +304,62 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 quantity INT NOT NULL,
                 note TEXT
                 """);
+    }
+
+    /** Hibernate enum check cũ thiếu DAMAGED — cần recreate khi bổ sung enum. */
+    private void ensureHandoverEquipmentStatusConstraint() {
+        jdbcTemplate.execute(
+                "ALTER TABLE handover_equipments DROP CONSTRAINT IF EXISTS handover_equipments_status_check");
+        jdbcTemplate.execute("""
+                ALTER TABLE handover_equipments ADD CONSTRAINT handover_equipments_status_check
+                    CHECK (status IN (
+                        'NEW',
+                        'GOOD',
+                        'DAMAGED',
+                        'MAINTENANCE',
+                        'BROKEN',
+                        'DISPOSED'
+                    ))
+                """);
+        // Cùng enum EquipmentStatus — cập nhật luôn các bảng liên quan nếu còn check cũ
+        ensureEquipmentStatusCheck("equipments", "equipments_status_check");
+        ensureEquipmentStatusCheck("equipment_manifests", "equipment_manifests_status_check");
+        ensureEquipmentStatusCheckColumn(
+                "tenant_contract_equipments",
+                "condition_at_signing",
+                "tenant_contract_equipments_condition_at_signing_check");
+        log.info("Ensured EquipmentStatus check constraints include DAMAGED");
+    }
+
+    private void ensureEquipmentStatusCheck(String table, String constraintName) {
+        ensureEquipmentStatusCheckColumn(table, "status", constraintName);
+    }
+
+    private void ensureEquipmentStatusCheckColumn(String table, String column, String constraintName) {
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = ?
+                )
+                """,
+                Boolean.class,
+                table);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraintName);
+        jdbcTemplate.execute("""
+                ALTER TABLE %s ADD CONSTRAINT %s
+                    CHECK (%s IN (
+                        'NEW',
+                        'GOOD',
+                        'DAMAGED',
+                        'MAINTENANCE',
+                        'BROKEN',
+                        'DISPOSED'
+                    ))
+                """.formatted(table, constraintName, column));
     }
 
     private void ensurePropertyPreviousStatusColumn() {
