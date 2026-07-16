@@ -4,7 +4,6 @@ import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
-import com.sep490.slms2026.enums.OtpPurpose;
 import com.sep490.slms2026.enums.PaymentStatus;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -31,7 +30,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -107,7 +105,7 @@ class TenantOnboardingCashDepositTest {
     }
 
     @Test
-    void confirmDepositCashByManager_afterTenant_marksPaidAndSendsOtp() {
+    void confirmDepositCashByManager_afterTenant_marksPaidWithoutSendingOtp() {
         service.confirmDepositCashByTenant(42L, "0352393203");
 
         var response = service.confirmDepositCashByManager(42L);
@@ -117,7 +115,7 @@ class TenantOnboardingCashDepositTest {
         assertEquals(ContractStatus.PENDING, contract.getStatus());
         assertEquals(true, response.getDepositCashTenantConfirmed());
         assertEquals(true, response.getDepositCashManagerConfirmed());
-        verify(otpService).sendOtp(eq("0352393203"), eq(OtpPurpose.CONTRACT_CONFIRM), eq(42L));
+        verify(otpService, never()).sendOtp(any(), any(), any());
     }
 
     @Test

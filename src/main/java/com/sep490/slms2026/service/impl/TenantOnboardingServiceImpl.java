@@ -670,12 +670,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setPaymentStatus(PaymentStatus.PAID);
         contract.setPaidAt(LocalDateTime.now());
         TenantContract saved = tenantContractRepository.save(contract);
-
-        try {
-            sendContractConfirmOtp(saved.getId());
-        } catch (Exception e) {
-            log.warn("Không tự gửi OTP sau xác nhận cọc tiền mặt HĐ {}: {}", saved.getId(), e.getMessage());
-        }
         return toResponse(saved);
     }
 
