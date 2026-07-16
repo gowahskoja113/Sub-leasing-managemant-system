@@ -119,6 +119,14 @@ public class Equipment implements Serializable {
     @Column(name = "warranty_end_date")
     private LocalDate warrantyEndDate;
 
+    /**
+     * Mức phạt cố định (VNĐ) áp dụng khi thiết bị đã hết bảo hành —
+     * dùng cho luồng maintain khi manager quyết định khách hàng phải đóng phạt nếu làm hư hỏng.
+     * Không tính từ đơn giá hay khấu hao.
+     */
+    @Column(name = "penalty_fee")
+    private java.math.BigDecimal penaltyFee;
+
     @Column(name = "recommend_replacement")
     @Builder.Default
     private Boolean recommendReplacement = false;
