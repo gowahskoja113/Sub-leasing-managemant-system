@@ -248,6 +248,7 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         request.setWarrantyMonths(row.getWarrantyMonths());
         request.setWarrantyStartDate(row.getWarrantyStartDate());
         request.setWarrantyEndDate(row.getWarrantyEndDate());
+        request.setPenaltyFee(row.getPenaltyFee());
         request.setImportAction(EquipmentImportAction.parse(row.getActionRaw()));
 
         String roomNumber = normalizeOptional(row.getRoomNumber());
@@ -526,6 +527,10 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 && !row.getWarrantyEndDate().isAfter(row.getWarrantyStartDate())) {
             errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Ngày hết bảo hành",
                     "Ngày hết bảo hành phải sau ngày bắt đầu"));
+        }
+        if (row.getPenaltyFee() == null || row.getPenaltyFee().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(),
+                    "Giá phạt hết bảo hành (VNĐ)", "Giá phạt hết bảo hành phải lớn hơn 0"));
         }
 
         validateEquipmentImportAction(errors, SHEET_PURCHASED, row);

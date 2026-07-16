@@ -140,7 +140,8 @@ public class ExcelRenovationImportWorkbookReader {
         requireHeaders(headers, SHEET_PURCHASED,
                 "Mã hợp đồng thuê", "Tên Catalog thiết bị", "Trạng thái thiết bị",
                 "Số lượng", "Đơn giá (VNĐ)", "Số tháng bảo hành",
-                "Ngày bắt đầu bảo hành", "Ngày hết bảo hành");
+                "Ngày bắt đầu bảo hành", "Ngày hết bảo hành",
+                "Giá phạt hết bảo hành (VNĐ)");
 
         List<PurchasedEquipmentImportRow> rows = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -164,6 +165,7 @@ public class ExcelRenovationImportWorkbookReader {
                     .warrantyMonths(readInteger(row, headers.get("Số tháng bảo hành"), formatter, evaluator))
                     .warrantyStartDate(readDate(row, headers.get("Ngày bắt đầu bảo hành"), formatter, evaluator))
                     .warrantyEndDate(readDate(row, headers.get("Ngày hết bảo hành"), formatter, evaluator))
+                    .penaltyFee(readDecimal(row, headers.get("Giá phạt hết bảo hành (VNĐ)"), formatter, evaluator))
                     .note(readOptionalString(row, headers.get("Ghi chú lắp đặt"), formatter, evaluator))
                     .actionRaw(readOptionalAction(row, headers, formatter, evaluator))
                     .build());

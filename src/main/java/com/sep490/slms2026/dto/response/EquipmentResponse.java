@@ -40,6 +40,8 @@ public class EquipmentResponse {
     private Integer warrantyMonths;
     private java.time.LocalDate warrantyStartDate;
     private java.time.LocalDate warrantyEndDate;
+    /** Mức phạt cố định (VNĐ) khi hết bảo hành. */
+    private java.math.BigDecimal penaltyFee;
 
     /** ACTIVE | DISABLED — áp dụng cho các thiết bị vận hành */
     private String operationalStatus;

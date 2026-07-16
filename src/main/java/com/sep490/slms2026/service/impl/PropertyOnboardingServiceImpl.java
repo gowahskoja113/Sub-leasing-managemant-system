@@ -302,6 +302,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .warrantyMonths(request.getWarrantyMonths())
                     .warrantyStartDate(request.getWarrantyStartDate())
                     .warrantyEndDate(request.getWarrantyEndDate())
+                    .penaltyFee(request.getPenaltyFee())
                     .build());
         }
         return toEquipmentResponse(lastSaved);
@@ -1124,6 +1125,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
+                .penaltyFee(equipment.getPenaltyFee())
                 .operationalStatus(opStatus.name())
                 .currentEffective(opStatus == EquipmentOperationalStatus.ACTIVE)
                 .renovationSessionNumber(sessionNumber)

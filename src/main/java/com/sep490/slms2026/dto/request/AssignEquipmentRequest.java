@@ -48,6 +48,13 @@ public class AssignEquipmentRequest {
     private java.time.LocalDate warrantyEndDate;
 
     /**
+     * Mức phạt cố định (VNĐ) khi thiết bị hết bảo hành.
+     * Dùng cho luồng maintain — không tính từ đơn giá.
+     */
+    @DecimalMin(value = "0", inclusive = true)
+    private BigDecimal penaltyFee;
+
+    /**
      * THEM_MOI (mặc định) | THAY_THE — khi import Excel cải tạo.
      */
     private com.sep490.slms2026.enums.EquipmentImportAction importAction;
