@@ -1,18 +1,39 @@
 package com.sep490.slms2026.util;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ContractDraftPdfRenderTest {
 
-    @Test
-    void renderApartmentDraftTemplate_toPdf() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            ContractTemplateConstants.TEMPLATE_ROOM,
+            ContractTemplateConstants.TEMPLATE_WHOLE_HOUSE
+    })
+    void renderContractTemplate_toPdf(String templateClasspath) throws Exception {
+        Map<String, String> sample = sampleVariables();
+
+        try (InputStream in = new ClassPathResource(templateClasspath).getInputStream()) {
+            byte[] docx = DocxTemplateRenderer.render(in, sample);
+            assertFalse(new String(docx).contains("${equipmentSnapshot}"),
+                    "Placeholder equipmentSnapshot chưa được thay trong DOCX");
+            byte[] pdf = DocxToPdfConverter.convert(docx);
+            assertTrue(pdf.length > 100, "PDF quá nhỏ / trống");
+            assertTrue(pdf[0] == '%' && pdf[1] == 'P' && pdf[2] == 'D' && pdf[3] == 'F',
+                    "Output không phải PDF");
+        }
+    }
+
+    private static Map<String, String> sampleVariables() {
         Map<String, String> sample = new HashMap<>();
         sample.put("contractCode", "TC-TEST-001");
         sample.put("signPlace", "TP. HCM");
@@ -36,15 +57,18 @@ class ContractDraftPdfRenderTest {
         sample.put("rentAmountInWords", "tám triệu đồng");
         sample.put("deposit", "16.000.000");
         sample.put("depositInWords", "mười sáu triệu đồng");
-        sample.put("equipmentSnapshot", "Giường, tủ, điều hòa");
+        sample.put("equipmentSnapshot", "Giường (Tốt) x1, Tủ (Tốt) x1, Điều hòa (Mới) x1");
+        return sample;
+    }
 
-        try (InputStream in = new ClassPathResource(
-                "templates/contract/tenant-apartment-draft-template.docx").getInputStream()) {
-            byte[] docx = DocxTemplateRenderer.render(in, sample);
-            byte[] pdf = DocxToPdfConverter.convert(docx);
-            assertTrue(pdf.length > 100, "PDF quá nhỏ / trống");
-            assertTrue(pdf[0] == '%' && pdf[1] == 'P' && pdf[2] == 'D' && pdf[3] == 'F',
-                    "Output không phải PDF");
-        }
+    @Test
+    void forceTimesNewRoman_setsAllFontRanges() {
+        org.apache.poi.xwpf.usermodel.XWPFDocument doc =
+                new org.apache.poi.xwpf.usermodel.XWPFDocument();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph paragraph = doc.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun run = paragraph.createRun();
+        run.setFontFamily("Arial");
+        DocxTemplateRenderer.forceTimesNewRoman(run);
+        assertTrue(run.getFontFamily().contains("Times New Roman"));
     }
 }

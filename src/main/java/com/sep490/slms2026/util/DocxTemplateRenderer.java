@@ -1,7 +1,9 @@
 package com.sep490.slms2026.util;
 
+import org.apache.poi.xwpf.usermodel.IBodyElement;
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFHeaderFooter;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
@@ -24,17 +26,12 @@ public final class DocxTemplateRenderer {
 
     public static byte[] render(InputStream templateStream, Map<String, String> variables) throws IOException {
         try (XWPFDocument doc = new XWPFDocument(templateStream)) {
-            for (XWPFParagraph paragraph : doc.getParagraphs()) {
-                replaceInParagraph(paragraph, variables);
+            replaceInBodyElements(doc.getBodyElements(), variables);
+            for (XWPFHeaderFooter header : doc.getHeaderList()) {
+                replaceInBodyElements(header.getBodyElements(), variables);
             }
-            for (XWPFTable table : doc.getTables()) {
-                for (XWPFTableRow row : table.getRows()) {
-                    for (XWPFTableCell cell : row.getTableCells()) {
-                        for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                            replaceInParagraph(paragraph, variables);
-                        }
-                    }
-                }
+            for (XWPFHeaderFooter footer : doc.getFooterList()) {
+                replaceInBodyElements(footer.getBodyElements(), variables);
             }
             // Ép toàn bộ document sang Times New Roman
             // để PDF convert không lệch font chỗ có/không có placeholder.
@@ -45,22 +42,60 @@ public final class DocxTemplateRenderer {
         }
     }
 
-    private static void normalizeAllFonts(XWPFDocument doc) {
-        for (XWPFParagraph paragraph : doc.getParagraphs()) {
-            for (XWPFRun run : paragraph.getRuns()) {
-                forceTimesNewRoman(run);
+    private static void replaceInBodyElements(List<IBodyElement> elements, Map<String, String> variables) {
+        for (IBodyElement element : elements) {
+            if (element instanceof XWPFParagraph paragraph) {
+                replaceInParagraph(paragraph, variables);
+            } else if (element instanceof XWPFTable table) {
+                replaceInTable(table, variables);
             }
         }
-        for (XWPFTable table : doc.getTables()) {
-            for (XWPFTableRow row : table.getRows()) {
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                        for (XWPFRun run : paragraph.getRuns()) {
-                            forceTimesNewRoman(run);
-                        }
-                    }
-                }
+    }
+
+    private static void replaceInTable(XWPFTable table, Map<String, String> variables) {
+        for (XWPFTableRow row : table.getRows()) {
+            for (XWPFTableCell cell : row.getTableCells()) {
+                replaceInBodyElements(cell.getBodyElements(), variables);
             }
+        }
+    }
+
+    private static void normalizeAllFonts(XWPFDocument doc) {
+        for (XWPFParagraph paragraph : doc.getParagraphs()) {
+            normalizeParagraphFonts(paragraph);
+        }
+        for (XWPFTable table : doc.getTables()) {
+            normalizeTableFonts(table);
+        }
+        for (XWPFHeaderFooter header : doc.getHeaderList()) {
+            normalizeBodyFonts(header.getBodyElements());
+        }
+        for (XWPFHeaderFooter footer : doc.getFooterList()) {
+            normalizeBodyFonts(footer.getBodyElements());
+        }
+    }
+
+    private static void normalizeBodyFonts(List<IBodyElement> elements) {
+        for (IBodyElement element : elements) {
+            if (element instanceof XWPFParagraph paragraph) {
+                normalizeParagraphFonts(paragraph);
+            } else if (element instanceof XWPFTable table) {
+                normalizeTableFonts(table);
+            }
+        }
+    }
+
+    private static void normalizeTableFonts(XWPFTable table) {
+        for (XWPFTableRow row : table.getRows()) {
+            for (XWPFTableCell cell : row.getTableCells()) {
+                normalizeBodyFonts(cell.getBodyElements());
+            }
+        }
+    }
+
+    private static void normalizeParagraphFonts(XWPFParagraph paragraph) {
+        for (XWPFRun run : paragraph.getRuns()) {
+            forceTimesNewRoman(run);
         }
     }
 
@@ -171,7 +206,6 @@ public final class DocxTemplateRenderer {
         n = n.replaceAll("(ở cùng: [^\\n]+)(Sau khi bàn bạc)", "$1\n\n$2");
         n = n.replaceAll("([.!])\\s*(Sau khi bàn bạc)", "$1\n\n$2");
         n = n.replaceAll("(căn hộ: [^\\n]+)\\s*(● Tổng diện tích:|Tổng diện tích:)", "$1\n$2");
-        n = n.replaceAll("(Nội thất có thêm:)\\s*(cho bên B)", "$1 Không có.\n$2");
         return n;
     }
 

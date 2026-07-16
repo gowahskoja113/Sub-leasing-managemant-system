@@ -103,7 +103,9 @@ public final class DocxToPdfConverter {
                 boolean italic = (style & Font.ITALIC) != 0;
                 String path = resolveFontPath(bold, italic);
                 BaseFont bf = BaseFont.createFont(path, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
-                return new Font(bf, size <= 0 ? 12f : size, style, color);
+                Font font = new Font(bf, size <= 0 ? 12f : size, style, color);
+                font.setFamily(DocxTemplateRenderer.TIMES_NEW_ROMAN);
+                return font;
             } catch (Exception ex) {
                 throw new IllegalStateException(
                         "Không tải được Times New Roman cho PDF: " + ex.getMessage(),

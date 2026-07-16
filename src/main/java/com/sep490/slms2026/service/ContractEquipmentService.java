@@ -54,4 +54,10 @@ public interface ContractEquipmentService {
   List<Long> getSelectedAddedIds(TenantContract contract);
 
   String buildEquipmentSnapshot(List<TenantContractEquipment> selected);
+
+  /**
+   * Snapshot nội thất cho mục 6.4 HĐ: ưu tiên giá trị đã lưu, rồi thiết bị đã chọn,
+   * cuối cùng inventory ACTIVE trong phạm vi nhà/phòng.
+   */
+  String resolveEquipmentSnapshot(TenantContract contract);
 }

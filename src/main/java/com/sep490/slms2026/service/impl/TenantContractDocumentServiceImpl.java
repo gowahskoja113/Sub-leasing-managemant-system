@@ -160,11 +160,12 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     }
 
     /**
-     * Fill {@code tenant-apartment-draft-template.docx} rồi convert sang PDF.
+     * Fill template Word (phòng / nguyên căn) rồi convert sang PDF.
      */
     private byte[] renderPdf(TenantContract contract) {
         Map<String, String> vars = buildVariables(contract);
-        try (InputStream in = new ClassPathResource(uploadProperties.getTemplateClasspath()).getInputStream()) {
+        String templateClasspath = resolveTemplateClasspath(contract);
+        try (InputStream in = new ClassPathResource(templateClasspath).getInputStream()) {
             byte[] docx = DocxTemplateRenderer.render(in, vars);
             return DocxToPdfConverter.convert(docx);
         } catch (IOException ex) {
@@ -173,6 +174,13 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             throw new BusinessException(
                     "Không tạo được PDF hợp đồng (HĐ " + contract.getContractCode() + "): " + ex.getMessage());
         }
+    }
+
+    private String resolveTemplateClasspath(TenantContract contract) {
+        if (contract.getRoom() != null) {
+            return uploadProperties.getRoomTemplateClasspath();
+        }
+        return uploadProperties.getWholeHouseTemplateClasspath();
     }
 
     private static String resolveContractFileUrl(TenantContract contract) {
@@ -291,7 +299,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         vars.put("initialElectricReading", formatDecimal(contract.getInitialElectricReading()));
         vars.put("initialWaterReading", formatDecimal(contract.getInitialWaterReading()));
         vars.put("roomConditionNote", nullToEmpty(contract.getRoomConditionNote()));
-        String equipmentSnapshot = nullToEmpty(contract.getEquipmentSnapshot());
+        String equipmentSnapshot = contractEquipmentService.resolveEquipmentSnapshot(contract);
         vars.put("equipmentSnapshot", equipmentSnapshot.isBlank() ? "Không có." : equipmentSnapshot);
         vars.put("householdMembers", formatHouseholdMembers(contract.getHouseholdMembers()));
 

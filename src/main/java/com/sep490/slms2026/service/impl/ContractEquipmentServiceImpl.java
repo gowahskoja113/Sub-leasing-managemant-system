@@ -230,6 +230,26 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
   }
 
   @Override
+  public String resolveEquipmentSnapshot(TenantContract contract) {
+    if (contract == null) {
+      return "";
+    }
+    String stored = contract.getEquipmentSnapshot();
+    if (stored != null && !stored.isBlank()) {
+      return stored.trim();
+    }
+    if (contract.getSelectedEquipments() != null && !contract.getSelectedEquipments().isEmpty()) {
+      String fromSelected = buildEquipmentSnapshot(contract.getSelectedEquipments());
+      if (!fromSelected.isBlank()) {
+        return fromSelected;
+      }
+    }
+    Long propertyId = contract.getProperty().getId();
+    Long roomId = contract.getRoom() != null ? contract.getRoom().getId() : null;
+    return buildInventorySnapshot(propertyId, roomId);
+  }
+
+  @Override
   public String buildEquipmentSnapshot(List<TenantContractEquipment> selected) {
     if (selected == null || selected.isEmpty()) {
       return "";
@@ -257,6 +277,23 @@ public class ContractEquipmentServiceImpl implements ContractEquipmentService {
       sb.append("Lắp thêm: ").append(String.join(", ", addedLines));
     }
     return sb.toString();
+  }
+
+  private String buildInventorySnapshot(Long propertyId, Long roomId) {
+    List<Equipment> inventory = findExistingInventory(propertyId, roomId);
+    if (inventory.isEmpty()) {
+      return "";
+    }
+    List<TenantContractEquipment> links = new ArrayList<>();
+    for (Equipment equipment : inventory) {
+      links.add(
+          TenantContractEquipment.builder()
+              .equipment(equipment)
+              .conditionAtSigning(equipment.getStatus())
+              .quantity(1)
+              .build());
+    }
+    return buildEquipmentSnapshot(links);
   }
 
   private List<Long> filterSelectedBySource(TenantContract contract, ContractEquipmentSource source) {

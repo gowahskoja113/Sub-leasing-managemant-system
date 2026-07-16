@@ -4,6 +4,7 @@ import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
 import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.entity.EquipmentCatalog;
 import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -46,6 +47,18 @@ class ContractEquipmentServiceImplTest {
 
     bed = equipment(10L, "Giường", EquipmentStatus.GOOD);
     fridge = equipment(20L, "Tủ lạnh", EquipmentStatus.NEW);
+  }
+
+  @Test
+  void resolveEquipmentSnapshot_fallsBackToInventoryWhenStoredBlank() {
+    Room room = new Room();
+    room.setId(7L);
+    contract.setRoom(room);
+    when(equipmentRepository.findActiveForTenantPlacement(1L, 7L)).thenReturn(List.of(bed, fridge));
+
+    String snapshot = service.resolveEquipmentSnapshot(contract);
+
+    assertEquals("Giường (Tốt) x1, Tủ lạnh (Mới) x1", snapshot);
   }
 
   @Test

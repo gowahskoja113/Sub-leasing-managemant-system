@@ -68,7 +68,7 @@ public class TenantContractActionController {
     }
 
     /**
-     * POST /{id}/draft-document — render PDF từ tenant-apartment-draft-template (chỉ DRAFT).
+     * POST /{id}/draft-document — render PDF từ template phòng / nguyên căn (chỉ DRAFT).
      * FE nhận file → upload Cloudinary → PUT draftContractFileUrl.
      */
     @PostMapping("/{id}/draft-document")
