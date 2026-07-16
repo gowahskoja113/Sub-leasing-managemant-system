@@ -91,3 +91,7 @@ billing:
   reminder-days-before: 3
   late-fee-percent: 2
   overdue-renotify-days: 7
+
+# Bảo trì: tự xác nhận nếu tenant không phản hồi
+maintenance:
+  auto-confirm-days: 3

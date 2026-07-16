@@ -54,10 +54,17 @@ public class MaintenanceRequestResponse {
     private CostPaidBy costPaidBy;
     private DamageCause cause;
     private Integer reopenCount;
-    
+
+    private String rejectReason;
+    private List<String> beforeImages;
+    private List<String> afterImages;
+    private List<String> rejectImages;
+    /** Gộp before + after + reject (tương thích FE cũ). */
     private List<String> images;
 
-    
+    private LocalDateTime acknowledgedAt;
+    private LocalDateTime tenantConfirmedAt;
+
     // Main's timeline
     private List<MaintenanceTimelineResponse> timeline;
 

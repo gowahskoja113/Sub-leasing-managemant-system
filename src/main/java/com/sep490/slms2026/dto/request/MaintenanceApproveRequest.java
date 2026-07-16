@@ -4,5 +4,11 @@ import lombok.Data;
 
 @Data
 public class MaintenanceApproveRequest {
-    private boolean approve;
+    /**
+     * Dùng cho /review-reject:
+     * true  = chấp nhận từ chối của tenant → quay lại APPROVED
+     * false = không reopen → WAITING_TENANT_CONFIRM
+     * Endpoint /approve (duyệt request mới) bỏ qua field này.
+     */
+    private boolean approve = true;
 }

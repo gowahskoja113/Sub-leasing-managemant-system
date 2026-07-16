@@ -104,6 +104,12 @@ public class MaintenanceRequest implements Serializable {
 
     @Column(name = "resolution_note", columnDefinition = "TEXT")
     private String resolutionNote;
+
+    @Column(name = "reject_reason", columnDefinition = "TEXT")
+    private String rejectReason;
+
+    @Column(name = "reject_image_urls", columnDefinition = "TEXT")
+    private String rejectImageUrls;
     
     // Images
     @Column(name = "before_image_urls", columnDefinition = "TEXT")

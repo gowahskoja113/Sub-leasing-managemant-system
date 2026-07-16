@@ -3,31 +3,51 @@ package com.sep490.slms2026.service;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
-import com.sep490.slms2026.enums.MaintenanceCategory;
-import com.sep490.slms2026.enums.MaintenancePriority;
-import com.sep490.slms2026.enums.MaintenanceStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.List;
 
 public interface MaintenanceService {
 
-    // --- Methods from main ---
-    MaintenanceRequestResponse acknowledge(Long id, MaintenanceAcknowledgeRequest request);
-    MaintenanceRequestResponse schedule(Long id, MaintenanceScheduleRequest request);
-    MaintenanceRequestResponse confirmSchedule(Long id, MaintenanceConfirmScheduleRequest request);
-    MaintenanceRequestResponse updateStatus(Long id, MaintenanceStatusRequest request);
-    MaintenanceRequestResponse resolve(Long id, MaintenanceResolveRequest request);
-    MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
-    MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
-    MaintenanceRequestResponse uploadPhotos(Long id, java.util.List<org.springframework.web.multipart.MultipartFile> files, String type);
     Page<MaintenanceRequestResponse> getRequests(
             String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable);
-    MaintenanceRequestResponse createRequest(com.sep490.slms2026.dto.request.MaintenanceCreateRequest request);
+
+    MaintenanceRequestResponse createRequest(MaintenanceCreateRequest request);
+
     Page<MaintenanceRequestResponse> getMyRequests(Pageable pageable);
+
     MaintenanceRequestResponse getRequestById(Long id);
-    com.sep490.slms2026.dto.response.MaintenanceDashboardResponse getDashboardStats();
-    java.util.List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
+
+    MaintenanceDashboardResponse getDashboardStats();
+
+    List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
+
+    /** Manager duyệt yêu cầu: PENDING → APPROVED */
+    MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
+
+    /** Manager báo sửa xong: APPROVED → WAITING_TENANT_CONFIRM */
+    MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request);
+
+    /** Tenant xác nhận đã sửa xong: WAITING_TENANT_CONFIRM → CLOSED */
+    MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
+
+    /** Tenant từ chối kết quả sửa (lý do + ảnh): WAITING_TENANT_CONFIRM → REJECTED */
+    MaintenanceRequestResponse reject(Long id, MaintenanceRejectRequest request, List<MultipartFile> files);
+
+    /**
+     * Manager xem xét reject của tenant.
+     * approve=true  → quay lại APPROVED (sửa lại)
+     * approve=false → giữ / đưa lại WAITING_TENANT_CONFIRM (manager không đồng ý reopen)
+     */
+    MaintenanceRequestResponse reviewReject(Long id, MaintenanceApproveRequest request);
+
+    /** Manager hủy yêu cầu */
+    MaintenanceRequestResponse cancel(Long id, String reason);
+
+    MaintenanceRequestResponse uploadPhotos(Long id, List<MultipartFile> files, String type);
+
+    /** Auto-confirm các ticket chờ tenant quá hạn (cron). */
+    int autoConfirmOverdue();
 }

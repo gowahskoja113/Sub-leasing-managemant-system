@@ -7,10 +7,12 @@ import com.sep490.slms2026.service.MaintenanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/maintenance")
@@ -33,7 +35,7 @@ public class MaintenanceController {
 
     @PostMapping
     @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse createRequest(@RequestBody com.sep490.slms2026.dto.request.MaintenanceCreateRequest request) {
+    public MaintenanceRequestResponse createRequest(@RequestBody MaintenanceCreateRequest request) {
         return maintenanceService.createRequest(request);
     }
 
@@ -51,57 +53,84 @@ public class MaintenanceController {
 
     @GetMapping("/dashboard")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public com.sep490.slms2026.dto.response.MaintenanceDashboardResponse getDashboardStats() {
+    public MaintenanceDashboardResponse getDashboardStats() {
         return maintenanceService.getDashboardStats();
     }
 
-    @PutMapping("/{id}/acknowledge")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse acknowledge(@PathVariable Long id, @RequestBody MaintenanceAcknowledgeRequest request) {
-        return maintenanceService.acknowledge(id, request);
-    }
-
-    @PutMapping("/{id}/schedule")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse schedule(@PathVariable Long id, @RequestBody MaintenanceScheduleRequest request) {
-        return maintenanceService.schedule(id, request);
-    }
-
-    @PutMapping("/{id}/confirm-schedule")
-    @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse confirmSchedule(@PathVariable Long id, @RequestBody MaintenanceConfirmScheduleRequest request) {
-        return maintenanceService.confirmSchedule(id, request);
-    }
-
-    @PutMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
-    public MaintenanceRequestResponse updateStatus(@PathVariable Long id, @RequestBody MaintenanceStatusRequest request) {
-        return maintenanceService.updateStatus(id, request);
-    }
-
-    @PutMapping("/{id}/resolve")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse resolve(@PathVariable Long id, @RequestBody MaintenanceResolveRequest request) {
-        return maintenanceService.resolve(id, request);
-    }
-
+    /** Manager duyệt yêu cầu → chờ thợ ngoài sửa. */
     @PutMapping("/{id}/approve")
-    @PreAuthorize("hasAnyRole('ADMIN')") // host
-    public MaintenanceRequestResponse approve(@PathVariable Long id, @RequestBody MaintenanceApproveRequest request) {
-        return maintenanceService.approve(id, request);
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse approve(
+            @PathVariable Long id,
+            @RequestBody(required = false) MaintenanceApproveRequest request) {
+        return maintenanceService.approve(id, request != null ? request : new MaintenanceApproveRequest());
     }
 
+    /** Manager báo sửa xong (cần ảnh AFTER). */
+    @PutMapping("/{id}/complete")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse complete(
+            @PathVariable Long id,
+            @RequestBody(required = false) MaintenanceCompleteRequest request) {
+        return maintenanceService.complete(id, request != null ? request : new MaintenanceCompleteRequest());
+    }
+
+    /** Tenant xác nhận đã sửa xong. */
     @PutMapping("/{id}/confirm")
     @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse confirm(@PathVariable Long id, @RequestBody MaintenanceConfirmRequest request) {
-        return maintenanceService.confirm(id, request);
+    public MaintenanceRequestResponse confirm(
+            @PathVariable Long id,
+            @RequestBody(required = false) MaintenanceConfirmRequest request) {
+        return maintenanceService.confirm(id, request != null ? request : new MaintenanceConfirmRequest());
+    }
+
+    /** Tenant từ chối (JSON): reason + images URLs. */
+    @PutMapping(value = "/{id}/reject", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('TENANT')")
+    public MaintenanceRequestResponse rejectJson(
+            @PathVariable Long id,
+            @RequestBody MaintenanceRejectRequest request) {
+        return maintenanceService.reject(id, request, null);
+    }
+
+    /** Tenant từ chối (multipart): reason + files. */
+    @PutMapping(value = "/{id}/reject", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('TENANT')")
+    public MaintenanceRequestResponse rejectMultipart(
+            @PathVariable Long id,
+            @RequestParam("reason") String reason,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files) {
+        MaintenanceRejectRequest request = new MaintenanceRejectRequest();
+        request.setReason(reason);
+        return maintenanceService.reject(id, request, files);
+    }
+
+    /**
+     * Manager xem xét reject:
+     * approve=true → APPROVED (sửa lại);
+     * approve=false → WAITING_TENANT_CONFIRM (yêu cầu tenant xác nhận lại).
+     */
+    @PutMapping("/{id}/review-reject")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse reviewReject(
+            @PathVariable Long id,
+            @RequestBody MaintenanceApproveRequest request) {
+        return maintenanceService.reviewReject(id, request);
+    }
+
+    @PutMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse cancel(
+            @PathVariable Long id,
+            @RequestParam(required = false) String reason) {
+        return maintenanceService.cancel(id, reason);
     }
 
     @PostMapping("/{id}/photos")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
     public MaintenanceRequestResponse uploadPhotos(
             @PathVariable Long id,
-            @RequestParam("files") java.util.List<org.springframework.web.multipart.MultipartFile> files,
+            @RequestParam("files") List<MultipartFile> files,
             @RequestParam("type") String type) {
         return maintenanceService.uploadPhotos(id, files, type);
     }

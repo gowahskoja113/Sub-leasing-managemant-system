@@ -65,6 +65,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_invoices", "note", "TEXT");
         backfillEquipmentQrCodes();
         ensureMaintenanceTables();
+        ensureMaintenanceSimplifiedFlowColumns();
+        migrateMaintenanceStatusesToSimplifiedFlow();
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
@@ -77,6 +79,29 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "termination_note", "TEXT");
         ensureCheckoutRequestsTable();
 
+    }
+
+    private void ensureMaintenanceSimplifiedFlowColumns() {
+        addColumnIfNotExists("maintenance_requests", "reject_reason", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "reject_image_urls", "TEXT");
+    }
+
+    /** Map legacy maintenance statuses sang flow rút gọn. */
+    private void migrateMaintenanceStatusesToSimplifiedFlow() {
+        try {
+            int updated = 0;
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET status = 'APPROVED' WHERE status IN ('ACKNOWLEDGED','SCHEDULED','IN_PROGRESS','ON_HOLD','REOPENED')");
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET status = 'WAITING_TENANT_CONFIRM' WHERE status IN ('DONE','PENDING_APPROVAL')");
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET status = 'CLOSED' WHERE status IN ('CONFIRMED','RESOLVED')");
+            if (updated > 0) {
+                log.info("Migrated {} maintenance_requests rows to simplified statuses", updated);
+            }
+        } catch (Exception e) {
+            log.warn("Could not migrate maintenance statuses: {}", e.getMessage());
+        }
     }
 
     private void ensureCheckoutRequestsTable() {
