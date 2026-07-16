@@ -30,6 +30,7 @@ public class TenantContractResponse {
     private LocalDate tenantDateOfBirth;
     private LocalDate tenantCccdIssueDate;
     private String tenantCccdIssuePlace;
+    private String tenantPermanentAddress;
 
     private String type;
     private String lessorName;

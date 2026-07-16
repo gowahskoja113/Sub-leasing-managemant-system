@@ -253,7 +253,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 ? tenant.getCccdIssueDate() : contract.getDraftTenantCccdIssueDate()));
         vars.put("tenantCccdIssuePlace", tenant != null
                 ? nullToEmpty(tenant.getCccdIssuePlace()) : nullToEmpty(contract.getDraftTenantCccdIssuePlace()));
-        vars.put("tenantAddress", "");
+        vars.put("tenantAddress", tenant != null
+                ? nullToEmpty(tenant.getPermanentAddress()) : nullToEmpty(contract.getDraftTenantAddress()));
         vars.put("tenantEmail", "");
 
         vars.put("propertyName", property.getPropertyName());
@@ -290,7 +291,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         vars.put("initialElectricReading", formatDecimal(contract.getInitialElectricReading()));
         vars.put("initialWaterReading", formatDecimal(contract.getInitialWaterReading()));
         vars.put("roomConditionNote", nullToEmpty(contract.getRoomConditionNote()));
-        vars.put("equipmentSnapshot", nullToEmpty(contract.getEquipmentSnapshot()));
+        String equipmentSnapshot = nullToEmpty(contract.getEquipmentSnapshot());
+        vars.put("equipmentSnapshot", equipmentSnapshot.isBlank() ? "Không có." : equipmentSnapshot);
         vars.put("householdMembers", formatHouseholdMembers(contract.getHouseholdMembers()));
 
         return vars;
@@ -298,7 +300,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     private static String formatHouseholdMembers(List<HouseholdMember> members) {
         if (members == null || members.isEmpty()) {
-            return "Không có thành viên ở cùng.";
+            return "Không có thành viên ở cùng.\n\n";
         }
         StringBuilder sb = new StringBuilder();
         int index = 1;
@@ -313,7 +315,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                     .append(" | SĐT: ").append(nullToEmpty(m.getPhone()))
                     .append(" | Ngày sinh: ").append(formatDate(m.getDateOfBirth()));
         }
-        return sb.toString();
+        return sb.append("\n\n").toString();
     }
 
     private TenantContractDocumentResponse toDocumentResponse(TenantContract contract) {
@@ -356,6 +358,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .tenantDateOfBirth(tenant != null ? tenant.getDateOfBirth() : c.getDraftTenantDob())
                 .tenantCccdIssueDate(tenant != null ? tenant.getCccdIssueDate() : c.getDraftTenantCccdIssueDate())
                 .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
+                .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())

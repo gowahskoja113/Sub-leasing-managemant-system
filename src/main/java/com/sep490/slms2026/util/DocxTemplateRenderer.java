@@ -91,6 +91,8 @@ public final class DocxTemplateRenderer {
             return;
         }
 
+        replaced = normalizeRenderedLayout(replaced);
+
         RunStyle style = captureStyle(paragraph);
         List<XWPFRun> runs = paragraph.getRuns();
         for (int i = runs.size() - 1; i >= 0; i--) {
@@ -145,6 +147,32 @@ public final class DocxTemplateRenderer {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * Tách các cụm bị dính trong template cũ để PDF không "chảy" layout.
+     */
+    static String normalizeRenderedLayout(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        String n = text;
+        n = n.replace("HỢP ĐỒNG THUÊ CĂN HỘSố:", "HỢP ĐỒNG THUÊ CĂN HỘ\nSố:");
+        n = n.replaceAll("(Số CCCD: [^\\n]+)\\s*(Nơi cấp:)", "$1\n$2");
+        n = n.replaceAll("(Nơi cấp: [^\\n]*)\\s*(Ngày cấp:)", "$1\n$2");
+        n = n.replaceAll("(Ngày cấp: [^\\n]*)\\s*(Ngày sinh:)", "$1\n$2");
+        n = n.replaceAll("(Số CCCD: [^\\n]+)\\s*(Ngày sinh:)", "$1\n$2");
+        n = n.replaceAll("(Ngày sinh: [^\\n]+)\\s*(Cấp ngày:)", "$1\n$2");
+        n = n.replaceAll("(Nơi cấp: [^\\n]+)\\s*(HKTT:)", "$1\n$2");
+        n = n.replaceAll("(Cấp ngày: [^\\n]+)\\s*(HKTT:)", "$1\n$2");
+        n = n.replaceAll("(HKTT: [^\\n]+)\\s*(Điện thoại:)", "$1\n$2");
+        n = n.replaceAll("(Điện thoại: [^\\n]+)\\s*(Người ở cùng:)", "$1\n$2");
+        n = n.replaceAll("(ở cùng\\.)(Sau khi bàn bạc)", "$1\n\n$2");
+        n = n.replaceAll("(ở cùng: [^\\n]+)(Sau khi bàn bạc)", "$1\n\n$2");
+        n = n.replaceAll("([.!])\\s*(Sau khi bàn bạc)", "$1\n\n$2");
+        n = n.replaceAll("(căn hộ: [^\\n]+)\\s*(● Tổng diện tích:|Tổng diện tích:)", "$1\n$2");
+        n = n.replaceAll("(Nội thất có thêm:)\\s*(cho bên B)", "$1 Không có.\n$2");
+        return n;
     }
 
     private record RunStyle(

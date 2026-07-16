@@ -24,7 +24,9 @@ class ContractDraftPdfRenderTest {
         sample.put("tenantDob", "01/01/1990");
         sample.put("tenantAddress", "123 Đường ABC, Q1");
         sample.put("tenantPhone", "0901234567");
-        sample.put("householdMembers", "Không có thành viên ở cùng.");
+        sample.put("householdMembers", "Không có thành viên ở cùng.\n\n");
+        sample.put("tenantCccdIssueDate", "15/03/2021");
+        sample.put("tenantCccdIssuePlace", "CA TP. Hồ Chí Minh");
         sample.put("rentalUnit", "Sunrise Tower - Phòng 101");
         sample.put("areaSize", "45");
         sample.put("leaseDurationMonths", "12");

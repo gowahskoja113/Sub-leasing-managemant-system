@@ -178,6 +178,9 @@ public class TenantContract implements Serializable {
     @Column(name = "draft_tenant_cccd_issue_place")
     private String draftTenantCccdIssuePlace;
 
+    @Column(name = "draft_tenant_address")
+    private String draftTenantAddress;
+
     @Column(name = "terminated_at")
     private LocalDateTime terminatedAt;
 

@@ -168,6 +168,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .draftTenantDob(request.isDraft() ? request.getDateOfBirth() : null)
                 .draftTenantCccdIssueDate(request.isDraft() ? request.getCccdIssueDate() : null)
                 .draftTenantCccdIssuePlace(request.isDraft() ? request.getCccdIssuePlace() : null)
+                .draftTenantAddress(request.isDraft() ? request.getPermanentAddress() : null)
                 .build();
 
         // Thành viên ở cùng (bỏ qua dòng trống)
@@ -279,7 +280,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     contract.getDraftTenantCccd(),
                     contract.getDraftTenantDob(),
                     contract.getDraftTenantCccdIssueDate(),
-                    contract.getDraftTenantCccdIssuePlace());
+                    contract.getDraftTenantCccdIssuePlace(),
+                    contract.getDraftTenantAddress());
             contract.setTenant(result.tenant);
             accountCreated = result.created;
             rolePromoted = result.promoted;
@@ -508,6 +510,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (request.getDateOfBirth() != null) contract.setDraftTenantDob(request.getDateOfBirth());
         if (request.getCccdIssueDate() != null) contract.setDraftTenantCccdIssueDate(request.getCccdIssueDate());
         if (request.getCccdIssuePlace() != null) contract.setDraftTenantCccdIssuePlace(request.getCccdIssuePlace());
+        if (request.getPermanentAddress() != null) contract.setDraftTenantAddress(request.getPermanentAddress());
         if (request.getDraftContractFileUrl() != null) contract.setDraftContractFileUrl(request.getDraftContractFileUrl());
 
         boolean notifyManager = false;
@@ -644,13 +647,15 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getCccd(),
                 request.getDateOfBirth(),
                 request.getCccdIssueDate(),
-                request.getCccdIssuePlace()).tenant;
+                request.getCccdIssuePlace(),
+                request.getPermanentAddress()).tenant;
     }
 
     private TenantCreationResult getOrCreateTenant(String phone, String fullName, String cccd,
                                                    LocalDate dateOfBirth,
                                                    LocalDate cccdIssueDate,
-                                                   String cccdIssuePlace) {
+                                                   String cccdIssuePlace,
+                                                   String permanentAddress) {
 
         // Tái dùng tài khoản đã có theo SĐT (đồng bộ với chức năng tra cứu tự điền)
         User existing = userRepository.findByPhoneNumber(phone).orElse(null);
@@ -675,19 +680,27 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 profile.setDateOfBirth(dateOfBirth);
                 profile.setCccdIssueDate(cccdIssueDate);
                 profile.setCccdIssuePlace(cccdIssuePlace);
+                profile.setPermanentAddress(permanentAddress);
                 existing.setTenantProfile(profile);
                 existing = userRepository.save(existing);
                 profile = existing.getTenantProfile();
             } else {
+                if (cccd != null && !cccd.isBlank()) {
+                    profile.setCccd(cccd);
+                }
                 if (dateOfBirth != null) {
                     profile.setDateOfBirth(dateOfBirth);
                 }
                 if (cccdIssueDate != null) {
                     profile.setCccdIssueDate(cccdIssueDate);
                 }
-                if (cccdIssuePlace != null && !cccdIssuePlace.isBlank()) {
-                    profile.setCccdIssuePlace(cccdIssuePlace);
+                if (cccdIssuePlace != null) {
+                    profile.setCccdIssuePlace(cccdIssuePlace.isBlank() ? null : cccdIssuePlace.trim());
                 }
+                if (permanentAddress != null) {
+                    profile.setPermanentAddress(permanentAddress.isBlank() ? null : permanentAddress.trim());
+                }
+                userRepository.save(existing);
             }
             return new TenantCreationResult(profile, false, promoted);
         }
@@ -709,6 +722,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         profile.setDateOfBirth(dateOfBirth);
         profile.setCccdIssueDate(cccdIssueDate);
         profile.setCccdIssuePlace(cccdIssuePlace);
+        profile.setPermanentAddress(permanentAddress);
         user.setTenantProfile(profile);
 
         try {
@@ -750,6 +764,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantDateOfBirth(tenant != null ? tenant.getDateOfBirth() : c.getDraftTenantDob())
                 .tenantCccdIssueDate(tenant != null ? tenant.getCccdIssueDate() : c.getDraftTenantCccdIssueDate())
                 .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
+                .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())

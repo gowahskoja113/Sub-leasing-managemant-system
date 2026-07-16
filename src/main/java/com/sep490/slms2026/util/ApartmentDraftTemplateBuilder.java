@@ -52,6 +52,7 @@ public final class ApartmentDraftTemplateBuilder {
         if (!xml.contains("${contractCode}") && !xml.contains("${tenantFullName}")) {
             xml = replaceTextNodes(xml);
         }
+        xml = normalizePreparedTemplate(xml);
         entries.put(DOCUMENT_XML, xml.getBytes(StandardCharsets.UTF_8));
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -80,6 +81,8 @@ public final class ApartmentDraftTemplateBuilder {
             if (text.contains("1417-SUN/HĐTN-2026") || text.contains("1417-SUN/H\u0110TN-2026")) {
                 replacement = text.replace("1417-SUN/HĐTN-2026", "${contractCode}")
                         .replace("1417-SUN/H\u0110TN-2026", "${contractCode}");
+            } else if (text.contains("HỢP ĐỒNG THUÊ CĂN HỘ") && text.contains("Số:")) {
+                replacement = "HỢP ĐỒNG THUÊ CĂN HỘ\nSố: ${contractCode}";
             } else if (trimmed.startsWith("Hôm nay, ngày")) {
                 replacement = "Hôm nay, ngày ${signDay} tháng ${signMonth} năm ${signYear}, tại ${signPlace}, chúng tôi gồm:";
             } else if (isOnlyDots(text) && containsRecent(history, "Hôm nay, ngày")) {
@@ -87,7 +90,7 @@ public final class ApartmentDraftTemplateBuilder {
             } else if (trimmed.equals(", tại") || trimmed.equals(", chúng tôi gồm:")) {
                 replacement = "";
             } else if (trimmed.equals("Ông/bà:") && inTenantBSection(history)) {
-                replacement = "Ông/bà: ${tenantFullName}";
+                replacement = "Ông/bà: ${tenantFullName}\n";
             } else if (isOnlyDots(text) && inTenantBSection(history)
                     && containsRecent(history, "Ông/bà:") && !containsRecent(history, "${tenantFullName}")) {
                 replacement = "";
@@ -97,29 +100,29 @@ public final class ApartmentDraftTemplateBuilder {
                     && containsRecent(history, "${tenantFullName}")
                     && !containsRecent(history, "${tenantCccd}")) {
                 replacement = "";
-            } else if (trimmed.equals("CCCD:") && inTenantBSection(history)) {
-                replacement = "Số CCCD: ${tenantCccd}";
+            } else if ((trimmed.equals("CCCD:") || trimmed.equals("Số CCCD:")) && inTenantBSection(history)) {
+                replacement = "Số CCCD: ${tenantCccd}\n";
             } else if (isOnlyDots(text) && containsRecent(history, "${tenantCccd}")) {
                 replacement = "";
             } else if (trimmed.startsWith("Cấp ngày:") && inTenantBSection(history)
                     && containsRecent(history, "${tenantCccd}")) {
-                replacement = "Ngày sinh: ${tenantDob}";
+                replacement = "Ngày sinh: ${tenantDob}\n";
             } else if (trimmed.startsWith("Nơi cấp:") && inTenantBSection(history)
                     && containsRecent(history, "${tenantDob}")
                     && !containsRecent(history, "${tenantCccdIssueDate}")) {
-                replacement = "Cấp ngày: ${tenantCccdIssueDate} — Nơi cấp: ${tenantCccdIssuePlace}";
+                replacement = "Cấp ngày: ${tenantCccdIssueDate} — Nơi cấp: ${tenantCccdIssuePlace}\n";
             } else if (isOnlyDots(text) && inTenantBSection(history)
                     && containsRecent(history, "${tenantCccdIssuePlace}")
                     && !containsRecent(history, "HKTT:")) {
                 replacement = "";
             } else if (trimmed.startsWith("HKTT:") && inTenantBSection(history)) {
-                replacement = "HKTT: ${tenantAddress}";
+                replacement = "HKTT: ${tenantAddress}\n";
             } else if (isOnlyDots(text) && containsRecent(history, "${tenantAddress}")) {
                 replacement = "";
             } else if (trimmed.startsWith("Điện thoại:") && inTenantBSection(history)) {
-                replacement = "Điện thoại: ${tenantPhone}";
+                replacement = "Điện thoại: ${tenantPhone}\n";
             } else if (trimmed.equals("Người ở cùng")) {
-                replacement = "Người ở cùng: ${householdMembers}";
+                replacement = "Người ở cùng: ${householdMembers}\n\n";
                 inHouseholdBlock = true;
             } else if (inHouseholdBlock) {
                 if (trimmed.startsWith("Sau khi bàn bạc")) {
@@ -128,7 +131,7 @@ public final class ApartmentDraftTemplateBuilder {
                     replacement = "";
                 }
             } else if (text.contains("căn hộ chung cư số:")) {
-                replacement = "Bên A đồng ý cho thuê và bên B đồng ý thuê căn hộ: ${rentalUnit}";
+                replacement = "Bên A đồng ý cho thuê và bên B đồng ý thuê căn hộ: ${rentalUnit}\n";
             } else if (isOnlyDots(text) && containsRecent(history, "${rentalUnit}")) {
                 replacement = "";
             } else if (trimmed.equals("Tổng diện tích")) {
@@ -168,6 +171,25 @@ public final class ApartmentDraftTemplateBuilder {
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Sửa template đã build: tách dòng bị dính (PDF bị "chảy" layout).
+     */
+    static String normalizePreparedTemplate(String xml) {
+        String n = xml;
+        n = n.replace("HỢP ĐỒNG THUÊ CĂN HỘSố:", "HỢP ĐỒNG THUÊ CĂN HỘ\nSố:");
+        n = n.replace("${tenantFullName}  Số CCCD:", "${tenantFullName}\nSố CCCD:");
+        n = n.replace("${tenantFullName} Số CCCD:", "${tenantFullName}\nSố CCCD:");
+        n = n.replace("${tenantCccd}Ngày sinh:", "${tenantCccd}\nNgày sinh:");
+        n = n.replace("${tenantDob}Cấp ngày:", "${tenantDob}\nCấp ngày:");
+        n = n.replace("${tenantCccdIssuePlace}HKTT:", "${tenantCccdIssuePlace}\nHKTT:");
+        n = n.replace("${tenantAddress}Điện thoại:", "${tenantAddress}\nĐiện thoại:");
+        n = n.replace("${tenantPhone}Người ở cùng:", "${tenantPhone}\nNgười ở cùng:");
+        n = n.replace("${householdMembers}Sau khi bàn bạc", "${householdMembers}\n\nSau khi bàn bạc");
+        n = n.replace("${rentalUnit}Tổng diện tích:", "${rentalUnit}\nTổng diện tích:");
+        n = n.replace("${rentalUnit}● Tổng diện tích:", "${rentalUnit}\n● Tổng diện tích:");
+        return n;
     }
 
     private static boolean inTenantBSection(List<String> history) {

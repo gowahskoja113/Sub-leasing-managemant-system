@@ -77,6 +77,7 @@ public class ExcelTenantDraftContractWorkbookReader {
                     .dateOfBirth(readDate(row, headers.get("Ngày sinh"), formatter, evaluator))
                     .cccdIssueDate(readDate(row, headers.get("Ngày cấp CCCD"), formatter, evaluator))
                     .cccdIssuePlace(readOptionalString(row, headers.get("Nơi cấp CCCD"), formatter, evaluator))
+                    .permanentAddress(readOptionalString(row, headers.get("Hộ khẩu thường trú"), formatter, evaluator))
                     .moveInDate(readDate(row, headers.get("Ngày vào ở"), formatter, evaluator))
                     .endDate(readDate(row, headers.get("Ngày kết thúc"), formatter, evaluator))
                     .rentAmount(rentAmount)

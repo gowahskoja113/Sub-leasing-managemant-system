@@ -99,4 +99,7 @@ public class OnboardTenantRequest {
 
     /** Nơi cấp CCCD (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
     private String cccdIssuePlace;
+
+    /** Hộ khẩu thường trú / HKTT (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
+    private String permanentAddress;
 }

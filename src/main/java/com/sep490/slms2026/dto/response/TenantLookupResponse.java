@@ -17,6 +17,7 @@ public class TenantLookupResponse {
     private LocalDate dateOfBirth;
     private LocalDate cccdIssueDate;
     private String cccdIssuePlace;
+    private String permanentAddress;
     private String role;   // "ROLE_USER" / "ROLE_TENANT" / null — FE dùng để hiển thị hint
     private boolean eligible;
 }

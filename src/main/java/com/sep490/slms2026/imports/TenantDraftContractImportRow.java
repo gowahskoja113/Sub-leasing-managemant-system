@@ -33,6 +33,7 @@ public class TenantDraftContractImportRow {
     private LocalDate dateOfBirth;
     private LocalDate cccdIssueDate;
     private String cccdIssuePlace;
+    private String permanentAddress;
 
     private LocalDate moveInDate;
     private LocalDate endDate;

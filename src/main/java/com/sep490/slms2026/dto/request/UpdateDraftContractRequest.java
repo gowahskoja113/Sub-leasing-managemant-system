@@ -58,4 +58,7 @@ public class UpdateDraftContractRequest {
 
     /** Nơi cấp CCCD. */
     private String cccdIssuePlace;
+
+    /** Hộ khẩu thường trú (HKTT). */
+    private String permanentAddress;
 }

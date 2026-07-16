@@ -38,4 +38,8 @@ public class Tenant {
     /** Nơi cấp CCCD */
     @Column(name = "cccd_issue_place")
     private String cccdIssuePlace;
+
+    /** Hộ khẩu thường trú (HKTT) */
+    @Column(name = "permanent_address")
+    private String permanentAddress;
 }

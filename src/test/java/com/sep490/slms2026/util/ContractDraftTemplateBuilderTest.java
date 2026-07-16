@@ -6,12 +6,48 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ContractDraftTemplateBuilderTest {
+
+    @Test
+    void normalizeExistingClasspathTemplate() throws Exception {
+        Path templatePath = Path.of("src/main/resources/templates/contract/tenant-apartment-draft-template.docx");
+        assertTrue(Files.exists(templatePath), "Thiếu template classpath");
+
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        byte[] documentXml = null;
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(Files.newInputStream(templatePath))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                byte[] data = zis.readAllBytes();
+                if ("word/document.xml".equals(entry.getName())) {
+                    documentXml = data;
+                } else {
+                    entries.put(entry.getName(), data);
+                }
+                zis.closeEntry();
+            }
+        }
+        assertTrue(documentXml != null, "Thiếu word/document.xml");
+        String xml = new String(documentXml, java.nio.charset.StandardCharsets.UTF_8);
+        xml = ApartmentDraftTemplateBuilder.normalizePreparedTemplate(xml);
+        entries.put("word/document.xml", xml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(out)) {
+            for (Map.Entry<String, byte[]> e : entries.entrySet()) {
+                zos.putNextEntry(new java.util.zip.ZipEntry(e.getKey()));
+                zos.write(e.getValue());
+                zos.closeEntry();
+            }
+        }
+        Files.write(templatePath, out.toByteArray());
+    }
 
     @Test
     void buildApartmentDraftTemplate_fromSourceDocx() throws Exception {
@@ -43,7 +79,7 @@ class ContractDraftTemplateBuilderTest {
             sample.put("tenantCccdIssuePlace", "CA TP. Hồ Chí Minh");
             sample.put("tenantAddress", "123 Đường ABC, Q1");
             sample.put("tenantPhone", "0901234567");
-            sample.put("householdMembers", "Không có thành viên ở cùng.");
+            sample.put("householdMembers", "Không có thành viên ở cùng.\n\n");
             sample.put("rentalUnit", "Sunrise Tower - Phòng 101");
             sample.put("areaSize", "45");
             sample.put("leaseDurationMonths", "12");

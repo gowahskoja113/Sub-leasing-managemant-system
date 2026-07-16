@@ -357,6 +357,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         request.setCccdIssueDate(row.getCccdIssueDate());
         request.setCccdIssuePlace(normalizeOptional(row.getCccdIssuePlace()).isBlank()
                 ? null : row.getCccdIssuePlace().trim());
+        request.setPermanentAddress(normalizeOptional(row.getPermanentAddress()).isBlank()
+                ? null : row.getPermanentAddress().trim());
         request.setMoveInDate(row.getMoveInDate());
         request.setEndDate(row.getEndDate());
         request.setRentAmount(row.getRentAmount());
