@@ -27,12 +27,6 @@ public interface TenantOnboardingService {
     /** Gửi OTP SMS tới SĐT khách thuê để xác nhận hoàn tất HĐ. */
     void sendContractConfirmOtp(Long contractId);
 
-    /** Khách xác nhận đã trả cọc tiền mặt (không cần đăng nhập — xác thực bằng SĐT trên HĐ). */
-    TenantContractResponse confirmDepositCashByTenant(Long contractId, String phoneNumber);
-
-    /** Manager xác nhận đã nhận cọc tiền mặt. Khi cả hai bên xác nhận → PAID + gửi OTP. */
-    TenantContractResponse confirmDepositCashByManager(Long contractId);
-
     /** Đánh dấu đã thanh toán theo orderCode (gọi từ webhook PayOS). */
     void markDepositPaid(Long payosOrderCode);
 

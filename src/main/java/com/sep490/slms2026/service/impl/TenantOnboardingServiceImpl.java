@@ -319,41 +319,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     @Override
     @Transactional
-    public TenantContractResponse confirmDepositCashByTenant(Long contractId, String phoneNumber) {
-        TenantContract contract = findContract(contractId);
-        ensureCashDepositAllowed(contract);
-
-        String normalizedInput = TwilioServiceImpl.formatVietnamesePhone(phoneNumber);
-        String contractPhone = resolveTenantPhone(contract);
-        if (contractPhone == null) {
-            throw new BusinessException("Hợp đồng chưa có số điện thoại khách thuê");
-        }
-        if (!normalizedInput.equals(TwilioServiceImpl.formatVietnamesePhone(contractPhone))) {
-            throw new BusinessException("Số điện thoại không khớp với hợp đồng");
-        }
-
-        if (contract.getDepositCashTenantConfirmedAt() == null) {
-            contract.setDepositCashTenantConfirmedAt(LocalDateTime.now());
-            tenantContractRepository.save(contract);
-        }
-        return tryFinalizeCashDeposit(contract);
-    }
-
-    @Override
-    @Transactional
-    public TenantContractResponse confirmDepositCashByManager(Long contractId) {
-        TenantContract contract = findContract(contractId);
-        ensureCashDepositAllowed(contract);
-
-        if (contract.getDepositCashManagerConfirmedAt() == null) {
-            contract.setDepositCashManagerConfirmedAt(LocalDateTime.now());
-            tenantContractRepository.save(contract);
-        }
-        return tryFinalizeCashDeposit(contract);
-    }
-
-    @Override
-    @Transactional
     public TenantContractResponse syncPaymentStatus(Long contractId) {
         TenantContract contract = findContract(contractId);
         if (contract.getPaymentStatus() != PaymentStatus.PAID && contract.getPayosOrderCode() != null) {
@@ -631,16 +596,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
     }
 
-    private void ensureCashDepositAllowed(TenantContract contract) {
-        if (contract.getStatus() == ContractStatus.ACTIVE) {
-            throw new BusinessException("Hợp đồng đã được kích hoạt");
-        }
-        if (contract.getStatus() == ContractStatus.TERMINATED) {
-            throw new BusinessException("Hợp đồng đã bị hủy");
-        }
-        ensureDepositPaymentAllowed(contract);
-    }
-
     private void ensureRoomAvailableForDeposit(TenantContract contract) {
         Room room = contract.getRoom();
         if (room != null) {
@@ -651,26 +606,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 throw new BusinessException("Phòng này đã có hợp đồng đang hiệu lực");
             }
         }
-    }
-
-    private TenantContractResponse tryFinalizeCashDeposit(TenantContract contract) {
-        if (contract.getDepositCashTenantConfirmedAt() == null
-                || contract.getDepositCashManagerConfirmedAt() == null) {
-            return toResponse(contract);
-        }
-
-        if (contract.getStatus() == ContractStatus.DRAFT) {
-            ensureRoomAvailableForDeposit(contract);
-            if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
-                throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
-            }
-            contract.setStatus(ContractStatus.PENDING);
-        }
-
-        contract.setPaymentStatus(PaymentStatus.PAID);
-        contract.setPaidAt(LocalDateTime.now());
-        TenantContract saved = tenantContractRepository.save(contract);
-        return toResponse(saved);
     }
 
     @Override
@@ -834,10 +769,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
-                .depositCashTenantConfirmed(c.getDepositCashTenantConfirmedAt() != null)
-                .depositCashManagerConfirmed(c.getDepositCashManagerConfirmedAt() != null)
-                .depositCashTenantConfirmedAt(c.getDepositCashTenantConfirmedAt())
-                .depositCashManagerConfirmedAt(c.getDepositCashManagerConfirmedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)
                 .tenantRolePromoted(rolePromoted)
