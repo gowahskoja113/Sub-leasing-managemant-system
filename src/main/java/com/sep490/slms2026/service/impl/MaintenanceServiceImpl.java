@@ -6,6 +6,8 @@ import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
 import com.sep490.slms2026.dto.response.MaintenanceTimelineResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.MaintenanceCategory;
+import com.sep490.slms2026.enums.MaintenancePriority;
 import com.sep490.slms2026.enums.MaintenanceStatus;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -104,6 +106,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         Room room = roomRepository.findById(request.getRoomId())
                 .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
 
+        String title = request.getTitle() != null ? request.getTitle().trim() : "";
+        if (title.isBlank()) {
+            throw new BusinessException("Tiêu đề sự cố là bắt buộc");
+        }
+        if (title.length() > 200) {
+            throw new BusinessException("Tiêu đề sự cố không được vượt quá 200 ký tự");
+        }
         if (request.getDescription() == null || request.getDescription().isBlank()) {
             throw new BusinessException("Mô tả hiện trạng là bắt buộc");
         }
@@ -116,10 +125,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .tenant(tenant)
                 .property(room.getProperty())
                 .room(room)
-                .title(request.getDescription())
-                .description(request.getDescription())
-                .category(request.getCategory())
-                .priority(request.getPriority())
+                .title(title)
+                .description(request.getDescription().trim())
                 .equipmentId(request.getEquipmentId())
                 .beforeImageUrls(beforeUrls)
                 .status(MaintenanceStatus.PENDING)
@@ -129,7 +136,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
-                "Khách thuê " + user.getFullName() + " vừa tạo yêu cầu bảo trì phòng "
+                "Khách thuê " + user.getFullName() + ": \"" + title + "\" — phòng "
                         + req.getRoom().getRoomNumber() + " (#" + req.getId() + ")");
 
         return convertToResponse(req);
@@ -185,12 +192,20 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceRequest req = findActive(id);
         requireStatus(req, MaintenanceStatus.PENDING);
 
+        String category = parseCategoryRequired(
+                request != null ? request.getCategory() : null);
+        String priority = parsePriorityOptional(
+                request != null ? request.getPriority() : null);
+
         MaintenanceStatus old = req.getStatus();
+        req.setCategory(category);
+        req.setPriority(priority);
         req.setStatus(MaintenanceStatus.APPROVED);
         req.setAcknowledgedAt(LocalDateTime.now());
         markRoomMaintenance(req);
         repository.save(req);
-        addTimeline(req, old, MaintenanceStatus.APPROVED, "Manager duyệt yêu cầu, chờ sửa chữa bên ngoài");
+        addTimeline(req, old, MaintenanceStatus.APPROVED,
+                "Manager duyệt yêu cầu [" + category + "], chờ sửa chữa bên ngoài");
         return convertToResponse(req);
     }
 
@@ -508,6 +523,30 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
         List<String> clean = urls.stream().filter(u -> u != null && !u.isBlank()).toList();
         return clean.isEmpty() ? null : String.join(",", clean);
+    }
+
+    private static String parseCategoryRequired(String category) {
+        if (category == null || category.isBlank()) {
+            throw new BusinessException("Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu");
+        }
+        try {
+            return MaintenanceCategory.valueOf(category.trim().toUpperCase()).name();
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(
+                    "Danh mục không hợp lệ. Chọn một trong: APPLIANCE, FURNITURE, STRUCTURAL, ELECTRICAL, PLUMBING, OTHER");
+        }
+    }
+
+    private static String parsePriorityOptional(String priority) {
+        if (priority == null || priority.isBlank()) {
+            return null;
+        }
+        try {
+            return MaintenancePriority.valueOf(priority.trim().toUpperCase()).name();
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(
+                    "Mức ưu tiên không hợp lệ. Chọn một trong: LOW, MEDIUM, HIGH, URGENT");
+        }
     }
 
     private static List<String> splitCsv(String csv) {

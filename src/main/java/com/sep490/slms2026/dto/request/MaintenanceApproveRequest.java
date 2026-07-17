@@ -11,4 +11,13 @@ public class MaintenanceApproveRequest {
      * Endpoint /approve (duyệt request mới) bỏ qua field này.
      */
     private boolean approve = true;
+
+    /**
+     * Bắt buộc khi manager duyệt request mới (PENDING → APPROVED).
+     * Phân loại phục vụ báo cáo chi phí sau sửa chữa.
+     */
+    private String category;
+
+    /** Tùy chọn — manager có thể gán mức độ ưu tiên khi duyệt */
+    private String priority;
 }

@@ -7,8 +7,8 @@ import java.util.List;
 public class MaintenanceCreateRequest {
     private Long roomId;
     private Long equipmentId;
-    private String category;
-    private String priority;
+    /** Tiêu đề sự cố — hiển thị trên list/detail cho tenant và manager */
+    private String title;
     private String description;
     private List<String> images;
 }
