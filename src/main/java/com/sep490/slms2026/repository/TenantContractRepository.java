@@ -60,6 +60,10 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
     List<TenantContract> findByPropertyIdAndStatusIn(Long propertyId, java.util.Collection<ContractStatus> statuses);
 
+    // Auto-cancel no-show: HĐ nháp/chờ có moveInDate đã quá hạn
+    List<TenantContract> findByStatusInAndMoveInDateBefore(
+            java.util.Collection<ContractStatus> statuses, LocalDate moveInDate);
+
     /** Backfill: HĐ chưa kết thúc còn thiếu assignedManager */
     @Query("""
             SELECT c FROM TenantContract c

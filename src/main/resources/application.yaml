@@ -102,3 +102,10 @@ billing:
 # Bảo trì: tự xác nhận nếu tenant không phản hồi
 maintenance:
   auto-confirm-days: 3
+
+# Vòng đời hợp đồng thuê
+contract:
+  # Cho phép khách nhận nhà sớm tối đa N ngày so với ngày vào ở dự kiến (những ngày sớm được free)
+  max-early-move-in-days: 3
+  # Quá N ngày kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show)
+  no-show-grace-days: 10

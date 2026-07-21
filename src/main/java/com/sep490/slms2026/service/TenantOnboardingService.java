@@ -67,4 +67,11 @@ public interface TenantOnboardingService {
      * {@code operationManagerId} → gán lại + notify. Idempotent (chạy lại không đụng HĐ đã có manager).
      */
     int backfillMissingAssignedManagers();
+
+    /**
+     * Tự động hủy HĐ nháp/chờ (DRAFT/PENDING) mà khách không đến nhận nhà quá hạn (no-show):
+     * {@code moveInDate + noShowGraceDays < hôm nay}. Ghi {@code terminationType = NO_SHOW},
+     * giải phóng phòng/căn + notify quản lý. Trả về số HĐ đã hủy.
+     */
+    int autoCancelNoShowContracts();
 }

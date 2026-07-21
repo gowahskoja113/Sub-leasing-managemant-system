@@ -54,6 +54,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     private static final String DEFAULT_TENANT_PASSWORD = "tenant123";
 
+    /** Số ngày tối đa cho phép nhận nhà sớm so với ngày vào ở dự kiến. */
+    @org.springframework.beans.factory.annotation.Value("${contract.max-early-move-in-days:3}")
+    private int maxEarlyMoveInDays;
+
+    /** Quá số ngày này kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show). */
+    @org.springframework.beans.factory.annotation.Value("${contract.no-show-grace-days:10}")
+    private int noShowGraceDays;
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final PropertyRepository propertyRepository;
@@ -274,6 +282,22 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Không tìm thấy số điện thoại khách thuê để gửi OTP");
         }
         otpService.verifyOrThrow(tenantPhone, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
+
+        // Nhận nhà SỚM: khách đến trước ngày vào ở dự kiến.
+        // Cho phép tối đa maxEarlyMoveInDays ngày — ghi nhận ngày vào ở thực tế = hôm nay,
+        // GIỮ NGUYÊN endDate (khách được ở free mấy ngày sớm, không dời hạn/không tính thêm tiền).
+        LocalDate today = LocalDate.now();
+        LocalDate plannedMoveIn = contract.getMoveInDate();
+        if (plannedMoveIn != null && today.isBefore(plannedMoveIn)) {
+            long daysEarly = java.time.temporal.ChronoUnit.DAYS.between(today, plannedMoveIn);
+            if (daysEarly > maxEarlyMoveInDays) {
+                throw new BusinessException("Chỉ được nhận nhà sớm tối đa " + maxEarlyMoveInDays
+                        + " ngày so với ngày vào ở dự kiến (" + plannedMoveIn
+                        + "). Vui lòng cập nhật lại ngày vào ở hoặc nhận đúng lịch.");
+            }
+            contract.setMoveInDate(today);
+            contract.setStartDate(today);
+        }
 
         boolean accountCreated = false;
         boolean rolePromoted = false;
@@ -589,6 +613,57 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             count++;
         }
         return count;
+    }
+
+    @Override
+    @Transactional
+    public int autoCancelNoShowContracts() {
+        LocalDate cutoff = LocalDate.now().minusDays(noShowGraceDays);
+        List<TenantContract> stale = tenantContractRepository.findByStatusInAndMoveInDateBefore(
+                List.of(ContractStatus.DRAFT, ContractStatus.PENDING), cutoff);
+        int count = 0;
+        for (TenantContract contract : stale) {
+            releaseContractOccupancy(contract);
+            contract.setStatus(ContractStatus.TERMINATED);
+            contract.setTerminatedAt(LocalDateTime.now());
+            contract.setTerminationType(com.sep490.slms2026.enums.ContractTerminationType.NO_SHOW);
+            contract.setTerminationReason("Tự động hủy: khách không đến nhận nhà quá " + noShowGraceDays
+                    + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
+            tenantContractRepository.save(contract);
+            notifyContractAutoCancelled(contract);
+            count++;
+            log.info("Auto-cancel HĐ #{} ({}) — no-show quá {} ngày (moveInDate={})",
+                    contract.getId(), contract.getContractCode(), noShowGraceDays, contract.getMoveInDate());
+        }
+        return count;
+    }
+
+    private void notifyContractAutoCancelled(TenantContract contract) {
+        User manager = contract.getAssignedManager();
+        if (manager == null) {
+            return;
+        }
+        String tenantName = contract.getDraftTenantName();
+        if ((tenantName == null || tenantName.isBlank()) && contract.getTenant() != null
+                && contract.getTenant().getUser() != null) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        }
+        if (tenantName == null || tenantName.isBlank()) {
+            tenantName = "khách";
+        }
+        String title = "Hợp đồng tự động hủy (no-show)";
+        String body = "HĐ " + contract.getContractCode() + " của " + tenantName
+                + " đã tự động hủy do khách không đến nhận nhà quá " + noShowGraceDays + " ngày.";
+        notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                .userId(manager.getId())
+                .title(title)
+                .content(body)
+                .type("TENANT_CONTRACT_NO_SHOW")
+                .build());
+        String token = manager.getPushToken();
+        if (token != null && !token.isBlank()) {
+            pushNotificationService.sendPushNotification(token, title, body, Map.of());
+        }
     }
 
     private TenantContract findContract(Long contractId) {
