@@ -85,13 +85,20 @@ public class TenantContract implements Serializable {
     @Column(name = "water_meter_image_url")
     private String waterMeterImageUrl;
 
-    // Ảnh hiện trạng phòng/nhà (Cloudinary URLs)
+    /** Thời điểm chụp/ghi nhận ảnh đồng hồ điện (bằng chứng). */
+    @Column(name = "electric_meter_captured_at")
+    private LocalDateTime electricMeterCapturedAt;
+
+    /** Thời điểm chụp/ghi nhận ảnh đồng hồ nước (bằng chứng). */
+    @Column(name = "water_meter_captured_at")
+    private LocalDateTime waterMeterCapturedAt;
+
+    // Ảnh hiện trạng phòng/nhà kèm thời điểm chụp
     @ElementCollection
     @CollectionTable(name = "tenant_contract_condition_photos",
             joinColumns = @JoinColumn(name = "tenant_contract_id"))
-    @Column(name = "image_url")
     @Builder.Default
-    private List<String> roomConditionUrls = new ArrayList<>();
+    private List<ContractEvidencePhoto> roomConditionPhotos = new ArrayList<>();
 
     @Column(name = "room_condition_note", columnDefinition = "TEXT")
     private String roomConditionNote;

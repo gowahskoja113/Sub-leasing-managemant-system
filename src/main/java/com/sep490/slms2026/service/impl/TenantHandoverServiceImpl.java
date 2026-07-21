@@ -1,6 +1,8 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.response.ContractEvidencePhotoResponse;
 import com.sep490.slms2026.dto.response.TenantHandoverResponse;
+import com.sep490.slms2026.entity.ContractEvidencePhoto;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -50,9 +52,19 @@ public class TenantHandoverServiceImpl implements TenantHandoverService {
     }
 
     private TenantHandoverResponse toResponse(TenantContract contract) {
-        List<String> photos = contract.getRoomConditionUrls() != null
-                ? contract.getRoomConditionUrls()
+        List<ContractEvidencePhoto> photos = contract.getRoomConditionPhotos() != null
+                ? contract.getRoomConditionPhotos()
                 : List.of();
+        List<String> urls = photos.stream()
+                .map(ContractEvidencePhoto::getImageUrl)
+                .filter(u -> u != null && !u.isBlank())
+                .toList();
+        List<ContractEvidencePhotoResponse> photoResponses = photos.stream()
+                .map(p -> ContractEvidencePhotoResponse.builder()
+                        .url(p.getImageUrl())
+                        .capturedAt(p.getCapturedAt())
+                        .build())
+                .toList();
 
         return TenantHandoverResponse.builder()
                 .contractId(contract.getId())
@@ -62,8 +74,11 @@ public class TenantHandoverServiceImpl implements TenantHandoverService {
                 .initialElectricReading(contract.getInitialElectricReading())
                 .initialWaterReading(contract.getInitialWaterReading())
                 .electricMeterImageUrl(contract.getElectricMeterImageUrl())
+                .electricMeterCapturedAt(contract.getElectricMeterCapturedAt())
                 .waterMeterImageUrl(contract.getWaterMeterImageUrl())
-                .roomConditionUrls(photos)
+                .waterMeterCapturedAt(contract.getWaterMeterCapturedAt())
+                .roomConditionUrls(urls)
+                .roomConditionPhotos(photoResponses)
                 .roomConditionNote(contract.getRoomConditionNote())
                 .equipmentSnapshot(contract.getEquipmentSnapshot())
                 .equipmentList(contractEquipmentService.mapSelectedToItems(contract))

@@ -21,7 +21,10 @@ public class TenantHandoverResponse {
     private BigDecimal initialWaterReading;
     private String electricMeterImageUrl;
     private String waterMeterImageUrl;
+    private java.time.LocalDateTime electricMeterCapturedAt;
+    private java.time.LocalDateTime waterMeterCapturedAt;
     private List<String> roomConditionUrls;
+    private List<ContractEvidencePhotoResponse> roomConditionPhotos;
     private String roomConditionNote;
     private String equipmentSnapshot;
     /** Thiết bị khách nhận bàn giao (có cấu trúc). */

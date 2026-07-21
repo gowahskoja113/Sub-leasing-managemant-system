@@ -80,7 +80,12 @@ public class TenantContractResponse {
     private BigDecimal initialWaterReading;
     private String electricMeterImageUrl;
     private String waterMeterImageUrl;
+    private java.time.LocalDateTime electricMeterCapturedAt;
+    private java.time.LocalDateTime waterMeterCapturedAt;
+    /** Legacy — danh sách URL thuần (vẫn trả để FE cũ không vỡ). */
     private List<String> roomConditionUrls;
+    /** Ảnh hiện trạng kèm thời điểm chụp (bằng chứng). */
+    private List<ContractEvidencePhotoResponse> roomConditionPhotos;
     private String roomConditionNote;
 
     // Thanh toán cọc (PayOS / chuyển khoản)

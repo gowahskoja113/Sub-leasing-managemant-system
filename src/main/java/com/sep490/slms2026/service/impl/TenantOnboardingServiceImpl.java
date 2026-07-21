@@ -1,10 +1,13 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
+import com.sep490.slms2026.dto.request.ContractEvidencePhotoRequest;
 import com.sep490.slms2026.dto.request.HouseholdMemberRequest;
 import com.sep490.slms2026.dto.request.OnboardTenantRequest;
 import com.sep490.slms2026.dto.request.TerminateContractRequest;
+import com.sep490.slms2026.dto.response.ContractEvidencePhotoResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
+import com.sep490.slms2026.entity.ContractEvidencePhoto;
 import com.sep490.slms2026.entity.HouseholdMember;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
@@ -165,9 +168,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .initialElectricReading(request.getInitialElectricReading())
                 .initialWaterReading(request.getInitialWaterReading())
                 .electricMeterImageUrl(request.getElectricMeterImageUrl())
+                .electricMeterCapturedAt(resolveCapturedAt(
+                        request.getElectricMeterImageUrl(), request.getElectricMeterCapturedAt()))
                 .waterMeterImageUrl(request.getWaterMeterImageUrl())
-                .roomConditionUrls(request.getRoomConditionUrls() != null
-                        ? new ArrayList<>(request.getRoomConditionUrls()) : new ArrayList<>())
+                .waterMeterCapturedAt(resolveCapturedAt(
+                        request.getWaterMeterImageUrl(), request.getWaterMeterCapturedAt()))
+                .roomConditionPhotos(resolveRoomConditionPhotos(
+                        request.getRoomConditionPhotos(), request.getRoomConditionUrls()))
                 .roomConditionNote(request.getRoomConditionNote())
                 .status(initStatus)
                 .priceApprovalStatus(request.isRequireHostPriceApproval() ? com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL : null)
@@ -523,13 +530,26 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getAddedEquipmentIds());
         if (request.getInitialElectricReading() != null) contract.setInitialElectricReading(request.getInitialElectricReading());
         if (request.getInitialWaterReading() != null) contract.setInitialWaterReading(request.getInitialWaterReading());
-        if (request.getElectricMeterImageUrl() != null) contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
-        if (request.getWaterMeterImageUrl() != null) contract.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
+        if (request.getElectricMeterImageUrl() != null) {
+            contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
+            contract.setElectricMeterCapturedAt(resolveCapturedAt(
+                    request.getElectricMeterImageUrl(), request.getElectricMeterCapturedAt()));
+        } else if (request.getElectricMeterCapturedAt() != null && contract.getElectricMeterImageUrl() != null) {
+            contract.setElectricMeterCapturedAt(request.getElectricMeterCapturedAt());
+        }
+        if (request.getWaterMeterImageUrl() != null) {
+            contract.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
+            contract.setWaterMeterCapturedAt(resolveCapturedAt(
+                    request.getWaterMeterImageUrl(), request.getWaterMeterCapturedAt()));
+        } else if (request.getWaterMeterCapturedAt() != null && contract.getWaterMeterImageUrl() != null) {
+            contract.setWaterMeterCapturedAt(request.getWaterMeterCapturedAt());
+        }
         if (request.getRoomConditionNote() != null) contract.setRoomConditionNote(request.getRoomConditionNote());
         if (request.getExpectedReceptionDate() != null) contract.setExpectedReceptionDate(request.getExpectedReceptionDate());
-        
-        if (request.getRoomConditionUrls() != null) {
-            contract.setRoomConditionUrls(new ArrayList<>(request.getRoomConditionUrls()));
+
+        if (request.getRoomConditionPhotos() != null || request.getRoomConditionUrls() != null) {
+            contract.setRoomConditionPhotos(resolveRoomConditionPhotos(
+                    request.getRoomConditionPhotos(), request.getRoomConditionUrls()));
         }
 
         if (request.getFullName() != null) contract.setDraftTenantName(request.getFullName());
@@ -873,8 +893,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .initialElectricReading(c.getInitialElectricReading())
                 .initialWaterReading(c.getInitialWaterReading())
                 .electricMeterImageUrl(c.getElectricMeterImageUrl())
+                .electricMeterCapturedAt(c.getElectricMeterCapturedAt())
                 .waterMeterImageUrl(c.getWaterMeterImageUrl())
-                .roomConditionUrls(c.getRoomConditionUrls())
+                .waterMeterCapturedAt(c.getWaterMeterCapturedAt())
+                .roomConditionUrls(mapRoomConditionUrls(c.getRoomConditionPhotos()))
+                .roomConditionPhotos(mapRoomConditionPhotos(c.getRoomConditionPhotos()))
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
@@ -954,5 +977,69 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return contract.getDraftContractFileUrl();
         }
         return contract.getDocumentUrl();
+    }
+
+    /**
+     * Có URL → luôn có timestamp bằng chứng: ưu tiên FE gửi, không thì = lúc BE lưu.
+     * Không có URL → null.
+     */
+    private static LocalDateTime resolveCapturedAt(String imageUrl, LocalDateTime capturedAt) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return null;
+        }
+        return capturedAt != null ? capturedAt : LocalDateTime.now();
+    }
+
+    private static List<ContractEvidencePhoto> resolveRoomConditionPhotos(
+            List<ContractEvidencePhotoRequest> photos,
+            List<String> legacyUrls) {
+        LocalDateTime now = LocalDateTime.now();
+        List<ContractEvidencePhoto> result = new ArrayList<>();
+        if (photos != null) {
+            for (ContractEvidencePhotoRequest p : photos) {
+                if (p == null || p.getUrl() == null || p.getUrl().isBlank()) {
+                    continue;
+                }
+                result.add(ContractEvidencePhoto.builder()
+                        .imageUrl(p.getUrl().trim())
+                        .capturedAt(p.getCapturedAt() != null ? p.getCapturedAt() : now)
+                        .build());
+            }
+            return result;
+        }
+        if (legacyUrls != null) {
+            for (String url : legacyUrls) {
+                if (url == null || url.isBlank()) {
+                    continue;
+                }
+                result.add(ContractEvidencePhoto.builder()
+                        .imageUrl(url.trim())
+                        .capturedAt(now)
+                        .build());
+            }
+        }
+        return result;
+    }
+
+    private static List<String> mapRoomConditionUrls(List<ContractEvidencePhoto> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return List.of();
+        }
+        return photos.stream()
+                .map(ContractEvidencePhoto::getImageUrl)
+                .filter(u -> u != null && !u.isBlank())
+                .toList();
+    }
+
+    private static List<ContractEvidencePhotoResponse> mapRoomConditionPhotos(List<ContractEvidencePhoto> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return List.of();
+        }
+        return photos.stream()
+                .map(p -> ContractEvidencePhotoResponse.builder()
+                        .url(p.getImageUrl())
+                        .capturedAt(p.getCapturedAt())
+                        .build())
+                .toList();
     }
 }

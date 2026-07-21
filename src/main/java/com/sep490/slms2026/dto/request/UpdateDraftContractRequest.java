@@ -41,7 +41,14 @@ public class UpdateDraftContractRequest {
     private BigDecimal initialWaterReading;
     private String electricMeterImageUrl;
     private String waterMeterImageUrl;
+    /** Thời điểm chụp ảnh đồng hồ điện. Null khi có URL mới → BE ghi = lúc lưu. */
+    private java.time.LocalDateTime electricMeterCapturedAt;
+    /** Thời điểm chụp ảnh đồng hồ nước. Null khi có URL mới → BE ghi = lúc lưu. */
+    private java.time.LocalDateTime waterMeterCapturedAt;
+    /** @deprecated Ưu tiên {@link #roomConditionPhotos}. */
     private List<String> roomConditionUrls;
+    /** Ảnh hiện trạng kèm thời điểm chụp — ưu tiên hơn roomConditionUrls. */
+    private List<ContractEvidencePhotoRequest> roomConditionPhotos;
     private String roomConditionNote;
     private List<HouseholdMemberRequest> householdMembers;
 

@@ -78,6 +78,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "termination_reason", "TEXT");
         addColumnIfNotExists("tenant_contracts", "termination_note", "TEXT");
         ensureCheckoutRequestsTable();
+        addColumnIfNotExists("tenant_contracts", "electric_meter_captured_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "water_meter_captured_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contract_condition_photos", "captured_at", "TIMESTAMP");
 
     }
 

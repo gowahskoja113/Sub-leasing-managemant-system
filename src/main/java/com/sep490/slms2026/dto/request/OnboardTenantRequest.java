@@ -70,9 +70,16 @@ public class OnboardTenantRequest {
     private BigDecimal initialWaterReading;
     private String electricMeterImageUrl;
     private String waterMeterImageUrl;
+    /** Thời điểm chụp ảnh đồng hồ điện (ISO-8601). Null → BE ghi = lúc lưu. */
+    private java.time.LocalDateTime electricMeterCapturedAt;
+    /** Thời điểm chụp ảnh đồng hồ nước (ISO-8601). Null → BE ghi = lúc lưu. */
+    private java.time.LocalDateTime waterMeterCapturedAt;
 
     // Ảnh hiện trạng phòng/nhà (Cloudinary URLs) + ghi chú
+    /** @deprecated Ưu tiên {@link #roomConditionPhotos} kèm capturedAt. Vẫn nhận để tương thích FE cũ. */
     private List<String> roomConditionUrls;
+    /** Ảnh hiện trạng kèm thời điểm chụp — ưu tiên hơn roomConditionUrls. */
+    private List<ContractEvidencePhotoRequest> roomConditionPhotos;
     private String roomConditionNote;
 
     // Thành viên ở cùng (chủ yếu cho thuê nguyên căn)
