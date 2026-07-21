@@ -23,6 +23,8 @@ public class PropertyActivationResponse {
     private BigDecimal adminSuggestedPrice;
     private BigDecimal hostContingencyPercent;
     private UUID operationManagerId;
+    /** Tên đầy đủ của Operation Manager — null nếu chưa gán */
+    private String operationManagerName;
     private List<ActivatedRoom> rooms;
 
     @Getter

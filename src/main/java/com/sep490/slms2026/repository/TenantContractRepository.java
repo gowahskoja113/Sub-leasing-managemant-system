@@ -60,6 +60,18 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
     List<TenantContract> findByPropertyIdAndStatusIn(Long propertyId, java.util.Collection<ContractStatus> statuses);
 
+    /** Backfill: HĐ chưa kết thúc còn thiếu assignedManager */
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.assignedManager
+            WHERE c.assignedManager IS NULL
+              AND p.operationManagerId IS NOT NULL
+              AND c.status IN :statuses
+            """)
+    List<TenantContract> findMissingAssignedManager(
+            @Param("statuses") java.util.Collection<ContractStatus> statuses);
+
     List<TenantContract> findByTenantId(UUID tenantUserId);
 
     List<TenantContract> findByStatus(ContractStatus status);

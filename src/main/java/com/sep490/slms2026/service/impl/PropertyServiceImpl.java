@@ -12,6 +12,7 @@ import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyService;
@@ -40,6 +41,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final RoomRepository roomRepository;
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
@@ -239,10 +241,20 @@ public class PropertyServiceImpl implements PropertyService {
         response.setPrice(property.getPrice());
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
+        response.setOperationManagerName(resolveOperationManagerName(property.getOperationManagerId()));
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setImageUrls(property.getImageUrls());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
         return response;
+    }
+
+    private String resolveOperationManagerName(java.util.UUID operationManagerId) {
+        if (operationManagerId == null) {
+            return null;
+        }
+        return userRepository.findById(operationManagerId)
+                .map(u -> u.getFullName())
+                .orElse(null);
     }
 }

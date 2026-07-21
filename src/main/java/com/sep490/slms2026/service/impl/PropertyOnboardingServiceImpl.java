@@ -850,6 +850,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .adminSuggestedPrice(depreciation.getSuggestedMinPrice())
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(property.getOperationManagerId())
+                .operationManagerName(resolveOperationManagerName(property.getOperationManagerId()))
                 .build();
     }
 
@@ -875,6 +876,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .propertyStatus(property.getStatus())
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(property.getOperationManagerId())
+                .operationManagerName(resolveOperationManagerName(property.getOperationManagerId()))
                 .rooms(rooms)
                 .build();
     }
@@ -911,6 +913,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .propertyStatus(property.getStatus())
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(managerId)
+                .operationManagerName(resolveOperationManagerName(managerId))
                 .rooms(activatedRooms)
                 .build();
     }
@@ -1196,10 +1199,20 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setPrice(property.getPrice());
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
+        response.setOperationManagerName(resolveOperationManagerName(property.getOperationManagerId()));
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
         return response;
+    }
+
+    private String resolveOperationManagerName(UUID operationManagerId) {
+        if (operationManagerId == null) {
+            return null;
+        }
+        return userRepository.findById(operationManagerId)
+                .map(User::getFullName)
+                .orElse(null);
     }
 
     private String extractShortAddress(Property property) {

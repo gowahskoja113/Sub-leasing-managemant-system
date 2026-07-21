@@ -566,6 +566,31 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         return count;
     }
 
+    @Override
+    @Transactional
+    public int backfillMissingAssignedManagers() {
+        List<TenantContract> contracts = tenantContractRepository.findMissingAssignedManager(
+                List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE));
+        int count = 0;
+        for (TenantContract contract : contracts) {
+            UUID managerId = contract.getProperty().getOperationManagerId();
+            if (managerId == null) {
+                continue;
+            }
+            User manager = userRepository.findById(managerId).orElse(null);
+            if (manager == null) {
+                log.warn("Backfill skip HĐ #{} — không tìm thấy user operationManagerId={}",
+                        contract.getId(), managerId);
+                continue;
+            }
+            contract.setAssignedManager(manager);
+            tenantContractRepository.save(contract);
+            notifyAssignedManager(contract);
+            count++;
+        }
+        return count;
+    }
+
     private TenantContract findContract(Long contractId) {
         return tenantContractRepository.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID: " + contractId));

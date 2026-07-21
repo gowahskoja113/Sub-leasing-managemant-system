@@ -61,4 +61,10 @@ public interface TenantOnboardingService {
      * chưa kết thúc (DRAFT/PENDING/ACTIVE) của nhà sang quản lý mới + gửi thông báo. Trả về số HĐ đã đổi.
      */
     int reassignManagerForProperty(Long propertyId, java.util.UUID newManagerId);
+
+    /**
+     * One-shot backfill: HĐ DRAFT/PENDING/ACTIVE còn {@code assignedManager = null} nhưng nhà đã có
+     * {@code operationManagerId} → gán lại + notify. Idempotent (chạy lại không đụng HĐ đã có manager).
+     */
+    int backfillMissingAssignedManagers();
 }

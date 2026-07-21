@@ -28,6 +28,8 @@ public class PropertyResponse {
     private BigDecimal price;
     private Long createdBy;
     private UUID operationManagerId;
+    /** Tên đầy đủ của Operation Manager — null nếu chưa gán */
+    private String operationManagerName;
     private boolean renovationCompleted;
     private List<String> imageUrls;
 
