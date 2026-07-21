@@ -87,7 +87,6 @@ public class OnboardTenantRequest {
 
     // Các field mới cho Hợp đồng nháp (DRAFT)
     private boolean draft;
-    private String assignedManagerId;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
 

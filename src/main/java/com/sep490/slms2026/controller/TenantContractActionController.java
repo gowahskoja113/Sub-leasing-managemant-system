@@ -189,15 +189,6 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.updateDraftContract(id, request));
     }
 
-    /** PATCH /{id}/assign-manager — Gán quản lý đón khách. */
-    @PatchMapping("/{id}/assign-manager")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<TenantContractResponse> assignManager(
-            @PathVariable Long id,
-            @Valid @RequestBody com.sep490.slms2026.dto.request.AssignManagerRequest request) {
-        return ResponseEntity.ok(tenantOnboardingService.assignManager(id, request));
-    }
-
     /** POST /{id}/resubmit-approval — chỉnh giá & gửi duyệt lại. */
     @PostMapping("/{id}/resubmit-approval")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

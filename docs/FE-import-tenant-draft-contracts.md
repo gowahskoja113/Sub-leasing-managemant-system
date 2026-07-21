@@ -105,7 +105,8 @@ Cùng shape `BulkImportResponse` như import đợt 1/2:
 | **Số tháng cọc** | Không | 1 hoặc 2 |
 | **Tiền cọc** | ★ | ≥ 0; nếu trống + có số tháng → `giá × tháng` |
 | **Ngày đón khách dự kiến** | Không | |
-| **SĐT quản lý đón khách** | Không | SĐT hoặc UUID của MANAGER/ADMIN |
+
+> Cột `SĐT quản lý đón khách` đã bỏ — quản lý phụ trách tự động = Operation Manager của nhà.
 
 ★ Cần **ít nhất một** trong: Mã HĐ inbound / Mã BĐS / Tên tòa nhà.  
 ★ Tiền cọc bắt buộc **hoặc** tính được từ Số tháng cọc.

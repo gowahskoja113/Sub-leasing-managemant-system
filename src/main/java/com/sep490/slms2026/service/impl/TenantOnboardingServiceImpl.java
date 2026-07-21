@@ -123,13 +123,17 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             }
         }
 
+        // Quản lý phụ trách nhà (Operation Manager) là người duy nhất đón khách & phụ trách
+        // toàn bộ vòng đời hợp đồng. Nhà chưa có quản lý → không cho tạo hợp đồng.
+        if (property.getOperationManagerId() == null) {
+            throw new BusinessException(
+                    "Nhà chưa có quản lý phụ trách, vui lòng gán quản lý cho nhà trước khi tạo hợp đồng");
+        }
+
         Tenant tenant = request.isDraft() ? null : getOrCreateTenant(request);
 
-        User assignedManager = null;
-        if (request.getAssignedManagerId() != null && !request.getAssignedManagerId().isBlank()) {
-            assignedManager = userRepository.findById(java.util.UUID.fromString(request.getAssignedManagerId()))
-                    .orElse(null);
-        }
+        // BE tự gán quản lý = Operation Manager của nhà, không nhận từ client.
+        User assignedManager = userRepository.findById(property.getOperationManagerId()).orElse(null);
 
         ContractStatus initStatus;
         if (request.isDraft()) {
@@ -513,15 +517,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (request.getPermanentAddress() != null) contract.setDraftTenantAddress(request.getPermanentAddress());
         if (request.getDraftContractFileUrl() != null) contract.setDraftContractFileUrl(request.getDraftContractFileUrl());
 
-        boolean notifyManager = false;
-        if (request.getAssignedManagerId() != null) {
-            User manager = userRepository.findById(request.getAssignedManagerId())
-                    .orElseThrow(() -> new BusinessException("Không tìm thấy quản lý"));
-            UUID previousManagerId = contract.getAssignedManager() != null
-                    ? contract.getAssignedManager().getId() : null;
-            contract.setAssignedManager(manager);
-            notifyManager = !manager.getId().equals(previousManagerId);
-        }
+        // Quản lý luôn = Operation Manager của nhà — không cho sửa tay qua API update.
 
         if (request.getHouseholdMembers() != null) {
             contract.getHouseholdMembers().clear();
@@ -539,37 +535,35 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         TenantContract saved = tenantContractRepository.save(contract);
-        if (notifyManager && saved.getAssignedManager() != null) {
-            notifyAssignedManager(saved);
-        }
         return toResponse(saved);
     }
 
     @Override
     @Transactional
-    public TenantContractResponse assignManager(Long contractId, com.sep490.slms2026.dto.request.AssignManagerRequest request) {
-        TenantContract contract = findContract(contractId);
-        UUID previousManagerId = contract.getAssignedManager() != null
-                ? contract.getAssignedManager().getId() : null;
-
-        if (request.getAssignedManagerId() != null) {
-            User manager = userRepository.findById(request.getAssignedManagerId())
-                    .orElseThrow(() -> new BusinessException("Không tìm thấy quản lý"));
+    public int reassignManagerForProperty(Long propertyId, UUID newManagerId) {
+        if (newManagerId == null) {
+            return 0;
+        }
+        User manager = userRepository.findById(newManagerId).orElse(null);
+        if (manager == null) {
+            return 0;
+        }
+        List<TenantContract> contracts = tenantContractRepository.findByPropertyIdAndStatusIn(
+                propertyId,
+                List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE));
+        int count = 0;
+        for (TenantContract contract : contracts) {
+            UUID previousManagerId = contract.getAssignedManager() != null
+                    ? contract.getAssignedManager().getId() : null;
+            if (manager.getId().equals(previousManagerId)) {
+                continue;
+            }
             contract.setAssignedManager(manager);
-        } else {
-            contract.setAssignedManager(null);
+            tenantContractRepository.save(contract);
+            notifyAssignedManager(contract);
+            count++;
         }
-        
-        if (request.getExpectedReceptionDate() != null) {
-            contract.setExpectedReceptionDate(request.getExpectedReceptionDate());
-        }
-
-        TenantContract saved = tenantContractRepository.save(contract);
-        if (saved.getAssignedManager() != null
-                && !saved.getAssignedManager().getId().equals(previousManagerId)) {
-            notifyAssignedManager(saved);
-        }
-        return toResponse(saved);
+        return count;
     }
 
     private TenantContract findContract(Long contractId) {

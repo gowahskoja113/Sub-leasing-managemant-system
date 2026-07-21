@@ -21,6 +21,7 @@ import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.DepreciationService;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
+import com.sep490.slms2026.service.TenantOnboardingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,6 +57,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final PropertyDeletionService propertyDeletionService;
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
+    private final TenantOnboardingService tenantOnboardingService;
 
     @Override
     @Transactional
@@ -572,6 +574,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 property.setOperationManagerId(managerId);
                 property.setManagedBy(managerId);
                 propertyRepository.save(property);
+                // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
+                tenantOnboardingService.reassignManagerForProperty(propertyId, managerId);
             }
             if (Boolean.TRUE.equals(property.getWholeHouse())) {
                 return buildWholeHouseActivationResponse(property, propertyId);
@@ -616,7 +620,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         property.setOperationManagerId(managerId);
         property.setManagedBy(managerId);
-        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+        PropertyResponse response = mapPropertyResponse(
+                propertyRepository.save(property), extractShortAddress(property));
+        // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
+        tenantOnboardingService.reassignManagerForProperty(propertyId, managerId);
+        return response;
     }
 
     @Override

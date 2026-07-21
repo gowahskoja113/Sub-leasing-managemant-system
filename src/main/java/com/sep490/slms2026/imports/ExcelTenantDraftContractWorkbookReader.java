@@ -84,7 +84,6 @@ public class ExcelTenantDraftContractWorkbookReader {
                     .depositMonths(depositMonths)
                     .deposit(deposit)
                     .expectedReceptionDate(readDate(row, headers.get("Ngày đón khách dự kiến"), formatter, evaluator))
-                    .assignedManagerRaw(readOptionalString(row, headers.get("SĐT quản lý đón khách"), formatter, evaluator))
                     .build());
         }
         return rows;

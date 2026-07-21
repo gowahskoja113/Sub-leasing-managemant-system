@@ -56,6 +56,9 @@ public interface TenantOnboardingService {
     /** Cập nhật thông tin hợp đồng nháp. */
     TenantContractResponse updateDraftContract(Long contractId, com.sep490.slms2026.dto.request.UpdateDraftContractRequest request);
 
-    /** Gán quản lý đón khách cho hợp đồng. */
-    TenantContractResponse assignManager(Long contractId, com.sep490.slms2026.dto.request.AssignManagerRequest request);
+    /**
+     * Cascade khi đổi Operation Manager của nhà: gán lại {@code assignedManager} cho mọi hợp đồng
+     * chưa kết thúc (DRAFT/PENDING/ACTIVE) của nhà sang quản lý mới + gửi thông báo. Trả về số HĐ đã đổi.
+     */
+    int reassignManagerForProperty(Long propertyId, java.util.UUID newManagerId);
 }

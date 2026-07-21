@@ -41,7 +41,4 @@ public class TenantDraftContractImportRow {
     private Integer depositMonths;
     private BigDecimal deposit;
     private LocalDate expectedReceptionDate;
-
-    /** SĐT hoặc UUID của manager đón khách */
-    private String assignedManagerRaw;
 }

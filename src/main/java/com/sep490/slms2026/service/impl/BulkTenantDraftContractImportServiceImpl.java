@@ -8,10 +8,8 @@ import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.entity.InboundContract;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
-import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
-import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.exception.BulkImportValidationException;
 import com.sep490.slms2026.imports.ExcelTenantDraftContractWorkbookReader;
@@ -21,7 +19,6 @@ import com.sep490.slms2026.repository.InboundContractRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
-import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +34,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 import static com.sep490.slms2026.imports.BulkImportSupport.IMPORT_STATUS_IMPORTED;
 import static com.sep490.slms2026.imports.BulkImportSupport.error;
@@ -54,7 +50,6 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
-    private final UserRepository userRepository;
     private final TenantOnboardingService tenantOnboardingService;
 
     @Override
@@ -234,13 +229,11 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
                     "Trùng BĐS/phòng với dòng khác trong file"));
         }
 
-        String managerId = resolveManagerId(row, errors, rowKey);
-
         if (errors.size() > before) {
             return null;
         }
 
-        return new ResolvedDraftRow(row, property, room, managerId);
+        return new ResolvedDraftRow(row, property, room);
     }
 
     private Property resolveProperty(TenantDraftContractImportRow row,
@@ -306,46 +299,6 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         return Boolean.FALSE.equals(property.getWholeHouse());
     }
 
-    private String resolveManagerId(TenantDraftContractImportRow row,
-                                    List<BulkImportErrorResponse> errors,
-                                    String rowKey) {
-        String raw = normalizeOptional(row.getAssignedManagerRaw());
-        if (raw.isBlank()) {
-            return null;
-        }
-        // UUID
-        try {
-            UUID id = UUID.fromString(raw);
-            User user = userRepository.findById(id).orElse(null);
-            if (user == null) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "SĐT quản lý đón khách",
-                        "Không tìm thấy user UUID " + raw));
-                return null;
-            }
-            if (user.getRole() != Role.ROLE_MANAGER && user.getRole() != Role.ROLE_ADMIN) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "SĐT quản lý đón khách",
-                        "User không phải MANAGER/ADMIN"));
-                return null;
-            }
-            return id.toString();
-        } catch (IllegalArgumentException ignored) {
-            // phone lookup
-        }
-
-        User byPhone = userRepository.findByPhoneNumber(raw).orElse(null);
-        if (byPhone == null) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "SĐT quản lý đón khách",
-                    "Không tìm thấy quản lý với SĐT '" + raw + "'"));
-            return null;
-        }
-        if (byPhone.getRole() != Role.ROLE_MANAGER && byPhone.getRole() != Role.ROLE_ADMIN) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "SĐT quản lý đón khách",
-                    "SĐT '" + raw + "' không thuộc MANAGER/ADMIN"));
-            return null;
-        }
-        return byPhone.getId().toString();
-    }
-
     private OnboardTenantRequest toOnboardRequest(ResolvedDraftRow r) {
         TenantDraftContractImportRow row = r.row();
         OnboardTenantRequest request = new OnboardTenantRequest();
@@ -365,7 +318,6 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         request.setDeposit(row.getDeposit());
         request.setDepositMonths(row.getDepositMonths());
         request.setExpectedReceptionDate(row.getExpectedReceptionDate());
-        request.setAssignedManagerId(r.managerId());
         request.setRequireDepositPayment(true);
         return request;
     }
@@ -378,8 +330,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
     private record ResolvedDraftRow(
             TenantDraftContractImportRow row,
             Property property,
-            Room room,
-            String managerId
+            Room room
     ) {
     }
 }

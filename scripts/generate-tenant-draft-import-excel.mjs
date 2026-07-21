@@ -55,7 +55,6 @@ const headers = [
   'Số tháng cọc',
   'Tiền cọc',
   'Ngày đón khách dự kiến',
-  'SĐT quản lý đón khách',
 ];
 
 const demoRows = [
@@ -79,7 +78,6 @@ const demoRows = [
     1,
     8_000_000,
     '2026-08-01',
-    '',
   ],
   // Nguyên căn — MTX#02
   [
@@ -101,7 +99,6 @@ const demoRows = [
     2,
     '', // BE tính = 19_000_000
     '01/09/2026',
-    '',
   ],
   // Theo phòng — MTX#07 phòng 101
   [
@@ -123,7 +120,6 @@ const demoRows = [
     1,
     4_500_000,
     '2026-08-15',
-    '',
   ],
   // Theo phòng — MTX#07 phòng 102
   [
@@ -145,7 +141,6 @@ const demoRows = [
     1,
     4_200_000,
     '2026-08-15',
-    '',
   ],
   // Theo phòng — MTX#10 phòng 101
   [
@@ -167,7 +162,6 @@ const demoRows = [
     2,
     10_000_000,
     '2026-09-01',
-    '',
   ],
 ];
 

@@ -57,6 +57,9 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     List<TenantContract> findByPropertyId(Long propertyId);
 
+    // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
+    List<TenantContract> findByPropertyIdAndStatusIn(Long propertyId, java.util.Collection<ContractStatus> statuses);
+
     List<TenantContract> findByTenantId(UUID tenantUserId);
 
     List<TenantContract> findByStatus(ContractStatus status);
@@ -66,7 +69,7 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     @Query("""
             SELECT c FROM TenantContract c 
             JOIN c.property p 
-            WHERE (p.managedBy = :managerUserId OR c.assignedManager.id = :managerUserId)
+            WHERE p.managedBy = :managerUserId
               AND (c.priceApprovalStatus IN :statuses 
                    OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
             """)

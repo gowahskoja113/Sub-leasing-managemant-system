@@ -94,7 +94,8 @@ Thứ tự cột hiện tại trong file mẫu:
 | 16 | `Số tháng cọc` |
 | 17 | `Tiền cọc` |
 | 18 | `Ngày đón khách dự kiến` |
-| 19 | `SĐT quản lý đón khách` |
+
+> Cột `SĐT quản lý đón khách` đã bị bỏ. Quản lý phụ trách hợp đồng luôn tự động = **Operation Manager của nhà** (`Property.operationManagerId`), không nhập trong Excel nữa.
 
 ### Các cột bắt buộc tối thiểu
 
@@ -200,15 +201,11 @@ Nếu import cho khách đã tồn tại theo số điện thoại:
 - không được trùng khoảng thời gian với hợp đồng hiệu lực khác
 - trong cùng một file, không được import trùng cùng một BĐS/phòng
 
-### 6.5. Validate manager
+### 6.5. Quản lý phụ trách
 
-Cột `SĐT quản lý đón khách` có thể là:
-- số điện thoại
-- UUID user
-
-Nếu có giá trị thì user đó phải có role:
-- `MANAGER`
-- hoặc `ADMIN`
+Không còn nhập quản lý trong file. BE tự gán quản lý phụ trách = **Operation Manager của nhà**
+(`Property.operationManagerId`). Vì nhà chỉ `ACTIVE` sau khi đã gán Operation Manager, nên mọi
+BĐS import được (đã `ACTIVE`) đều chắc chắn có quản lý.
 
 ---
 

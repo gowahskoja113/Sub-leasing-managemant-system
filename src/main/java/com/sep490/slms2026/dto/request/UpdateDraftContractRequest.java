@@ -6,7 +6,6 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 
 @Getter
 @Setter
@@ -45,8 +44,7 @@ public class UpdateDraftContractRequest {
     private List<String> roomConditionUrls;
     private String roomConditionNote;
     private List<HouseholdMemberRequest> householdMembers;
-    
-    private UUID assignedManagerId;
+
     private LocalDate expectedReceptionDate;
     private String draftContractFileUrl;
 

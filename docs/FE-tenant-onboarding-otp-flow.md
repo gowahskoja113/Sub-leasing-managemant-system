@@ -98,7 +98,6 @@ Content-Type: application/json
   "rentAmount": 5000000,
   "deposit": 5000000,
   "depositMonths": 1,
-  "assignedManagerId": "uuid-manager",
   "selectedEquipmentIds": [12, 15],
   "requireDepositPayment": true
 }
@@ -106,6 +105,7 @@ Content-Type: application/json
 
 **Lưu ý:**
 - `draft: true` → `status = DRAFT`, **chưa** tạo user tenant
+- Không gửi `assignedManagerId` nữa — BE tự gán quản lý = Operation Manager của nhà. Nhà chưa có quản lý → BE trả lỗi.
 - `moveInDate` khi **không** draft phải = hôm nay; draft có thể set ngày tương lai nhưng khi thu cọc phải ≥ hôm nay
 - Thuê nguyên căn: `POST /api/v1/properties/{propertyId}/tenant-contract` (không có `roomId`)
 
