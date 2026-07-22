@@ -1,0 +1,11 @@
+.git
+.idea
+.vscode
+target
+uploads
+.env
+*.md
+src/test
+.mvn
+mvnw
+mvnw.cmd

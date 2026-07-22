@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  # Render gán PORT; local mặc định 8080
+  port: ${PORT:8080}
 
 spring:
   datasource:
