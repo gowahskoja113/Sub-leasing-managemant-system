@@ -15,7 +15,9 @@ public class CorsProperties {
 
     private List<String> allowedOriginPatterns = List.of(
             "http://localhost:*",
-            "http://127.0.0.1:*"
+            "http://127.0.0.1:*",
+            "https://*.vercel.app",
+            "https://sep-frontend-prod.vercel.app"
     );
 
     private List<String> allowedMethods = List.of(

@@ -36,6 +36,9 @@ app:
     allowed-origin-patterns:
       - http://localhost:*
       - http://127.0.0.1:*
+      # FE Vercel (production + preview/dev)
+      - https://*.vercel.app
+      - https://sep-frontend-prod.vercel.app
     allowed-methods:
       - GET
       - POST
