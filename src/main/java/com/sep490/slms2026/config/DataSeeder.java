@@ -1,12 +1,16 @@
 package com.sep490.slms2026.config;
 
 import com.sep490.slms2026.entity.Admin;
+import com.sep490.slms2026.entity.EquipmentCatalog;
 import com.sep490.slms2026.entity.OperationManagement;
 import com.sep490.slms2026.entity.Owner;
+import com.sep490.slms2026.entity.RenovationCategory;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.repository.EquipmentCatalogRepository;
+import com.sep490.slms2026.repository.RenovationCategoryRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +29,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Seeder tối giản khi start: khu vực (zone) + vài tài khoản admin / owner / manager / user.
- * <p>Mật khẩu mặc định: {@code 123456}.</p>
- * <p>Tài khoản: {@code admin01..02}, {@code owner}, {@code manager01..02}, {@code user}.</p>
+ * Seeder khi start: zone, catalog thiết bị, danh mục cải tạo, tài khoản demo.
+ * <p>Catalog / renovation category khớp sheet {@code 0. Danh_Muc_Tham_Khao} trong
+ * {@code docs/SLMS2026_import_matrix_*.xlsx} để import Excel không lỗi thiếu danh mục.</p>
+ * <p>Mật khẩu mặc định: {@code 123456}.
+ * Tài khoản: {@code admin01..02}, {@code owner}, {@code manager01..02}, {@code user}.</p>
  */
 @Slf4j
 @Component
@@ -41,26 +47,56 @@ public class DataSeeder implements ApplicationRunner {
 
     private static final Map<String, String[]> CITY_DISTRICTS = new LinkedHashMap<>();
 
+    /** Tên catalog khớp Excel (sheet Thiet_Bi_* / Danh_Muc_Tham_Khao). */
+    private static final Map<String, String> EQUIPMENT_CATALOG = new LinkedHashMap<>();
+
+    /** Mã danh mục cải tạo khớp Excel (sheet Hop_Dong_Cai_Tao). */
+    private static final Map<String, String[]> RENOVATION_CATEGORIES = new LinkedHashMap<>();
+
     static {
         CITY_DISTRICTS.put("Hà Nội", new String[]{"Cầu Giấy"});
         CITY_DISTRICTS.put("TP. Hồ Chí Minh", new String[]{
                 "Phú Nhuận", "Quận 3", "Bình Thạnh", "Gò Vấp", "Quận 1"
         });
+
+        EQUIPMENT_CATALOG.put("Điều hòa", "Máy lạnh / điều hòa không khí");
+        EQUIPMENT_CATALOG.put("Tủ lạnh", "Tủ lạnh các loại");
+        EQUIPMENT_CATALOG.put("Máy giặt", "Máy giặt cửa trước / cửa trên");
+        EQUIPMENT_CATALOG.put("Giường", "Giường ngủ các loại");
+        EQUIPMENT_CATALOG.put("Nóng lạnh", "Máy nước nóng");
+        EQUIPMENT_CATALOG.put("Quạt", "Quạt điện / quạt trần");
+
+        // code -> [name, description]
+        RENOVATION_CATEGORIES.put("PAINTING", new String[]{"Sơn sửa", "Sơn tường, trần nhà"});
+        RENOVATION_CATEGORIES.put("PLUMBING", new String[]{"Điện nước", "Sửa chữa hệ thống điện nước"});
+        RENOVATION_CATEGORIES.put("FLOORING", new String[]{"Sàn nhà", "Lát sàn, sửa sàn"});
+        RENOVATION_CATEGORIES.put("FURNITURE", new String[]{"Nội thất", "Mua sắm nội thất mới"});
+        RENOVATION_CATEGORIES.put("EQUIPMENT", new String[]{"Thiết bị mua thêm", "Mua thêm thiết bị trong đợt cải tạo"});
+        RENOVATION_CATEGORIES.put("STRUCTURAL", new String[]{"Kết cấu", "Thay đổi kết cấu, vách ngăn"});
+        RENOVATION_CATEGORIES.put("OTHER", new String[]{"Khác", "Hạng mục cải tạo khác"});
     }
 
     private final ZoneRepository zoneRepository;
     private final UserRepository userRepository;
+    private final EquipmentCatalogRepository equipmentCatalogRepository;
+    private final RenovationCategoryRepository renovationCategoryRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
         seedZones();
+        seedEquipmentCatalog();
+        seedRenovationCategories();
         List<Zone> districts = loadDistrictZones();
         seedAccounts(districts);
-        log.info("DataSeeder: xong. Zone + admin01..02 / owner / manager01..02 / user. MK: {}", DEFAULT_PASSWORD);
+        log.info("DataSeeder: xong. Zone + catalog TB + DM cải tạo + admin01..02 / owner / manager01..02 / user. MK: {}",
+                DEFAULT_PASSWORD);
     }
 
+    // ------------------------------------------------------------------
+    // ZONE
+    // ------------------------------------------------------------------
     private void seedZones() {
         for (Map.Entry<String, String[]> entry : CITY_DISTRICTS.entrySet()) {
             Zone city = ensureRootZone(entry.getKey());
@@ -99,6 +135,44 @@ public class DataSeeder implements ApplicationRunner {
                 .toList();
     }
 
+    // ------------------------------------------------------------------
+    // EQUIPMENT CATALOG + RENOVATION CATEGORY (lookup DB — bắt buộc khi import Excel)
+    // ------------------------------------------------------------------
+    private void seedEquipmentCatalog() {
+        for (Map.Entry<String, String> entry : EQUIPMENT_CATALOG.entrySet()) {
+            String name = entry.getKey();
+            boolean exists = equipmentCatalogRepository.findAll().stream()
+                    .anyMatch(c -> name.equalsIgnoreCase(c.getName()));
+            if (exists) {
+                continue;
+            }
+            equipmentCatalogRepository.save(EquipmentCatalog.builder()
+                    .name(name)
+                    .description(entry.getValue())
+                    .active(true)
+                    .build());
+        }
+    }
+
+    private void seedRenovationCategories() {
+        for (Map.Entry<String, String[]> entry : RENOVATION_CATEGORIES.entrySet()) {
+            String code = entry.getKey();
+            if (renovationCategoryRepository.findByCode(code).isPresent()) {
+                continue;
+            }
+            String[] meta = entry.getValue();
+            renovationCategoryRepository.save(RenovationCategory.builder()
+                    .code(code)
+                    .name(meta[0])
+                    .description(meta[1])
+                    .active(true)
+                    .build());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // ACCOUNTS
+    // ------------------------------------------------------------------
     private void seedAccounts(List<Zone> districts) {
         seedAdmins();
         seedOwner();
