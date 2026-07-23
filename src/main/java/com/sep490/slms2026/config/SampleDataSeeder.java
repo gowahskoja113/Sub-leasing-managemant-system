@@ -38,13 +38,12 @@ import java.util.stream.Collectors;
  * <p>Tài khoản đăng nhập: admin01..admin02, owner01..owner06, manager01..manager05,
  * tenant01..tenant22, user01..user05.</p>
  *
- * <p>Chạy sau {@link MasterDataSeeder} (@Order 1) và {@link ZoneDataSeeder} (@Order 2)
- * để chắc chắn EquipmentCatalog và Zone đã có sẵn. Toàn bộ idempotent: chạy lại nhiều lần
- * không tạo trùng.</p>
+ * <p>Chạy sau {@link MasterDataSeeder} (@Order 1) để chắc chắn EquipmentCatalog, Zone
+ * và tài khoản base đã có sẵn. Toàn bộ idempotent: chạy lại nhiều lần không tạo trùng.</p>
  */
 @Slf4j
 @Component
-@Order(3)
+@Order(2)
 @RequiredArgsConstructor
 public class SampleDataSeeder implements ApplicationRunner {
 
@@ -68,8 +67,8 @@ public class SampleDataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        // Cờ chống chạy trùng: nếu đã có manager01 thì coi như đã seed -> bỏ qua.
-        if (userRepository.existsByUsername("manager01")) {
+        // Cờ chống chạy trùng: tenant22 chỉ do seeder này tạo (Master chỉ seed *01..*02).
+        if (userRepository.existsByUsername("tenant22")) {
             log.info("SampleDataSeeder: dữ liệu mẫu đã tồn tại, bỏ qua.");
             return;
         }
@@ -79,7 +78,7 @@ public class SampleDataSeeder implements ApplicationRunner {
 
         List<Zone> districts = loadDistrictZones();
         if (districts.isEmpty()) {
-            log.warn("SampleDataSeeder: chưa có Zone cấp quận — ZoneDataSeeder cần chạy trước. Bỏ qua seed BĐS.");
+            log.warn("SampleDataSeeder: chưa có Zone cấp quận — MasterDataSeeder cần chạy trước. Bỏ qua seed BĐS.");
         }
 
         seedAdmins(2);
