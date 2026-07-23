@@ -61,6 +61,11 @@ public class MaintenanceRequestResponse {
     private List<String> rejectImages;
     /** Gộp before + after + reject (tương thích FE cũ). */
     private List<String> images;
+    /**
+     * Lịch sử ảnh đầy đủ mọi vòng (append-only), sắp xếp theo createdAt tăng dần.
+     * Field cũ before/after/rejectImages vẫn là snapshot vòng hiện tại.
+     */
+    private List<MaintenancePhotoHistoryResponse> photoHistory;
 
     private LocalDateTime acknowledgedAt;
     private LocalDateTime tenantConfirmedAt;
