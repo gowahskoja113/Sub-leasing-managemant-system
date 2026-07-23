@@ -2,11 +2,13 @@ package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
+import com.sep490.slms2026.dto.response.MaintenancePhotoHistoryResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
 import com.sep490.slms2026.dto.response.MaintenanceTimelineResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.MaintenanceCategory;
+import com.sep490.slms2026.enums.MaintenancePhotoType;
 import com.sep490.slms2026.enums.MaintenancePriority;
 import com.sep490.slms2026.enums.MaintenanceStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -43,6 +45,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private final MaintenanceRequestRepository repository;
     private final MaintenanceTimelineRepository timelineRepository;
+    private final MaintenanceImageRepository maintenanceImageRepository;
     private final PropertyImageStorage imageStorage;
     private final RoomRepository roomRepository;
     private final EquipmentRepository equipmentRepository;
@@ -133,6 +136,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .build();
 
         req = repository.save(req);
+        appendPhotoHistory(req, MaintenancePhotoType.BEFORE, request.getImages());
         addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
@@ -217,6 +221,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         if (request.getAfterImages() != null && !request.getAfterImages().isEmpty()) {
             appendCsv(req, true, request.getAfterImages());
+            appendPhotoHistory(req, MaintenancePhotoType.AFTER, request.getAfterImages());
         }
         if (isBlank(req.getAfterImageUrls())) {
             throw new BusinessException("Bắt buộc phải có ảnh sau sửa chữa (AFTER) trước khi hoàn tất");
@@ -226,8 +231,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setResolutionNote(request.getResolutionNote());
         req.setStatus(MaintenanceStatus.WAITING_TENANT_CONFIRM);
         req.setDoneAt(LocalDateTime.now());
-        req.setRejectReason(null);
-        req.setRejectImageUrls(null);
+        // Giữ nguyên rejectReason / rejectImageUrls vòng trước — lịch sử đầy đủ nằm ở photoHistory
         repository.save(req);
 
         String note = request.getResolutionNote() != null && !request.getResolutionNote().isBlank()
@@ -277,6 +281,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setRejectReason(request.getReason().trim());
         if (!urls.isEmpty()) {
             req.setRejectImageUrls(joinUrls(urls));
+            appendPhotoHistory(req, MaintenancePhotoType.REJECT, urls);
         }
         req.setReopenCount(req.getReopenCount() == null ? 1 : req.getReopenCount() + 1);
         repository.save(req);
@@ -298,7 +303,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         MaintenanceStatus old = req.getStatus();
         if (request != null && request.isApprove()) {
-            // Quay lại bước chờ sửa (APPROVED); xoá ảnh AFTER cũ để bắt buộc chụp lại sau khi sửa
+            // Quay lại APPROVED. Không xoá ảnh AFTER khỏi lịch sử (maintenance_images).
+            // Chỉ reset snapshot vòng hiện tại để bắt buộc chụp AFTER mới khi complete lại.
+            ensurePhotoHistoryFromCsv(req, MaintenancePhotoType.AFTER, req.getAfterImageUrls());
             req.setStatus(MaintenanceStatus.APPROVED);
             req.setAfterImageUrls(null);
             req.setDoneAt(null);
@@ -345,11 +352,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         if ("BEFORE".equalsIgnoreCase(type)) {
             appendCsv(req, false, newUrls);
+            appendPhotoHistory(req, MaintenancePhotoType.BEFORE, newUrls);
         } else if ("AFTER".equalsIgnoreCase(type)) {
             appendCsv(req, true, newUrls);
+            appendPhotoHistory(req, MaintenancePhotoType.AFTER, newUrls);
         } else if ("REJECT".equalsIgnoreCase(type)) {
             String existing = req.getRejectImageUrls();
             req.setRejectImageUrls(isBlank(existing) ? joinUrls(newUrls) : existing + "," + joinUrls(newUrls));
+            appendPhotoHistory(req, MaintenancePhotoType.REJECT, newUrls);
         } else {
             throw new BusinessException("Type must be BEFORE, AFTER hoặc REJECT");
         }
@@ -517,6 +527,45 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
+    /** Ghi log ảnh append-only vào maintenance_images (không bao giờ xoá/ghi đè). */
+    private void appendPhotoHistory(MaintenanceRequest req, MaintenancePhotoType type, List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (String url : urls) {
+            if (url == null || url.isBlank()) {
+                continue;
+            }
+            String trimmed = url.trim();
+            if (maintenanceImageRepository.existsByMaintenanceRequestIdAndImageUrlAndType(
+                    req.getId(), trimmed, type)) {
+                continue;
+            }
+            maintenanceImageRepository.save(MaintenanceImage.builder()
+                    .maintenanceRequest(req)
+                    .imageUrl(trimmed)
+                    .type(type)
+                    .createdAt(now)
+                    .build());
+        }
+    }
+
+    private void ensurePhotoHistoryFromCsv(MaintenanceRequest req, MaintenancePhotoType type, String csv) {
+        appendPhotoHistory(req, type, splitCsv(csv));
+    }
+
+    private List<MaintenancePhotoHistoryResponse> loadPhotoHistory(Long requestId) {
+        return maintenanceImageRepository.findByMaintenanceRequestIdOrderByCreatedAtAsc(requestId)
+                .stream()
+                .map(img -> MaintenancePhotoHistoryResponse.builder()
+                        .type(img.getType())
+                        .url(img.getImageUrl())
+                        .createdAt(img.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
     private static String joinUrls(List<String> urls) {
         if (urls == null || urls.isEmpty()) {
             return null;
@@ -621,6 +670,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         res.setBeforeImages(before);
         res.setAfterImages(after);
         res.setRejectImages(reject);
+        res.setPhotoHistory(loadPhotoHistory(req.getId()));
 
         List<String> all = new ArrayList<>();
         all.addAll(before);

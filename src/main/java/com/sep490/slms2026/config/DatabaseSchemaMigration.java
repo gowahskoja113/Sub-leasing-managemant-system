@@ -66,6 +66,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         backfillEquipmentQrCodes();
         ensureMaintenanceTables();
         ensureMaintenanceSimplifiedFlowColumns();
+        ensureMaintenanceImagesPhotoHistory();
         migrateMaintenanceStatusesToSimplifiedFlow();
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
@@ -221,6 +222,66 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 changed_by_name VARCHAR(255),
                 changed_at TIMESTAMP NOT NULL DEFAULT NOW()
                 """);
+        createTableIfNotExists(
+                "maintenance_images",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                maintenance_request_id BIGINT NOT NULL REFERENCES maintenance_requests(id) ON DELETE CASCADE,
+                image_url VARCHAR(1024) NOT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'BEFORE',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+    }
+
+    /**
+     * Bổ sung type/created_at cho maintenance_images và backfill từ 3 cột TEXT CSV
+     * (before/after/reject_image_urls) — log ảnh append-only, không mất khi làm lại.
+     */
+    private void ensureMaintenanceImagesPhotoHistory() {
+        addColumnIfNotExists("maintenance_images", "type", "VARCHAR(20) NOT NULL DEFAULT 'BEFORE'");
+        addColumnIfNotExists("maintenance_images", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+        try {
+            jdbcTemplate.execute("ALTER TABLE maintenance_images ALTER COLUMN type DROP DEFAULT");
+        } catch (Exception e) {
+            log.warn("Could not drop default on maintenance_images.type: {}", e.getMessage());
+        }
+        backfillMaintenanceImagesFromCsv();
+    }
+
+    private void backfillMaintenanceImagesFromCsv() {
+        try {
+            backfillMaintenanceImagesOfType(
+                    "before_image_urls", "BEFORE", "COALESCE(created_at, NOW())");
+            backfillMaintenanceImagesOfType(
+                    "after_image_urls", "AFTER", "COALESCE(done_at, updated_at, created_at, NOW())");
+            backfillMaintenanceImagesOfType(
+                    "reject_image_urls", "REJECT", "COALESCE(updated_at, created_at, NOW())");
+        } catch (Exception e) {
+            log.warn("Could not backfill maintenance_images from CSV columns: {}", e.getMessage());
+        }
+    }
+
+    private void backfillMaintenanceImagesOfType(String csvColumn, String type, String createdAtExpr) {
+        int inserted = jdbcTemplate.update(
+                """
+                INSERT INTO maintenance_images (maintenance_request_id, image_url, type, created_at)
+                SELECT mr.id, trim(u.url), ?, %s
+                FROM maintenance_requests mr
+                CROSS JOIN LATERAL unnest(string_to_array(mr.%s, ',')) AS u(url)
+                WHERE mr.%s IS NOT NULL
+                  AND trim(u.url) <> ''
+                  AND NOT EXISTS (
+                    SELECT 1 FROM maintenance_images mi
+                    WHERE mi.maintenance_request_id = mr.id
+                      AND mi.image_url = trim(u.url)
+                      AND mi.type = ?
+                  )
+                """.formatted(createdAtExpr, csvColumn, csvColumn),
+                type,
+                type);
+        if (inserted > 0) {
+            log.info("Backfilled {} {} rows into maintenance_images from {}", inserted, type, csvColumn);
+        }
     }
 
     private void backfillEquipmentQrCodes() {
