@@ -80,6 +80,8 @@ public class TenantDashboardService {
             daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), activeContract.getEndDate());
         }
 
+        String contractType = room != null ? "ROOM" : "WHOLE_HOUSE";
+
         TenantDashboardResponse.ContractSummary contractSummary = TenantDashboardResponse.ContractSummary.builder()
                 .id(activeContract.getId())
                 .code(activeContract.getContractCode())
@@ -87,6 +89,7 @@ public class TenantDashboardService {
                 .endDate(activeContract.getEndDate())
                 .daysLeft(daysLeft)
                 .status(activeContract.getStatus().name())
+                .type(contractType)
                 .build();
 
         String managerName = null;

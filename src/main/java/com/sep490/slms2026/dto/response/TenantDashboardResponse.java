@@ -32,6 +32,8 @@ public class TenantDashboardResponse {
         private LocalDate endDate;
         private Long daysLeft;
         private String status;
+        /** ROOM = thuê theo phòng; WHOLE_HOUSE = thuê nguyên căn (`room_id` null trên HĐ). */
+        private String type;
     }
 
     @Data

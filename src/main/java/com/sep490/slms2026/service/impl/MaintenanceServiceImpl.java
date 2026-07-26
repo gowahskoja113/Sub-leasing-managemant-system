@@ -106,8 +106,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         Tenant tenant = tenantRepository.findById(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant"));
 
-        Room room = roomRepository.findById(request.getRoomId())
-                .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
+        TenantContract activeContract = tenantContractRepository.findByTenantId(user.getId()).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng đang hiệu lực"));
+
+        Property property = activeContract.getProperty();
+        if (property == null) {
+            throw new BusinessException("Hợp đồng không gắn tòa nhà/căn hộ");
+        }
+
+        Room room = resolveRoomForCreate(request.getRoomId(), activeContract);
 
         String title = request.getTitle() != null ? request.getTitle().trim() : "";
         if (title.isBlank()) {
@@ -121,12 +130,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
         String beforeUrls = joinUrls(request.getImages());
         if (beforeUrls == null) {
-            throw new BusinessException("Bắt buộc đính kèm ảnh hiện trạng thiết bị (BEFORE)");
+            throw new BusinessException("Bắt buộc đính kèm ảnh hiện trạng (BEFORE)");
         }
 
         MaintenanceRequest req = MaintenanceRequest.builder()
                 .tenant(tenant)
-                .property(room.getProperty())
+                .property(property)
                 .room(room)
                 .title(title)
                 .description(request.getDescription().trim())
@@ -138,12 +147,43 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req = repository.save(req);
         appendPhotoHistory(req, MaintenancePhotoType.BEFORE, request.getImages());
         addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
+
+        String locationLabel = room != null
+                ? "phòng " + room.getRoomNumber()
+                : "nhà " + property.getPropertyName();
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
-                "Khách thuê " + user.getFullName() + ": \"" + title + "\" — phòng "
-                        + req.getRoom().getRoomNumber() + " (#" + req.getId() + ")");
+                "Khách thuê " + user.getFullName() + ": \"" + title + "\" — "
+                        + locationLabel + " (#" + req.getId() + ")");
 
         return convertToResponse(req);
+    }
+
+    /**
+     * ROOM lease: dùng phòng trên HĐ (roomId request phải khớp nếu có).
+     * WHOLE_HOUSE: roomId optional — null = ticket cấp căn; nếu gửi roomId thì phải thuộc đúng property.
+     */
+    private Room resolveRoomForCreate(Long requestedRoomId, TenantContract activeContract) {
+        Room contractRoom = activeContract.getRoom();
+        Property property = activeContract.getProperty();
+
+        if (contractRoom != null) {
+            if (requestedRoomId != null && !requestedRoomId.equals(contractRoom.getId())) {
+                throw new BusinessException("Phòng không khớp hợp đồng đang hiệu lực");
+            }
+            return contractRoom;
+        }
+
+        // WHOLE_HOUSE
+        if (requestedRoomId == null) {
+            return null;
+        }
+        Room room = roomRepository.findById(requestedRoomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
+        if (room.getProperty() == null || !room.getProperty().getId().equals(property.getId())) {
+            throw new BusinessException("Phòng không thuộc căn nhà đang thuê");
+        }
+        return room;
     }
 
     @Override
@@ -635,6 +675,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getRoom() != null) {
             res.setRoomId(req.getRoom().getId());
             res.setRoomName(req.getRoom().getRoomNumber());
+        } else if (req.getProperty() != null) {
+            // Nguyên căn: không có room — dùng tên căn để FE list/detail hiển thị
+            res.setRoomId(null);
+            res.setRoomName(req.getProperty().getPropertyName());
         }
 
         if (req.getProperty() != null) {

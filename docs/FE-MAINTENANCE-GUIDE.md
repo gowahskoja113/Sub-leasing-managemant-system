@@ -71,7 +71,7 @@ stateDiagram-v2
 
 | Field | Bắt buộc | Ghi chú |
 |-------|:--------:|---------|
-| `roomId` | ✅ | ID phòng tenant đang thuê |
+| `roomId` | Theo loại HĐ | HĐ `ROOM`: ID phòng (hoặc bỏ trống — BE lấy từ HĐ). HĐ `WHOLE_HOUSE`: **optional / null**. Xem [`FE-maintenance-wholehouse-handoff.md`](./FE-maintenance-wholehouse-handoff.md). |
 | `title` | ✅ | Tiêu đề sự cố, tối đa **200 ký tự** — hiển thị trên list |
 | `description` | ✅ | Mô tả chi tiết hiện trạng |
 | `images` | ✅ | Mảng URL ảnh BEFORE (Cloudinary). **Ít nhất 1 ảnh** |
@@ -234,11 +234,14 @@ GET /api/v1/tenant/me/dashboard
 Authorization: Bearer {tenantToken}
 ```
 
-Dùng `response.room.id` làm `roomId` khi POST maintenance.
+Dùng `response.room.id` làm `roomId` khi POST maintenance (HĐ theo phòng).
+
+Với HĐ nguyên căn: `response.contract.type === "WHOLE_HOUSE"` và `room.id === null` — **không gửi** `roomId` (BE lấy property từ HĐ ACTIVE). Chi tiết: [`FE-maintenance-wholehouse-handoff.md`](./FE-maintenance-wholehouse-handoff.md).
 
 ```json
 {
   "room": { "id": 12, "roomNumber": "P01", "floor": 2 },
+  "contract": { "id": 101, "status": "ACTIVE", "type": "ROOM" },
   "building": { "propertyId": 26, "name": "Nhà Lê Lợi 01", "address": "..." },
   "summary": { "maintenancePending": 1, "maintenanceInProgress": 0 }
 }
