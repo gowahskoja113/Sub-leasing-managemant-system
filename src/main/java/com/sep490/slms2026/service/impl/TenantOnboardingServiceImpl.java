@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.constant.OtpDeliveryOverride;
 import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
 import com.sep490.slms2026.dto.request.ContractEvidencePhotoRequest;
 import com.sep490.slms2026.dto.request.HouseholdMemberRequest;
@@ -54,14 +55,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Slf4j
 public class TenantOnboardingServiceImpl implements TenantOnboardingService {
-
-    private static final String DEFAULT_TENANT_PASSWORD = "tenant123";
-
-    /**
-     * DEV/budget: luôn gửi & verify OTP tới số này thay vì SĐT trên hợp đồng.
-     * formatVietnamesePhone sẽ chuẩn hóa thành +84352393203.
-     */
-    private static final String OTP_OVERRIDE_PHONE = "0352393203";
 
     /** Số ngày tối đa cho phép nhận nhà sớm so với ngày vào ở dự kiến. */
     @org.springframework.beans.factory.annotation.Value("${contract.max-early-move-in-days:3}")
@@ -291,7 +284,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
-        otpService.verifyOrThrow(OTP_OVERRIDE_PHONE, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
+        otpService.verifyOrThrow(OtpDeliveryOverride.PHONE, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
 
         // Nhận nhà SỚM: khách đến trước ngày vào ở dự kiến.
         // Cho phép tối đa maxEarlyMoveInDays ngày — ghi nhận ngày vào ở thực tế = hôm nay,
@@ -351,8 +344,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Chưa thanh toán cọc, không thể gửi OTP xác nhận");
         }
         // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
-        log.info("Gửi OTP xác nhận HĐ {} tới số override {}", contractId, OTP_OVERRIDE_PHONE);
-        otpService.sendOtp(OTP_OVERRIDE_PHONE, OtpPurpose.CONTRACT_CONFIRM, contractId);
+        log.info("Gửi OTP xác nhận HĐ {} tới số override {}", contractId, OtpDeliveryOverride.PHONE);
+        otpService.sendOtp(OtpDeliveryOverride.PHONE, OtpPurpose.CONTRACT_CONFIRM, contractId);
     }
 
     @Override
@@ -820,11 +813,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return new TenantCreationResult(profile, false, promoted);
         }
 
-        // Chưa có → tạo mới
+        // Chưa có → tạo mới. Không phát mật khẩu mặc định:
+        // mật khẩu random + firstLogin=true → khách phải OTP kích hoạt rồi tự đặt MK.
         String username = phone;
         User user = new User();
         user.setUsername(username);
-        user.setPassword(passwordEncoder.encode(DEFAULT_TENANT_PASSWORD));
+        user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
         user.setRole(Role.ROLE_TENANT);
         user.setStatus(UserStatus.ACTIVE);
         user.setFullName(fullName);

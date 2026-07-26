@@ -4,16 +4,16 @@ import com.sep490.slms2026.dto.request.AuthRequest;
 import com.sep490.slms2026.dto.request.ChangePasswordRequest;
 import com.sep490.slms2026.dto.response.AuthMeResponse;
 import com.sep490.slms2026.dto.response.AuthResponse;
-import com.sep490.slms2026.entity.Admin;
-import com.sep490.slms2026.entity.OperationManagement;
 import com.sep490.slms2026.entity.Owner;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.security.CustomUserDetailsService;
 import com.sep490.slms2026.security.JwtUtil;
 import com.sep490.slms2026.service.AuthService;
+import com.sep490.slms2026.util.PhoneUtils;
 import lombok.AllArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,8 +21,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
+import org.springframework.util.StringUtils;
 
 @Service
 @AllArgsConstructor
@@ -78,6 +77,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(AuthRequest request) {
+        rejectUnactivatedTenantLogin(request.getUsername());
+
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
@@ -90,6 +91,31 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
 
         return new AuthResponse(jwt, userDetails.getUsername(), roleName, user.isFirstLogin());
+    }
+
+    /**
+     * Tenant mới chưa qua OTP + đặt mật khẩu không được login bằng password
+     * (mật khẩu lúc tạo account là random, không phát cho manager/khách).
+     */
+    private void rejectUnactivatedTenantLogin(String usernameOrPhone) {
+        if (!StringUtils.hasText(usernameOrPhone)) {
+            return;
+        }
+        User user = userRepository.findByUsername(usernameOrPhone.trim()).orElse(null);
+        if (user == null) {
+            try {
+                String local = PhoneUtils.normalizeLocal(usernameOrPhone);
+                user = userRepository.findByPhoneNumber(local)
+                        .or(() -> userRepository.findByPhoneNumber(PhoneUtils.toInternational(local)))
+                        .orElse(null);
+            } catch (BusinessException ignored) {
+                return;
+            }
+        }
+        if (user != null && user.getRole() == Role.ROLE_TENANT && user.isFirstLogin()) {
+            throw new BusinessException(
+                    "Tài khoản chưa kích hoạt. Vui lòng dùng chức năng Kích hoạt tài khoản (OTP + tạo mật khẩu).");
+        }
     }
 
     @Override
@@ -117,7 +143,7 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
-            throw new com.sep490.slms2026.exception.BusinessException("Mật khẩu cũ không đúng");
+            throw new BusinessException("Mật khẩu cũ không đúng");
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));

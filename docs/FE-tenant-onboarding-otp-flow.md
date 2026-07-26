@@ -15,7 +15,7 @@ Tài liệu mô tả **luồng đón khách mới** từ tạo HĐ nháp → ch�
 | Tạo nháp | `DRAFT` | `PENDING` | Form khách, ảnh phòng, chỉ số điện/nước |
 | Sẵn sàng thu cọc | `DRAFT` hoặc `PENDING` | `PENDING` | Tạo QR PayOS |
 | Đã thu cọc | `PENDING` | `PAID` | Gửi/nhận OTP, manager nhập OTP |
-| Hoàn tất | `ACTIVE` | `PAID` | Phòng `RENTED`, tenant có thể đăng nhập |
+| Hoàn tất | `ACTIVE` | `PAID` | Phòng `RENTED`. Tenant **kích hoạt app** (OTP + tự đặt MK) — xem [`FE-tenant-account-activation.md`](./FE-tenant-account-activation.md) |
 
 ```
 [Manager tạo DRAFT]
@@ -219,6 +219,7 @@ Content-Type: application/json
 - Phòng → `RENTED`
 - Tạo/nâng tài khoản tenant (nếu trước đó là DRAFT)
 - Response có thể có `tenantUsername`, `tenantAccountCreated`, `tenantRolePromoted`
+- **Không còn mật khẩu mặc định** — hướng dẫn khách mở app → Kích hoạt tài khoản: [`FE-tenant-account-activation.md`](./FE-tenant-account-activation.md)
 
 ---
 

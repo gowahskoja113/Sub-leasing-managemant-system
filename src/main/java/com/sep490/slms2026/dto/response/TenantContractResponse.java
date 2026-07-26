@@ -95,8 +95,8 @@ public class TenantContractResponse {
     private String payosQrCode;
 
     // Onboarding: thông tin tài khoản tenant sau confirm
-    private String  tenantUsername;        // = SĐT khách (username đăng nhập)
-    private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản
+    private String  tenantUsername;        // = SĐT khách (username). Không còn mật khẩu mặc định — khách tự kích hoạt trên app.
+    private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản (chờ OTP kích hoạt + đặt MK)
     private Boolean tenantRolePromoted;    // true nếu vừa nâng ROLE_USER → ROLE_TENANT
 
     /** URL file DOCX đã xuất (lưu storage giống ảnh). */
