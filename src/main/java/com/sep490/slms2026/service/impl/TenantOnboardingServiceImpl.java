@@ -57,6 +57,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     private static final String DEFAULT_TENANT_PASSWORD = "tenant123";
 
+    /**
+     * DEV/budget: luôn gửi & verify OTP tới số này thay vì SĐT trên hợp đồng.
+     * formatVietnamesePhone sẽ chuẩn hóa thành +84352393203.
+     */
+    private static final String OTP_OVERRIDE_PHONE = "0352393203";
+
     /** Số ngày tối đa cho phép nhận nhà sớm so với ngày vào ở dự kiến. */
     @org.springframework.beans.factory.annotation.Value("${contract.max-early-move-in-days:3}")
     private int maxEarlyMoveInDays;
@@ -284,11 +290,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Chưa thanh toán cọc, không thể hoàn tất hợp đồng");
         }
 
-        String tenantPhone = resolveTenantPhone(contract);
-        if (tenantPhone == null) {
-            throw new BusinessException("Không tìm thấy số điện thoại khách thuê để gửi OTP");
-        }
-        otpService.verifyOrThrow(tenantPhone, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
+        // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
+        otpService.verifyOrThrow(OTP_OVERRIDE_PHONE, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
 
         // Nhận nhà SỚM: khách đến trước ngày vào ở dự kiến.
         // Cho phép tối đa maxEarlyMoveInDays ngày — ghi nhận ngày vào ở thực tế = hôm nay,
@@ -347,11 +350,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() != PaymentStatus.PAID) {
             throw new BusinessException("Chưa thanh toán cọc, không thể gửi OTP xác nhận");
         }
-        String tenantPhone = resolveTenantPhone(contract);
-        if (tenantPhone == null) {
-            throw new BusinessException("Không tìm thấy số điện thoại khách thuê để gửi OTP");
-        }
-        otpService.sendOtp(tenantPhone, OtpPurpose.CONTRACT_CONFIRM, contractId);
+        // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
+        log.info("Gửi OTP xác nhận HĐ {} tới số override {}", contractId, OTP_OVERRIDE_PHONE);
+        otpService.sendOtp(OTP_OVERRIDE_PHONE, OtpPurpose.CONTRACT_CONFIRM, contractId);
     }
 
     @Override
