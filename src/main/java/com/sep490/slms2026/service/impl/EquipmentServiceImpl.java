@@ -74,6 +74,19 @@ public class EquipmentServiceImpl implements EquipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentByIdForCaller(Long id) {
+        Equipment equipment = equipmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantCanAccessEquipment(user.getId(), equipment);
+        }
+        return toResponse(equipment);
+    }
+
+    @Override
     @Transactional
     public EquipmentResponse updateEquipment(Long id, EquipmentResponse dto) {
         Equipment equipment = equipmentRepository.findById(id)
@@ -117,6 +130,17 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getEquipmentsByRoomForCaller(Long roomId) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantOwnsRoom(user.getId(), roomId);
+        }
+        return getEquipmentsByRoom(roomId);
     }
 
     @Override
@@ -249,19 +273,30 @@ public class EquipmentServiceImpl implements EquipmentService {
     @Transactional(readOnly = true)
     public List<EquipmentResponse> getEquipmentsForCurrentTenant(Long contractId) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        // Giống dashboard: thiếu contractId khi nhiều HĐ → lấy HĐ ACTIVE mới nhất (FE cũ không gãy / list trống)
         com.sep490.slms2026.entity.TenantContract activeContract =
                 com.sep490.slms2026.util.TenantActiveContractResolver.resolve(
                         tenantContractRepository.findByTenantId(user.getId()),
                         contractId,
-                        false);
+                        true);
 
         Long propertyId = activeContract.getProperty().getId();
         Long roomId = activeContract.getRoom() != null ? activeContract.getRoom().getId() : null;
 
-        return equipmentRepository.findActiveForTenantPlacement(propertyId, roomId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        List<Equipment> fromPlacement = equipmentRepository.findActiveForTenantPlacement(propertyId, roomId);
+        if (!fromPlacement.isEmpty()) {
+            return fromPlacement.stream().map(this::toResponse).toList();
+        }
+
+        // Fallback: thiết bị gắn trên HĐ (snapshot bàn giao) nếu placement query rỗng
+        if (activeContract.getSelectedEquipments() != null && !activeContract.getSelectedEquipments().isEmpty()) {
+            return activeContract.getSelectedEquipments().stream()
+                    .map(com.sep490.slms2026.entity.TenantContractEquipment::getEquipment)
+                    .filter(e -> e != null)
+                    .map(this::toResponse)
+                    .toList();
+        }
+        return List.of();
     }
 
     @Override
@@ -305,6 +340,24 @@ public class EquipmentServiceImpl implements EquipmentService {
                 });
         if (!allowed) {
             throw new BusinessException("Bạn không có quyền xem thiết bị này");
+        }
+    }
+
+    private void assertTenantOwnsRoom(UUID tenantUserId, Long roomId) {
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ID=" + roomId));
+        Long propertyId = room.getProperty() != null ? room.getProperty().getId() : null;
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> {
+                    if (c.getRoom() != null) {
+                        return roomId.equals(c.getRoom().getId());
+                    }
+                    return propertyId != null && c.getProperty() != null
+                            && propertyId.equals(c.getProperty().getId());
+                });
+        if (!allowed) {
+            throw new BusinessException("Bạn không có quyền xem thiết bị của phòng này");
         }
     }
 

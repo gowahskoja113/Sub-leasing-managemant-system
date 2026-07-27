@@ -24,12 +24,20 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(AccessDeniedException ex) {
-        log.warn("[403] Access denied: {}", ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(
+            AccessDeniedException ex,
+            jakarta.servlet.http.HttpServletRequest request) {
+        String uri = request != null ? request.getMethod() + " " + request.getRequestURI() : "?";
+        String qs = request != null ? request.getQueryString() : null;
+        if (qs != null && !qs.isBlank()) {
+            uri = uri + "?" + qs;
+        }
+        log.warn("[403] Access denied on {}: {}", uri, ex.getMessage());
 
         Map<String, Object> body = new HashMap<>();
         body.put("status", HttpStatus.FORBIDDEN.value());
         body.put("error", "Forbidden");
+        body.put("path", request != null ? request.getRequestURI() : null);
         body.put("message", ex.getMessage() + " - Kiểm tra lại Role hoặc Vùng quản lý địa lý của tài khoản này!");
 
         return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);

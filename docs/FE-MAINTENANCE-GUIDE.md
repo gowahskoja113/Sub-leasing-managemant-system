@@ -255,12 +255,26 @@ Dùng `response.room.id` làm `roomId` khi POST maintenance.
 
 ### 4.2 Danh sách thiết bị phòng
 
+**API đúng (tenant):**
+
 ```http
 GET /api/v1/tenant/me/equipments
+GET /api/v1/tenant/me/equipments?contractId={id}
 Authorization: Bearer {tenantToken}
 ```
 
-Trả về thiết bị thuộc hợp đồng ACTIVE của tenant. Dùng `id` làm `equipmentId`, hiển thị `equipmentName`, `qrCode`.
+Trả về thiết bị `ACTIVE` theo property/room của HĐ. Có nhiều HĐ → nên truyền `contractId` (không truyền thì BE lấy HĐ ACTIVE mới nhất).
+
+**Fallback FE hay gọi nhầm (cũng được từ BE 2026-07-28):**
+
+```http
+GET /api/v1/equipment/feature?roomId={roomId}
+```
+
+Trước đây endpoint này **chỉ MANAGER/OWNER** → tenant nhận **403** → UI list trống. Đã mở cho TENANT (chỉ phòng thuộc HĐ của mình).
+
+Dùng `id` làm `equipmentId`, hiển thị `equipmentName`, `qrCode`.  
+List rỗng `[]` (HTTP 200) = nhà/phòng **không có** thiết bị ACTIVE — không phải lỗi API.
 
 ### 4.3 Quét QR thiết bị
 

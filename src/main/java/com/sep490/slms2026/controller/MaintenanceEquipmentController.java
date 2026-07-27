@@ -26,9 +26,9 @@ public class MaintenanceEquipmentController {
 
     /** GET /api/v1/equipment/{id}/feature — chi tiết 1 thiết bị */
     @GetMapping("/{id}/feature")
-    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER')")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER', 'TENANT')")
     public ResponseEntity<EquipmentResponse> getEquipmentById(@PathVariable Long id) {
-        return ResponseEntity.ok(equipmentService.getEquipmentById(id));
+        return ResponseEntity.ok(equipmentService.getEquipmentByIdForCaller(id));
     }
 
     /** PUT /api/v1/equipment/{id}/feature — sửa thông tin thiết bị */
@@ -50,12 +50,15 @@ public class MaintenanceEquipmentController {
         return ResponseEntity.ok(equipmentService.updateEquipmentStatus(id, status));
     }
 
-    /** GET /api/v1/equipment/feature?roomId= — thiết bị theo phòng (cho OM mobile) */
+    /**
+     * GET /api/v1/equipment/feature?roomId= — thiết bị theo phòng.
+     * Manager/Owner: xem phòng bất kỳ. Tenant: chỉ phòng thuộc HĐ ACTIVE của mình.
+     */
     @GetMapping("/feature")
-    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER')")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN', 'OWNER', 'TENANT')")
     public ResponseEntity<List<EquipmentResponse>> getEquipmentsByRoom(
             @RequestParam Long roomId) {
-        return ResponseEntity.ok(equipmentService.getEquipmentsByRoom(roomId));
+        return ResponseEntity.ok(equipmentService.getEquipmentsByRoomForCaller(roomId));
     }
 
     /** GET /api/v1/equipment/{id}/maintenance-history-feature — lịch sử bảo trì thiết bị */
