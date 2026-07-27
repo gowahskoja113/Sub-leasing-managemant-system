@@ -33,7 +33,7 @@ public interface EquipmentService {
     EquipmentResponse reassignEquipment(Long propertyId, Long equipmentId, ReassignEquipmentRequest request);
     EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request);
 
-    List<EquipmentResponse> getEquipmentsForCurrentTenant();
+    List<EquipmentResponse> getEquipmentsForCurrentTenant(Long contractId);
 
     EquipmentResponse getEquipmentByQrCode(String qrCode);
     

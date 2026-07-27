@@ -19,10 +19,10 @@ import java.util.UUID;
 @Repository
 public interface TenantContractRepository extends JpaRepository<TenantContract, Long> {
 
-    // Quy tắc 1-HĐ-active: kiểm tra phòng đã có hợp đồng đang hiệu lực chưa
+    // Quy tắc 1-HĐ-active theo ĐƠN VỊ CHO THUÊ (phòng / nguyên căn) — không giới hạn theo SĐT/tenant
     boolean existsByRoomIdAndStatus(Long roomId, ContractStatus status);
 
-    // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null)
+    // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null) — 1 property chỉ 1 HĐ nguyên căn ACTIVE
     boolean existsByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
     // Kiểm tra HĐ chồng lấn khoảng [moveInDate, endDate] cho phòng cụ thể

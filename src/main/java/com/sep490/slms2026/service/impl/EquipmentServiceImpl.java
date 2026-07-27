@@ -247,14 +247,13 @@ public class EquipmentServiceImpl implements EquipmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<EquipmentResponse> getEquipmentsForCurrentTenant() {
+    public List<EquipmentResponse> getEquipmentsForCurrentTenant(Long contractId) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        com.sep490.slms2026.entity.TenantContract activeContract = tenantContractRepository
-                .findByTenantId(user.getId()).stream()
-                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Không tìm thấy hợp đồng đang hiệu lực"));
+        com.sep490.slms2026.entity.TenantContract activeContract =
+                com.sep490.slms2026.util.TenantActiveContractResolver.resolve(
+                        tenantContractRepository.findByTenantId(user.getId()),
+                        contractId,
+                        false);
 
         Long propertyId = activeContract.getProperty().getId();
         Long roomId = activeContract.getRoom() != null ? activeContract.getRoom().getId() : null;

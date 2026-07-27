@@ -54,14 +54,16 @@ public class TenantMeLifecycleController {
 
     @GetMapping("/handover")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<TenantHandoverResponse> getHandover() {
-        return ResponseEntity.ok(tenantHandoverService.getHandover(currentUserId()));
+    public ResponseEntity<TenantHandoverResponse> getHandover(
+            @RequestParam(required = false) Long contractId) {
+        return ResponseEntity.ok(tenantHandoverService.getHandover(currentUserId(), contractId));
     }
 
     @PostMapping("/handover/acknowledge")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<TenantHandoverResponse> acknowledgeHandover() {
-        return ResponseEntity.ok(tenantHandoverService.acknowledgeHandover(currentUserId()));
+    public ResponseEntity<TenantHandoverResponse> acknowledgeHandover(
+            @RequestParam(required = false) Long contractId) {
+        return ResponseEntity.ok(tenantHandoverService.acknowledgeHandover(currentUserId(), contractId));
     }
 
     private static UUID currentUserId() {

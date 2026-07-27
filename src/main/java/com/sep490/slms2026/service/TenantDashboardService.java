@@ -5,11 +5,12 @@ import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.User;
-import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.util.TenantActiveContractResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,18 +27,18 @@ public class TenantDashboardService {
     private final UserRepository userRepository;
 
     public TenantDashboardResponse getDashboard() {
+        return getDashboard(null);
+    }
+
+    public TenantDashboardResponse getDashboard(Long contractId) {
         CustomUserDetails userDetails = SecurityUtils.requireCurrentUser();
 
-        List<TenantContract> contracts = tenantContractRepository.findByTenantId(userDetails.getId());
-        
-        TenantContract activeContract = contracts.stream()
-                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .findFirst()
-                .orElse(null);
+        List<TenantContract> all = tenantContractRepository.findByTenantId(userDetails.getId());
+        List<TenantContract> activeList = TenantActiveContractResolver.listActive(all);
 
-        if (activeContract == null) {
-            // Return 200 with null values per requirement
+        if (activeList.isEmpty()) {
             return TenantDashboardResponse.builder()
+                    .contracts(List.of())
                     .summary(TenantDashboardResponse.ActivitySummary.builder()
                             .overdueInvoiceCount(0)
                             .overdueTotal(BigDecimal.ZERO)
@@ -48,14 +49,22 @@ public class TenantDashboardService {
                     .build();
         }
 
+        List<TenantDashboardResponse.ContractSummary> contractSummaries = activeList.stream()
+                .map(this::toContractSummary)
+                .toList();
+
+        TenantContract activeContract;
+        try {
+            // Dashboard: không bắt buộc contractId khi nhiều HĐ — pick latest cho primary (FE cũ)
+            activeContract = TenantActiveContractResolver.resolve(all, contractId, true);
+        } catch (BusinessException e) {
+            throw e;
+        }
+
         Room room = activeContract.getRoom();
         Property property = activeContract.getProperty();
-        User host = null; // We can get host from property.getManagedBy() or operationManager, but let's just get property createdBy or managedBy.
-        // Wait, property.getCreatedBy() or getManagedBy(). For now we can use dummy or fetch host if needed. 
-        // According to current schema, we don't have direct host info on Property unless we query userRepository.
-        // For now, leaving host info as placeholder or null if we don't fetch it here.
 
-        TenantDashboardResponse.RoomSummary roomSummary = null;
+        TenantDashboardResponse.RoomSummary roomSummary;
         if (room != null) {
             roomSummary = TenantDashboardResponse.RoomSummary.builder()
                     .id(room.getId())
@@ -65,29 +74,16 @@ public class TenantDashboardService {
                     .depositAmount(activeContract.getDeposit())
                     .build();
         } else {
-            // Whole house
             roomSummary = TenantDashboardResponse.RoomSummary.builder()
                     .id(null)
-                    .roomNumber(property.getPropertyName()) // use property name for roomNumber as specified
+                    .roomNumber(property.getPropertyName())
                     .floor(null)
                     .area(property.getAreaSize())
                     .depositAmount(activeContract.getDeposit())
                     .build();
         }
 
-        Long daysLeft = null;
-        if (activeContract.getEndDate() != null) {
-            daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), activeContract.getEndDate());
-        }
-
-        TenantDashboardResponse.ContractSummary contractSummary = TenantDashboardResponse.ContractSummary.builder()
-                .id(activeContract.getId())
-                .code(activeContract.getContractCode())
-                .startDate(activeContract.getStartDate())
-                .endDate(activeContract.getEndDate())
-                .daysLeft(daysLeft)
-                .status(activeContract.getStatus().name())
-                .build();
+        TenantDashboardResponse.ContractSummary contractSummary = toContractSummary(activeContract);
 
         String managerName = null;
         String managerPhone = null;
@@ -107,13 +103,12 @@ public class TenantDashboardService {
                 .electricityRate(property.getElectricityUnitPrice())
                 .waterRate(property.getWaterUnitPrice())
                 .serviceCharge(property.getServiceFee())
-                .hostName(null) // Mocked for now, update if userRepository is injected
+                .hostName(null)
                 .hostPhone(null)
                 .managerName(managerName)
                 .managerPhone(managerPhone)
                 .build();
 
-        // Summary is mocked because invoice/maintenance/notification are out of scope for this document
         TenantDashboardResponse.ActivitySummary activitySummary = TenantDashboardResponse.ActivitySummary.builder()
                 .overdueInvoiceCount(0)
                 .overdueTotal(BigDecimal.ZERO)
@@ -127,6 +122,29 @@ public class TenantDashboardService {
                 .contract(contractSummary)
                 .building(buildingSummary)
                 .summary(activitySummary)
+                .contracts(contractSummaries)
+                .build();
+    }
+
+    private TenantDashboardResponse.ContractSummary toContractSummary(TenantContract c) {
+        Long daysLeft = null;
+        if (c.getEndDate() != null) {
+            daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), c.getEndDate());
+        }
+        Property property = c.getProperty();
+        Room room = c.getRoom();
+        return TenantDashboardResponse.ContractSummary.builder()
+                .id(c.getId())
+                .code(c.getContractCode())
+                .startDate(c.getStartDate())
+                .endDate(c.getEndDate())
+                .daysLeft(daysLeft)
+                .status(c.getStatus().name())
+                .propertyId(property != null ? property.getId() : null)
+                .propertyName(property != null ? property.getPropertyName() : null)
+                .roomId(room != null ? room.getId() : null)
+                .roomNumber(room != null ? room.getRoomNumber()
+                        : (property != null ? property.getPropertyName() : null))
                 .build();
     }
 }

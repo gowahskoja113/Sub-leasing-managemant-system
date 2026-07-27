@@ -109,6 +109,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         Room room = roomRepository.findById(request.getRoomId())
                 .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
 
+        assertTenantOwnsActiveRoom(user.getId(), room);
+
         String title = request.getTitle() != null ? request.getTitle().trim() : "";
         if (title.isBlank()) {
             throw new BusinessException("Tiêu đề sự cố là bắt buộc");
@@ -433,6 +435,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new ResourceNotFoundException("Không tìm thấy request");
         }
         return req;
+    }
+
+    /** Tenant chỉ tạo bảo trì cho phòng thuộc HĐ ACTIVE của chính họ. */
+    private void assertTenantOwnsActiveRoom(UUID tenantUserId, Room room) {
+        Long roomId = room.getId();
+        Long propertyId = room.getProperty() != null ? room.getProperty().getId() : null;
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> {
+                    if (c.getRoom() != null) {
+                        return roomId.equals(c.getRoom().getId());
+                    }
+                    // Nguyên căn: mọi phòng trong property đều thuộc HĐ
+                    return propertyId != null && c.getProperty() != null
+                            && propertyId.equals(c.getProperty().getId());
+                });
+        if (!allowed) {
+            throw new BusinessException(
+                    "Bạn chỉ có thể báo sự cố cho phòng thuộc hợp đồng đang hiệu lực của mình");
+        }
     }
 
     private void requireStatus(MaintenanceRequest req, MaintenanceStatus expected) {

@@ -34,6 +34,7 @@ import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PushNotificationService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.util.PhoneUtils;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -759,25 +760,36 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getPermanentAddress()).tenant;
     }
 
+    /**
+     * 1 SĐT = 1 account ({@link User}/{@link Tenant}).
+     * Account đó được gắn nhiều {@link TenantContract} ACTIVE ở nhà/phòng khác nhau.
+     * Không chặn theo số lượng HĐ — chỉ tái dùng account theo phone.
+     */
     private TenantCreationResult getOrCreateTenant(String phone, String fullName, String cccd,
                                                    LocalDate dateOfBirth,
                                                    LocalDate cccdIssueDate,
                                                    String cccdIssuePlace,
                                                    String permanentAddress) {
 
-        // Tái dùng tài khoản đã có theo SĐT (đồng bộ với chức năng tra cứu tự điền)
-        User existing = userRepository.findByPhoneNumber(phone).orElse(null);
+        String localPhone = PhoneUtils.normalizeLocal(phone);
+        String internationalPhone = PhoneUtils.toInternational(localPhone);
+
+        // Tái dùng tài khoản đã có theo SĐT (local 0x… hoặc +84…)
+        User existing = userRepository.findByPhoneNumber(localPhone)
+                .or(() -> userRepository.findByPhoneNumber(internationalPhone))
+                .orElse(null);
         if (existing != null) {
             boolean promoted = false;
             if (existing.getRole() == Role.ROLE_USER) {
                 // ROLE_USER → nâng quyền lên ROLE_TENANT khi onboard
                 existing.setRole(Role.ROLE_TENANT);
-                if (existing.getPhoneNumber() == null) {
-                    existing.setPhoneNumber(phone);
-                }
                 promoted = true;
             } else if (existing.getRole() != Role.ROLE_TENANT) {
                 throw new BusinessException("Số điện thoại đã được đăng ký cho tài khoản khác (không phải khách thuê)");
+            }
+            // Chuẩn hóa lưu dạng local để các lần lookup sau khớp 1 format
+            if (existing.getPhoneNumber() == null || !localPhone.equals(existing.getPhoneNumber())) {
+                existing.setPhoneNumber(localPhone);
             }
             Tenant profile = existing.getTenantProfile();
             if (profile == null) {
@@ -815,14 +827,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         // Chưa có → tạo mới. Không phát mật khẩu mặc định:
         // mật khẩu random + firstLogin=true → khách phải OTP kích hoạt rồi tự đặt MK.
-        String username = phone;
+        String username = localPhone;
         User user = new User();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
         user.setRole(Role.ROLE_TENANT);
         user.setStatus(UserStatus.ACTIVE);
         user.setFullName(fullName);
-        user.setPhoneNumber(phone);
+        user.setPhoneNumber(localPhone);
         user.setFirstLogin(true);
 
         Tenant profile = new Tenant();

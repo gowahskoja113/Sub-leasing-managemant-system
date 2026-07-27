@@ -4,12 +4,11 @@ import com.sep490.slms2026.dto.response.ContractEvidencePhotoResponse;
 import com.sep490.slms2026.dto.response.TenantHandoverResponse;
 import com.sep490.slms2026.entity.ContractEvidencePhoto;
 import com.sep490.slms2026.entity.TenantContract;
-import com.sep490.slms2026.enums.ContractStatus;
-import com.sep490.slms2026.exception.BusinessException;
-import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.TenantHandoverService;
+import com.sep490.slms2026.util.TenantActiveContractResolver;
+import com.sep490.slms2026.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,15 +26,15 @@ public class TenantHandoverServiceImpl implements TenantHandoverService {
 
     @Override
     @Transactional(readOnly = true)
-    public TenantHandoverResponse getHandover(UUID tenantUserId) {
-        TenantContract contract = findActiveContract(tenantUserId);
+    public TenantHandoverResponse getHandover(UUID tenantUserId, Long contractId) {
+        TenantContract contract = resolveActiveContract(tenantUserId, contractId);
         return toResponse(contract);
     }
 
     @Override
     @Transactional
-    public TenantHandoverResponse acknowledgeHandover(UUID tenantUserId) {
-        TenantContract contract = findActiveContract(tenantUserId);
+    public TenantHandoverResponse acknowledgeHandover(UUID tenantUserId, Long contractId) {
+        TenantContract contract = resolveActiveContract(tenantUserId, contractId);
         if (contract.getHandoverAcknowledgedAt() != null) {
             throw new BusinessException("Bạn đã xác nhận biên bản bàn giao trước đó");
         }
@@ -43,12 +42,11 @@ public class TenantHandoverServiceImpl implements TenantHandoverService {
         return toResponse(tenantContractRepository.save(contract));
     }
 
-    private TenantContract findActiveContract(UUID tenantUserId) {
-        return tenantContractRepository.findByTenantId(tenantUserId).stream()
-                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Không tìm thấy hợp đồng đang hiệu lực"));
+    private TenantContract resolveActiveContract(UUID tenantUserId, Long contractId) {
+        return TenantActiveContractResolver.resolve(
+                tenantContractRepository.findByTenantId(tenantUserId),
+                contractId,
+                false);
     }
 
     private TenantHandoverResponse toResponse(TenantContract contract) {

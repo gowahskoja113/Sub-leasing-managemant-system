@@ -14,8 +14,9 @@ import java.util.List;
 
 /**
  * Hợp đồng thuê giữa khách thuê (Tenant) và một phòng/căn nhà.
- * Mô phỏng pattern của {@link InboundContract}. Quy tắc: mỗi phòng chỉ có 1 HĐ ACTIVE tại một thời điểm
- * (đảm bảo ở tầng service, không phải ràng buộc DB, để giữ được HĐ cũ TERMINATED/EXPIRED cùng phòng).
+ * Mô phỏng pattern của {@link InboundContract}.
+ * Quy tắc occupancy: mỗi phòng (hoặc nguyên căn) chỉ có 1 HĐ ACTIVE tại một thời điểm
+ * (đảm bảo ở tầng service). Một tenant/account có thể có nhiều HĐ ACTIVE ở nhà/phòng khác nhau.
  */
 @Entity
 @Table(name = "tenant_contracts")
