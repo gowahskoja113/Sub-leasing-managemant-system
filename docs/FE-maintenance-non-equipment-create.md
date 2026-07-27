@@ -226,7 +226,7 @@ Content-Type: application/json
 }
 ```
 
-### 4.2 Body — nhánh B (không thiết bị)
+### 4.2 Body — nhánh B (không thiết bị) — thuê theo phòng
 
 ```json
 {
@@ -239,11 +239,29 @@ Content-Type: application/json
 }
 ```
 
+### 4.2b Body — nguyên căn (không có `roomId`)
+
+Dashboard nguyên căn trả `room.id = null`. FE **không** gửi `roomId`; gửi `propertyId` từ HĐ / dashboard (`building.propertyId` hoặc `contracts[].propertyId`).
+
+```json
+{
+  "propertyId": 8,
+  "title": "Mái nhà dột góc sân",
+  "category": "STRUCTURAL",
+  "images": [
+    "https://.../before-1.jpg"
+  ]
+}
+```
+
+→ Ticket lưu `room = null`, gắn `propertyId`. Không còn lỗi 500 khi thiếu `roomId`.
+
 ### 4.3 Field
 
 | Field | Bắt buộc | Ghi chú |
 |-------|:--------:|---------|
-| `roomId` | ✅ | Phòng đang thuê |
+| `roomId` | thuê theo phòng | Bắt buộc nếu thuê theo phòng |
+| `propertyId` | nguyên căn | Bắt buộc khi **không** có `roomId` |
 | `title` | ✅ | Tối đa 200 ký tự |
 | `images` | ✅ | Ít nhất 1 URL ảnh BEFORE |
 | `equipmentId` | nhánh A | Có khi chọn từ list thiết bị / QR |
@@ -278,6 +296,8 @@ Content-Type: application/json
 |------------|---------------------|
 | Thiếu `title` | Tiêu đề sự cố là bắt buộc |
 | Thiếu ảnh | Bắt buộc đính kèm ảnh hiện trạng (BEFORE) |
+| Thiếu `roomId` và `propertyId` | Thiếu vị trí sự cố: gửi roomId (thuê theo phòng) hoặc propertyId (thuê nguyên căn) |
+| Nguyên căn sai property | Bạn không có hợp đồng nguyên căn đang hiệu lực cho bất động sản này |
 | Nhánh B thiếu `category` | Danh mục hư hỏng (category) là bắt buộc khi không chọn trang thiết bị/nội thất… |
 | Nhánh B gửi `APPLIANCE`/`FURNITURE` | Hư trang thiết bị/nội thất vui lòng chọn thiết bị (equipmentId)… |
 | `category` sai enum | Danh mục không hợp lệ. Chọn một trong: APPLIANCE, FURNITURE, STRUCTURAL, ELECTRICAL, PLUMBING, OTHER |

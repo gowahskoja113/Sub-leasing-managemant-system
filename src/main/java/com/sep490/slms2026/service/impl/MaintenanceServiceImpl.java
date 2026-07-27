@@ -48,6 +48,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final MaintenanceImageRepository maintenanceImageRepository;
     private final PropertyImageStorage imageStorage;
     private final RoomRepository roomRepository;
+    private final PropertyRepository propertyRepository;
     private final EquipmentRepository equipmentRepository;
     private final TenantContractRepository tenantContractRepository;
     private final TenantRepository tenantRepository;
@@ -106,10 +107,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         Tenant tenant = tenantRepository.findById(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tenant"));
 
-        Room room = roomRepository.findById(request.getRoomId())
-                .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
-
-        assertTenantOwnsActiveRoom(user.getId(), room);
+        Room room = null;
+        Property property;
+        if (request.getRoomId() != null) {
+            room = roomRepository.findById(request.getRoomId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
+            property = room.getProperty();
+            assertTenantOwnsActiveUnit(user.getId(), room, property.getId());
+        } else if (request.getPropertyId() != null) {
+            property = propertyRepository.findById(request.getPropertyId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Bất động sản không tồn tại"));
+            assertTenantOwnsActiveWholeHouse(user.getId(), property.getId());
+        } else {
+            throw new BusinessException(
+                    "Thiếu vị trí sự cố: gửi roomId (thuê theo phòng) hoặc propertyId (thuê nguyên căn)");
+        }
 
         String title = request.getTitle() != null ? request.getTitle().trim() : "";
         if (title.isBlank()) {
@@ -132,7 +144,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         MaintenanceRequest req = MaintenanceRequest.builder()
                 .tenant(tenant)
-                .property(room.getProperty())
+                .property(property)
                 .room(room)
                 .title(title)
                 .description(description)
@@ -148,10 +160,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 ? "Khách thuê tạo yêu cầu [" + category + "]"
                 : "Khách thuê tạo yêu cầu";
         addTimeline(req, null, MaintenanceStatus.PENDING, timelineNote);
+
+        String locationLabel = room != null
+                ? "phòng " + room.getRoomNumber()
+                : "nguyên căn " + property.getPropertyName();
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
-                "Khách thuê " + user.getFullName() + ": \"" + title + "\" — phòng "
-                        + req.getRoom().getRoomNumber() + " (#" + req.getId() + ")");
+                "Khách thuê " + user.getFullName() + ": \"" + title + "\" — "
+                        + locationLabel + " (#" + req.getId() + ")");
 
         return convertToResponse(req);
     }
@@ -437,10 +453,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return req;
     }
 
-    /** Tenant chỉ tạo bảo trì cho phòng thuộc HĐ ACTIVE của chính họ. */
-    private void assertTenantOwnsActiveRoom(UUID tenantUserId, Room room) {
+    /** Tenant chỉ tạo bảo trì cho đơn vị thuê ACTIVE (phòng hoặc nguyên căn). */
+    private void assertTenantOwnsActiveUnit(UUID tenantUserId, Room room, Long propertyId) {
         Long roomId = room.getId();
-        Long propertyId = room.getProperty() != null ? room.getProperty().getId() : null;
         boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
                 .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
                 .anyMatch(c -> {
@@ -454,6 +469,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (!allowed) {
             throw new BusinessException(
                     "Bạn chỉ có thể báo sự cố cho phòng thuộc hợp đồng đang hiệu lực của mình");
+        }
+    }
+
+    private void assertTenantOwnsActiveWholeHouse(UUID tenantUserId, Long propertyId) {
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> c.getRoom() == null
+                        && c.getProperty() != null
+                        && propertyId.equals(c.getProperty().getId()));
+        if (!allowed) {
+            throw new BusinessException(
+                    "Bạn không có hợp đồng nguyên căn đang hiệu lực cho bất động sản này");
         }
     }
 

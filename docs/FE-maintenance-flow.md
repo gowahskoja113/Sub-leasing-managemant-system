@@ -86,7 +86,8 @@ Content-Type: application/json
 
 | Field | Bắt buộc | Ghi chú |
 |-------|----------|---------|
-| `roomId` | ✅ | Phòng của tenant |
+| `roomId` | thuê theo phòng | Bắt buộc nếu thuê theo phòng |
+| `propertyId` | nguyên căn | Bắt buộc khi **không** có `roomId` |
 | `title` | ✅ | Tiêu đề sự cố (tối đa 200 ký tự). Hiển thị trên list/detail |
 | `images` | ✅ | Ảnh BEFORE (URL). Ít nhất 1 ảnh |
 | `equipmentId` | ❌ | Có khi báo hỏng từ danh sách thiết bị / QR |
