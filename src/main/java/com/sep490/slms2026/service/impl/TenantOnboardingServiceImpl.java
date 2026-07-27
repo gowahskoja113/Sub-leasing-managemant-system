@@ -774,10 +774,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         String localPhone = PhoneUtils.normalizeLocal(phone);
         String internationalPhone = PhoneUtils.toInternational(localPhone);
 
-        // Tái dùng tài khoản đã có theo SĐT (local 0x… hoặc +84…)
-        User existing = userRepository.findByPhoneNumber(localPhone)
-                .or(() -> userRepository.findByPhoneNumber(internationalPhone))
-                .orElse(null);
+        // Tái dùng account theo SĐT (local / +84) hoặc username (= SĐT lúc tạo)
+        User existing = findExistingUserByPhone(localPhone, internationalPhone);
         if (existing != null) {
             boolean promoted = false;
             if (existing.getRole() == Role.ROLE_USER) {
@@ -790,6 +788,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             // Chuẩn hóa lưu dạng local để các lần lookup sau khớp 1 format
             if (existing.getPhoneNumber() == null || !localPhone.equals(existing.getPhoneNumber())) {
                 existing.setPhoneNumber(localPhone);
+            }
+            if (existing.getUsername() == null || existing.getUsername().isBlank()) {
+                existing.setUsername(localPhone);
             }
             Tenant profile = existing.getTenantProfile();
             if (profile == null) {
@@ -820,6 +821,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 if (permanentAddress != null) {
                     profile.setPermanentAddress(permanentAddress.isBlank() ? null : permanentAddress.trim());
                 }
+                if (fullName != null && !fullName.isBlank()
+                        && (existing.getFullName() == null || existing.getFullName().isBlank())) {
+                    existing.setFullName(fullName.trim());
+                }
                 userRepository.save(existing);
             }
             return new TenantCreationResult(profile, false, promoted);
@@ -833,7 +838,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
         user.setRole(Role.ROLE_TENANT);
         user.setStatus(UserStatus.ACTIVE);
-        user.setFullName(fullName);
+        user.setFullName(fullName != null ? fullName.trim() : null);
         user.setPhoneNumber(localPhone);
         user.setFirstLogin(true);
 
@@ -850,10 +855,32 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             User savedUser = userRepository.saveAndFlush(user);
             return new TenantCreationResult(savedUser.getTenantProfile(), true, false);
         } catch (DataIntegrityViolationException e) {
-            // fullName là UNIQUE trên bảng User → trùng tên sẽ vi phạm ràng buộc
+            // Race / SĐT đã có — thử tái dùng thay vì báo nhầm "trùng tên"
+            User raced = findExistingUserByPhone(localPhone, internationalPhone);
+            if (raced != null && (raced.getRole() == Role.ROLE_TENANT || raced.getRole() == Role.ROLE_USER)) {
+                return getOrCreateTenant(localPhone, fullName, cccd, dateOfBirth,
+                        cccdIssueDate, cccdIssuePlace, permanentAddress);
+            }
+            String detail = e.getMostSpecificCause() != null
+                    ? e.getMostSpecificCause().getMessage()
+                    : e.getMessage();
+            if (detail != null && detail.toLowerCase().contains("phone")) {
+                throw new BusinessException("Số điện thoại đã tồn tại trong hệ thống");
+            }
+            if (detail != null && detail.toLowerCase().contains("username")) {
+                throw new BusinessException("Tài khoản với số điện thoại này đã tồn tại");
+            }
             throw new BusinessException(
-                    "Tên khách thuê hoặc SĐT đã tồn tại trong hệ thống, vui lòng kiểm tra lại");
+                    "Không tạo được tài khoản khách thuê. Vui lòng kiểm tra lại số điện thoại");
         }
+    }
+
+    private User findExistingUserByPhone(String localPhone, String internationalPhone) {
+        return userRepository.findByPhoneNumber(localPhone)
+                .or(() -> userRepository.findByPhoneNumber(internationalPhone))
+                .or(() -> userRepository.findByUsername(localPhone))
+                .or(() -> userRepository.findByUsername(internationalPhone))
+                .orElse(null);
     }
 
     private String generateContractCode() {

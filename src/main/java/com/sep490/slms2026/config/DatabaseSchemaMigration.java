@@ -83,7 +83,63 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "water_meter_captured_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contract_condition_photos", "captured_at", "TIMESTAMP");
         ensureOtpVerificationsPurposeConstraint();
+        dropUniqueConstraintOnUserFullName();
 
+    }
+
+    /**
+     * full_name không được unique: nhiều khách trùng họ tên là bình thường;
+     * 1 account xác định bằng phone/username. Constraint Hibernate cũ chặn confirm HĐ thứ 2+.
+     */
+    private void dropUniqueConstraintOnUserFullName() {
+        try {
+            List<String> names = jdbcTemplate.query(
+                    """
+                    SELECT c.conname
+                    FROM pg_constraint c
+                    JOIN pg_class t ON c.conrelid = t.oid
+                    JOIN pg_namespace n ON t.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = t.oid
+                        AND a.attnum = ANY (c.conkey)
+                        AND NOT a.attisdropped
+                    WHERE n.nspname = 'public'
+                      AND t.relname = 'User'
+                      AND c.contype = 'u'
+                      AND a.attname = 'full_name'
+                    """,
+                    (rs, rowNum) -> rs.getString(1));
+            for (String name : names) {
+                jdbcTemplate.execute("ALTER TABLE \"User\" DROP CONSTRAINT IF EXISTS \"" + name + "\"");
+                log.info("Dropped unique constraint on User.full_name: {}", name);
+            }
+            // Unique index không gắn constraint (nếu có)
+            List<String> indexes = jdbcTemplate.query(
+                    """
+                    SELECT i.relname
+                    FROM pg_index x
+                    JOIN pg_class t ON t.oid = x.indrelid
+                    JOIN pg_class i ON i.oid = x.indexrelid
+                    JOIN pg_namespace n ON n.oid = t.relnamespace
+                    JOIN pg_attribute a ON a.attrelid = t.oid
+                        AND a.attnum = ANY (x.indkey)
+                        AND NOT a.attisdropped
+                    WHERE n.nspname = 'public'
+                      AND t.relname = 'User'
+                      AND x.indisunique
+                      AND NOT x.indisprimary
+                      AND a.attname = 'full_name'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid
+                      )
+                    """,
+                    (rs, rowNum) -> rs.getString(1));
+            for (String idx : indexes) {
+                jdbcTemplate.execute("DROP INDEX IF EXISTS \"" + idx + "\"");
+                log.info("Dropped unique index on User.full_name: {}", idx);
+            }
+        } catch (Exception e) {
+            log.warn("Could not drop User.full_name unique constraint/index: {}", e.getMessage());
+        }
     }
 
     /**

@@ -35,7 +35,7 @@ public class User {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String fullName;
 
     @Column(name = "create_at", nullable = false, updatable = false)
