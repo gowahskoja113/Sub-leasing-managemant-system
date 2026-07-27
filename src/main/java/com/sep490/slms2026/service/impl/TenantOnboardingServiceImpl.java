@@ -864,6 +864,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         return TenantContractResponse.builder()
                 .id(c.getId())
                 .propertyId(c.getProperty().getId())
+                .propertyName(c.getProperty().getPropertyName())
                 .roomId(room != null ? room.getId() : null)
                 .roomNumber(room != null ? room.getRoomNumber() : null)
                 .tenantUserId(tenant != null ? tenant.getId() : null)
