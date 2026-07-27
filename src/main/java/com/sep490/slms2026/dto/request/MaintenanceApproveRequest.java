@@ -13,8 +13,9 @@ public class MaintenanceApproveRequest {
     private boolean approve = true;
 
     /**
-     * Bắt buộc khi manager duyệt request mới (PENDING → APPROVED).
      * Phân loại phục vụ báo cáo chi phí sau sửa chữa.
+     * Bắt buộc khi ticket chưa có category (vd. báo hỏng gắn thiết bị).
+     * Nếu tenant đã chọn lúc tạo → có thể bỏ trống (giữ nguyên) hoặc gửi để ghi đè.
      */
     private String category;
 

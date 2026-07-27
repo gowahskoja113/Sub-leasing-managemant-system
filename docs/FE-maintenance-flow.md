@@ -56,6 +56,8 @@ Authorization: Bearer {tenantToken}
 Content-Type: application/json
 ```
 
+**A) Báo hỏng trang thiết bị / nội thất** (có `equipmentId`):
+
 ```json
 {
   "roomId": 12,
@@ -69,15 +71,32 @@ Content-Type: application/json
 }
 ```
 
+**B) Hư hao không gắn thiết bị** (bắt buộc `category`):
+
+```json
+{
+  "roomId": 12,
+  "title": "Tường thấm nước góc phòng",
+  "category": "STRUCTURAL",
+  "images": [
+    "https://.../before-1.jpg"
+  ]
+}
+```
+
 | Field | Bắt buộc | Ghi chú |
 |-------|----------|---------|
 | `roomId` | ✅ | Phòng của tenant |
 | `title` | ✅ | Tiêu đề sự cố (tối đa 200 ký tự). Hiển thị trên list/detail |
-| `description` | ✅ | Mô tả hiện trạng chi tiết |
-| `images` | ✅ | Ính BEFORE (URL). Ít nhất 1 ảnh |
-| `equipmentId` | ❌ | Nên có nếu hỏng gắn thiết bị |
+| `images` | ✅ | Ảnh BEFORE (URL). Ít nhất 1 ảnh |
+| `equipmentId` | ❌ | Có khi báo hỏng từ danh sách thiết bị / QR |
+| `category` | ✅ nếu **không** có `equipmentId` | `STRUCTURAL` \| `ELECTRICAL` \| `PLUMBING` \| `OTHER` |
+| `description` | ❌ | Mô tả thêm — **không bắt buộc** |
 
-→ Status: **`PENDING`** — `category` và `priority` **chưa có**, manager gán khi duyệt (§3.2).
+→ Status: **`PENDING`**.
+- Case B: `category` đã có từ lúc tạo; manager duyệt có thể giữ hoặc ghi đè.
+- Case A: `category` thường `null` → manager gán khi duyệt (§3.2).
+`priority` luôn do manager (tùy chọn) khi duyệt.
 
 > Upload file thô: sau khi có `id`, dùng `POST /{id}/photos?type=BEFORE` (xem §5).
 
@@ -85,7 +104,9 @@ Content-Type: application/json
 
 ### 3.2 Manager duyệt
 
-Manager **bắt buộc chọn `category`** trước khi duyệt — phục vụ phân loại chi phí / báo cáo sau sửa chữa.
+Manager duyệt `PENDING` → `APPROVED`.
+- Ticket **chưa có** `category` (thường case thiết bị) → **bắt buộc** gửi `category` trên body.
+- Ticket **đã có** `category` (tenant chọn lúc tạo) → có thể bỏ trống `category` (giữ nguyên) hoặc gửi để ghi đè.
 
 ```http
 PUT /api/v1/maintenance/{id}/approve
@@ -102,7 +123,7 @@ Content-Type: application/json
 
 | Field | Bắt buộc | Ghi chú |
 |-------|----------|---------|
-| `category` | ✅ | Phân loại sự cố (xem bảng dưới) |
+| `category` | ✅ nếu ticket chưa có | Phân loại sự cố (xem bảng dưới) |
 | `priority` | ❌ | `LOW` \| `MEDIUM` \| `HIGH` \| `URGENT` — tùy chọn |
 
 **Giá trị `category`:**
@@ -114,7 +135,7 @@ Content-Type: application/json
 | `STRUCTURAL` | Sơn tường bong tróc, nước mưa dột, hư hại kết cấu/công trình |
 | `ELECTRICAL` | Hệ thống điện, ổ cắm, cầu dao, đèn |
 | `PLUMBING` | Ống nước, vòi, nhà vệ sinh, rò rỉ đường ống |
-| `OTHER` | Các trường hợp khác |
+| `OTHER` | Các trường hợp khác (không gắn thiết bị) |
 
 → Status: **`APPROVED`** (phòng chuyển `MAINTENANCE`)
 
@@ -359,7 +380,7 @@ Các field `repairCost`, `costPaidBy`, `cause`, `scheduledDate` có thể còn t
 
 | Màn | Hành động |
 |-----|-----------|
-| Tạo request | Form: phòng, (thiết bị), **tiêu đề**, mô tả, ảnh BEFORE (không cần category/priority) |
+| Tạo request | Có thiết bị: tiêu đề + ảnh (+ mô tả tùy chọn). Không thiết bị: tiêu đề + **category** + ảnh (+ mô tả tùy chọn) |
 | List của tôi | Badge theo `status` |
 | `WAITING_TENANT_CONFIRM` | Nút **Đã OK** → `confirm`; **Chưa ổn** → form reject (lý do + ảnh) |
 | `REJECTED` | Chờ manager xem xét (read-only) |
@@ -369,7 +390,7 @@ Các field `repairCost`, `costPaidBy`, `cause`, `scheduledDate` có thể còn t
 
 | Màn | Hành động |
 |-----|-----------|
-| `PENDING` | Chọn **category** (bắt buộc) + (tùy chọn priority) → **Duyệt** / **Hủy** |
+| `PENDING` | Nếu chưa có category → chọn bắt buộc; đã có thì giữ/ghi đè + (tùy chọn priority) → **Duyệt** / **Hủy** |
 | `APPROVED` | Upload AFTER + **Báo sửa xong** / **Hủy** |
 | `WAITING_TENANT_CONFIRM` | Chờ tenant (có thể hiện countdown ~3 ngày) |
 | `REJECTED` | Hiện `rejectReason` + `rejectImages` → **Sửa lại** (`approve: true`) / **Giữ kết quả** (`approve: false`) |

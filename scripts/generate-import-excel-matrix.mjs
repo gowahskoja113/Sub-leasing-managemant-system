@@ -1,5 +1,7 @@
 /**
- * Sinh bộ Excel ma trận đầy đủ 10 TH onboarding + 4 TH cải tạo bổ sung.
+ * Sinh bộ Excel ma trận onboarding + cải tạo bổ sung.
+ * Base: 10 TH ma trận hợp lệ + vài căn nội thất đầy đủ (NGUYEN_CAN / THEO_PHONG).
+ * THEO_PHONG full: mỗi phòng 1 Quạt + 1 Giường.
  * Chạy: node scripts/generate-import-excel-matrix.mjs
  */
 import XLSX from 'xlsx';
@@ -43,8 +45,8 @@ const houseAreas = [
 ];
 
 /**
- * 10 trường hợp onboarding hợp lệ:
- * 2 NORENO + 8 RENO (NGUYEN_CAN/THEO_PHONG × TB mua × TB bàn giao)
+ * Onboarding hợp lệ:
+ * 2 NORENO + 8 RENO (ma trận) + vài căn nội thất đầy đủ (NGUYEN_CAN / THEO_PHONG).
  */
 const scenarios = [
   {
@@ -304,6 +306,139 @@ const scenarios = [
     },
     matrixNote: '#10 RENO | THEO_PHONG (3) | TB bàn giao: Có | Cải tạo: Có | TB mua: Có',
   },
+  // ── Căn nội thất đầy đủ (bổ sung demo) ──
+  {
+    matrixId: 11,
+    code: 'HD-MTX-11-NORENO-FULL',
+    name: 'MTX#11 NORENO full NT',
+    address: '11 Ma Trận Tân Bình',
+    district: 'Tân Bình',
+    province: 'TP. Hồ Chí Minh',
+    area: 95,
+    floors: 2,
+    physicalRooms: 4,
+    owner: 'Lý Văn L',
+    rent: 250_000_000,
+    start: '2026-08-01',
+    end: '2028-07-31',
+    desc: 'Ma trận #11 — NORENO nguyên căn, nội thất đầy đủ từ chủ (bàn giao).',
+    phase2: false,
+    handover: [
+      ['Điều hòa', '1.5HP Inverter', 'Phòng khách', 'GOOD', 1, ''],
+      ['Điều hòa', '1HP', 'Phòng ngủ 1', 'GOOD', 1, ''],
+      ['Tủ lạnh', 'Inverter 200L', 'Bếp', 'GOOD', 1, ''],
+      ['Máy giặt', 'Cửa trước 8kg', 'Sân sau', 'GOOD', 1, ''],
+      ['Nóng lạnh', '15L', 'WC tầng 1', 'GOOD', 1, ''],
+      ['Giường', 'Giường gỗ 1m6', 'Phòng ngủ 1', 'GOOD', 1, ''],
+      ['Giường', 'Giường gỗ 1m6', 'Phòng ngủ 2', 'GOOD', 1, ''],
+      ['Giường', 'Giường gỗ 1m2', 'Phòng ngủ 3', 'GOOD', 1, ''],
+      ['Quạt', 'Quạt trần', 'Phòng khách', 'GOOD', 1, ''],
+      ['Quạt', 'Quạt đứng', 'Phòng ngủ 1', 'GOOD', 1, ''],
+      ['Quạt', 'Quạt đứng', 'Phòng ngủ 2', 'GOOD', 1, ''],
+      ['Quạt', 'Quạt đứng', 'Phòng ngủ 3', 'GOOD', 1, ''],
+    ],
+    matrixNote: '#11 NORENO | Nguyên căn full NT bàn giao | Đợt 2: —',
+  },
+  {
+    matrixId: 12,
+    code: 'HD-MTX-12-RENO-WH-FULL',
+    name: 'MTX#12 NGUYEN_CAN full NT',
+    address: '12 Ma Trận Tân Bình',
+    district: 'Tân Bình',
+    province: 'TP. Hồ Chí Minh',
+    area: 110,
+    floors: 2,
+    physicalRooms: 4,
+    owner: 'Mai Thị M',
+    rent: 280_000_000,
+    start: '2026-08-01',
+    end: '2028-07-31',
+    desc: 'Ma trận #12 — RENO NGUYEN_CAN nội thất đầy đủ: TB chủ + cải tạo + mua TB khu vực chung.',
+    phase2: true,
+    exploitation: 'NGUYEN_CAN',
+    exploitRooms: null,
+    handover: [
+      ['Giường', 'Giường gỗ cũ', 'Phòng ngủ chính', 'GOOD', 2, 'TB chủ giữ lại'],
+      ['Quạt', 'Quạt trần cũ', 'Phòng khách', 'GOOD', 1, ''],
+      ['Tủ lạnh', 'Tủ 150L cũ', 'Bếp', 'DAMAGED', 1, 'Sắp thay'],
+    ],
+    renovations: [
+      ['PAINTING', 'Sơn sửa', 12_000_000, 'Sơn lại toàn bộ'],
+      ['FURNITURE', 'Nội thất', 5_000_000, 'Lắp đặt NT mới'],
+      ['FLOORING', 'Sàn nhà', 18_000_000, 'Lát gạch tầng trệt'],
+    ],
+    purchasedWholeHouse: [
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 14_000_000, 36, '2026-09-01', '2029-08-31', ''],
+      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 1_200_000, 12, '2026-09-01', '2027-08-31', 'Quạt trần phòng khách'],
+      ['', 'LIVING_ROOM', 'Giường', 'NEW', 'THEM_MOI', 1, 5_500_000, 12, '2026-09-01', '2027-08-31', 'Giường phòng ngủ chính'],
+      ['', 'LIVING_ROOM', 'Giường', 'NEW', 'THEM_MOI', 1, 4_800_000, 12, '2026-09-01', '2027-08-31', 'Giường phòng ngủ 2'],
+      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 750_000, 12, '2026-09-01', '2027-08-31', 'Quạt phòng ngủ 1'],
+      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 750_000, 12, '2026-09-01', '2027-08-31', 'Quạt phòng ngủ 2'],
+      ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THAY_THE', 1, 8_500_000, 24, '2026-09-01', '2028-08-31', 'Thay tủ cũ'],
+      ['', 'KITCHEN', 'Máy giặt', 'NEW', 'THEM_MOI', 1, 9_500_000, 24, '2026-09-01', '2028-08-31', ''],
+      ['', 'BATHROOM', 'Nóng lạnh', 'NEW', 'THEM_MOI', 1, 3_200_000, 12, '2026-09-01', '2027-08-31', ''],
+      ['', 'BALCONY', 'Quạt', 'NEW', 'THEM_MOI', 1, 650_000, 12, '2026-09-01', '2027-08-31', ''],
+    ],
+    matrixNote: '#12 RENO | NGUYEN_CAN full NT | TB bàn giao + cải tạo + TB mua khu vực chung',
+  },
+  {
+    matrixId: 13,
+    code: 'HD-MTX-13-RENO-RM-FULL',
+    name: 'MTX#13 THEO_PHONG full NT',
+    address: '13 Ma Trận Thủ Đức',
+    district: 'Thủ Đức',
+    province: 'TP. Hồ Chí Minh',
+    area: 120,
+    floors: 3,
+    physicalRooms: 6,
+    owner: 'Phan Văn N',
+    rent: 320_000_000,
+    start: '2026-09-01',
+    end: '2028-08-31',
+    desc: 'Ma trận #13 — RENO THEO_PHONG 4 phòng, mỗi phòng mua 1 Quạt + 1 Giường (+ ĐH/nóng lạnh).',
+    phase2: true,
+    exploitation: 'THEO_PHONG',
+    exploitRooms: 4,
+    handover: [
+      ['Máy giặt', 'Máy cũ chung', 'Sân phơi', 'GOOD', 1, 'TB dùng chung'],
+      ['Tủ lạnh', 'Tủ cũ tầng 1', 'Bếp chung', 'GOOD', 1, ''],
+    ],
+    renovations: [
+      ['PAINTING', 'Sơn sửa', 14_000_000, 'Sơn 4 phòng'],
+      ['PLUMBING', 'Điện nước', 10_000_000, 'WC từng phòng'],
+      ['STRUCTURAL', 'Kết cấu', 20_000_000, 'Ngăn phòng'],
+    ],
+    purchasedPerRoom: true,
+    purchasedPerRoomFull: true,
+    matrixNote: '#13 RENO | THEO_PHONG (4) full NT | mỗi phòng 1 Quạt + 1 Giường (+ ĐH, nóng lạnh)',
+  },
+  {
+    matrixId: 14,
+    code: 'HD-MTX-14-RENO-RM-BEDFAN',
+    name: 'MTX#14 THEO_PHONG giường+quạt',
+    address: '14 Ma Trận Thủ Đức',
+    district: 'Thủ Đức',
+    province: 'TP. Hồ Chí Minh',
+    area: 90,
+    floors: 2,
+    physicalRooms: 5,
+    owner: 'Trịnh Thị O',
+    rent: 240_000_000,
+    start: '2026-09-01',
+    end: '2028-08-31',
+    desc: 'Ma trận #14 — RENO THEO_PHONG 5 phòng, mỗi phòng đúng 1 Quạt + 1 Giường.',
+    phase2: true,
+    exploitation: 'THEO_PHONG',
+    exploitRooms: 5,
+    handover: [],
+    renovations: [
+      ['PAINTING', 'Sơn sửa', 11_000_000, 'Sơn 5 phòng'],
+      ['FURNITURE', 'Nội thất', 4_000_000, 'Lắp giường quạt từng phòng'],
+    ],
+    purchasedPerRoom: true,
+    purchasedPerRoomBedFanOnly: true,
+    matrixNote: '#14 RENO | THEO_PHONG (5) | mỗi phòng đúng 1 Quạt + 1 Giường',
+  },
 ];
 
 function inferDimensions(area) {
@@ -355,6 +490,29 @@ function buildRoomListRows(scenario) {
   });
 }
 
+function warrantyEnd(start, months) {
+  const endYear = parseInt(start.slice(0, 4), 10) + Math.floor(months / 12);
+  return `${endYear}-${start.slice(5, 7)}-28`;
+}
+
+function purchasedRow(contractCode, roomNumber, catalog, price, months, warrantyStart, note) {
+  return [
+    contractCode,
+    roomNumber,
+    '',
+    catalog,
+    'NEW',
+    'THEM_MOI',
+    1,
+    price,
+    months,
+    warrantyStart,
+    warrantyEnd(warrantyStart, months),
+    note,
+  ];
+}
+
+/** Mỗi phòng 1 loại TB xoay vòng (ma trận cũ #8, #10). */
 function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart) {
   const items = [
     ['Giường', 4_000_000, 12],
@@ -363,24 +521,57 @@ function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart) {
   ];
   return buildRoomNumbers(totalRooms).map((roomNumber, i) => {
     const [catalog, price, months] = items[i % items.length];
-    const start = warrantyStart;
-    const endYear = parseInt(start.slice(0, 4), 10) + Math.floor(months / 12);
-    const end = `${endYear}-${start.slice(5, 7)}-28`;
-    return [
+    return purchasedRow(
       contractCode,
       roomNumber,
-      '',
       catalog,
-      'NEW',
-      'THEM_MOI',
-      1,
       price,
       months,
-      start,
-      end,
+      warrantyStart,
       `TB mới phòng ${roomNumber}`,
-    ];
+    );
   });
+}
+
+/** Mỗi phòng đúng 1 Quạt + 1 Giường. */
+function buildBedFanRowsForRooms(contractCode, totalRooms, warrantyStart) {
+  const rows = [];
+  for (const roomNumber of buildRoomNumbers(totalRooms)) {
+    rows.push(
+      purchasedRow(contractCode, roomNumber, 'Giường', 4_200_000, 12, warrantyStart, `1 giường phòng ${roomNumber}`),
+    );
+    rows.push(
+      purchasedRow(contractCode, roomNumber, 'Quạt', 750_000, 12, warrantyStart, `1 quạt phòng ${roomNumber}`),
+    );
+  }
+  return rows;
+}
+
+/** Full NT theo phòng: Giường + Quạt + Điều hòa + Nóng lạnh mỗi phòng. */
+function buildFullFurnishRowsForRooms(contractCode, totalRooms, warrantyStart) {
+  const items = [
+    ['Giường', 4_500_000, 12],
+    ['Quạt', 800_000, 12],
+    ['Điều hòa', 9_200_000, 24],
+    ['Nóng lạnh', 2_600_000, 12],
+  ];
+  const rows = [];
+  for (const roomNumber of buildRoomNumbers(totalRooms)) {
+    for (const [catalog, price, months] of items) {
+      rows.push(
+        purchasedRow(
+          contractCode,
+          roomNumber,
+          catalog,
+          price,
+          months,
+          warrantyStart,
+          `${catalog} phòng ${roomNumber}`,
+        ),
+      );
+    }
+  }
+  return rows;
 }
 
 function buildOnboardingMatrix() {
@@ -416,9 +607,10 @@ function buildOnboardingMatrix() {
       s.matrixNote,
     ]),
     [''],
-    ['Tổng: 10 trường hợp onboarding hợp lệ (2 NORENO + 8 RENO).'],
+    [`Tổng: ${scenarios.length} HĐ onboarding (#1–#10 ma trận + #11–#14 nội thất đầy đủ).`],
     ['NORENO: import đợt 1 xong → tự gửi Host. RENO: cần import đợt 2.'],
     ['RENO bắt buộc ≥1 hạng mục cải tạo ở sheet 3 trước khi gửi Host.'],
+    ['#11–#14: demo full NT — nguyên căn / theo phòng (mỗi phòng ≥ 1 Quạt + 1 Giường).'],
   ];
 }
 
@@ -549,7 +741,13 @@ const purchasedRows = phase2Scenarios.flatMap((s) => {
     }
   }
   if (s.purchasedPerRoom) {
-    rows.push(...buildPurchasedRowsForRooms(s.code, s.exploitRooms, warrantyStart));
+    if (s.purchasedPerRoomBedFanOnly) {
+      rows.push(...buildBedFanRowsForRooms(s.code, s.exploitRooms, warrantyStart));
+    } else if (s.purchasedPerRoomFull) {
+      rows.push(...buildFullFurnishRowsForRooms(s.code, s.exploitRooms, warrantyStart));
+    } else {
+      rows.push(...buildPurchasedRowsForRooms(s.code, s.exploitRooms, warrantyStart));
+    }
   }
   return rows;
 });
@@ -570,22 +768,24 @@ const onboardingMatrix = buildOnboardingMatrix();
 const supplementMatrix = buildSupplementMatrix();
 
 const huongDanDot1 = [
-  ['Hướng dẫn — Ma trận đủ 10 TH onboarding (đợt 1)'],
+  ['Hướng dẫn — Ma trận onboarding + căn full NT (đợt 1)'],
   [''],
-  ['File này cover đủ 10 trường hợp hợp lệ theo logic import SLMS2026.'],
-  ['Sheet "0. Ma_Tran_Onboarding": tra cứu STT #1–#10.'],
+  ['File cover #1–#10 ma trận hợp lệ + #11–#14 nội thất đầy đủ.'],
+  ['Sheet "0. Ma_Tran_Onboarding": tra cứu STT.'],
   ['API: POST /api/v1/import/lease-excel?dryRun='],
   [''],
-  ['#1–#2 NORENO: sau đợt 1 tự gửi Host — KHÔNG import file đợt 2.'],
-  ['#3–#10 RENO: sau đợt 1 ở UNDER_RENOVATION — cần file đợt 2.'],
+  ['#1–#2, #11 NORENO: sau đợt 1 tự gửi Host — KHÔNG import file đợt 2.'],
+  ['#3–#10, #12–#14 RENO: sau đợt 1 ở UNDER_RENOVATION — cần file đợt 2.'],
+  ['#13–#14 THEO_PHONG: mỗi phòng có 1 Quạt + 1 Giường (sheet TB mua đợt 2).'],
 ];
 
 const huongDanDot2 = [
-  ['Hướng dẫn — Ma trận 8 TH RENO (đợt 2)'],
+  ['Hướng dẫn — Ma trận RENO + căn full NT (đợt 2)'],
   [''],
-  ['Chỉ import sau khi đã import đợt 1 (#3–#10).'],
+  ['Chỉ import sau khi đã import đợt 1 (các HĐ RENO).'],
   ['API: POST /api/v1/import/renovation-excel?dryRun='],
   ['Sheet "0. Ma_Tran_Onboarding": đối chiếu từng HĐ.'],
+  ['#12 NGUYEN_CAN full NT khu vực chung | #13–#14 mỗi phòng Quạt+Giường.'],
 ];
 
 const huongDanSupplement = [
@@ -652,10 +852,10 @@ XLSX.writeFile(wbSupplement, OUT_SUPPLEMENT);
 
 console.log('Đã tạo bộ ma trận onboarding:');
 console.log('  Đợt 1:', OUT_DOT1);
-console.log(`    - ${leaseRows.length} HĐ (#1–#10)`);
+console.log(`    - ${leaseRows.length} HĐ (#1–#${scenarios.length})`);
 console.log(`    - ${handoverRows.length} dòng TB bàn giao`);
 console.log('  Đợt 2:', OUT_DOT2);
-console.log(`    - ${configRows.length} cấu hình (#3–#10)`);
+console.log(`    - ${configRows.length} cấu hình RENO`);
 console.log(`    - ${roomListRows.length} phòng THEO_PHONG`);
 console.log(`    - ${renovationRows.length} dòng cải tạo`);
 console.log(`    - ${purchasedRows.length} dòng TB mua`);

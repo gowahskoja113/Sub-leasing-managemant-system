@@ -10,13 +10,13 @@
 
 ## 1. Tóm tắt nghiệp vụ
 
-Khách thuê (tenant) phát hiện hư hỏng → chụp ảnh hiện trạng → gửi yêu cầu.  
-Operation Manager xem yêu cầu → **phân loại danh mục (`category`)** → duyệt → liên hệ thợ ngoài sửa → upload ảnh sau sửa → tenant xác nhận.
+Khách thuê phát hiện hư hỏng → chọn thiết bị **hoặc** danh mục hư hao → chụp ảnh → gửi yêu cầu.  
+Operation Manager duyệt (gán/xác nhận `category`) → liên hệ thợ ngoài sửa → upload ảnh sau sửa → tenant xác nhận.
 
 | Vai trò | Việc chính |
 |---------|------------|
-| **Tenant** | Tạo ticket: tiêu đề + mô tả + ảnh BEFORE. **Không** chọn category/priority. |
-| **Manager** | Xem ticket → chọn **category** (bắt buộc) → duyệt → báo sửa xong (ảnh AFTER) → xử lý nếu tenant từ chối. |
+| **Tenant** | Tạo ticket: tiêu đề + ảnh BEFORE (+ mô tả tùy chọn). Không thiết bị → chọn **category**. |
+| **Manager** | Xem ticket → chọn/xác nhận **category** → duyệt → báo sửa xong (ảnh AFTER) → xử lý nếu tenant từ chối. |
 
 > **Lưu ý:** Chi phí sửa chữa, ai trả tiền, khấu hao thiết bị **không** nằm trong luồng này. Sau khi ticket `CLOSED`, phần billing xử lý riêng — `category` trên ticket phục vụ **báo cáo / phân loại chi phí công ty**.
 
@@ -51,10 +51,10 @@ stateDiagram-v2
 
 ### 3.1 Tenant tạo request
 
-**API:** `POST /api/v1/maintenance`  
+**API:** `POST /api/v1/maintenance`
 **Role:** `TENANT`
 
-**Request body (JSON tenant gửi):**
+**A) Có thiết bị / nội thất**
 
 ```json
 {
@@ -69,44 +69,53 @@ stateDiagram-v2
 }
 ```
 
+**B) Không gắn thiết bị — bắt buộc chọn danh mục**
+
+```json
+{
+  "roomId": 12,
+  "title": "Tường thấm nước góc phòng",
+  "category": "STRUCTURAL",
+  "images": [
+    "https://res.cloudinary.com/xxx/image/upload/v1/before-1.jpg"
+  ]
+}
+```
+
 | Field | Bắt buộc | Ghi chú |
 |-------|:--------:|---------|
 | `roomId` | ✅ | ID phòng tenant đang thuê |
 | `title` | ✅ | Tiêu đề sự cố, tối đa **200 ký tự** — hiển thị trên list |
-| `description` | ✅ | Mô tả chi tiết hiện trạng |
 | `images` | ✅ | Mảng URL ảnh BEFORE (Cloudinary). **Ít nhất 1 ảnh** |
 | `equipmentId` | ❌ | Có khi báo hỏng từ danh sách thiết bị / quét QR |
+| `category` | ✅ nếu không có `equipmentId` | Dropdown: `STRUCTURAL` / `ELECTRICAL` / `PLUMBING` / `OTHER` |
+| `description` | ❌ | Mô tả thêm — **không bắt buộc** |
 
-**Tenant KHÔNG gửi:**
+**Tenant không gửi:** `priority` (manager gán khi duyệt, tùy chọn).
 
-- `category` — manager gán khi duyệt
-- `priority` — tùy chọn, manager có thể gán khi duyệt (không bắt buộc)
-
-**Response sau khi tạo (rút gọn):**
+**Response sau khi tạo (rút gọn — case B):**
 
 ```json
 {
-  "id": 101,
-  "requestCode": "M-101",
-  "title": "Máy lạnh không lạnh",
-  "description": "Máy lạnh phòng không lạnh, chảy nước ở góc tường",
+  "id": 102,
+  "requestCode": "M-102",
+  "title": "Tường thấm nước góc phòng",
+  "description": null,
   "status": "PENDING",
-  "category": null,
+  "category": "STRUCTURAL",
   "priority": null,
   "roomId": 12,
   "roomName": "P01",
   "propertyName": "Nhà Lê Lợi 01",
-  "equipmentId": 45,
-  "equipmentName": "Máy lạnh Daikin 9000BTU",
-  "beforeImages": ["https://.../before-1.jpg", "https://.../before-2.jpg"],
+  "equipmentId": null,
+  "beforeImages": ["https://.../before-1.jpg"],
   "afterImages": [],
   "rejectImages": [],
-  "createdAt": "2026-07-17T10:00:00"
+  "createdAt": "2026-07-27T10:00:00"
 }
 ```
 
 ---
-
 ### 3.2 Manager tiếp nhận & duyệt
 
 **Bước 1 — Xem danh sách ticket chờ xử lý**
@@ -144,7 +153,7 @@ Lúc này `category` và `priority` vẫn **null** — manager phải chọn tr�
 
 | Field | Bắt buộc | Ghi chú |
 |-------|:--------:|---------|
-| `category` | ✅ | Phân loại sự cố — dùng cho báo cáo chi phí sau này |
+| `category` | ✅ nếu ticket chưa có | Phân loại sự cố — dùng cho báo cáo chi phí sau này |
 | `priority` | ❌ | `LOW` \| `MEDIUM` \| `HIGH` \| `URGENT` — có thể bỏ qua |
 
 **Giá trị `category` (dropdown manager chọn):**
@@ -172,7 +181,7 @@ Lúc này `category` và `priority` vẫn **null** — manager phải chọn tr�
 
 **Lỗi thường gặp:**
 
-- Thiếu `category` → `"Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu"`
+- Thiếu `category` (và ticket cũng chưa có) → `"Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu"`
 - `category` sai giá trị → liệt kê enum hợp lệ
 
 ---

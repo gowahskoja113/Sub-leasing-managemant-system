@@ -116,28 +116,36 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (title.length() > 200) {
             throw new BusinessException("Tiêu đề sự cố không được vượt quá 200 ký tự");
         }
-        if (request.getDescription() == null || request.getDescription().isBlank()) {
-            throw new BusinessException("Mô tả hiện trạng là bắt buộc");
-        }
         String beforeUrls = joinUrls(request.getImages());
         if (beforeUrls == null) {
-            throw new BusinessException("Bắt buộc đính kèm ảnh hiện trạng thiết bị (BEFORE)");
+            throw new BusinessException("Bắt buộc đính kèm ảnh hiện trạng (BEFORE)");
         }
+
+        Long equipmentId = request.getEquipmentId();
+        String category = resolveCreateCategory(equipmentId, request.getCategory());
+
+        String description = request.getDescription() != null && !request.getDescription().isBlank()
+                ? request.getDescription().trim()
+                : null;
 
         MaintenanceRequest req = MaintenanceRequest.builder()
                 .tenant(tenant)
                 .property(room.getProperty())
                 .room(room)
                 .title(title)
-                .description(request.getDescription().trim())
-                .equipmentId(request.getEquipmentId())
+                .description(description)
+                .category(category)
+                .equipmentId(equipmentId)
                 .beforeImageUrls(beforeUrls)
                 .status(MaintenanceStatus.PENDING)
                 .build();
 
         req = repository.save(req);
         appendPhotoHistory(req, MaintenancePhotoType.BEFORE, request.getImages());
-        addTimeline(req, null, MaintenanceStatus.PENDING, "Khách thuê tạo yêu cầu");
+        String timelineNote = category != null
+                ? "Khách thuê tạo yêu cầu [" + category + "]"
+                : "Khách thuê tạo yêu cầu";
+        addTimeline(req, null, MaintenanceStatus.PENDING, timelineNote);
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
                 "Khách thuê " + user.getFullName() + ": \"" + title + "\" — phòng "
@@ -196,14 +204,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceRequest req = findActive(id);
         requireStatus(req, MaintenanceStatus.PENDING);
 
-        String category = parseCategoryRequired(
-                request != null ? request.getCategory() : null);
+        // Tenant có thể đã chọn category lúc tạo (hư hao không gắn thiết bị).
+        // Manager gửi category trên body → ghi đè; không gửi → giữ category sẵn có.
+        String categoryFromBody = request != null ? request.getCategory() : null;
+        String category;
+        if (categoryFromBody != null && !categoryFromBody.isBlank()) {
+            category = parseCategoryRequired(categoryFromBody);
+        } else if (req.getCategory() != null && !req.getCategory().isBlank()) {
+            category = parseCategoryRequired(req.getCategory());
+        } else {
+            throw new BusinessException("Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu");
+        }
+
         String priority = parsePriorityOptional(
                 request != null ? request.getPriority() : null);
 
         MaintenanceStatus old = req.getStatus();
         req.setCategory(category);
-        req.setPriority(priority);
+        if (priority != null) {
+            req.setPriority(priority);
+        }
         req.setStatus(MaintenanceStatus.APPROVED);
         req.setAcknowledgedAt(LocalDateTime.now());
         markRoomMaintenance(req);
@@ -574,9 +594,36 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return clean.isEmpty() ? null : String.join(",", clean);
     }
 
+    /**
+     * Không gắn thiết bị → tenant phải chọn danh mục hư hao (không dùng APPLIANCE/FURNITURE).
+     * Có thiết bị → category tùy chọn (để manager gán khi duyệt).
+     */
+    private static String resolveCreateCategory(Long equipmentId, String rawCategory) {
+        boolean hasEquipment = equipmentId != null;
+        if (hasEquipment) {
+            if (rawCategory == null || rawCategory.isBlank()) {
+                return null;
+            }
+            return parseCategoryRequired(rawCategory);
+        }
+        if (rawCategory == null || rawCategory.isBlank()) {
+            throw new BusinessException(
+                    "Danh mục hư hỏng (category) là bắt buộc khi không chọn trang thiết bị/nội thất. "
+                            + "Chọn một trong: STRUCTURAL, ELECTRICAL, PLUMBING, OTHER");
+        }
+        String category = parseCategoryRequired(rawCategory);
+        if (category.equals(MaintenanceCategory.APPLIANCE.name())
+                || category.equals(MaintenanceCategory.FURNITURE.name())) {
+            throw new BusinessException(
+                    "Hư trang thiết bị/nội thất vui lòng chọn thiết bị (equipmentId). "
+                            + "Danh mục không gắn thiết bị: STRUCTURAL, ELECTRICAL, PLUMBING, OTHER");
+        }
+        return category;
+    }
+
     private static String parseCategoryRequired(String category) {
         if (category == null || category.isBlank()) {
-            throw new BusinessException("Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu");
+            throw new BusinessException("Danh mục sự cố (category) là bắt buộc");
         }
         try {
             return MaintenanceCategory.valueOf(category.trim().toUpperCase()).name();
