@@ -82,7 +82,22 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "electric_meter_captured_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "water_meter_captured_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contract_condition_photos", "captured_at", "TIMESTAMP");
+        ensureOtpVerificationsPurposeConstraint();
 
+    }
+
+    /**
+     * DB constraint otp_verifications_purpose_check chỉ cho phép 'CONTRACT_CONFIRM'.
+     * Enum OtpPurpose đã thêm TENANT_ACTIVATION — cần recreate constraint.
+     */
+    private void ensureOtpVerificationsPurposeConstraint() {
+        jdbcTemplate.execute(
+                "ALTER TABLE otp_verifications DROP CONSTRAINT IF EXISTS otp_verifications_purpose_check");
+        jdbcTemplate.execute("""
+                ALTER TABLE otp_verifications ADD CONSTRAINT otp_verifications_purpose_check
+                    CHECK (purpose IN ('CONTRACT_CONFIRM', 'TENANT_ACTIVATION'))
+                """);
+        log.info("Ensured otp_verifications_purpose_check includes TENANT_ACTIVATION");
     }
 
     private void ensureMaintenanceSimplifiedFlowColumns() {
