@@ -213,6 +213,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
+                .penaltyFee(equipment.getPenaltyFee())
                 .operationalStatus(opStatus.name())
                 .currentEffective(opStatus == com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
                 .renovationSessionNumber(sessionNumber)

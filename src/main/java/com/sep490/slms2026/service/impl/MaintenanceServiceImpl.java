@@ -5,8 +5,11 @@ import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenancePhotoHistoryResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
 import com.sep490.slms2026.dto.response.MaintenanceTimelineResponse;
+import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.CostAgreementStatus;
+import com.sep490.slms2026.enums.CostPaidBy;
 import com.sep490.slms2026.enums.MaintenanceCategory;
 import com.sep490.slms2026.enums.MaintenancePhotoType;
 import com.sep490.slms2026.enums.MaintenancePriority;
@@ -20,6 +23,7 @@ import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.PropertyImageStorage;
 import com.sep490.slms2026.service.PushNotificationService;
+import com.sep490.slms2026.service.TenantPendingChargeService;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +59,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final TenantPendingChargeService tenantPendingChargeService;
 
     /** Số ngày chờ tenant confirm trước khi auto-confirm. */
     @Value("${maintenance.auto-confirm-days:3}")
@@ -255,7 +260,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request) {
         MaintenanceRequest req = findActive(id);
-        requireStatus(req, MaintenanceStatus.APPROVED);
+        // Cho phép gọi lại khi WAITING_TENANT_CONFIRM để sửa cost trước khi khách phản hồi (TC #8)
+        if (req.getStatus() != MaintenanceStatus.APPROVED
+                && req.getStatus() != MaintenanceStatus.WAITING_TENANT_CONFIRM) {
+            throw new BusinessException(
+                    "Yêu cầu phải ở trạng thái APPROVED hoặc WAITING_TENANT_CONFIRM (hiện tại: "
+                            + req.getStatus() + ")");
+        }
+        boolean alreadyWaiting = req.getStatus() == MaintenanceStatus.WAITING_TENANT_CONFIRM;
 
         if (request.getAfterImages() != null && !request.getAfterImages().isEmpty()) {
             appendCsv(req, true, request.getAfterImages());
@@ -265,6 +277,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Bắt buộc phải có ảnh sau sửa chữa (AFTER) trước khi hoàn tất");
         }
 
+        applyCostOnComplete(req, request);
+
         MaintenanceStatus old = req.getStatus();
         req.setResolutionNote(request.getResolutionNote());
         req.setStatus(MaintenanceStatus.WAITING_TENANT_CONFIRM);
@@ -272,9 +286,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         // Giữ nguyên rejectReason / rejectImageUrls vòng trước — lịch sử đầy đủ nằm ở photoHistory
         repository.save(req);
 
-        String note = request.getResolutionNote() != null && !request.getResolutionNote().isBlank()
-                ? "Manager báo sửa xong: " + request.getResolutionNote()
-                : "Manager báo sửa xong, chờ khách thuê xác nhận";
+        String costNote = req.getCostPaidBy() == CostPaidBy.TENANT
+                ? " [Bồi thường khách: " + req.getRepairCost() + "đ]"
+                : " [Chủ nhà chịu chi phí]";
+        String note;
+        if (alreadyWaiting) {
+            note = "Manager cập nhật báo cáo sửa xong / chi phí bồi thường" + costNote;
+        } else if (request.getResolutionNote() != null && !request.getResolutionNote().isBlank()) {
+            note = "Manager báo sửa xong: " + request.getResolutionNote() + costNote;
+        } else {
+            note = "Manager báo sửa xong, chờ khách thuê xác nhận" + costNote;
+        }
         addTimeline(req, old, MaintenanceStatus.WAITING_TENANT_CONFIRM, note);
         return convertToResponse(req);
     }
@@ -284,12 +306,43 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     public MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request) {
         MaintenanceRequest req = findActive(id);
         requireStatus(req, MaintenanceStatus.WAITING_TENANT_CONFIRM);
+        requireTenantOwner(req);
 
         if (request != null && !request.isAccept()) {
             throw new BusinessException("Để từ chối kết quả sửa chữa, dùng API /reject kèm lý do và ảnh");
         }
 
-        return closeRequest(req, "Khách thuê xác nhận đã sửa xong", false);
+        TenantInvoiceResponse issuedInvoice = null;
+        CostAgreementStatus agreement = req.getCostAgreementStatus() != null
+                ? req.getCostAgreementStatus()
+                : CostAgreementStatus.NOT_APPLICABLE;
+
+        if (agreement == CostAgreementStatus.PENDING) {
+            if (request == null || request.getAgreeToCharge() == null) {
+                throw new BusinessException(
+                        "Ticket có khoản bồi thường đang chờ xác nhận — gửi agreeToCharge=true|false");
+            }
+            if (Boolean.TRUE.equals(request.getAgreeToCharge())) {
+                req.setCostAgreementStatus(CostAgreementStatus.AGREED);
+                req.setCostDisputeReason(null);
+                issuedInvoice = issueMaintenanceCharge(req);
+            } else {
+                req.setCostAgreementStatus(CostAgreementStatus.DISPUTED);
+                String reason = request.getChargeDisputeReason() != null
+                        ? request.getChargeDisputeReason().trim()
+                        : null;
+                req.setCostDisputeReason(isBlank(reason) ? null : reason);
+                notifyPropertyManager(req,
+                        "Khách thuê khiếu nại chi phí bồi thường",
+                        "Yêu cầu #" + req.getId() + " đã đóng nhưng khách khiếu nại số tiền "
+                                + req.getRepairCost() + "đ"
+                                + (isBlank(reason) ? "" : ". Lý do: " + reason));
+            }
+        }
+
+        MaintenanceRequestResponse response = closeRequest(req, "Khách thuê xác nhận đã sửa xong", false);
+        response.setIssuedInvoice(issuedInvoice);
+        return response;
     }
 
     @Override
@@ -348,6 +401,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setAfterImageUrls(null);
             req.setDoneAt(null);
             req.setResolutionNote(null);
+            clearCostFields(req);
             repository.save(req);
             addTimeline(req, old, MaintenanceStatus.APPROVED,
                     "Manager chấp nhận từ chối của khách, quay lại bước chờ sửa chữa");
@@ -429,10 +483,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     // ---------- helpers ----------
 
+    /**
+     * Auto-confirm chỉ đóng ticket theo chất lượng sửa — KHÔNG ép đồng ý bồi thường / không tạo charge.
+     * Nếu costAgreementStatus còn PENDING thì giữ nguyên để manager xử lý tay.
+     */
     private MaintenanceRequestResponse closeRequest(MaintenanceRequest req, String timelineNote, boolean auto) {
         MaintenanceStatus old = req.getStatus();
         req.setStatus(MaintenanceStatus.CLOSED);
         req.setTenantConfirmedAt(LocalDateTime.now());
+        if (auto && req.getCostAgreementStatus() == CostAgreementStatus.PENDING) {
+            // Không set AGREED — không thu tiền khi khách im lặng về chi phí
+            timelineNote = timelineNote
+                    + " (chi phí bồi thường vẫn PENDING — không tự thu)";
+        }
         repository.save(req);
         restoreRoomStatus(req);
         addTimeline(req, old, MaintenanceStatus.CLOSED, timelineNote);
@@ -442,6 +505,79 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "Yêu cầu #" + req.getId() + " đã được hệ thống tự xác nhận do khách thuê không phản hồi.");
         }
         return convertToResponse(req);
+    }
+
+    private void applyCostOnComplete(MaintenanceRequest req, MaintenanceCompleteRequest request) {
+        CostPaidBy paidBy = request.getCostPaidBy() != null ? request.getCostPaidBy() : CostPaidBy.HOST;
+        req.setCostPaidBy(paidBy);
+        req.setCostDisputeReason(null);
+
+        if (paidBy == CostPaidBy.TENANT) {
+            if (request.getCause() == null) {
+                throw new BusinessException("Nguyên nhân hư hỏng (cause) là bắt buộc khi khách thuê chịu chi phí");
+            }
+            if (request.getRepairCost() == null || request.getRepairCost().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException("Số tiền bồi thường (repairCost) phải lớn hơn 0 khi khách thuê chịu chi phí");
+            }
+            req.setCause(request.getCause());
+            req.setRepairCost(request.getRepairCost());
+            req.setCostAgreementStatus(CostAgreementStatus.PENDING);
+        } else {
+            req.setCause(request.getCause());
+            req.setRepairCost(request.getRepairCost());
+            req.setCostAgreementStatus(CostAgreementStatus.NOT_APPLICABLE);
+        }
+    }
+
+    private void clearCostFields(MaintenanceRequest req) {
+        req.setCostPaidBy(CostPaidBy.HOST);
+        req.setCause(null);
+        req.setRepairCost(null);
+        req.setCostAgreementStatus(CostAgreementStatus.NOT_APPLICABLE);
+        req.setCostDisputeReason(null);
+    }
+
+    private TenantInvoiceResponse issueMaintenanceCharge(MaintenanceRequest req) {
+        TenantContract contract = resolveActiveContract(req);
+        String note = "Bồi thường bảo trì #" + req.getId()
+                + (req.getTitle() != null ? " — " + req.getTitle() : "");
+        return tenantPendingChargeService.createAndIssueMaintenanceCharge(
+                contract, req.getRepairCost(), req.getId(), note);
+    }
+
+    private TenantContract resolveActiveContract(MaintenanceRequest req) {
+        UUID tenantUserId = req.getTenant() != null && req.getTenant().getUser() != null
+                ? req.getTenant().getUser().getId()
+                : null;
+        if (tenantUserId == null) {
+            throw new BusinessException("Ticket không có thông tin khách thuê");
+        }
+
+        TenantContract contract = null;
+        if (req.getRoom() != null) {
+            contract = tenantContractRepository
+                    .findByRoomIdAndStatus(req.getRoom().getId(), ContractStatus.ACTIVE)
+                    .orElse(null);
+            if (contract == null && req.getProperty() != null) {
+                // Nguyên căn: HĐ room=null bao phủ mọi phòng
+                contract = tenantContractRepository
+                        .findByPropertyIdAndRoomIsNullAndStatus(req.getProperty().getId(), ContractStatus.ACTIVE)
+                        .orElse(null);
+            }
+        } else if (req.getProperty() != null) {
+            contract = tenantContractRepository
+                    .findByPropertyIdAndRoomIsNullAndStatus(req.getProperty().getId(), ContractStatus.ACTIVE)
+                    .orElse(null);
+        }
+
+        if (contract == null
+                || contract.getTenant() == null
+                || contract.getTenant().getUser() == null
+                || !tenantUserId.equals(contract.getTenant().getUser().getId())) {
+            throw new BusinessException(
+                    "Không tìm thấy hợp đồng ACTIVE của khách thuê để tạo hoá đơn bồi thường");
+        }
+        return contract;
     }
 
     private MaintenanceRequest findActive(Long id) {
@@ -755,6 +891,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         res.setResolutionNote(req.getResolutionNote());
         res.setCostPaidBy(req.getCostPaidBy());
         res.setCause(req.getCause());
+        res.setCostAgreementStatus(req.getCostAgreementStatus() != null
+                ? req.getCostAgreementStatus()
+                : CostAgreementStatus.NOT_APPLICABLE);
+        res.setCostDisputeReason(req.getCostDisputeReason());
         res.setReopenCount(req.getReopenCount());
         res.setRejectReason(req.getRejectReason());
         res.setAcknowledgedAt(req.getAcknowledgedAt());

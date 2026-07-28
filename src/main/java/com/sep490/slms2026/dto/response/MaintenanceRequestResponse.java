@@ -53,7 +53,15 @@ public class MaintenanceRequestResponse {
     
     private CostPaidBy costPaidBy;
     private DamageCause cause;
+    private CostAgreementStatus costAgreementStatus;
+    private String costDisputeReason;
     private Integer reopenCount;
+
+    /**
+     * Hoá đơn bồi thường vừa tạo khi tenant confirm + agreeToCharge=true.
+     * Null ở các response khác.
+     */
+    private TenantInvoiceResponse issuedInvoice;
 
     private String rejectReason;
     private List<String> beforeImages;

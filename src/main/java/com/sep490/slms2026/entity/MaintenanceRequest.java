@@ -102,6 +102,15 @@ public class MaintenanceRequest implements Serializable {
     // repairCost is BigDecimal in main, Long in maintenance. We keep main's BigDecimal.
     private BigDecimal repairCost;
 
+    /** Đồng ý bồi thường — độc lập với status chính của ticket. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cost_agreement_status")
+    @Builder.Default
+    private CostAgreementStatus costAgreementStatus = CostAgreementStatus.NOT_APPLICABLE;
+
+    @Column(name = "cost_dispute_reason", columnDefinition = "TEXT")
+    private String costDisputeReason;
+
     @Column(name = "resolution_note", columnDefinition = "TEXT")
     private String resolutionNote;
 
