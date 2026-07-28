@@ -174,6 +174,7 @@ Mã HĐ **phải đã import đợt 1**, Property `UNDER_RENOVATION`.
 | Số tháng bảo hành | Có | > 0 |
 | Ngày bắt đầu bảo hành | Có | `YYYY-MM-DD` |
 | Ngày hết bảo hành | Có | Sau ngày bắt đầu |
+| Giá phạt hết bảo hành (VNĐ) | Có | > 0 — mức phạt cố định khi hết BH, khách làm hỏng |
 | Ghi chú lắp đặt | Không | |
 
 ### 4.6. Sau đợt 2

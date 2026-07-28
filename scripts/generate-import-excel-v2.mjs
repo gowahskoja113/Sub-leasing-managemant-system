@@ -81,9 +81,9 @@ const scenarios = [
       ['FLOORING', 'Sàn nhà', 12_000_000, 'Sàn gỗ phòng ngủ'],
     ],
     purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 16_500_000, 36, '2026-04-01', '2029-03-31', 'Điều hòa multi phòng khách'],
-      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 5_500_000, 24, '2026-04-01', '2028-03-31', 'Bếp từ nhà bếp'],
-      ['', 'BATHROOM', 'Nóng lạnh', 'NEW', 'THEM_MOI', 2, 2_800_000, 12, '2026-04-01', '2027-03-31', 'Nóng lạnh 2 WC'],
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 16_500_000, 36, '2026-04-01', '2029-03-31', 4_950_000, 'Điều hòa multi phòng khách'],
+      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 5_500_000, 24, '2026-04-01', '2028-03-31', 1_650_000, 'Bếp từ nhà bếp'],
+      ['', 'BATHROOM', 'Nóng lạnh', 'NEW', 'THEM_MOI', 2, 2_800_000, 12, '2026-04-01', '2027-03-31', 840_000, 'Nóng lạnh 2 WC'],
     ],
     supplement: {
       renovations: [
@@ -91,8 +91,8 @@ const scenarios = [
         ['EQUIPMENT', 'Thiết bị', 3_500_000, 'Thay router WiFi toàn nhà'],
       ],
       purchased: [
-        ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THAY_THE', 1, 18_500_000, 36, '2027-01-01', '2030-12-31', 'Thay điều hòa mới phòng khách'],
-        ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 2, 1_200_000, 12, '2027-01-01', '2027-12-31', 'Thêm quạt trần — giữ đồ cũ'],
+        ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THAY_THE', 1, 18_500_000, 36, '2027-01-01', '2030-12-31', 5_550_000, 'Thay điều hòa mới phòng khách'],
+        ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 2, 1_200_000, 12, '2027-01-01', '2027-12-31', 360_000, 'Thêm quạt trần — giữ đồ cũ'],
       ],
     },
     matrixNote: 'Thuê nguyên căn — giữ nguyên căn sau cải tạo + mua nội thất',
@@ -193,8 +193,8 @@ const scenarios = [
     supplement: {
       renovations: [['PLUMBING', 'Điện nước', 6_000_000, 'Sửa rò rỉ phòng 102']],
       purchased: [
-        ['102', '', 'Điều hòa', 'NEW', 'THAY_THE', 1, 9_500_000, 24, '2027-03-01', '2029-02-28', 'Thay điều hòa phòng 102'],
-        ['103', '', 'Giường', 'NEW', 'THEM_MOI', 1, 4_500_000, 12, '2027-03-01', '2028-02-28', 'Thêm giường tầng phòng 103'],
+        ['102', '', 'Điều hòa', 'NEW', 'THAY_THE', 1, 9_500_000, 24, '2027-03-01', '2029-02-28', 2_850_000, 'Thay điều hòa phòng 102'],
+        ['103', '', 'Giường', 'NEW', 'THEM_MOI', 1, 4_500_000, 12, '2027-03-01', '2028-02-28', 1_350_000, 'Thêm giường tầng phòng 103'],
       ],
     },
     matrixNote: 'Thuê nguyên căn đợt 1 — đợt 2 chia 5 phòng + mua TB từng phòng',
@@ -230,7 +230,7 @@ const scenarios = [
     supplement: {
       renovations: [['OTHER', 'Khác', 4_000_000, 'Lắp camera an ninh']],
       purchased: [
-        ['105', '', 'Nóng lạnh', 'NEW', 'THEM_MOI', 1, 2_600_000, 12, '2027-06-01', '2028-05-31', 'Lắp nóng lạnh phòng 105'],
+        ['105', '', 'Nóng lạnh', 'NEW', 'THEM_MOI', 1, 2_600_000, 12, '2027-06-01', '2028-05-31', 780_000, 'Lắp nóng lạnh phòng 105'],
       ],
     },
     matrixNote: 'Nhà trọ 8 phòng — cải tạo kết cấu + TB từng phòng',
@@ -283,9 +283,9 @@ const scenarios = [
       ['EQUIPMENT', 'Thiết bị', 2_000_000, 'Hoàn thiện lắp đặt trước bàn giao TB mới'],
     ],
     purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 12_000_000, 24, '2026-09-01', '2028-08-31', ''],
-      ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THEM_MOI', 1, 8_500_000, 24, '2026-09-01', '2028-08-31', ''],
-      ['', 'BATHROOM', 'Máy giặt', 'NEW', 'THEM_MOI', 1, 6_200_000, 12, '2026-09-01', '2027-08-31', 'Máy giặt cửa trước'],
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 12_000_000, 24, '2026-09-01', '2028-08-31', 3_600_000, ''],
+      ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THEM_MOI', 1, 8_500_000, 24, '2026-09-01', '2028-08-31', 2_550_000, ''],
+      ['', 'BATHROOM', 'Máy giặt', 'NEW', 'THEM_MOI', 1, 6_200_000, 12, '2026-09-01', '2027-08-31', 1_860_000, 'Máy giặt cửa trước'],
     ],
     matrixNote: 'NGUYEN_CAN — 1 hạng mục cải tạo nhẹ + mua TB',
   },
@@ -365,9 +365,9 @@ const scenarios = [
       ['OTHER', 'Khác', 8_000_000, 'Hệ thống đèn LED'],
     ],
     purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 2, 14_000_000, 36, '2026-06-01', '2029-05-31', '2 máy phòng khách'],
-      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 7_200_000, 24, '2026-06-01', '2028-05-31', ''],
-      ['', 'GARAGE', 'Khác', 'NEW', 'THEM_MOI', 1, 3_000_000, 12, '2026-06-01', '2027-05-31', 'Camera an ninh'],
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 2, 14_000_000, 36, '2026-06-01', '2029-05-31', 4_200_000, '2 máy phòng khách'],
+      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 7_200_000, 24, '2026-06-01', '2028-05-31', 2_160_000, ''],
+      ['', 'GARAGE', 'Khác', 'NEW', 'THEM_MOI', 1, 3_000_000, 12, '2026-06-01', '2027-05-31', 900_000, 'Camera an ninh'],
     ],
     matrixNote: 'NGUYEN_CAN — nhiều hạng mục cải tạo STRUCTURAL + mua TB',
   },
@@ -449,14 +449,14 @@ const scenarios = [
       ['FURNITURE', 'Nội thất', 90_000_000, 'Nội thất full'],
     ],
     purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 3, 17_000_000, 36, '2026-04-15', '2029-04-14', 'Bổ sung phòng ngủ'],
-      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 12_000_000, 36, '2026-04-15', '2029-04-14', ''],
-      ['', 'BALCONY', 'Quạt', 'NEW', 'THEM_MOI', 2, 900_000, 12, '2026-04-15', '2027-04-14', ''],
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 3, 17_000_000, 36, '2026-04-15', '2029-04-14', 5_100_000, 'Bổ sung phòng ngủ'],
+      ['', 'KITCHEN', 'Bếp từ', 'NEW', 'THEM_MOI', 1, 12_000_000, 36, '2026-04-15', '2029-04-14', 3_600_000, ''],
+      ['', 'BALCONY', 'Quạt', 'NEW', 'THEM_MOI', 2, 900_000, 12, '2026-04-15', '2027-04-14', 270_000, ''],
     ],
     supplement: {
       renovations: [['FLOORING', 'Sàn nhà', 18_000_000, 'Thay sàn gỗ phòng master']],
       purchased: [
-        ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THAY_THE', 1, 22_000_000, 36, '2027-08-01', '2030-07-31', 'Thay tủ lạnh lớn hơn'],
+        ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THAY_THE', 1, 22_000_000, 36, '2027-08-01', '2030-07-31', 6_600_000, 'Thay tủ lạnh lớn hơn'],
       ],
     },
     matrixNote: 'Hà Nội NGUYEN_CAN — biệt thự cao cấp',
@@ -553,6 +553,7 @@ function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart, sub
     const endYear = parseInt(start.slice(0, 4), 10) + Math.floor(m / 12);
     const endMonth = parseInt(start.slice(5, 7), 10) + (m % 12);
     const end = `${endYear}-${String(((endMonth - 1) % 12) + 1).padStart(2, '0')}-28`;
+    const price = prices[catIdx];
     return [
       contractCode,
       roomNumber,
@@ -561,10 +562,11 @@ function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart, sub
       'NEW',
       'THEM_MOI',
       1,
-      prices[catIdx],
+      price,
       m,
       start,
       end,
+      Math.round(price * 0.3),
       `Lắp mới phòng ${roomNumber}`,
     ];
   });
@@ -666,6 +668,7 @@ const purchasedHeader = [
   'Số tháng bảo hành',
   'Ngày bắt đầu bảo hành',
   'Ngày hết bảo hành',
+  'Giá phạt hết bảo hành (VNĐ)',
   'Ghi chú lắp đặt',
 ];
 
