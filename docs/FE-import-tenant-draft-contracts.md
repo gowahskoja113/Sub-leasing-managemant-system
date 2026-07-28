@@ -145,6 +145,10 @@ PDF nháp map: `${tenantCccdIssueDate}`, `${tenantCccdIssuePlace}` (kèm `${tena
 3. `POST /tenant-draft-contracts-excel` → tạo các HĐ `DRAFT`
 4. Manager mở danh sách nháp → onboarding / thu cọc như luồng tay
 
+**Case full nội thất có sẵn trong file mẫu:**
+- `HD-MTX-11-NORENO-FULL` — nguyên căn, full nội thất, không cần đợt 2
+- `HD-MTX-13-RENO-RM-FULL` — theo phòng, full nội thất, mẫu phòng `101`
+
 ---
 
 ## 7. FE checklist

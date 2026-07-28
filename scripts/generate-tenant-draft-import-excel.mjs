@@ -33,6 +33,8 @@ const guide = [
   ['HD-MTX-07-RENO-RM-NOFURN', 'MTX#07 THEO_PHONG cải tạo', 'THEO_PHONG', '101, 102, 103'],
   ['HD-MTX-08-RENO-RM-EQUIP', 'MTX#08 THEO_PHONG mua TB', 'THEO_PHONG', '101, 102, 103'],
   ['HD-MTX-10-RENO-RM-HO-EQUIP', 'MTX#10 THEO_PHONG đủ', 'THEO_PHONG', '101, 102, 103'],
+  ['HD-MTX-11-NORENO-FULL', 'MTX#11 NORENO full NT', 'NGUYEN_CAN', '—'],
+  ['HD-MTX-13-RENO-RM-FULL', 'MTX#13 THEO_PHONG full NT', 'THEO_PHONG', '101, 102, 103, 104'],
 ];
 
 // Lấy đúng mã từ generate-import-excel-matrix.mjs
@@ -163,6 +165,48 @@ const demoRows = [
     10_000_000,
     '2026-09-01',
   ],
+  // Nguyên căn full nội thất — MTX#11
+  [
+    'HD-MTX-11-NORENO-FULL',
+    '',
+    'MTX#11 NORENO full NT',
+    'NGUYEN_CAN',
+    '',
+    'Vũ Gia Khang',
+    '079085001006',
+    '0901000006',
+    '1994-02-14',
+    '2018-09-10',
+    'CA Tân Bình',
+    '88 Cộng Hòa, Tân Bình, TP.HCM',
+    '2026-10-01',
+    '2027-09-30',
+    11_500_000,
+    2,
+    23_000_000,
+    '2026-10-01',
+  ],
+  // Theo phòng full nội thất — MTX#13 phòng 101
+  [
+    'HD-MTX-13-RENO-RM-FULL',
+    '',
+    'MTX#13 THEO_PHONG full NT',
+    'THEO_PHONG',
+    '101',
+    'Đỗ Minh Trang',
+    '079085001007',
+    '0901000007',
+    '1997-11-09',
+    '2021-04-22',
+    'CA Thủ Đức',
+    '120 Võ Văn Ngân, Thủ Đức, TP.HCM',
+    '2026-10-15',
+    '2027-10-14',
+    5_800_000,
+    1,
+    5_800_000,
+    '2026-10-15',
+  ],
 ];
 
 const wb = XLSX.utils.book_new();
@@ -177,6 +221,8 @@ const refRows = [
   ['HD-MTX-07-RENO-RM-NOFURN', 'MTX#07 THEO_PHONG cải tạo', 'THEO_PHONG', 'Phòng 101–103'],
   ['HD-MTX-08-RENO-RM-EQUIP', 'MTX#08 THEO_PHONG mua TB', 'THEO_PHONG', 'Phòng 101–103'],
   ['HD-MTX-10-RENO-RM-HO-EQUIP', 'MTX#10 THEO_PHONG đủ', 'THEO_PHONG', 'Phòng 101–103'],
+  ['HD-MTX-11-NORENO-FULL', 'MTX#11 NORENO full NT', 'NGUYEN_CAN', 'Case full nội thất, import đợt 1 là đủ'],
+  ['HD-MTX-13-RENO-RM-FULL', 'MTX#13 THEO_PHONG full NT', 'THEO_PHONG', 'Case full nội thất theo phòng 101–104'],
 ];
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([refHeaders, ...refRows]), '0. Tham_Chieu_BDS');
 
