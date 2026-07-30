@@ -434,16 +434,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chỉ có thể cải tạo lại khi tòa nhà đang ACTIVE");
         }
 
-        if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
-            if (rentedCount > 0) {
-                throw new BusinessException(
-                        "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
-            }
-        }
-
         property.setStatus(PropertyStatus.UNDER_RENOVATION);
         property.setRenovationCompleted(false);
+        property.setHasRenovation(true);
 
         int nextSessionNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId) + 1;
         renovationSessionRepository.save(RenovationSession.builder()
