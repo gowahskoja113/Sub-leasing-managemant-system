@@ -230,7 +230,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public MaintenanceRequestResponse getRequestById(Long id) {
-        return convertToResponse(findActive(id));
+        MaintenanceRequest req = findActive(id);
+        assertCanViewRequest(req);
+        return convertToResponse(req);
     }
 
     @Override
@@ -270,6 +272,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request) {
         MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.PENDING);
 
         // Tenant có thể đã chọn category lúc tạo (hư hao không gắn thiết bị).
@@ -282,6 +285,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             category = parseCategoryRequired(req.getCategory());
         } else {
             throw new BusinessException("Danh mục sự cố (category) là bắt buộc khi duyệt yêu cầu");
+        }
+        if (req.getEquipmentId() == null
+                && (MaintenanceCategory.APPLIANCE.name().equals(category)
+                || MaintenanceCategory.FURNITURE.name().equals(category))) {
+            throw new BusinessException(
+                    "Ticket không gắn thiết bị — không thể phân loại Trang thiết bị/Nội thất. "
+                            + "Chọn: STRUCTURAL, ELECTRICAL, PLUMBING, OTHER");
         }
 
         String priority = parsePriorityOptional(
@@ -305,6 +315,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request) {
         MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
         // Cho phép gọi lại khi WAITING_TENANT_CONFIRM để sửa cost trước khi khách phản hồi (TC #8)
         if (req.getStatus() != MaintenanceStatus.APPROVED
                 && req.getStatus() != MaintenanceStatus.WAITING_TENANT_CONFIRM) {
@@ -435,6 +446,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse reviewReject(Long id, MaintenanceApproveRequest request) {
         MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.REJECTED);
 
         MaintenanceStatus old = req.getStatus();
@@ -524,16 +536,36 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse cancel(Long id, String reason) {
         MaintenanceRequest req = findActive(id);
-        if (req.getStatus() == MaintenanceStatus.CLOSED || req.getStatus() == MaintenanceStatus.CANCELLED) {
-            throw new BusinessException("Không thể hủy yêu cầu ở trạng thái " + req.getStatus());
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        boolean tenantSelfCancel = "ROLE_TENANT".equals(role);
+
+        if (tenantSelfCancel) {
+            requireTenantOwner(req);
+            if (req.getStatus() != MaintenanceStatus.PENDING) {
+                throw new BusinessException(
+                        "Chỉ hủy được yêu cầu đang chờ duyệt (PENDING). Trạng thái hiện tại: " + req.getStatus());
+            }
+        } else {
+            requireManagerAccess(req);
+            if (req.getStatus() == MaintenanceStatus.CLOSED || req.getStatus() == MaintenanceStatus.CANCELLED) {
+                throw new BusinessException("Không thể hủy yêu cầu ở trạng thái " + req.getStatus());
+            }
         }
 
         MaintenanceStatus old = req.getStatus();
         req.setStatus(MaintenanceStatus.CANCELLED);
         repository.save(req);
         restoreRoomStatus(req);
-        addTimeline(req, old, MaintenanceStatus.CANCELLED,
-                reason != null && !reason.isBlank() ? reason : "Manager hủy yêu cầu");
+        String timelineNote;
+        if (tenantSelfCancel) {
+            timelineNote = reason != null && !reason.isBlank()
+                    ? reason.trim()
+                    : "Khách thuê tự hủy yêu cầu";
+        } else {
+            timelineNote = reason != null && !reason.isBlank() ? reason : "Manager hủy yêu cầu";
+        }
+        addTimeline(req, old, MaintenanceStatus.CANCELLED, timelineNote);
         return convertToResponse(req);
     }
 
@@ -541,6 +573,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     @Transactional
     public MaintenanceRequestResponse uploadPhotos(Long id, List<MultipartFile> files, String type) {
         MaintenanceRequest req = findActive(id);
+        assertCanUploadPhotos(req, type);
         List<String> newUrls = storeFiles(id, files);
         if (newUrls.isEmpty()) {
             return convertToResponse(req);
@@ -768,6 +801,30 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         UUID opManager = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
         if (!userId.equals(managedBy) && !userId.equals(opManager)) {
             throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+        }
+    }
+
+    private void assertCanViewRequest(MaintenanceRequest req) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            requireTenantOwner(req);
+        } else if ("ROLE_MANAGER".equals(role)) {
+            requireManagerAccess(req);
+        }
+        // ROLE_ADMIN: pass
+    }
+
+    private void assertCanUploadPhotos(MaintenanceRequest req, String type) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            requireTenantOwner(req);
+            if (!"BEFORE".equalsIgnoreCase(type) && !"REJECT".equalsIgnoreCase(type)) {
+                throw new BusinessException("Khách thuê chỉ được upload ảnh BEFORE hoặc REJECT");
+            }
+        } else {
+            requireManagerAccess(req);
         }
     }
 

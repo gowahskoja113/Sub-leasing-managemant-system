@@ -135,7 +135,7 @@ public class MaintenanceController {
     }
 
     @PutMapping("/{id}/cancel")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
     public MaintenanceRequestResponse cancel(
             @PathVariable Long id,
             @RequestParam(required = false) String reason) {
