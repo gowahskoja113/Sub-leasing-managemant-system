@@ -14,7 +14,9 @@ import com.sep490.slms2026.enums.MaintenanceCategory;
 import com.sep490.slms2026.enums.MaintenancePhotoType;
 import com.sep490.slms2026.enums.MaintenancePriority;
 import com.sep490.slms2026.enums.MaintenanceStatus;
+import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
@@ -888,25 +890,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     private void notifyPropertyHost(MaintenanceRequest req, String title, String body) {
-        if (req.getProperty() == null || req.getProperty().getManagedBy() == null) {
-            return;
-        }
-        UUID hostUserId = req.getProperty().getManagedBy();
+        // Host Portal hiện coi mọi property là chung (findAll) — escalation broadcast
+        // tới toàn bộ ROLE_OWNER thay vì property.managedBy (đó là Manager, không phải Host).
         String dedupeKey = "maintenance-reopen-escalation:" + req.getId() + ":" + (req.getReopenCount() != null
                 ? req.getReopenCount()
                 : 0);
-        if (hostNotificationRepository.existsByUserIdAndDedupeKey(hostUserId, dedupeKey)) {
-            return;
+        List<User> hosts = userRepository.findByRoleAndStatus(Role.ROLE_OWNER, UserStatus.ACTIVE);
+        for (User host : hosts) {
+            if (hostNotificationRepository.existsByUserIdAndDedupeKey(host.getId(), dedupeKey)) {
+                continue;
+            }
+            hostNotificationRepository.save(HostNotification.builder()
+                    .userId(host.getId())
+                    .dedupeKey(dedupeKey)
+                    .type("MAINTENANCE_REOPEN_ESCALATION")
+                    .title(title)
+                    .message(body)
+                    .priority("HIGH")
+                    .read(false)
+                    .build());
         }
-        hostNotificationRepository.save(HostNotification.builder()
-                .userId(hostUserId)
-                .dedupeKey(dedupeKey)
-                .type("MAINTENANCE_REOPEN_ESCALATION")
-                .title(title)
-                .message(body)
-                .priority("HIGH")
-                .read(false)
-                .build());
     }
 
     private void saveAndPush(UUID userId, String pushToken, String title, String body, Long requestId) {
