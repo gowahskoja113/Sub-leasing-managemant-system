@@ -66,6 +66,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         backfillEquipmentQrCodes();
         ensureMaintenanceTables();
         ensureMaintenanceSimplifiedFlowColumns();
+        ensureCostAgreementStatusConstraint();
         ensureMaintenanceImagesPhotoHistory();
         migrateMaintenanceStatusesToSimplifiedFlow();
         ensureTenantPendingChargesTable();
@@ -160,6 +161,22 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("maintenance_requests", "reject_reason", "TEXT");
         addColumnIfNotExists("maintenance_requests", "reject_image_urls", "TEXT");
         addColumnIfNotExists("maintenance_requests", "tenant_contract_id", "BIGINT REFERENCES tenant_contracts(id)");
+    }
+
+    private void ensureCostAgreementStatusConstraint() {
+        jdbcTemplate.execute(
+                "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_cost_agreement_status_check");
+        jdbcTemplate.execute("""
+                ALTER TABLE maintenance_requests ADD CONSTRAINT maintenance_requests_cost_agreement_status_check
+                    CHECK (cost_agreement_status::text = ANY (ARRAY[
+                        'NOT_APPLICABLE',
+                        'PENDING',
+                        'AGREED',
+                        'DISPUTED',
+                        'WAIVED'
+                    ]::text[]))
+                """);
+        log.info("Ensured maintenance_requests_cost_agreement_status_check includes WAIVED");
     }
 
     /** Map legacy maintenance statuses sang flow rút gọn. */
