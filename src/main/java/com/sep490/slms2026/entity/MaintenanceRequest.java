@@ -39,6 +39,10 @@ public class MaintenanceRequest implements Serializable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_id", nullable = true)
     private Room room;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tenant_contract_id")
+    private TenantContract tenantContract;
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "equipment_id", insertable = false, updatable = false)

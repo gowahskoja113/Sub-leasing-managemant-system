@@ -43,6 +43,10 @@ public interface MaintenanceService {
      */
     MaintenanceRequestResponse reviewReject(Long id, MaintenanceApproveRequest request);
 
+    List<MaintenanceRequestResponse> getPendingCostResolution(Long propertyId, Long roomId);
+
+    MaintenanceRequestResponse resolveCost(Long id, MaintenanceResolveCostRequest request);
+
     /** Manager hủy yêu cầu */
     MaintenanceRequestResponse cancel(Long id, String reason);
 

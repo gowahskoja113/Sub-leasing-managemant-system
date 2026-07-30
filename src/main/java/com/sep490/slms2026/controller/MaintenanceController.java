@@ -57,6 +57,14 @@ public class MaintenanceController {
         return maintenanceService.getDashboardStats();
     }
 
+    @GetMapping("/pending-cost-resolution")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public List<MaintenanceRequestResponse> getPendingCostResolution(
+            @RequestParam(required = false) Long propertyId,
+            @RequestParam(required = false) Long roomId) {
+        return maintenanceService.getPendingCostResolution(propertyId, roomId);
+    }
+
     /** Manager duyệt yêu cầu → chờ thợ ngoài sửa. */
     @PutMapping("/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -116,6 +124,14 @@ public class MaintenanceController {
             @PathVariable Long id,
             @RequestBody MaintenanceApproveRequest request) {
         return maintenanceService.reviewReject(id, request);
+    }
+
+    @PutMapping("/{id}/resolve-cost")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse resolveCost(
+            @PathVariable Long id,
+            @RequestBody MaintenanceResolveCostRequest request) {
+        return maintenanceService.resolveCost(id, request);
     }
 
     @PutMapping("/{id}/cancel")

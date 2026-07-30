@@ -58,6 +58,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
+    private final HostNotificationRepository hostNotificationRepository;
     private final PushNotificationService pushNotificationService;
     private final TenantPendingChargeService tenantPendingChargeService;
 
@@ -106,6 +107,38 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
+    public List<MaintenanceRequestResponse> getPendingCostResolution(Long propertyId, Long roomId) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+
+        Specification<MaintenanceRequest> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.isFalse(root.get("deleted")));
+            predicates.add(root.get("costAgreementStatus").in(
+                    CostAgreementStatus.PENDING,
+                    CostAgreementStatus.DISPUTED));
+
+            if (propertyId != null) {
+                predicates.add(cb.equal(root.join("property").get("id"), propertyId));
+            }
+            if (roomId != null) {
+                predicates.add(cb.equal(root.join("room").get("id"), roomId));
+            }
+
+            if ("ROLE_MANAGER".equals(role)) {
+                Predicate managedBy = cb.equal(root.join("property").get("managedBy"), user.getId());
+                Predicate opManager = cb.equal(root.join("property").get("operationManagerId"), user.getId());
+                predicates.add(cb.or(managedBy, opManager));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     @Transactional
     public MaintenanceRequestResponse createRequest(MaintenanceCreateRequest request) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
@@ -114,15 +147,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         Room room = null;
         Property property;
+        TenantContract tenantContract;
         if (request.getRoomId() != null) {
             room = roomRepository.findById(request.getRoomId())
                     .orElseThrow(() -> new ResourceNotFoundException("Phòng không tồn tại"));
             property = room.getProperty();
-            assertTenantOwnsActiveUnit(user.getId(), room, property.getId());
+            tenantContract = assertTenantOwnsActiveUnit(user.getId(), room, property.getId());
         } else if (request.getPropertyId() != null) {
             property = propertyRepository.findById(request.getPropertyId())
                     .orElseThrow(() -> new ResourceNotFoundException("Bất động sản không tồn tại"));
-            assertTenantOwnsActiveWholeHouse(user.getId(), property.getId());
+            tenantContract = assertTenantOwnsActiveWholeHouse(user.getId(), property.getId());
         } else {
             throw new BusinessException(
                     "Thiếu vị trí sự cố: gửi roomId (thuê theo phòng) hoặc propertyId (thuê nguyên căn)");
@@ -151,6 +185,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .tenant(tenant)
                 .property(property)
                 .room(room)
+                .tenantContract(tenantContract)
                 .title(title)
                 .description(description)
                 .category(category)
@@ -409,11 +444,70 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         // Manager không đồng ý reopen → yêu cầu tenant xác nhận lại
+        String note = request != null && request.getNote() != null ? request.getNote().trim() : null;
+        if (isBlank(note)) {
+            throw new BusinessException("Bắt buộc nhập lý do khi không đồng ý yêu cầu sửa lại");
+        }
         req.setStatus(MaintenanceStatus.WAITING_TENANT_CONFIRM);
         repository.save(req);
+        if ((req.getReopenCount() != null ? req.getReopenCount() : 0) >= 2) {
+            notifyPropertyHost(req,
+                    "Ticket bảo trì bị từ chối nhiều lần",
+                    "Ticket #" + req.getId() + " đã bị từ chối "
+                            + req.getReopenCount() + " lần, cần xem xét thêm.");
+        }
         addTimeline(req, old, MaintenanceStatus.WAITING_TENANT_CONFIRM,
-                "Manager không đồng ý reopen; yêu cầu khách thuê xác nhận lại kết quả sửa");
+                "Manager giữ nguyên kết quả sửa chữa: " + note);
         return convertToResponse(req);
+    }
+
+    @Override
+    @Transactional
+    public MaintenanceRequestResponse resolveCost(Long id, MaintenanceResolveCostRequest request) {
+        MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
+        if (req.getCostAgreementStatus() != CostAgreementStatus.PENDING
+                && req.getCostAgreementStatus() != CostAgreementStatus.DISPUTED) {
+            throw new BusinessException("Không có khoản chi phí nào đang chờ xử lý cho ticket này");
+        }
+        if (request == null || request.getAction() == null || request.getAction().isBlank()) {
+            throw new BusinessException("action là bắt buộc và chỉ nhận CHARGE hoặc WAIVE");
+        }
+
+        String action = request.getAction().trim().toUpperCase();
+        TenantInvoiceResponse issuedInvoice = null;
+        if ("CHARGE".equals(action)) {
+            if (request.getRepairCost() != null) {
+                if (request.getRepairCost().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException("Số tiền bồi thường phải lớn hơn 0");
+                }
+                req.setRepairCost(request.getRepairCost());
+            }
+            if (req.getRepairCost() == null || req.getRepairCost().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException("Số tiền bồi thường phải lớn hơn 0");
+            }
+            req.setCostAgreementStatus(CostAgreementStatus.AGREED);
+            req.setCostDisputeReason(trimToNull(request.getNote()));
+            issuedInvoice = issueMaintenanceCharge(req);
+            repository.save(req);
+            addTimeline(req, req.getStatus(), req.getStatus(),
+                    "Manager chốt thu bồi thường"
+                            + (request.getRepairCost() != null ? " " + req.getRepairCost() + "đ" : "")
+                            + (isBlank(request.getNote()) ? "" : ": " + request.getNote().trim()));
+        } else if ("WAIVE".equals(action)) {
+            req.setCostAgreementStatus(CostAgreementStatus.WAIVED);
+            req.setCostDisputeReason(trimToNull(request.getNote()));
+            repository.save(req);
+            addTimeline(req, req.getStatus(), req.getStatus(),
+                    "Manager miễn thu khoản bồi thường"
+                            + (isBlank(request.getNote()) ? "" : ": " + request.getNote().trim()));
+        } else {
+            throw new BusinessException("action là bắt buộc và chỉ nhận CHARGE hoặc WAIVE");
+        }
+
+        MaintenanceRequestResponse response = convertToResponse(req);
+        response.setIssuedInvoice(issuedInvoice);
+        return response;
     }
 
     @Override
@@ -553,6 +647,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Ticket không có thông tin khách thuê");
         }
 
+        if (req.getTenantContract() != null) {
+            TenantContract contract = req.getTenantContract();
+            if (contract.getTenant() == null
+                    || contract.getTenant().getUser() == null
+                    || !tenantUserId.equals(contract.getTenant().getUser().getId())) {
+                throw new BusinessException("Hợp đồng gắn với ticket không thuộc về khách thuê hiện tại");
+            }
+            return contract;
+        }
+
         TenantContract contract = null;
         if (req.getRoom() != null) {
             contract = tenantContractRepository
@@ -590,34 +694,40 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     /** Tenant chỉ tạo bảo trì cho đơn vị thuê ACTIVE (phòng hoặc nguyên căn). */
-    private void assertTenantOwnsActiveUnit(UUID tenantUserId, Room room, Long propertyId) {
+    private TenantContract assertTenantOwnsActiveUnit(UUID tenantUserId, Room room, Long propertyId) {
         Long roomId = room.getId();
-        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+        TenantContract contract = tenantContractRepository.findByTenantId(tenantUserId).stream()
                 .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .anyMatch(c -> {
+                .filter(c -> {
                     if (c.getRoom() != null) {
                         return roomId.equals(c.getRoom().getId());
                     }
                     // Nguyên căn: mọi phòng trong property đều thuộc HĐ
                     return propertyId != null && c.getProperty() != null
                             && propertyId.equals(c.getProperty().getId());
-                });
-        if (!allowed) {
+                })
+                .findFirst()
+                .orElse(null);
+        if (contract == null) {
             throw new BusinessException(
                     "Bạn chỉ có thể báo sự cố cho phòng thuộc hợp đồng đang hiệu lực của mình");
         }
+        return contract;
     }
 
-    private void assertTenantOwnsActiveWholeHouse(UUID tenantUserId, Long propertyId) {
-        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+    private TenantContract assertTenantOwnsActiveWholeHouse(UUID tenantUserId, Long propertyId) {
+        TenantContract contract = tenantContractRepository.findByTenantId(tenantUserId).stream()
                 .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .anyMatch(c -> c.getRoom() == null
+                .filter(c -> c.getRoom() == null
                         && c.getProperty() != null
-                        && propertyId.equals(c.getProperty().getId()));
-        if (!allowed) {
+                        && propertyId.equals(c.getProperty().getId()))
+                .findFirst()
+                .orElse(null);
+        if (contract == null) {
             throw new BusinessException(
                     "Bạn không có hợp đồng nguyên căn đang hiệu lực cho bất động sản này");
         }
+        return contract;
     }
 
     private void requireStatus(MaintenanceRequest req, MaintenanceStatus expected) {
@@ -634,6 +744,23 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
+    private void requireManagerAccess(MaintenanceRequest req) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_ADMIN".equals(role)) {
+            return;
+        }
+        if (!"ROLE_MANAGER".equals(role)) {
+            throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+        }
+        UUID userId = user.getId();
+        UUID managedBy = req.getProperty() != null ? req.getProperty().getManagedBy() : null;
+        UUID opManager = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
+        if (!userId.equals(managedBy) && !userId.equals(opManager)) {
+            throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+        }
+    }
+
     private void markRoomMaintenance(MaintenanceRequest req) {
         if (req.getRoom() != null) {
             req.getRoom().setStatus(RoomStatus.MAINTENANCE);
@@ -643,6 +770,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private void restoreRoomStatus(MaintenanceRequest req) {
         if (req.getRoom() != null) {
+            boolean stillHasOpenTicket = repository.existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
+                    req.getRoom().getId(),
+                    List.of(MaintenanceStatus.CLOSED, MaintenanceStatus.CANCELLED),
+                    req.getId());
+            if (stillHasOpenTicket) {
+                return;
+            }
             boolean hasActiveContract = tenantContractRepository.existsByRoomIdAndStatus(
                     req.getRoom().getId(), ContractStatus.ACTIVE);
             req.getRoom().setStatus(hasActiveContract ? RoomStatus.RENTED : RoomStatus.AVAILABLE);
@@ -684,6 +818,28 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         UUID managerId = req.getProperty().getManagedBy();
         userRepository.findById(managerId).ifPresent(manager ->
                 saveAndPush(managerId, manager.getPushToken(), title, body, req.getId()));
+    }
+
+    private void notifyPropertyHost(MaintenanceRequest req, String title, String body) {
+        if (req.getProperty() == null || req.getProperty().getManagedBy() == null) {
+            return;
+        }
+        UUID hostUserId = req.getProperty().getManagedBy();
+        String dedupeKey = "maintenance-reopen-escalation:" + req.getId() + ":" + (req.getReopenCount() != null
+                ? req.getReopenCount()
+                : 0);
+        if (hostNotificationRepository.existsByUserIdAndDedupeKey(hostUserId, dedupeKey)) {
+            return;
+        }
+        hostNotificationRepository.save(HostNotification.builder()
+                .userId(hostUserId)
+                .dedupeKey(dedupeKey)
+                .type("MAINTENANCE_REOPEN_ESCALATION")
+                .title(title)
+                .message(body)
+                .priority("HIGH")
+                .read(false)
+                .build());
     }
 
     private void saveAndPush(UUID userId, String pushToken, String title, String body, Long requestId) {
@@ -842,6 +998,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    private static String trimToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String trimmed = s.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static BigDecimal nz(BigDecimal v) {

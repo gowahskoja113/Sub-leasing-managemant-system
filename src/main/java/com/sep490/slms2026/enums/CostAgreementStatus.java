@@ -11,5 +11,7 @@ public enum CostAgreementStatus {
     /** Khách đồng ý trả. */
     AGREED,
     /** Khách khiếu nại số tiền — không tự tạo charge. */
-    DISPUTED
+    DISPUTED,
+    /** Có phát sinh chi phí nhưng host/manager quyết định miễn thu. */
+    WAIVED
 }

@@ -21,4 +21,10 @@ public class MaintenanceApproveRequest {
 
     /** Tùy chọn — manager có thể gán mức độ ưu tiên khi duyệt */
     private String priority;
+
+    /**
+     * Dùng cho /review-reject khi approve=false:
+     * manager bắt buộc nêu lý do giữ nguyên kết quả sửa chữa.
+     */
+    private String note;
 }

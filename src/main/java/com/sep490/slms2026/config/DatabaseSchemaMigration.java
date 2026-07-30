@@ -159,6 +159,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     private void ensureMaintenanceSimplifiedFlowColumns() {
         addColumnIfNotExists("maintenance_requests", "reject_reason", "TEXT");
         addColumnIfNotExists("maintenance_requests", "reject_image_urls", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "tenant_contract_id", "BIGINT REFERENCES tenant_contracts(id)");
     }
 
     /** Map legacy maintenance statuses sang flow rút gọn. */

@@ -132,4 +132,7 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
 
     java.util.List<MaintenanceRequest> findByStatusAndDoneAtBeforeAndDeletedFalse(
             MaintenanceStatus status, LocalDateTime doneAt);
+
+    boolean existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
+            Long roomId, List<MaintenanceStatus> excludedStatuses, Long excludedId);
 }
