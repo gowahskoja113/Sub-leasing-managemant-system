@@ -19,6 +19,8 @@ public class SessionEquipmentResponse {
     private Long id;
     private Long catalogId;
     private String catalogName;
+    /** Mã QR thật trong DB, dạng EQ-{id} — dùng để in/quét, không tự sinh ở FE. */
+    private String qrCode;
     private Long roomId;
     private String roomNumber;
     private HouseArea houseArea;
