@@ -175,6 +175,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         Long equipmentId = request.getEquipmentId();
+        if (equipmentId != null) {
+            Equipment equipment = equipmentRepository.findById(equipmentId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị"));
+            boolean matches = equipment.getProperty() != null
+                    && equipment.getProperty().getId().equals(property.getId())
+                    && (equipment.getRoom() == null || room == null || equipment.getRoom().getId().equals(room.getId()));
+            if (!matches) {
+                throw new BusinessException("Thiết bị không thuộc phòng/nhà bạn đang báo sự cố");
+            }
+        }
         String category = resolveCreateCategory(equipmentId, request.getCategory());
 
         String description = request.getDescription() != null && !request.getDescription().isBlank()
