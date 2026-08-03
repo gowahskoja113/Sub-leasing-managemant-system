@@ -13,6 +13,8 @@ import com.sep490.slms2026.repository.CheckoutRequestRepository;
 import com.sep490.slms2026.repository.CheckoutSettlementRepository;
 import com.sep490.slms2026.repository.InvoiceRepository;
 import com.sep490.slms2026.service.CheckoutProcessService;
+import com.sep490.slms2026.exception.ResourceNotFoundException;
+import com.sep490.slms2026.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -249,7 +251,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     @Transactional
     public void disputeSettlement(Long checkoutRequestId, UUID tenantId, CheckoutDisputeRequest request) {
         CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Checkout request not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Checkout request not found"));
 
         if (!checkoutRequest.getTenantUserId().equals(tenantId)) {
             throw new RuntimeException("Unauthorized access to this checkout request");
@@ -276,10 +278,10 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     @Transactional
     public void refund(Long checkoutRequestId, CheckoutRefundRequest request) {
         CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Checkout request not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Checkout request not found"));
 
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.SETTLING) {
-            throw new RuntimeException("Checkout request must be in SETTLING status to record refund");
+            throw new BusinessException("REFUND_NOT_ALLOWED", "Hồ sơ chưa ở bước quyết toán nên chưa ghi nhận hoàn cọc được.");
         }
 
         CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId)
@@ -287,7 +289,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         settlement.setRefundMethod(request.getMethod());
         settlement.setRefundProofUrl(request.getProofUrl());
-        settlement.setRefundPaidAt(request.getPaidAt());
+        settlement.setRefundPaidAt(request.getPaidAt() != null ? request.getPaidAt().atStartOfDay() : null);
         settlement.setRefundNote(request.getNote());
 
         checkoutSettlementRepository.save(settlement);

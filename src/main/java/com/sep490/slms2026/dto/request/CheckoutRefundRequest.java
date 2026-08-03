@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 @Builder
@@ -16,6 +16,6 @@ public class CheckoutRefundRequest {
     private BigDecimal amount;
     private String method; // BANK_TRANSFER, CASH
     private String proofUrl;
-    private LocalDateTime paidAt;
+    private LocalDate paidAt;
     private String note;
 }

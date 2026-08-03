@@ -845,17 +845,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         try {
             jdbcTemplate.execute("ALTER TABLE checkout_requests DROP CONSTRAINT IF EXISTS checkout_requests_status_check");
             jdbcTemplate.execute("""
-                    ALTER TABLE checkout_requests ADD CONSTRAINT checkout_requests_status_check CHECK (status::text = ANY (ARRAY[
-                        'PENDING'::character varying,
-                        'APPROVED'::character varying,
-                        'INSPECTING'::character varying,
-                        'WAITING_TENANT'::character varying,
-                        'DISPUTED'::character varying,
-                        'SETTLING'::character varying,
-                        'REJECTED'::character varying,
-                        'COMPLETED'::character varying,
-                        'CANCELLED'::character varying
-                    ]::text[]))
+                    ALTER TABLE checkout_requests ADD CONSTRAINT checkout_requests_status_check CHECK (status IN (
+                        'PENDING', 'APPROVED', 'INSPECTING', 'WAITING_TENANT',
+                        'DISPUTED', 'SETTLING', 'REJECTED', 'COMPLETED', 'CANCELLED'
+                    ))
                     """);
             log.info("Migrated checkout_requests_status_check constraint to include new statuses");
         } catch (Exception e) {
@@ -867,13 +860,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         try {
             jdbcTemplate.execute("ALTER TABLE tenant_contracts DROP CONSTRAINT IF EXISTS tenant_contracts_status_check");
             jdbcTemplate.execute("""
-                    ALTER TABLE tenant_contracts ADD CONSTRAINT tenant_contracts_status_check CHECK (status::text = ANY (ARRAY[
-                        'DRAFT'::character varying,
-                        'PENDING'::character varying,
-                        'ACTIVE'::character varying,
-                        'EXPIRED'::character varying,
-                        'TERMINATED'::character varying
-                    ]::text[]))
+                    ALTER TABLE tenant_contracts ADD CONSTRAINT tenant_contracts_status_check CHECK (status IN (
+                        'DRAFT', 'PENDING', 'ACTIVE', 'EXPIRED', 'TERMINATED'
+                    ))
                     """);
             log.info("Migrated tenant_contracts_status_check constraint");
         } catch (Exception e) {
