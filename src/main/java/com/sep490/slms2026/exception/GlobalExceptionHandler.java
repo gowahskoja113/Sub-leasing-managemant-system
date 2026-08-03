@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -169,7 +170,18 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .error("Internal server error")
+                        .error("Internal Server Error")
+                        .build());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error("Dữ liệu không hợp lệ hoặc vi phạm ràng buộc hệ thống (DATA_INTEGRITY_VIOLATION)")
                         .build());
     }
 }
