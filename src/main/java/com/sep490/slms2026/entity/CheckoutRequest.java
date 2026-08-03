@@ -60,4 +60,8 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
+
+    @Column(name = "dispute_count")
+    @Builder.Default
+    private Integer disputeCount = 0;
 }

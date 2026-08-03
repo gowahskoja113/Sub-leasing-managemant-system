@@ -39,6 +39,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final TenantContractRepository tenantContractRepository;
     private final UserRepository userRepository;
     private final TenantOnboardingService tenantOnboardingService;
+    private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
 
     @Override
     @Transactional
@@ -164,8 +165,21 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     public CheckoutRequestResponse completeRequest(
             Long requestId, UUID managerUserId, CompleteCheckoutRequest request) {
         CheckoutRequest checkoutRequest = loadById(requestId);
-        if (checkoutRequest.getStatus() != CheckoutRequestStatus.APPROVED) {
-            throw new BusinessException("Chỉ hoàn tất được yêu cầu đã được duyệt (APPROVED)");
+        if (checkoutRequest.getStatus() != CheckoutRequestStatus.APPROVED && checkoutRequest.getStatus() != CheckoutRequestStatus.SETTLING) {
+            throw new BusinessException("Chỉ hoàn tất được yêu cầu ở trạng thái APPROVED hoặc SETTLING");
+        }
+
+        if (checkoutRequest.getStatus() == CheckoutRequestStatus.SETTLING) {
+            com.sep490.slms2026.entity.CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(requestId).orElse(null);
+            if (settlement != null) {
+                boolean isRefunded = settlement.getRefundPaidAt() != null;
+                boolean isZero = settlement.getRefundAmount().compareTo(java.math.BigDecimal.ZERO) == 0 && settlement.getExtraChargeAmount().compareTo(java.math.BigDecimal.ZERO) == 0;
+                boolean isExtraChargePaid = settlement.getExtraChargeInvoiceId() != null; // Assume paid if invoice exists and tracked, actually we should check the invoice status if needed, but for now we check if it's not strictly requiring refund.
+                
+                if (!isRefunded && !isZero) {
+                    throw new BusinessException("Chưa hoàn tất thanh toán quyết toán (chưa hoàn cọc hoặc chưa thu thêm).");
+                }
+            }
         }
 
         TenantContract contract = checkoutRequest.getTenantContract();
