@@ -35,6 +35,7 @@ import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PushNotificationService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.PhoneUtils;
+import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -253,14 +254,22 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         ensureDepositPaymentAllowed(contract);
-        BigDecimal deposit = contract.getDeposit() != null ? contract.getDeposit() : BigDecimal.ZERO;
-        long amount = deposit.longValue();
+
+        // Onboard: thu tháng đầu (giá thuê) + cọc (deposit hoặc rent * depositMonths).
+        // VD: thuê 5tr, cọc 2 tháng → 5 + 10 = 15tr.
+        BigDecimal resolvedDeposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
+        if ((contract.getDeposit() == null || contract.getDeposit().compareTo(BigDecimal.ZERO) <= 0)
+                && resolvedDeposit.compareTo(BigDecimal.ZERO) > 0) {
+            contract.setDeposit(resolvedDeposit);
+        }
+        BigDecimal total = TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract);
+        long amount = total.longValue();
         if (amount <= 0) {
-            throw new BusinessException("Số tiền cọc không hợp lệ");
+            throw new BusinessException("Số tiền thanh toán onboard không hợp lệ");
         }
         long orderCode = System.currentTimeMillis(); // duy nhất, < giới hạn PayOS
         PayosService.PaymentLink link = payosService.createPaymentLink(
-                orderCode, amount, "Coc HD " + contract.getId());
+                orderCode, amount, "Thue+Coc HD " + contract.getId());
 
         contract.setPayosOrderCode(link.orderCode);
         contract.setPaymentStatus(PaymentStatus.PENDING);
@@ -269,6 +278,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         TenantContractResponse res = toResponse(contract);
         res.setPayosCheckoutUrl(link.checkoutUrl);
         res.setPayosQrCode(link.qrCode);
+        res.setInitialPaymentAmount(total);
         return res;
     }
 
@@ -702,9 +712,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() == PaymentStatus.PAID) {
             throw new BusinessException("Hợp đồng này đã thanh toán cọc");
         }
-        BigDecimal deposit = contract.getDeposit() != null ? contract.getDeposit() : BigDecimal.ZERO;
-        if (deposit.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("Số tiền cọc không hợp lệ");
+        if (TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract).compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(
+                    "Số tiền thanh toán onboard không hợp lệ (cần giá thuê và tiền cọc / số tháng cọc)");
         }
     }
 
@@ -917,6 +927,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
+                .initialPaymentAmount(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())

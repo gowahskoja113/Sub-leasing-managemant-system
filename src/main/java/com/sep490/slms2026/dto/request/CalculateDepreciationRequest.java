@@ -10,7 +10,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.util.Map;
 
 @Getter
 @Setter
@@ -40,7 +39,4 @@ public class CalculateDepreciationRequest {
     /** Tỷ lệ dự phòng trống phòng (0.10 = 10%). Mặc định 0.10. */
     @DecimalMin(value = "0")
     private BigDecimal vRate;
-
-    /** Hệ số chất lượng theo roomId. Mặc định 1.0 cho mọi phòng. */
-    private Map<Long, BigDecimal> roomQualityFactors;
 }

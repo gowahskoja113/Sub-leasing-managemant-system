@@ -63,6 +63,12 @@ public class TenantContractResponse {
     private String contractCode;
     private BigDecimal rentAmount;
     private BigDecimal deposit;
+    /**
+     * Tổng phải thanh toán lúc onboard: tiền thuê tháng đầu + tiền cọc
+     * (deposit, hoặc rentAmount × depositMonths nếu deposit trống).
+     * VD: thuê 5tr, cọc 2 tháng → 15tr.
+     */
+    private BigDecimal initialPaymentAmount;
     private LocalDate moveInDate;
     private LocalDate startDate;
     private LocalDate endDate;

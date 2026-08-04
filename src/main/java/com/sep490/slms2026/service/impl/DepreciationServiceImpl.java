@@ -36,8 +36,6 @@ import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -246,9 +244,6 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .map(room -> RoomInput.builder()
                         .roomId(room.getId())
                         .roomNumber(room.getRoomNumber())
-                        .area(room.getArea())
-                        .qualityFactor(resolveQualityFactor(room.getId(), params.getRoomQualityFactors()))
-                        .roomEquipmentCost(equipmentRepository.sumPurchasedEquipmentCostByRoomId(room.getId()))
                         .build())
                 .toList();
 
@@ -257,7 +252,6 @@ public class DepreciationServiceImpl implements DepreciationService {
                 totalRenovationCost,
                 totalEquipmentCost,
                 contractMonths,
-                property.getAreaSize(),
                 params.getOOperation(),
                 params.getVRate(),
                 params.getMode(),
@@ -363,13 +357,6 @@ public class DepreciationServiceImpl implements DepreciationService {
             params.setPDesired(BigDecimal.ZERO);
         }
         return params;
-    }
-
-    private double resolveQualityFactor(Long roomId, Map<Long, BigDecimal> factors) {
-        if (factors == null || !factors.containsKey(roomId) || factors.get(roomId) == null) {
-            return 1.0;
-        }
-        return factors.get(roomId).doubleValue();
     }
 
     private Property loadDraftProperty(Long propertyId) {

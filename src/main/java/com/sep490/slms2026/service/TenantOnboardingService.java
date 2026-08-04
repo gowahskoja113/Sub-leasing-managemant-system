@@ -18,7 +18,10 @@ public interface TenantOnboardingService {
 
     TenantContractResponse getContract(Long contractId);
 
-    /** Tạo link/QR thanh toán cọc qua PayOS cho hợp đồng đang PENDING. */
+    /**
+     * Tạo link/QR thanh toán onboard qua PayOS (tiền thuê tháng đầu + cọc)
+     * cho hợp đồng đang PENDING.
+     */
     TenantContractResponse createDepositPayment(Long contractId);
 
     /** Hoàn tất HĐ (sau khi đã thanh toán cọc + OTP): set ACTIVE, phòng RENTED. */
