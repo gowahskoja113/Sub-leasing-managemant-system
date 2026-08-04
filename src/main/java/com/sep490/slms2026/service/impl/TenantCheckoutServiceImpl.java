@@ -40,6 +40,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final UserRepository userRepository;
     private final TenantOnboardingService tenantOnboardingService;
     private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
+    private final com.sep490.slms2026.repository.InvoiceRepository invoiceRepository;
 
     @Override
     @Transactional
@@ -174,9 +175,16 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
             if (settlement != null) {
                 boolean isRefunded = settlement.getRefundPaidAt() != null;
                 boolean isZero = settlement.getRefundAmount().compareTo(java.math.BigDecimal.ZERO) == 0 && settlement.getExtraChargeAmount().compareTo(java.math.BigDecimal.ZERO) == 0;
-                boolean isExtraChargePaid = settlement.getExtraChargeInvoiceId() != null; // Assume paid if invoice exists and tracked, actually we should check the invoice status if needed, but for now we check if it's not strictly requiring refund.
                 
-                if (!isRefunded && !isZero) {
+                boolean isExtraChargePaid = false;
+                if (settlement.getExtraChargeInvoiceId() != null) {
+                    com.sep490.slms2026.entity.Invoice inv = invoiceRepository.findById(settlement.getExtraChargeInvoiceId()).orElse(null);
+                    if (inv != null && inv.getStatus() == com.sep490.slms2026.enums.InvoiceStatus.PAID) {
+                        isExtraChargePaid = true;
+                    }
+                }
+                
+                if (!isRefunded && !isZero && !isExtraChargePaid) {
                     throw new BusinessException("Chưa hoàn tất thanh toán quyết toán (chưa hoàn cọc hoặc chưa thu thêm).");
                 }
             }

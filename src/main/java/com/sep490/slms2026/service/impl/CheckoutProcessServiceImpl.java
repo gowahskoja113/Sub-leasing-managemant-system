@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -140,6 +141,44 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             refundAmount = finalAmount;
         } else if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
             extraChargeAmount = finalAmount.abs();
+        }
+
+        Optional<CheckoutSettlement> savedOpt = checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId);
+        if (savedOpt.isPresent()) {
+            CheckoutSettlement saved = savedOpt.get();
+            boolean extraChargePaid = false;
+            if (saved.getExtraChargeInvoiceId() != null) {
+                Invoice inv = invoiceRepository.findById(saved.getExtraChargeInvoiceId()).orElse(null);
+                if (inv != null && inv.getStatus() == InvoiceStatus.PAID) {
+                    extraChargePaid = true;
+                }
+            }
+            return CheckoutSettlementResponse.builder()
+                    .depositAmount(saved.getDepositAmount())
+                    .unpaidInvoices(saved.getSettlementInvoices().stream().map(inv -> CheckoutSettlementResponse.InvoiceResponse.builder()
+                            .id(inv.getInvoiceId())
+                            .code(inv.getInvoiceCode())
+                            .type(inv.getInvoiceType())
+                            .amount(inv.getAmount())
+                            .build()).collect(Collectors.toList()))
+                    .unpaidTotal(saved.getUnpaidTotal())
+                    .damages(inspection.getDamages().stream().map(d -> CheckoutSettlementResponse.DamageResponse.builder()
+                            .label(d.getLabel())
+                            .amount(d.getAmount())
+                            .build()).collect(Collectors.toList()))
+                    .damageTotal(saved.getDamageTotal())
+                    .adjustments(saved.getSettlementAdjustments().stream().map(adj -> CheckoutSettlementResponse.AdjustmentResponse.builder()
+                            .label(adj.getLabel())
+                            .amount(adj.getAmount())
+                            .build()).collect(Collectors.toList()))
+                    .adjustmentTotal(saved.getAdjustmentTotal())
+                    .refundAmount(saved.getRefundAmount())
+                    .extraChargeAmount(saved.getExtraChargeAmount())
+                    .extraChargeInvoiceId(saved.getExtraChargeInvoiceId())
+                    .refundProofUrl(saved.getRefundProofUrl())
+                    .refundedAt(saved.getRefundPaidAt() != null ? saved.getRefundPaidAt().toLocalDate() : null)
+                    .extraChargePaid(extraChargePaid)
+                    .build();
         }
 
         return CheckoutSettlementResponse.builder()

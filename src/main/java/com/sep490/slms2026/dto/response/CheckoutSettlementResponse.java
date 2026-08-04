@@ -23,6 +23,9 @@ public class CheckoutSettlementResponse {
     private BigDecimal refundAmount;
     private BigDecimal extraChargeAmount;
     private Long extraChargeInvoiceId;
+    private String refundProofUrl;
+    private java.time.LocalDate refundedAt;
+    private Boolean extraChargePaid;
 
     @Data
     @Builder
