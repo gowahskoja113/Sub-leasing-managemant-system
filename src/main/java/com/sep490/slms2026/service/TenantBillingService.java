@@ -32,4 +32,6 @@ public interface TenantBillingService {
     void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy);
 
     void createBankTransferClaim(TenantInvoice invoice, String transferContent);
+
+    List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month);
 }

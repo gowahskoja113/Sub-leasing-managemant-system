@@ -28,12 +28,17 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sep490.slms2026.entity.Notification;
+import com.sep490.slms2026.repository.NotificationRepository;
+import com.sep490.slms2026.service.PushNotificationService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +51,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final TenantContractRepository tenantContractRepository;
     private final PropertyAccessService propertyAccessService;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+    private final NotificationRepository notificationRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Override
     @Transactional
@@ -155,6 +162,30 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
         if (contract != null) {
             tenantBillingService.createFromUtilityInvoice(invoice, contract);
+            
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                java.util.UUID tenantId = contract.getTenant().getUser().getId();
+                String typeStr = utilityType == UtilityType.ELECTRIC ? "Điện" : "Nước";
+                String title = "Hoá đơn " + typeStr + " mới";
+                String content = String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                        typeStr, request.getBillingPeriod(), request.getAmount().longValue());
+                
+                Notification notification = Notification.builder()
+                        .userId(tenantId)
+                        .title(title)
+                        .content(content)
+                        .type("UTILITY_INVOICE_CREATED")
+                        .read(false)
+                        .build();
+                notificationRepository.save(notification);
+
+                String pushToken = contract.getTenant().getUser().getPushToken();
+                if (pushToken != null && !pushToken.isBlank()) {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("screen", "InvoiceList");
+                    pushNotificationService.sendPushNotification(pushToken, title, content, data);
+                }
+            }
         }
 
         UtilityInvoiceResponse response = toResponse(invoice);

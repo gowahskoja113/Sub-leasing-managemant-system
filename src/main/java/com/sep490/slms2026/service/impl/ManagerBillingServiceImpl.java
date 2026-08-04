@@ -130,6 +130,8 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .billingMonth(billingMonth)
                 .amount(invoice.getGrandTotal())
                 .status(invoice.getStatus().name())
+                .autoIssued(invoice.getAutoIssued())
+                .dueDate(invoice.getDueDate())
                 .build();
     }
 

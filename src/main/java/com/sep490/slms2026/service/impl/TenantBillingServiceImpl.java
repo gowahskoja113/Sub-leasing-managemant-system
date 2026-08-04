@@ -255,6 +255,15 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         return toResponse(invoice);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month) {
+        propertyAccessService.assertCanManageProperty(propertyId);
+        YearMonth ym = parseBillingMonth(month);
+        return tenantInvoiceRepository.findRentInvoicesByPropertyAndMonth(propertyId, ym.getYear(), ym.getMonthValue())
+                .stream().map(this::toResponse).toList();
+    }
+
     private void syncInvoicesForTenant(UUID tenantUserId) {
         for (UtilityInvoice utilityInvoice : utilityInvoiceRepository.findByTenantUserId(tenantUserId)) {
             TenantContract contract = utilityInvoice.getTenantContract();
@@ -441,6 +450,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosOrderCode(invoice.getPayosOrderCode())
+                .autoIssued(invoice.getAutoIssued())
                 .build();
     }
 

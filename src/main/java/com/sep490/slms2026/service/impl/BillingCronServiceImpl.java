@@ -3,7 +3,13 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.entity.User;
+import com.sep490.slms2026.entity.TenantContract;
+import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.TenantInvoiceType;
+import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
+import java.time.YearMonth;
+import java.util.UUID;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
@@ -19,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -35,6 +42,7 @@ public class BillingCronServiceImpl implements BillingCronService {
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final TenantContractRepository tenantContractRepository;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -78,65 +86,124 @@ public class BillingCronServiceImpl implements BillingCronService {
             long daysUntilDue = ChronoUnit.DAYS.between(today, invoice.getDueDate());
             boolean stateChanged = false;
 
-            if (invoice.getStatus() == TenantInvoiceStatus.OVERDUE) {
-                // Case C: Renotify every 7 days
-                if (invoice.getLastReminderDate() == null ||
-                        ChronoUnit.DAYS.between(invoice.getLastReminderDate(), today) >= overdueRenotifyDays) {
-                    
+            if (invoice.getInvoiceType() == TenantInvoiceType.RENT) {
+                String period = "tháng " + String.format("%02d/%d", invoice.getBillingMonth(), invoice.getBillingYear());
+                String formattedAmount = formatCurrency(invoice.getGrandTotal());
+                String formattedDueDate = invoice.getDueDate().format(formatter);
+                
+                if (invoice.getStatus() == TenantInvoiceStatus.OVERDUE) {
                     long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
-                    String title = "Hóa đơn quá hạn";
-                    String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Tổng phải trả %sđ. Vui lòng thanh toán ngay. (#%d)",
-                            invoice.getCode(), overdueDays, formatCurrency(invoice.getGrandTotal()), invoice.getId());
-                    
-                    sendNotification(invoice, "BILLING_OVERDUE", title, content);
-                    invoice.setLastReminderDate(today);
-                    stateChanged = true;
-                    renotified++;
-                }
-            } else { // PENDING or PARTIAL
-                if (daysUntilDue < 0) {
-                    // Case B: Overdue
-                    invoice.setStatus(TenantInvoiceStatus.OVERDUE);
-                    
-                    // Apply late fee if not applied yet
-                    if (invoice.getLateFee() == null || invoice.getLateFee().compareTo(BigDecimal.ZERO) == 0) {
-                        BigDecimal lateFee = invoice.getTotalAmount()
-                                .multiply(BigDecimal.valueOf(lateFeePercent))
-                                .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN);
-                        
-                        // Round to thousands (nghìn đồng)
-                        long lateFeeLong = (lateFee.longValue() / 1000) * 1000;
-                        BigDecimal roundedLateFee = BigDecimal.valueOf(lateFeeLong);
-                        
-                        invoice.setLateFee(roundedLateFee);
-                        invoice.setGrandTotal(invoice.getTotalAmount().add(roundedLateFee));
-                        
-                        // Clear PayOS fields to force generating new QR with updated grandTotal
-                        invoice.setPayosOrderCode(null);
-                        invoice.setPayosCheckoutUrl(null);
-                        invoice.setPayosQrCode(null);
+                    if (overdueDays == 2) { // Day 7
+                        String title = "🚨 Nhắc lần cuối: tiền phòng chưa thanh toán";
+                        String content = String.format("Tiền phòng %s %sđ đã quá hạn %d ngày. Vui lòng thanh toán ngay hôm nay. Sau hôm nay, quản lý có quyền chấm dứt hợp đồng thuê do không thanh toán đúng hạn.",
+                                period, formattedAmount, overdueDays);
+                        sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        renotified++;
+                    } else if (overdueDays == 3) { // Day 8 -> notify manager
+                        UUID managerId = null;
+                        if (invoice.getTenantContract().getProperty().getManagedBy() != null) {
+                            managerId = invoice.getTenantContract().getProperty().getManagedBy();
+                        } else if (invoice.getTenantContract().getProperty().getOperationManagerId() != null) {
+                            managerId = invoice.getTenantContract().getProperty().getOperationManagerId();
+                        }
+                        if (managerId != null) {
+                            String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+                            String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+                            String title = "⛔ Quá hạn tiền phòng — được quyền chấm dứt hợp đồng";
+                            String content = String.format("%s · Phòng %s chưa thanh toán tiền phòng %s (%sđ), đã quá hạn %d ngày và đã được nhắc lần cuối ngày 7. Mở màn Tiền phòng tự động để xử lý.",
+                                    tenantName, roomStr, period, formattedAmount, overdueDays);
+                            sendPushNotificationOnly(managerId, title, content, "RENT_OVERDUE_MANAGER");
+                        }
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
                     }
-                    
-                    long overdueDays = -daysUntilDue;
-                    String title = "Hóa đơn quá hạn";
-                    String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Phí trễ hạn %sđ đã được cộng, tổng phải trả %sđ. (#%d)",
-                            invoice.getCode(), overdueDays, formatCurrency(invoice.getLateFee()), formatCurrency(invoice.getGrandTotal()), invoice.getId());
-                    
-                    sendNotification(invoice, "BILLING_OVERDUE", title, content);
-                    invoice.setLastReminderDate(today);
-                    stateChanged = true;
-                    overdueMarked++;
-                } else if (daysUntilDue == reminderDaysBefore || daysUntilDue == 0) {
-                    // Case A: Reminder before due date or on due date
-                    String title = "Hóa đơn sắp đến hạn";
-                    String period = invoice.getBillingPeriod() != null ? invoice.getBillingPeriod() : "";
-                    String content = String.format("Hóa đơn %s (%s) %sđ đến hạn ngày %s. Vui lòng thanh toán đúng hạn. (#%d)",
-                            invoice.getCode(), period, formatCurrency(invoice.getGrandTotal()), invoice.getDueDate().format(formatter), invoice.getId());
-                    
-                    sendNotification(invoice, "BILLING_REMINDER", title, content);
-                    invoice.setLastReminderDate(today);
-                    stateChanged = true;
-                    reminded++;
+                } else {
+                    if (daysUntilDue < 0) {
+                        invoice.setStatus(TenantInvoiceStatus.OVERDUE);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        overdueMarked++;
+                    } else if (daysUntilDue > 0 && daysUntilDue <= 3) { // Day 2 to 4
+                        String title = String.format("⏰ Còn %d ngày tới hạn đóng tiền phòng", daysUntilDue);
+                        String content = String.format("Tiền phòng %s %sđ chưa được thanh toán. Hạn cuối là %s. Thanh toán sớm để không bị ghi nhận quá hạn.",
+                                period, formattedAmount, formattedDueDate);
+                        sendNotification(invoice, "BILLING_REMINDER", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        reminded++;
+                    } else if (daysUntilDue == 0) { // Day 5
+                        String title = "⚠️ Hôm nay là hạn cuối đóng tiền phòng";
+                        String content = String.format("Tiền phòng %s %sđ đến hạn hôm nay (%s). Vui lòng thanh toán trong hôm nay; sau hôm nay hoá đơn sẽ bị ghi nhận quá hạn.",
+                                period, formattedAmount, formattedDueDate);
+                        sendNotification(invoice, "BILLING_REMINDER", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        reminded++;
+                    }
+                }
+            } else {
+                if (invoice.getStatus() == TenantInvoiceStatus.OVERDUE) {
+                    // Case C: Renotify every 7 days
+                    if (invoice.getLastReminderDate() == null ||
+                            ChronoUnit.DAYS.between(invoice.getLastReminderDate(), today) >= overdueRenotifyDays) {
+                        
+                        long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+                        String title = "Hóa đơn quá hạn";
+                        String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Tổng phải trả %sđ. Vui lòng thanh toán ngay. (#%d)",
+                                invoice.getCode(), overdueDays, formatCurrency(invoice.getGrandTotal()), invoice.getId());
+                        
+                        sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        renotified++;
+                    }
+                } else { // PENDING or PARTIAL
+                    if (daysUntilDue < 0) {
+                        // Case B: Overdue
+                        invoice.setStatus(TenantInvoiceStatus.OVERDUE);
+                        
+                        // Apply late fee if not applied yet
+                        if (invoice.getLateFee() == null || invoice.getLateFee().compareTo(BigDecimal.ZERO) == 0) {
+                            BigDecimal lateFee = invoice.getTotalAmount()
+                                    .multiply(BigDecimal.valueOf(lateFeePercent))
+                                    .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN);
+                            
+                            // Round to thousands (nghìn đồng)
+                            long lateFeeLong = (lateFee.longValue() / 1000) * 1000;
+                            BigDecimal roundedLateFee = BigDecimal.valueOf(lateFeeLong);
+                            
+                            invoice.setLateFee(roundedLateFee);
+                            invoice.setGrandTotal(invoice.getTotalAmount().add(roundedLateFee));
+                            
+                            // Clear PayOS fields to force generating new QR with updated grandTotal
+                            invoice.setPayosOrderCode(null);
+                            invoice.setPayosCheckoutUrl(null);
+                            invoice.setPayosQrCode(null);
+                        }
+                        
+                        long overdueDays = -daysUntilDue;
+                        String title = "Hóa đơn quá hạn";
+                        String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Phí trễ hạn %sđ đã được cộng, tổng phải trả %sđ. (#%d)",
+                                invoice.getCode(), overdueDays, formatCurrency(invoice.getLateFee()), formatCurrency(invoice.getGrandTotal()), invoice.getId());
+                        
+                        sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        overdueMarked++;
+                    } else if (daysUntilDue == reminderDaysBefore || daysUntilDue == 0) {
+                        // Case A: Reminder before due date or on due date
+                        String title = "Hóa đơn sắp đến hạn";
+                        String period = invoice.getBillingPeriod() != null ? invoice.getBillingPeriod() : "";
+                        String content = String.format("Hóa đơn %s (%s) %sđ đến hạn ngày %s. Vui lòng thanh toán đúng hạn. (#%d)",
+                                invoice.getCode(), period, formatCurrency(invoice.getGrandTotal()), invoice.getDueDate().format(formatter), invoice.getId());
+                        
+                        sendNotification(invoice, "BILLING_REMINDER", title, content);
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        reminded++;
+                    }
                 }
             }
             
@@ -175,6 +242,104 @@ public class BillingCronServiceImpl implements BillingCronService {
                     content, 
                     Map.of("invoiceId", invoice.getId())
             );
+        }
+    }
+
+    private void sendPushNotificationOnly(UUID tenantId, String title, String content, String type) {
+        Notification notification = Notification.builder()
+                .userId(tenantId)
+                .title(title)
+                .content(content)
+                .type(type)
+                .read(false)
+                .build();
+        notificationRepository.save(notification);
+
+        userRepository.findById(tenantId).ifPresent(u -> {
+            if (u.getPushToken() != null && !u.getPushToken().isBlank()) {
+                pushNotificationService.sendPushNotification(u.getPushToken(), title, content, Map.of("screen", "InvoiceList"));
+            }
+        });
+    }
+
+    @Scheduled(cron = "0 5 0 1 * *", zone = "Asia/Ho_Chi_Minh")
+    @Transactional
+    public void generateMonthlyRentInvoices() {
+        log.info("Starting generateMonthlyRentInvoices...");
+        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        YearMonth currentMonth = YearMonth.now();
+        LocalDate dueDate = currentMonth.atDay(5);
+        
+        for (TenantContract contract : activeContracts) {
+            var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
+            if (existing.isPresent()) continue;
+
+            BigDecimal amount = calculateProratedRent(contract, currentMonth);
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
+                    .code("HD-RENT-" + contract.getId() + "-" + currentMonth)
+                    .tenantUserId(contract.getTenant().getId())
+                    .tenantContract(contract)
+                    .invoiceType(TenantInvoiceType.RENT)
+                    .propertyName(contract.getProperty().getPropertyName())
+                    .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
+                    .billingMonth(currentMonth.getMonthValue())
+                    .billingYear(currentMonth.getYear())
+                    .billingPeriod("Tiền nhà tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear()))
+                    .totalAmount(amount)
+                    .lateFee(BigDecimal.ZERO)
+                    .grandTotal(amount)
+                    .status(TenantInvoiceStatus.PENDING)
+                    .dueDate(dueDate)
+                    .createdAt(LocalDateTime.now())
+                    .autoIssued(true)
+                    .build());
+            
+            String period = "tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear());
+            String title = "🧾 Hoá đơn tiền phòng đã có — cần thanh toán";
+            String content = String.format("Tiền phòng %s %sđ vừa được phát hành. Hạn thanh toán %s. Mở app để thanh toán ngay, tránh để quá hạn.",
+                    period, formatCurrency(amount), dueDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+            sendNotification(invoice, "RENT_ISSUED", title, content);
+        }
+    }
+
+    private BigDecimal calculateProratedRent(TenantContract contract, YearMonth billingMonth) {
+        LocalDate startOfMonth = billingMonth.atDay(1);
+        LocalDate endOfMonth = billingMonth.atEndOfMonth();
+        LocalDate billStart = contract.getStartDate().isAfter(startOfMonth) ? contract.getStartDate() : startOfMonth;
+        LocalDate billEnd = contract.getEndDate() != null && contract.getEndDate().isBefore(endOfMonth) ? contract.getEndDate() : endOfMonth;
+
+        if (billStart.isAfter(billEnd)) {
+            return BigDecimal.ZERO;
+        }
+
+        long days = ChronoUnit.DAYS.between(billStart, billEnd) + 1;
+        long daysInMonth = billingMonth.lengthOfMonth();
+        BigDecimal amount = contract.getRentAmount();
+        if (days < daysInMonth) {
+            amount = amount.multiply(BigDecimal.valueOf(days)).divide(BigDecimal.valueOf(daysInMonth), 0, RoundingMode.HALF_UP);
+        }
+        return amount;
+    }
+
+    @Scheduled(cron = "0 10 0 28 * *", zone = "Asia/Ho_Chi_Minh")
+    @Transactional
+    public void remindUpcomingRentOn28th() {
+        log.info("Starting remindUpcomingRentOn28th...");
+        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        YearMonth nextMonth = YearMonth.now().plusMonths(1);
+        String period = "tháng " + String.format("%02d/%d", nextMonth.getMonthValue(), nextMonth.getYear());
+        
+        for (TenantContract contract : activeContracts) {
+            BigDecimal amount = calculateProratedRent(contract, nextMonth);
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) continue;
+            
+            String title = "🔔 Nhắc trước: ngày 1 tới hạn đóng tiền phòng";
+            String content = String.format("Tiền phòng %s %sđ sẽ được phát hành vào ngày 1, hạn thanh toán chậm nhất ngày 5. Bạn chuẩn bị trước giúp nhé.",
+                    period, formatCurrency(amount));
+            sendPushNotificationOnly(contract.getTenant().getId(), title, content, "RENT_REMINDER_PRE");
         }
     }
 }

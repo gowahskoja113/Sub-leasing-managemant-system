@@ -38,4 +38,5 @@ public class TenantInvoiceResponse {
     private String payosCheckoutUrl;
     private String payosQrCode;
     private Long payosOrderCode;
+    private Boolean autoIssued;
 }

@@ -112,4 +112,7 @@ public class TenantInvoice implements Serializable {
 
     @Column(name = "payos_qr_code", columnDefinition = "TEXT")
     private String payosQrCode;
+
+    @Column(name = "auto_issued")
+    private Boolean autoIssued;
 }

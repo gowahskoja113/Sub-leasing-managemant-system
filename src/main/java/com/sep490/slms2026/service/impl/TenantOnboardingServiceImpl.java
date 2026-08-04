@@ -28,6 +28,9 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
+import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.enums.TenantInvoiceStatus;
+import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.OtpService;
@@ -75,6 +78,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
 
     @Override
     @Transactional
@@ -444,6 +448,17 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.EXPIRED) {
             throw new BusinessException("Chỉ thanh lý được hợp đồng đang ACTIVE hoặc EXPIRED");
+        }
+
+        if (request.getType() == com.sep490.slms2026.enums.ContractTerminationType.VIOLATION) {
+            boolean hasOverdueInvoice = tenantInvoiceRepository.findForTenant(contract.getTenant().getUser().getId(), TenantInvoiceStatus.OVERDUE, TenantInvoiceType.RENT)
+                    .stream()
+                    .anyMatch(inv -> inv.getTenantContract().getId().equals(contractId) 
+                            && inv.getDueDate() != null
+                            && inv.getDueDate().isBefore(LocalDate.now().minusDays(2)));
+            if (!hasOverdueInvoice) {
+                throw new BusinessException("Không thể đơn phương chấm dứt hợp đồng (lỗi vi phạm) nếu không có hoá đơn tiền phòng quá hạn trên 3 ngày.");
+            }
         }
 
         LocalDate effectiveDate = request.getEffectiveDate() != null

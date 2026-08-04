@@ -20,10 +20,15 @@ import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.TenantCheckoutService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.entity.Notification;
+import com.sep490.slms2026.repository.NotificationRepository;
+import com.sep490.slms2026.service.PushNotificationService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.HashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +46,8 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final TenantOnboardingService tenantOnboardingService;
     private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
     private final com.sep490.slms2026.repository.InvoiceRepository invoiceRepository;
+    private final NotificationRepository notificationRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Override
     @Transactional
@@ -72,6 +79,17 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .createdAt(LocalDateTime.now())
                 .build());
 
+        UUID managerId = getManagerId(contract);
+        if (managerId != null) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("screen", "CheckoutRequests");
+            
+            String roomStr = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "Nguyên căn";
+            String title = "Yêu cầu trả phòng mới";
+            String content = "Khách thuê phòng " + roomStr + " vừa gửi yêu cầu trả phòng.";
+            sendNotification(managerId, "CHECKOUT_REQUESTED", title, content, data);
+        }
+
         return toResponse(saved);
     }
 
@@ -100,7 +118,20 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         checkoutRequest.setStatus(CheckoutRequestStatus.REJECTED);
         checkoutRequest.setRejectReason("Khách hủy yêu cầu");
         checkoutRequest.setReviewedAt(LocalDateTime.now());
-        return toResponse(checkoutRequestRepository.save(checkoutRequest));
+        CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        UUID managerId = getManagerId(checkoutRequest.getTenantContract());
+        if (managerId != null) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("screen", "CheckoutRequests");
+            
+            String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+            String title = "Khách hủy yêu cầu trả phòng";
+            String content = "Khách thuê phòng " + roomStr + " đã hủy yêu cầu trả phòng.";
+            sendNotification(managerId, "CHECKOUT_CANCELLED", title, content, data);
+        }
+
+        return toResponse(saved);
     }
 
     @Override
@@ -144,7 +175,19 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         if (request != null && request.getManagerNote() != null && !request.getManagerNote().isBlank()) {
             checkoutRequest.setManagerNote(request.getManagerNote().trim());
         }
-        return toResponse(checkoutRequestRepository.save(checkoutRequest));
+        CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", saved.getId());
+        data.put("params", params);
+        
+        String title = "Yêu cầu trả phòng được duyệt";
+        String content = "Quản lý đã duyệt yêu cầu trả phòng của bạn.";
+        sendNotification(saved.getTenantUserId(), "CHECKOUT_APPROVED", title, content, data);
+
+        return toResponse(saved);
     }
 
     @Override
@@ -158,7 +201,19 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         checkoutRequest.setReviewedAt(LocalDateTime.now());
         checkoutRequest.setReviewedBy(managerUserId);
         checkoutRequest.setRejectReason(request.getReason().trim());
-        return toResponse(checkoutRequestRepository.save(checkoutRequest));
+        CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", saved.getId());
+        data.put("params", params);
+        
+        String title = "Yêu cầu trả phòng bị từ chối";
+        String content = "Quản lý đã từ chối yêu cầu trả phòng của bạn: " + request.getReason().trim();
+        sendNotification(saved.getTenantUserId(), "CHECKOUT_REJECTED", title, content, data);
+
+        return toResponse(saved);
     }
 
     @Override
@@ -224,7 +279,19 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         if (checkoutRequest.getReviewedBy() == null) {
             checkoutRequest.setReviewedBy(managerUserId);
         }
-        return toResponse(checkoutRequestRepository.save(checkoutRequest));
+        CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", saved.getId());
+        data.put("params", params);
+        
+        String title = "Hoàn tất trả phòng";
+        String content = "Thủ tục trả phòng của bạn đã hoàn tất.";
+        sendNotification(saved.getTenantUserId(), "CHECKOUT_COMPLETED", title, content, data);
+
+        return toResponse(saved);
     }
 
     private CheckoutRequest loadOwned(Long requestId, UUID tenantUserId) {
@@ -243,6 +310,32 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.PENDING) {
             throw new BusinessException("Chỉ xử lý được yêu cầu đang chờ duyệt (PENDING)");
         }
+    }
+
+    private void sendNotification(UUID targetUserId, String type, String title, String content, Map<String, Object> data) {
+        if (targetUserId == null) return;
+        Notification notification = Notification.builder()
+                .userId(targetUserId)
+                .title(title)
+                .content(content)
+                .type(type)
+                .read(false)
+                .build();
+        notificationRepository.save(notification);
+
+        userRepository.findById(targetUserId).ifPresent(u -> {
+            if (u.getPushToken() != null && !u.getPushToken().isBlank()) {
+                pushNotificationService.sendPushNotification(u.getPushToken(), title, content, data);
+            }
+        });
+    }
+
+    private UUID getManagerId(TenantContract contract) {
+        if (contract.getProperty() != null) {
+            if (contract.getProperty().getManagedBy() != null) return contract.getProperty().getManagedBy();
+            if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
+        }
+        return null;
     }
 
     private CheckoutRequestResponse toResponse(CheckoutRequest request) {
