@@ -59,6 +59,14 @@ public class TenantActivationServiceImpl implements TenantActivationService {
                     .build();
         }
 
+        if (user.getStatus() == com.sep490.slms2026.enums.UserStatus.DISABLE) {
+            return TenantActivateCheckResponse.builder()
+                    .status("NOT_ELIGIBLE")
+                    .message("Tài khoản đã ngừng hoạt động do hợp đồng thuê đã kết thúc. Vui lòng liên hệ quản lý nếu bạn cần thuê lại.")
+                    .username(user.getUsername())
+                    .build();
+        }
+
         if (!user.isFirstLogin()) {
             return TenantActivateCheckResponse.builder()
                     .status("READY_TO_LOGIN")

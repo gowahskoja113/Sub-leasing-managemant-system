@@ -440,6 +440,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setStatus(ContractStatus.TERMINATED);
         contract.setTerminatedAt(LocalDateTime.now());
         tenantContractRepository.save(contract);
+
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+        }
     }
 
     @Override
@@ -482,7 +486,25 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setEndDate(effectiveDate);
 
         TenantContract saved = tenantContractRepository.save(contract);
+
+        if (saved.getTenant() != null && saved.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(saved.getTenant().getUser());
+        }
+
         return toResponse(saved);
+    }
+
+    private void disableTenantAccountIfNoActiveContracts(User user) {
+        if (user == null || user.getRole() != Role.ROLE_TENANT) return;
+        boolean conThue = tenantContractRepository.findByTenantId(user.getId()).stream()
+                .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
+                            || c.getStatus() == ContractStatus.PENDING
+                            || c.getStatus() == ContractStatus.DRAFT
+                            || c.getStatus() == ContractStatus.EXPIRED);
+        if (!conThue) {
+            user.setStatus(UserStatus.DISABLE);
+            userRepository.save(user);
+        }
     }
 
     private void releaseContractOccupancy(TenantContract contract) {
@@ -663,6 +685,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             contract.setTerminationReason("Tự động hủy: khách không đến nhận nhà quá " + noShowGraceDays
                     + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
             tenantContractRepository.save(contract);
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+            }
             notifyContractAutoCancelled(contract);
             count++;
             log.info("Auto-cancel HĐ #{} ({}) — no-show quá {} ngày (moveInDate={})",
@@ -795,6 +820,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         // Tái dùng account theo SĐT (local / +84) hoặc username (= SĐT lúc tạo)
         User existing = findExistingUserByPhone(localPhone, internationalPhone);
         if (existing != null) {
+            existing.setStatus(UserStatus.ACTIVE);
             boolean promoted = false;
             if (existing.getRole() == Role.ROLE_USER) {
                 // ROLE_USER → nâng quyền lên ROLE_TENANT khi onboard

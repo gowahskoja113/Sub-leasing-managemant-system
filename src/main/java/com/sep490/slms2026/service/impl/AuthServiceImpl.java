@@ -79,6 +79,15 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(AuthRequest request) {
         rejectUnactivatedTenantLogin(request.getUsername());
 
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
+
+        if (user.getStatus() == UserStatus.DISABLE) {
+            throw new BusinessException(
+                "Tài khoản đã ngừng hoạt động do hợp đồng thuê đã kết thúc. "
+              + "Vui lòng liên hệ quản lý nếu bạn cần thuê lại.");
+        }
+
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
@@ -86,9 +95,6 @@ public class AuthServiceImpl implements AuthService {
         final UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
         final String jwt = jwtUtil.generateToken(userDetails);
         String roleName = userDetails.getAuthorities().iterator().next().getAuthority();
-
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
 
         return new AuthResponse(jwt, userDetails.getUsername(), roleName, user.isFirstLogin());
     }
