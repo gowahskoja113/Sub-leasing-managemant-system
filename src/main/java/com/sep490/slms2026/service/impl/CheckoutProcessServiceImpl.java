@@ -12,6 +12,7 @@ import com.sep490.slms2026.repository.CheckoutInspectionRepository;
 import com.sep490.slms2026.repository.CheckoutRequestRepository;
 import com.sep490.slms2026.repository.CheckoutSettlementRepository;
 import com.sep490.slms2026.repository.InvoiceRepository;
+import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.service.CheckoutProcessService;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.exception.BusinessException;
@@ -23,6 +24,7 @@ import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.PushNotificationService;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +42,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final CheckoutInspectionRepository checkoutInspectionRepository;
     private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final InvoiceRepository invoiceRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final UserRepository userRepository;
@@ -152,6 +155,64 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         BigDecimal adjustmentTotal = BigDecimal.ZERO;
         List<CheckoutSettlementResponse.AdjustmentResponse> adjustments = new ArrayList<>();
+
+        TenantContract contract = checkoutRequest.getTenantContract();
+        BigDecimal rentAmount = contract.getRentAmount();
+        
+        LocalDate moveOutDate = checkoutRequest.getExpectedMoveOutDate();
+        if (contract.getEndDate() != null) {
+            moveOutDate = contract.getEndDate();
+        }
+        if (checkoutRequest.getCompletedAt() != null) {
+            moveOutDate = checkoutRequest.getCompletedAt().toLocalDate();
+        }
+
+        LocalDate startDate = contract.getStartDate();
+        LocalDate firstDayOfMonth = moveOutDate.withDayOfMonth(1);
+        LocalDate startOfStay = firstDayOfMonth;
+        if (startDate.isAfter(firstDayOfMonth) && startDate.isBefore(moveOutDate.plusDays(1))) {
+            startOfStay = startDate;
+        }
+
+        long daysStayed = java.time.temporal.ChronoUnit.DAYS.between(startOfStay, moveOutDate) + 1;
+        long daysInMonth = moveOutDate.lengthOfMonth();
+        
+        BigDecimal rentPerDay = rentAmount.divide(BigDecimal.valueOf(daysInMonth), 0, java.math.RoundingMode.HALF_UP);
+        BigDecimal rentForStayedDays = rentPerDay.multiply(BigDecimal.valueOf(daysStayed));
+        
+        java.time.YearMonth ym = java.time.YearMonth.from(moveOutDate);
+        Optional<com.sep490.slms2026.entity.TenantInvoice> rentInvoiceOpt = 
+                tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                    contract.getId(), com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue());
+        
+        BigDecimal tienDaDongChoThangDo = rentAmount; // Default full month
+        boolean invoiceFound = false;
+        if (rentInvoiceOpt.isPresent()) {
+            tienDaDongChoThangDo = rentInvoiceOpt.get().getGrandTotal();
+            if (tienDaDongChoThangDo == null) tienDaDongChoThangDo = rentInvoiceOpt.get().getTotalAmount();
+            invoiceFound = true;
+        }
+
+        if (invoiceFound || moveOutDate.isAfter(contract.getStartDate().plusDays(20))) { // Only adjust if invoice was likely generated or they stayed long enough
+            BigDecimal phanDu = tienDaDongChoThangDo.subtract(rentForStayedDays);
+            if (phanDu.compareTo(BigDecimal.ZERO) > 0) {
+                String label = String.format("Hoàn tiền phòng những ngày không ở (%02d/%02d–%02d/%02d)", 
+                        moveOutDate.plusDays(1).getDayOfMonth(), moveOutDate.plusDays(1).getMonthValue(),
+                        moveOutDate.lengthOfMonth(), moveOutDate.getMonthValue());
+                adjustments.add(CheckoutSettlementResponse.AdjustmentResponse.builder()
+                        .label(label)
+                        .amount(phanDu)
+                        .build());
+                adjustmentTotal = adjustmentTotal.add(phanDu);
+            } else if (phanDu.compareTo(BigDecimal.ZERO) < 0) {
+                String label = String.format("Tiền phòng những ngày ở thêm");
+                adjustments.add(CheckoutSettlementResponse.AdjustmentResponse.builder()
+                        .label(label)
+                        .amount(phanDu) // negative value
+                        .build());
+                adjustmentTotal = adjustmentTotal.add(phanDu);
+            }
+        }
 
         BigDecimal finalAmount = deposit.subtract(unpaidTotal).subtract(damageTotal).add(adjustmentTotal);
 

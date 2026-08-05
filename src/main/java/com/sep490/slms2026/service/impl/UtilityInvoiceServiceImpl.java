@@ -178,6 +178,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         .title(title)
                         .content(content)
                         .type("UTILITY_INVOICE_CREATED")
+                        .screen("InvoiceList")
+                        .paramsJson("{\"invoiceId\": " + invoice.getId() + "}")
                         .read(false)
                         .build();
                 notificationRepository.save(notification);
