@@ -399,6 +399,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
+                .depositPaidAt(c.getPaidAt() != null ? c.getPaidAt() : c.getDepositCashManagerConfirmedAt())
+                .depositMethod(c.getPayosOrderCode() != null ? "PAYOS" : (c.getDepositCashManagerConfirmedAt() != null || c.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
                 .documentUrl(resolveContractFileUrl(c))
                 .documentGeneratedAt(c.getDocumentGeneratedAt())
                 .type(type)
