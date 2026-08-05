@@ -36,6 +36,14 @@ public class CheckoutRequestController {
         return ResponseEntity.ok(tenantCheckoutService.listRequestsForManager(status));
     }
 
+    /** POST / — tạo yêu cầu trả phòng thay khách (manager/admin). */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<CheckoutRequestResponse> create(
+            @Valid @RequestBody com.sep490.slms2026.dto.request.CreateCheckoutRequest request) {
+        return ResponseEntity.ok(tenantCheckoutService.createRequestForManager(currentUserId(), request));
+    }
+
     /** GET /{id} — chi tiết yêu cầu (manager/admin). */
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

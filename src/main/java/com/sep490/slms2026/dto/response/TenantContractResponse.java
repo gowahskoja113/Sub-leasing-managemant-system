@@ -44,6 +44,7 @@ public class TenantContractResponse {
     private LocalDateTime terminatedAt;
     private String terminationReason;
     private String terminationType;
+    private Boolean terminationProposed;
     private String pdfUrl;
     /** Thiết bị khách nhận bàn giao theo HĐ (đã chọn). */
     private List<EquipmentItem> equipmentList;

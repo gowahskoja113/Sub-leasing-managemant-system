@@ -31,8 +31,14 @@ public class CheckoutInspection implements Serializable {
     @Column(name = "electricity_final_reading")
     private Integer electricityFinalReading;
 
+    @Column(name = "electric_meter_image_url")
+    private String electricMeterImageUrl;
+
     @Column(name = "water_final_reading")
     private Integer waterFinalReading;
+
+    @Column(name = "water_meter_image_url")
+    private String waterMeterImageUrl;
 
     @ElementCollection
     @CollectionTable(name = "checkout_inspection_photos", joinColumns = @JoinColumn(name = "inspection_id"))

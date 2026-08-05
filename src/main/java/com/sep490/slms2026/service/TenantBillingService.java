@@ -34,4 +34,6 @@ public interface TenantBillingService {
     void createBankTransferClaim(TenantInvoice invoice, String transferContent);
 
     List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month);
+
+    void generateProratedRentForNewContract(TenantContract contract);
 }

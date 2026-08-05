@@ -28,6 +28,12 @@ public class Notification implements Serializable {
 
     private String type; // MASTER_LEASE_EXPIRY, LOSS_ALERT, etc.
 
+    @Column(name = "screen")
+    private String screen;
+
+    @Column(name = "params_json", columnDefinition = "TEXT")
+    private String paramsJson;
+
     @Column(name = "is_read", nullable = false)
     private boolean read = false;
 

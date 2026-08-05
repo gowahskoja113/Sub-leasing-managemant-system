@@ -61,7 +61,7 @@ app:
 
 jwt:
   secret: ${JWT_SECRET}
-  expiration: 86400000
+  expiration: 864000000
 
 # OCR đọc chỉ số điện nước (OCR.space). Đăng ký key free tại https://ocr.space/ocrapi
 ocr:

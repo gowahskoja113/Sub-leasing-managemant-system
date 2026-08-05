@@ -21,6 +21,8 @@ public interface TenantCheckoutService {
 
     List<CheckoutRequestResponse> listRequestsForManager(String status);
 
+    CheckoutRequestResponse createRequestForManager(UUID managerId, CreateCheckoutRequest request);
+
     CheckoutRequestResponse getRequestForManager(Long requestId);
 
     CheckoutRequestResponse approveRequest(Long requestId, UUID managerUserId, ApproveCheckoutRequest request);

@@ -53,6 +53,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
 
     @Override
     @Transactional
@@ -62,6 +63,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         Room room = loadRoom(propertyId, roomId);
         validateRoomBillable(room);
         UtilityType utilityType = UtilityTypeMapper.fromApi(request.getType());
+        validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType);
         validateInvoiceAmounts(request);
 
         TenantContract contract = tenantContractRepository
@@ -80,6 +82,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             throw new BusinessException("API nguyên căn chỉ dùng cho nhà whole-house");
         }
         UtilityType utilityType = UtilityTypeMapper.fromApi(request.getType());
+        validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType);
         validateInvoiceAmounts(request);
 
         TenantContract contract = tenantContractRepository
@@ -194,6 +197,39 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             response.setTenantPhone(contract.getTenant().getUser().getPhoneNumber());
         }
         return response;
+    }
+
+    private void validateBillingPeriodLock(Long propertyId, Long roomId, String billingPeriod, UtilityType utilityType) {
+        if (java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).getDayOfMonth() > 10) {
+            throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã qua ngày 10, không thể tạo mới hoá đơn điện/nước cho kỳ này.");
+        }
+
+        List<UtilityInvoice> utilities = utilityInvoiceRepository.findByFilters(propertyId, billingPeriod, utilityType);
+        if (roomId != null) {
+            utilities = utilities.stream().filter(u -> u.getRoom() != null && u.getRoom().getId().equals(roomId)).toList();
+        } else {
+            utilities = utilities.stream().filter(u -> u.getRoom() == null).toList();
+        }
+
+        if (!utilities.isEmpty()) {
+            boolean allPaid = true;
+            for (UtilityInvoice ui : utilities) {
+                var ti = tenantInvoiceRepository.findByUtilityInvoiceId(ui.getId());
+                if (ti.isPresent()) {
+                    if (ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID && 
+                        ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
+                        allPaid = false;
+                        break;
+                    }
+                } else {
+                    allPaid = false;
+                    break;
+                }
+            }
+            if (allPaid) {
+                throw new BusinessException("409: PERIOD_ALREADY_SETTLED - Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn.");
+            }
+        }
     }
 
     private void validateRoomBillable(Room room) {

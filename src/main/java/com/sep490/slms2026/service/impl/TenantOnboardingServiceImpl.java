@@ -79,6 +79,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     @Override
     @Transactional
@@ -231,6 +232,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         if (saved.getStatus() == ContractStatus.ACTIVE) {
             contractEquipmentService.disableDeclinedForActiveContract(saved);
+            tenantBillingService.generateProratedRentForNewContract(saved);
         }
 
         return toResponse(saved);
@@ -334,6 +336,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setStatus(ContractStatus.ACTIVE);
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
+        tenantBillingService.generateProratedRentForNewContract(saved);
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
     }

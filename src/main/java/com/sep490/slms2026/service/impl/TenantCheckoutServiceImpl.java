@@ -48,6 +48,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final com.sep490.slms2026.repository.InvoiceRepository invoiceRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
 
     @Override
     @Transactional
@@ -120,6 +121,14 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         checkoutRequest.setReviewedAt(LocalDateTime.now());
         CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
 
+        // Revert contract endDate if it was set (though it's only set in approve, but just in case)
+        if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
+            if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
+                checkoutRequest.getTenantContract().setEndDate(null);
+                tenantContractRepository.save(checkoutRequest.getTenantContract());
+            }
+        }
+
         UUID managerId = getManagerId(checkoutRequest.getTenantContract());
         if (managerId != null) {
             Map<String, Object> data = new HashMap<>();
@@ -152,6 +161,43 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     }
 
     @Override
+    @Transactional
+    public CheckoutRequestResponse createRequestForManager(UUID managerId, CreateCheckoutRequest request) {
+        TenantContract contract = tenantContractRepository.findById(request.getContractId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy hợp đồng ID=" + request.getContractId()));
+
+        if (contract.getStatus() != ContractStatus.ACTIVE) {
+            throw new BusinessException("Chỉ có thể yêu cầu trả phòng với hợp đồng đang hiệu lực");
+        }
+        if (checkoutRequestRepository.existsByTenantContractIdAndStatusIn(contract.getId(), OPEN_STATUSES)) {
+            throw new BusinessException("Đã có yêu cầu trả phòng đang chờ xử lý cho hợp đồng này");
+        }
+
+        CheckoutRequest saved = checkoutRequestRepository.save(CheckoutRequest.builder()
+                .tenantUserId(contract.getTenant().getId())
+                .tenantContract(contract)
+                .expectedMoveOutDate(request.getExpectedMoveOutDate())
+                .reason(request.getReason() != null ? request.getReason().trim() : "Quản lý tạo")
+                .note(request.getNote())
+                .status(CheckoutRequestStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .build());
+        
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", saved.getId());
+        data.put("params", params);
+        
+        String title = "Yêu cầu trả phòng mới";
+        String content = "Quản lý vừa tạo yêu cầu trả phòng cho bạn.";
+        sendNotification(contract.getTenant().getId(), "CHECKOUT_REQUESTED_BY_MANAGER", title, content, data);
+
+        return toResponse(saved);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public CheckoutRequestResponse getRequestForManager(Long requestId) {
         return toResponse(loadById(requestId));
@@ -176,6 +222,37 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
             checkoutRequest.setManagerNote(request.getManagerNote().trim());
         }
         CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        // Update contract endDate
+        contract.setEndDate(checkoutRequest.getExpectedMoveOutDate());
+        tenantContractRepository.save(contract);
+
+        // Recalculate rent invoice for the month of expectedMoveOutDate
+        java.time.YearMonth ym = java.time.YearMonth.from(checkoutRequest.getExpectedMoveOutDate());
+        com.sep490.slms2026.entity.TenantInvoice rentInvoice = 
+                tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                    contract.getId(), com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue())
+                .orElse(null);
+        if (rentInvoice != null && rentInvoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+            java.time.LocalDate billStart = contract.getStartDate().isAfter(ym.atDay(1)) ? contract.getStartDate() : ym.atDay(1);
+            if (!billStart.isAfter(contract.getEndDate())) {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(billStart, contract.getEndDate()) + 1;
+                long daysInMonth = ym.lengthOfMonth();
+                java.math.BigDecimal amount = contract.getRentAmount();
+                if (days < daysInMonth) {
+                    amount = amount.multiply(java.math.BigDecimal.valueOf(days)).divide(java.math.BigDecimal.valueOf(daysInMonth), 0, java.math.RoundingMode.HALF_UP);
+                }
+                if (amount.compareTo(rentInvoice.getGrandTotal()) != 0) {
+                    rentInvoice.setTotalAmount(amount);
+                    rentInvoice.setGrandTotal(amount);
+                    // Also clear late fee if it was calculated on the old amount, or keep it? For simplicity just clear payos url.
+                    rentInvoice.setPayosOrderCode(null);
+                    rentInvoice.setPayosQrCode(null);
+                    rentInvoice.setPayosCheckoutUrl(null);
+                    tenantInvoiceRepository.save(rentInvoice);
+                }
+            }
+        }
 
         Map<String, Object> data = new HashMap<>();
         data.put("screen", "CheckoutDetail");
@@ -202,6 +279,14 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         checkoutRequest.setReviewedBy(managerUserId);
         checkoutRequest.setRejectReason(request.getReason().trim());
         CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
+
+        // Revert contract endDate if it was set
+        if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
+            if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
+                checkoutRequest.getTenantContract().setEndDate(null);
+                tenantContractRepository.save(checkoutRequest.getTenantContract());
+            }
+        }
 
         Map<String, Object> data = new HashMap<>();
         data.put("screen", "CheckoutDetail");
@@ -314,11 +399,24 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
 
     private void sendNotification(UUID targetUserId, String type, String title, String content, Map<String, Object> data) {
         if (targetUserId == null) return;
+        
+        String screen = data != null ? (String) data.get("screen") : null;
+        String paramsJson = null;
+        if (data != null && data.get("params") != null) {
+            try {
+                paramsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data.get("params"));
+            } catch (Exception e) {
+                // Ignore parse error
+            }
+        }
+        
         Notification notification = Notification.builder()
                 .userId(targetUserId)
                 .title(title)
                 .content(content)
                 .type(type)
+                .screen(screen)
+                .paramsJson(paramsJson)
                 .read(false)
                 .build();
         notificationRepository.save(notification);
@@ -359,6 +457,10 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .reason(request.getReason())
                 .note(request.getNote())
                 .status(request.getStatus().name())
+                .disputeCount(request.getDisputeCount())
+                .disputeReason(request.getDisputeReason())
+                .disputePhotos(request.getDisputePhotos())
+                .disputedAt(request.getDisputedAt())
                 .createdAt(request.getCreatedAt())
                 .reviewedAt(request.getReviewedAt())
                 .reviewedBy(request.getReviewedBy())

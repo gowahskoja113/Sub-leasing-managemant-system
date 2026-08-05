@@ -27,8 +27,8 @@ public class AppNotificationServiceImpl implements AppNotificationService {
     @Transactional(readOnly = true)
     public Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, Pageable pageable) {
         Page<Notification> page = unreadOnly
-                ? notificationRepository.findByUserIdAndReadFalse(userId, pageable)
-                : notificationRepository.findByUserId(userId, pageable);
+                ? notificationRepository.findByUserIdAndReadFalseOrderByIdDesc(userId, pageable)
+                : notificationRepository.findByUserIdOrderByIdDesc(userId, pageable);
         return page.map(this::toResponse);
     }
 
@@ -58,11 +58,23 @@ public class AppNotificationServiceImpl implements AppNotificationService {
     }
 
     private NotificationResponse toResponse(Notification notification) {
+        Map<String, Object> paramsMap = null;
+        if (notification.getParamsJson() != null && !notification.getParamsJson().isBlank()) {
+            try {
+                paramsMap = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(notification.getParamsJson(), 
+                        new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                // Ignore parse error
+            }
+        }
         return NotificationResponse.builder()
                 .id(notification.getId())
                 .title(notification.getTitle())
                 .content(notification.getContent())
                 .type(notification.getType())
+                .screen(notification.getScreen())
+                .params(paramsMap)
                 .read(notification.isRead())
                 .createdAt(notification.getCreatedAt() != null
                         ? notification.getCreatedAt().format(ISO) : null)

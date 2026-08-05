@@ -23,6 +23,7 @@ import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.PushNotificationService;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -60,7 +61,9 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         inspection.setCheckoutRequest(checkoutRequest);
         inspection.setRoomConditionNote(request.getRoomConditionNote());
         inspection.setElectricityFinalReading(request.getElectricityFinalReading());
+        inspection.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
         inspection.setWaterFinalReading(request.getWaterFinalReading());
+        inspection.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
         inspection.setPhotos(request.getPhotos() != null ? request.getPhotos() : new ArrayList<>());
 
         if (inspection.getDamages() != null) {
@@ -110,7 +113,9 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 .id(inspection.getId())
                 .roomConditionNote(inspection.getRoomConditionNote())
                 .electricityFinalReading(inspection.getElectricityFinalReading())
+                .electricMeterImageUrl(inspection.getElectricMeterImageUrl())
                 .waterFinalReading(inspection.getWaterFinalReading())
+                .waterMeterImageUrl(inspection.getWaterMeterImageUrl())
                 .photos(inspection.getPhotos())
                 .damages(inspection.getDamages().stream().map(d -> CheckoutInspectionResponse.DamageItemResponse.builder()
                         .id(d.getId())
@@ -145,8 +150,6 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 .map(CheckoutDamageItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Calculate adjustments, e.g. for partial month rent if needed.
-        // For simplicity, we just use 0 here, or one could calculate it based on dates.
         BigDecimal adjustmentTotal = BigDecimal.ZERO;
         List<CheckoutSettlementResponse.AdjustmentResponse> adjustments = new ArrayList<>();
 
@@ -349,9 +352,14 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         checkoutRequest.setDisputeCount((checkoutRequest.getDisputeCount() == null ? 0 : checkoutRequest.getDisputeCount()) + 1);
         checkoutRequest.setStatus(CheckoutRequestStatus.DISPUTED);
+        checkoutRequest.setDisputeReason(request.getReason());
+        if (request.getPhotos() != null) {
+            checkoutRequest.setDisputePhotos(new ArrayList<>(request.getPhotos()));
+        } else {
+            checkoutRequest.setDisputePhotos(new ArrayList<>());
+        }
+        checkoutRequest.setDisputedAt(LocalDateTime.now());
         
-        // TODO: Save dispute reason, photos and Notify Host/Manager
-
         checkoutRequestRepository.save(checkoutRequest);
 
         UUID managerId = getManagerId(checkoutRequest.getTenantContract());
@@ -402,11 +410,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
     private void sendNotification(UUID targetUserId, String type, String title, String content, Map<String, Object> data) {
         if (targetUserId == null) return;
+        
+        String screen = data != null ? (String) data.get("screen") : null;
+        String paramsJson = null;
+        if (data != null && data.get("params") != null) {
+            try {
+                paramsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data.get("params"));
+            } catch (Exception e) {
+                // Ignore parse error
+            }
+        }
+
         Notification notification = Notification.builder()
                 .userId(targetUserId)
                 .title(title)
                 .content(content)
                 .type(type)
+                .screen(screen)
+                .paramsJson(paramsJson)
                 .read(false)
                 .build();
         notificationRepository.save(notification);

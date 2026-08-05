@@ -12,6 +12,8 @@ public class NotificationResponse {
     private String title;
     private String content;
     private String type;
+    private String screen;
+    private java.util.Map<String, Object> params;
     private boolean read;
     private String createdAt;
 }

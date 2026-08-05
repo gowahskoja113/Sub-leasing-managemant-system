@@ -16,7 +16,9 @@ public class CheckoutInspectionResponse {
     private Long id;
     private String roomConditionNote;
     private Integer electricityFinalReading;
+    private String electricMeterImageUrl;
     private Integer waterFinalReading;
+    private String waterMeterImageUrl;
     private List<String> photos;
     private List<DamageItemResponse> damages;
 
