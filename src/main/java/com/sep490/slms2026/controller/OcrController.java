@@ -19,10 +19,11 @@ public class OcrController {
 
     /**
      * POST /api/v1/ocr/meter
-     * Nhận URL ảnh đồng hồ (đã upload Cloudinary) -> trả về chỉ số gợi ý.
+     * Nhận URL ảnh (đã upload Cloudinary) -> trả về text/chỉ số gợi ý.
+     * TENANT dùng để đối chiếu ảnh thiết bị khi báo hỏng; MANAGER/ADMIN đọc đồng hồ.
      */
     @PostMapping("/meter")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<OcrMeterResponse> readMeter(@Valid @RequestBody OcrMeterRequest request) {
         return ResponseEntity.ok(ocrService.readMeter(request.getImageUrl()));
     }
