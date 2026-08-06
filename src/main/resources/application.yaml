@@ -61,13 +61,25 @@ app:
 
 jwt:
   secret: ${JWT_SECRET}
-  expiration: 86400000
+  # 10 ngày = 10 × 24 × 60 × 60 × 1000 (ms). Override bằng JWT_EXPIRATION nếu cần.
+  expiration: ${JWT_EXPIRATION:864000000}
 
 # OCR đọc chỉ số điện nước (OCR.space). Đăng ký key free tại https://ocr.space/ocrapi
 ocr:
   space:
     base-url: https://api.ocr.space/parse/image
     api-key: ${OCR_SPACE_API_KEY:helloworld}   # 'helloworld' là key demo giới hạn, nên thay bằng key free riêng
+
+# Nhận diện vật thể trên ảnh (Google Cloud Vision LABEL_DETECTION).
+# Bật Vision API + tạo API key: https://console.cloud.google.com/apis/library/vision.googleapis.com
+vision:
+  google:
+    base-url: https://vision.googleapis.com/v1/images:annotate
+    api-key: ${GOOGLE_VISION_API_KEY:}
+  max-results: 20
+  rate-limit-per-hour: 20
+  # Chỉ cho phép ảnh từ domain Cloudinary hệ thống (tránh proxy đọc ảnh ngoài)
+  allowed-image-hosts: ${VISION_ALLOWED_IMAGE_HOSTS:res.cloudinary.com}
 
 # Thanh toán cọc qua PayOS (https://payos.vn). Lấy key ở Dashboard PayOS.
 payos:
