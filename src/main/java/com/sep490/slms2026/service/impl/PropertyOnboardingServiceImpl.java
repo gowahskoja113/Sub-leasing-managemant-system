@@ -579,6 +579,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setOperationManagerId(managerId);
         property.setManagedBy(managerId);
         property.setStatus(PropertyStatus.ACTIVE);
+        if (property.getManagerAcceptedAt() == null) {
+            property.setManagerAcceptedAt(java.time.LocalDateTime.now());
+        }
         propertyRepository.save(property);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {

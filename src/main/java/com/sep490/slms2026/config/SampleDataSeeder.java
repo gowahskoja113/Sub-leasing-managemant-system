@@ -68,15 +68,24 @@ public class SampleDataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        // Cờ chống chạy trùng: nếu đã có manager01 thì coi như đã seed -> bỏ qua.
-        if (userRepository.existsByUsername("manager01")) {
-            log.info("SampleDataSeeder: dữ liệu mẫu đã tồn tại, bỏ qua.");
-            return;
-        }
-
         catalogByName = equipmentCatalogRepository.findAll().stream()
                 .collect(Collectors.toMap(EquipmentCatalog::getName, c -> c, (a, b) -> a));
 
+        // Idempotent full seed: chỉ chạy khi chưa có manager01
+        if (!userRepository.existsByUsername("manager01")) {
+            seedFreshDemo();
+            return;
+        }
+
+        // DB đã seed cũ (tenant01..22): bổ sung tenant23..50 + HĐ đa trạng thái nếu chưa có
+        if (userRepository.existsByUsername("tenant22") && !userRepository.existsByUsername("tenant50")) {
+            expandDemoContracts();
+        } else {
+            log.info("SampleDataSeeder: dữ liệu mẫu đã tồn tại, bỏ qua.");
+        }
+    }
+
+    private void seedFreshDemo() {
         List<Zone> districts = loadDistrictZones();
         if (districts.isEmpty()) {
             log.warn("SampleDataSeeder: chưa có Zone cấp quận — ZoneDataSeeder cần chạy trước. Bỏ qua seed BĐS.");
@@ -85,16 +94,34 @@ public class SampleDataSeeder implements ApplicationRunner {
         seedAdmins(2);
         seedOwners(6);
         List<User> managers = seedManagers(5, districts);
-        List<User> tenants = seedTenants(22);
+        List<User> tenants = seedTenants(50);
         seedPlainUsers(5);
 
         if (!managers.isEmpty() && !districts.isEmpty()) {
             seedProperties(managers, districts);
-            seedContractsAndInvoices(tenants);
+            seedContractsAndInvoicesDiverse(tenants, managers);
         }
 
-        log.info("SampleDataSeeder: HOÀN TẤT seed dữ liệu mẫu (40 user / 55 BĐS + hợp đồng & hóa đơn). "
+        log.info("SampleDataSeeder: HOÀN TẤT seed dữ liệu mẫu (50 tenant, HĐ đa trạng thái + hóa đơn). "
                 + "Mật khẩu mọi tài khoản: {}", DEFAULT_PASSWORD);
+    }
+
+    /**
+     * Mở rộng demo trên DB đã seed: thêm tenant23..50 và ~28 HĐ nháp/pending (không đụng HĐ ACTIVE cũ).
+     */
+    private void expandDemoContracts() {
+        List<Zone> districts = loadDistrictZones();
+        List<User> managers = seedManagers(5, districts);
+        List<User> newTenants = seedTenants(50); // tenant01..22 đã có, tạo 23..50
+        List<User> extra = newTenants.stream()
+                .filter(u -> u.getUsername() != null && u.getUsername().compareTo("tenant22") > 0)
+                .collect(Collectors.toList());
+        if (extra.isEmpty() || managers.isEmpty()) {
+            log.info("SampleDataSeeder expand: không có tenant mới / manager — bỏ qua.");
+            return;
+        }
+        seedExtraNonActiveContracts(extra, managers);
+        log.info("SampleDataSeeder: đã mở rộng demo (tenant03..50 + HĐ DRAFT/PENDING).");
     }
 
     // ------------------------------------------------------------------
@@ -391,6 +418,7 @@ public class SampleDataSeeder implements ApplicationRunner {
                 .totalRooms(totalRooms)
                 .imageUrls(new ArrayList<>(images))
                 .status(PropertyStatus.ACTIVE)
+                .managerAcceptedAt(LocalDateTime.now().minusMonths(1))
                 .operationManagerId(managerId)
                 .managedBy(managerId)
                 .descriptions(descriptions)
@@ -434,51 +462,114 @@ public class SampleDataSeeder implements ApplicationRunner {
 
     // ------------------------------------------------------------------
     // HỢP ĐỒNG THUÊ + HÓA ĐƠN
-    // Gán mỗi tenant vào 1 đơn vị cho thuê (1 phòng, hoặc 1 nhà nguyên căn),
-    // tạo hợp đồng ACTIVE và hóa đơn 2 tháng: tháng trước (PAID) + tháng này (chưa thanh toán).
+    // Phân bổ trạng thái demo mentor 07/08:
+    //   DRAFT 15 | PENDING (chưa cọc) 8 | PENDING_PRICE_APPROVAL 5 | ACTIVE 20 | TERMINATED 2
     // ------------------------------------------------------------------
     private int contractSeq = 0;
 
-    private void seedContractsAndInvoices(List<User> tenants) {
+    private void seedContractsAndInvoicesDiverse(List<User> tenants, List<User> managers) {
         if (tenants.isEmpty()) return;
 
-        // Gom các đơn vị cho thuê còn trống theo thứ tự property để trải đều.
+        List<Room> availableUnits = collectAvailableUnits();
+        int totalNeeded = Math.min(50, Math.min(tenants.size(), availableUnits.size()));
+        int created = 0;
+
+        // target counts
+        int nDraft = 15, nPending = 8, nPrice = 5, nActive = 20, nTerm = 2;
+        int i = 0;
+
+        for (int k = 0; k < nDraft && i < totalNeeded; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.DRAFT, null, PaymentStatus.PENDING, false);
+            created++;
+        }
+        for (int k = 0; k < nPending && i < totalNeeded; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.PENDING, null, PaymentStatus.PENDING, false);
+            created++;
+        }
+        for (int k = 0; k < nPrice && i < totalNeeded; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.PENDING, PriceApprovalStatus.PENDING_PRICE_APPROVAL,
+                    PaymentStatus.PENDING, false);
+            created++;
+        }
+        for (int k = 0; k < nActive && i < totalNeeded; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.ACTIVE, null, PaymentStatus.PAID, true);
+            created++;
+        }
+        for (int k = 0; k < nTerm && i < totalNeeded; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.TERMINATED, null, PaymentStatus.PAID, false);
+            created++;
+        }
+        log.info("SampleDataSeeder: đã tạo {} hợp đồng thuê (đa trạng thái) + hóa đơn ACTIVE.", created);
+    }
+
+    private void seedExtraNonActiveContracts(List<User> tenants, List<User> managers) {
+        List<Room> availableUnits = collectAvailableUnits();
+        int n = Math.min(tenants.size(), Math.min(availableUnits.size(), 28));
+        // 15 draft, 8 pending, 5 price among extra
+        int i = 0;
+        for (int k = 0; k < 15 && i < n; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.DRAFT, null, PaymentStatus.PENDING, false);
+        }
+        for (int k = 0; k < 8 && i < n; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.PENDING, null, PaymentStatus.PENDING, false);
+        }
+        for (int k = 0; k < 5 && i < n; k++, i++) {
+            createContractVariant(tenants.get(i), availableUnits.get(i), managers,
+                    ContractStatus.PENDING, PriceApprovalStatus.PENDING_PRICE_APPROVAL,
+                    PaymentStatus.PENDING, false);
+        }
+        log.info("SampleDataSeeder expand: đã tạo thêm HĐ DRAFT/PENDING/PRICE.");
+    }
+
+    private List<Room> collectAvailableUnits() {
         List<Room> availableUnits = new ArrayList<>();
         for (Property p : propertyRepository.findAll()) {
-            List<Room> rooms = roomRepository.findAll().stream()
-                    .filter(r -> r.getProperty() != null && r.getProperty().getId().equals(p.getId()))
+            List<Room> rooms = roomRepository.findByPropertyId(p.getId()).stream()
                     .filter(r -> r.getStatus() == RoomStatus.AVAILABLE)
                     .collect(Collectors.toList());
             availableUnits.addAll(rooms);
         }
-
-        int count = Math.min(tenants.size(), availableUnits.size());
-        int created = 0;
-        for (int i = 0; i < count; i++) {
-            User tenantUser = tenants.get(i);
-            Tenant tenant = tenantUser.getTenantProfile();
-            if (tenant == null) continue;
-            Room room = availableUnits.get(i);
-            Property property = room.getProperty();
-            boolean wholeHouse = Boolean.TRUE.equals(property.getWholeHouse());
-
-            createContractWithInvoices(tenant, tenantUser.getId(), property, room, wholeHouse, i);
-            created++;
-        }
-        log.info("SampleDataSeeder: đã tạo {} hợp đồng thuê + hóa đơn.", created);
+        return availableUnits;
     }
 
-    private void createContractWithInvoices(Tenant tenant, java.util.UUID tenantUserId, Property property,
-                                            Room room, boolean wholeHouse, int index) {
+    private void createContractVariant(User tenantUser, Room room, List<User> managers,
+                                       ContractStatus status, PriceApprovalStatus priceStatus,
+                                       PaymentStatus paymentStatus, boolean withInvoices) {
+        Tenant tenant = tenantUser.getTenantProfile();
+        if (tenant == null) return;
+        Property property = room.getProperty();
+        boolean wholeHouse = Boolean.TRUE.equals(property.getWholeHouse());
         BigDecimal rent = room.getPrice() != null ? room.getPrice() : property.getPrice();
         BigDecimal deposit = room.getDeposit() != null ? room.getDeposit() : rent;
-        LocalDate moveIn = LocalDate.now().minusMonths(2).withDayOfMonth(1);
+        LocalDate moveIn = status == ContractStatus.ACTIVE || status == ContractStatus.TERMINATED
+                ? LocalDate.now().minusMonths(2).withDayOfMonth(1)
+                : LocalDate.now().plusDays(3);
 
-        TenantContract contract = TenantContract.builder()
-                .tenant(tenant)
+        User assigned = null;
+        if (property.getOperationManagerId() != null) {
+            assigned = managers.stream()
+                    .filter(m -> m.getId().equals(property.getOperationManagerId()))
+                    .findFirst().orElse(managers.isEmpty() ? null : managers.get(0));
+        } else if (!managers.isEmpty()) {
+            assigned = managers.get(contractSeq % managers.size());
+        }
+
+        String draftName = tenantUser.getFullName();
+        String draftPhone = tenantUser.getPhoneNumber();
+        String draftCccd = tenant.getCccd();
+
+        TenantContract.TenantContractBuilder b = TenantContract.builder()
+                .tenant(status == ContractStatus.DRAFT ? null : tenant)
                 .property(property)
-                .room(wholeHouse ? null : room)   // theo quy ước: nguyên căn -> room null
-                .contractCode(String.format("HD%05d", ++contractSeq))
+                .room(wholeHouse ? null : room)
+                .contractCode(String.format("HD-MT-%d-%05d", LocalDate.now().getYear(), ++contractSeq))
                 .rentAmount(rent)
                 .deposit(deposit)
                 .depositMonths(1)
@@ -487,20 +578,47 @@ public class SampleDataSeeder implements ApplicationRunner {
                 .endDate(moveIn.plusYears(1))
                 .initialElectricReading(new BigDecimal("1000"))
                 .initialWaterReading(new BigDecimal("50"))
-                .status(ContractStatus.ACTIVE)
-                .paymentStatus(PaymentStatus.PAID)   // đã đóng cọc
-                .paidAt(moveIn.atStartOfDay())
-                .build();
-        contract = tenantContractRepository.save(contract);
+                .status(status)
+                .paymentStatus(paymentStatus)
+                .priceApprovalStatus(priceStatus)
+                .assignedManager(assigned)
+                .draftTenantName(status == ContractStatus.DRAFT || status == ContractStatus.PENDING ? draftName : null)
+                .draftTenantPhone(status == ContractStatus.DRAFT || status == ContractStatus.PENDING ? draftPhone : null)
+                .draftTenantCccd(status == ContractStatus.DRAFT || status == ContractStatus.PENDING ? draftCccd : null);
 
-        // Cập nhật trạng thái phòng / nhà
-        room.setStatus(RoomStatus.RENTED);
-        roomRepository.save(room);
-        if (wholeHouse) {
-            property.setStatus(PropertyStatus.RENTED);
-            propertyRepository.save(property);
+        if (paymentStatus == PaymentStatus.PAID) {
+            b.paidAt(moveIn.atStartOfDay())
+                    .depositPaidAt(moveIn.atStartOfDay())
+                    .depositMethod("SEED");
+        }
+        if (status == ContractStatus.ACTIVE) {
+            b.activatedAt(moveIn.atStartOfDay());
+        }
+        if (status == ContractStatus.TERMINATED) {
+            b.activatedAt(moveIn.atStartOfDay())
+                    .terminatedAt(LocalDateTime.now().minusDays(10))
+                    .terminationType(ContractTerminationType.MUTUAL_AGREEMENT)
+                    .terminationReason("Seed demo - đã kết thúc");
         }
 
+        TenantContract contract = tenantContractRepository.save(b.build());
+
+        if (status == ContractStatus.ACTIVE) {
+            room.setStatus(RoomStatus.RENTED);
+            roomRepository.save(room);
+            if (wholeHouse) {
+                property.setStatus(PropertyStatus.RENTED);
+                propertyRepository.save(property);
+            }
+            if (withInvoices) {
+                seedInvoicesForActive(contract, tenantUser.getId(), property, room);
+            }
+        }
+    }
+
+    private void seedInvoicesForActive(TenantContract contract, java.util.UUID tenantUserId,
+                                       Property property, Room room) {
+        BigDecimal rent = contract.getRentAmount();
         BigDecimal eRate = property.getElectricityUnitPrice() != null
                 ? property.getElectricityUnitPrice() : new BigDecimal("3500");
         BigDecimal wRate = property.getWaterUnitPrice() != null
@@ -509,7 +627,34 @@ public class SampleDataSeeder implements ApplicationRunner {
                 ? property.getServiceFee() : new BigDecimal("100000");
         String roomNumber = room.getRoomNumber();
 
-        // Tháng trước: đã thanh toán đầy đủ (RENT + ĐIỆN + NƯỚC + DỊCH VỤ)
+        // Onboard PAID (tiền nhà tháng đầu + cọc)
+        BigDecimal deposit = contract.getDeposit() != null ? contract.getDeposit() : rent;
+        String onboardNote = "ONBOARD|rentAmount=" + rent.toPlainString()
+                + "|depositAmount=" + deposit.toPlainString()
+                + "|depositMonths=1";
+        TenantInvoice onboard = TenantInvoice.builder()
+                .code("HD-ONBOARD-" + contract.getId())
+                .tenantUserId(tenantUserId)
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .propertyName(property.getPropertyName())
+                .roomNumber(roomNumber)
+                .billingPeriod("Thu lúc nhận phòng " + contract.getMoveInDate())
+                .note(onboardNote)
+                .totalAmount(rent.add(deposit))
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(rent.add(deposit))
+                .status(TenantInvoiceStatus.PAID)
+                .createdAt(contract.getMoveInDate().atStartOfDay())
+                .paidAt(contract.getMoveInDate().atStartOfDay())
+                .paymentMethod("SEED")
+                .build();
+        try {
+            tenantInvoiceRepository.save(onboard);
+        } catch (Exception e) {
+            log.warn("SampleDataSeeder: bỏ qua hoá đơn onboard ({}).", e.getMessage());
+        }
+
         LocalDate prev = LocalDate.now().minusMonths(1);
         createInvoice(contract, tenantUserId, property.getPropertyName(), roomNumber, prev,
                 TenantInvoiceType.RENT, rent, null, null, TenantInvoiceStatus.PAID);
@@ -522,9 +667,9 @@ public class SampleDataSeeder implements ApplicationRunner {
         createInvoice(contract, tenantUserId, property.getPropertyName(), roomNumber, prev,
                 TenantInvoiceType.SERVICE, serviceFee, null, null, TenantInvoiceStatus.PAID);
 
-        // Tháng này: chưa thanh toán — cứ mỗi 4 hợp đồng để 1 cái QUÁ HẠN cho đa dạng
         LocalDate cur = LocalDate.now();
-        TenantInvoiceStatus rentStatus = (index % 4 == 0) ? TenantInvoiceStatus.OVERDUE : TenantInvoiceStatus.PENDING;
+        long id = contract.getId() != null ? contract.getId() : 0;
+        TenantInvoiceStatus rentStatus = (id % 4 == 0) ? TenantInvoiceStatus.OVERDUE : TenantInvoiceStatus.PENDING;
         createInvoice(contract, tenantUserId, property.getPropertyName(), roomNumber, cur,
                 TenantInvoiceType.RENT, rent, null, null, rentStatus);
         createInvoice(contract, tenantUserId, property.getPropertyName(), roomNumber, cur,
@@ -543,11 +688,12 @@ public class SampleDataSeeder implements ApplicationRunner {
                 ? total.multiply(new BigDecimal("0.05")) : BigDecimal.ZERO;
         BigDecimal grand = total.add(lateFee);
         LocalDateTime createdAt = month.withDayOfMonth(1).atStartOfDay();
-        LocalDate dueDate = month.withDayOfMonth(5);
+        LocalDate dueDate = month.withDayOfMonth(Math.min(5, month.lengthOfMonth()));
+        String code = String.format("INV%05d-%d%02d-%s", contract.getId(),
+                month.getYear(), month.getMonthValue(), type.name().substring(0, 1));
 
         TenantInvoice.TenantInvoiceBuilder b = TenantInvoice.builder()
-                .code(String.format("INV%05d-%d%02d-%s", contract.getId(),
-                        month.getYear(), month.getMonthValue(), type.name().substring(0, 1)))
+                .code(code)
                 .tenantUserId(tenantUserId)
                 .tenantContract(contract)
                 .invoiceType(type)
@@ -569,7 +715,7 @@ public class SampleDataSeeder implements ApplicationRunner {
             b.m3Used(usage).waterRate(rate);
         }
         if (status == TenantInvoiceStatus.PAID) {
-            b.paidAt(month.withDayOfMonth(3).atStartOfDay()).paymentMethod("BANK_TRANSFER")
+            b.paidAt(createdAt.plusDays(2)).paymentMethod("BANK_TRANSFER")
                     .transactionId("TXN" + contract.getId() + month.getMonthValue() + type.name().charAt(0));
         }
         try {

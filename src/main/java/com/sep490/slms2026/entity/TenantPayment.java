@@ -26,7 +26,8 @@ public class TenantPayment implements Serializable {
     @JoinColumn(name = "tenant_invoice_id", nullable = false)
     private TenantInvoice tenantInvoice;
 
-    @Column(name = "tenant_user_id", nullable = false)
+    /** Nullable khi onboard chưa có account tenant — backfill lúc confirm HĐ. */
+    @Column(name = "tenant_user_id")
     private UUID tenantUserId;
 
     @Column(name = "invoice_code", nullable = false)

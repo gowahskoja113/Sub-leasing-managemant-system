@@ -14,6 +14,8 @@ import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.Tenant;
 import com.sep490.slms2026.entity.TenantContract;
+import com.sep490.slms2026.entity.TenantInvoice;
+import com.sep490.slms2026.entity.TenantPayment;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.OtpPurpose;
@@ -21,15 +23,20 @@ import com.sep490.slms2026.enums.PaymentStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.TenantInvoiceStatus;
+import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.repository.TenantPaymentRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.service.ContractEquipmentService;
+import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PushNotificationService;
@@ -52,6 +59,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -71,11 +79,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final TenantPaymentRepository tenantPaymentRepository;
     private final PayosService payosService;
     private final OtpService otpService;
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
+    private final MeterOverrideService meterOverrideService;
 
     @Override
     @Transactional
@@ -215,6 +226,15 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         TenantContract saved = tenantContractRepository.save(contract);
 
+        // Override nhập tay chỉ số (không có ảnh) — sau khi có contractId
+        applyMeterOverridesIfAny(saved, request.getElectricMeterOverrideToken(),
+                request.getElectricMeterOverrideReason(), request.getInitialElectricReading(),
+                request.getWaterMeterOverrideToken(), request.getWaterMeterOverrideReason(),
+                request.getInitialWaterReading());
+        if (request.getElectricMeterOverrideToken() != null || request.getWaterMeterOverrideToken() != null) {
+            saved = tenantContractRepository.save(saved);
+        }
+
         if (request.isDraft() && saved.getAssignedManager() != null) {
             notifyAssignedManager(saved);
         }
@@ -338,8 +358,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             roomRepository.save(room);
         }
         contract.setStatus(ContractStatus.ACTIVE);
+        contract.setActivatedAt(LocalDateTime.now());
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
+        backfillOnboardingInvoiceTenant(saved);
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
     }
@@ -366,22 +388,238 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() != PaymentStatus.PAID && contract.getPayosOrderCode() != null) {
             String status = payosService.getPaymentStatus(contract.getPayosOrderCode());
             if ("PAID".equalsIgnoreCase(status)) {
-                contract.setPaymentStatus(PaymentStatus.PAID);
-                contract.setPaidAt(LocalDateTime.now());
-                contract = tenantContractRepository.save(contract);
+                completeDepositPayment(contract, contract.getPayosOrderCode(), "PAYOS");
             }
         }
-        return toResponse(contract);
+        return toResponse(findContract(contractId));
     }
 
     @Override
     @Transactional
     public void markDepositPaid(Long payosOrderCode) {
-        tenantContractRepository.findByPayosOrderCode(payosOrderCode).ifPresent(contract -> {
-            contract.setPaymentStatus(PaymentStatus.PAID);
-            contract.setPaidAt(LocalDateTime.now());
-            tenantContractRepository.save(contract);
-        });
+        tenantContractRepository.findByPayosOrderCode(payosOrderCode).ifPresent(contract ->
+                completeDepositPayment(contract, payosOrderCode, "PAYOS"));
+    }
+
+    /**
+     * Ghi nhận thanh toán onboard (tiền tháng đầu + cọc): set PAID, sinh hoá đơn + giao dịch, notify.
+     * Idempotent — PayOS có thể retry webhook; cũng backfill hoá đơn nếu HĐ đã PAID trước đó nhưng thiếu sổ.
+     */
+    private void completeDepositPayment(TenantContract contract, Long payosOrderCode, String method) {
+        LocalDateTime now = LocalDateTime.now();
+        boolean wasAlreadyPaid = contract.getPaymentStatus() == PaymentStatus.PAID
+                && contract.getDepositPaidAt() != null;
+
+        contract.setPaymentStatus(PaymentStatus.PAID);
+        if (contract.getPaidAt() == null) {
+            contract.setPaidAt(now);
+        }
+        if (contract.getDepositPaidAt() == null) {
+            contract.setDepositPaidAt(contract.getPaidAt() != null ? contract.getPaidAt() : now);
+        }
+        if (contract.getDepositMethod() == null || contract.getDepositMethod().isBlank()) {
+            contract.setDepositMethod(method);
+        }
+        tenantContractRepository.save(contract);
+
+        boolean invoiceCreated = createOnboardingInvoiceAndPayment(contract, payosOrderCode, method,
+                contract.getPaidAt() != null ? contract.getPaidAt() : now);
+        if (!wasAlreadyPaid || invoiceCreated) {
+            notifyDepositPaid(contract);
+        }
+    }
+
+    /** @return true nếu vừa tạo hoá đơn mới */
+    private boolean createOnboardingInvoiceAndPayment(TenantContract contract, Long payosOrderCode,
+                                                   String method, LocalDateTime paidAt) {
+        String code = onboardingInvoiceCode(contract.getId());
+        if (tenantInvoiceRepository.findByCode(code).isPresent()) {
+            return false;
+        }
+
+        BigDecimal rent = contract.getRentAmount() != null ? contract.getRentAmount() : BigDecimal.ZERO;
+        BigDecimal deposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
+        BigDecimal total = rent.add(deposit);
+        UUID tenantUserId = resolveTenantUserId(contract);
+        String propertyName = contract.getProperty() != null ? contract.getProperty().getPropertyName() : "";
+        String roomNumber = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null;
+        int depositMonths = contract.getDepositMonths() != null ? contract.getDepositMonths() : 1;
+        String moveIn = contract.getMoveInDate() != null ? contract.getMoveInDate().toString() : "";
+
+        String note = "ONBOARD|rentAmount=" + rent.toPlainString()
+                + "|depositAmount=" + deposit.toPlainString()
+                + "|depositMonths=" + depositMonths;
+
+        TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
+                .code(code)
+                .tenantUserId(tenantUserId)
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .propertyName(propertyName != null ? propertyName : "")
+                .roomNumber(roomNumber)
+                .billingPeriod("Thu lúc nhận phòng " + moveIn)
+                .note(note)
+                .totalAmount(total)
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(total)
+                .status(TenantInvoiceStatus.PAID)
+                .createdAt(paidAt)
+                .paidAt(paidAt)
+                .paymentMethod(method)
+                .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
+                .payosOrderCode(payosOrderCode)
+                .build());
+
+        tenantPaymentRepository.save(TenantPayment.builder()
+                .tenantInvoice(invoice)
+                .tenantUserId(tenantUserId)
+                .invoiceCode(invoice.getCode())
+                .invoiceType(invoice.getInvoiceType())
+                .amount(total)
+                .method(method)
+                .paidAt(paidAt)
+                .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
+                .propertyName(propertyName)
+                .roomNumber(roomNumber)
+                .build());
+        return true;
+    }
+
+    private void backfillOnboardingInvoiceTenant(TenantContract contract) {
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId == null) {
+            return;
+        }
+        for (TenantInvoice invoice : tenantInvoiceRepository.findByTenantContractId(contract.getId())) {
+            if (invoice.getTenantUserId() == null) {
+                invoice.setTenantUserId(tenantUserId);
+                tenantInvoiceRepository.save(invoice);
+            }
+            for (TenantPayment payment : tenantPaymentRepository.findByTenantInvoiceId(invoice.getId())) {
+                if (payment.getTenantUserId() == null) {
+                    payment.setTenantUserId(tenantUserId);
+                    tenantPaymentRepository.save(payment);
+                }
+            }
+        }
+    }
+
+    private void applyMeterOverridesIfAny(
+            TenantContract contract,
+            UUID electricToken, String electricReason, BigDecimal electricValue,
+            UUID waterToken, String waterReason, BigDecimal waterValue) {
+        // Chỉ apply override khi không có ảnh (nhập tay)
+        boolean needElec = electricToken != null
+                && (contract.getElectricMeterImageUrl() == null || contract.getElectricMeterImageUrl().isBlank());
+        boolean needWater = waterToken != null
+                && (contract.getWaterMeterImageUrl() == null || contract.getWaterMeterImageUrl().isBlank());
+        if (!needElec && !needWater) {
+            return;
+        }
+        UUID managerId = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId();
+        if (needElec) {
+            meterOverrideService.consumeOverrideIfPresent(
+                    managerId, contract.getId(), "ELEC", electricToken, electricValue, electricReason);
+            if (contract.getElectricMeterCapturedAt() == null) {
+                contract.setElectricMeterCapturedAt(LocalDateTime.now());
+            }
+        }
+        if (needWater) {
+            meterOverrideService.consumeOverrideIfPresent(
+                    managerId, contract.getId(), "WATER", waterToken, waterValue, waterReason);
+            if (contract.getWaterMeterCapturedAt() == null) {
+                contract.setWaterMeterCapturedAt(LocalDateTime.now());
+            }
+        }
+    }
+
+    private static String onboardingInvoiceCode(Long contractId) {
+        return "HD-ONBOARD-" + contractId;
+    }
+
+    private UUID resolveTenantUserId(TenantContract contract) {
+        if (contract.getTenant() != null) {
+            if (contract.getTenant().getUser() != null) {
+                return contract.getTenant().getUser().getId();
+            }
+            return contract.getTenant().getId();
+        }
+        String phone = contract.getDraftTenantPhone();
+        if (phone != null && !phone.isBlank()) {
+            try {
+                String local = PhoneUtils.normalizeLocal(phone);
+                String intl = PhoneUtils.toInternational(phone);
+                User existing = findExistingUserByPhone(local, intl);
+                if (existing != null) {
+                    return existing.getId();
+                }
+            } catch (Exception ignored) {
+                // keep null
+            }
+        }
+        return null;
+    }
+
+    private void notifyDepositPaid(TenantContract contract) {
+        BigDecimal total = TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract);
+        String amountText = total != null ? total.stripTrailingZeros().toPlainString() : "0";
+        String tenantName = contract.getDraftTenantName();
+        if ((tenantName == null || tenantName.isBlank()) && contract.getTenant() != null
+                && contract.getTenant().getUser() != null) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        }
+        if (tenantName == null || tenantName.isBlank()) {
+            tenantName = "khách";
+        }
+        String roomLabel = contract.getRoom() != null && contract.getRoom().getRoomNumber() != null
+                ? contract.getRoom().getRoomNumber() : "nguyên căn";
+
+        // Tenant — kèm số tiền
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId != null) {
+            String title = "✅ Đã nhận thanh toán";
+            String body = "Hệ thống đã ghi nhận khoản thu lúc nhận phòng (" + amountText
+                    + "đ). Xem chi tiết trong Hoá đơn.";
+            notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                    .userId(tenantUserId)
+                    .title(title)
+                    .content(body)
+                    .type("DEPOSIT_PAID_TENANT")
+                    .build());
+            userRepository.findById(tenantUserId).ifPresent(u -> {
+                String token = u.getPushToken();
+                if (token != null && !token.isBlank()) {
+                    pushNotificationService.sendPushNotification(token, title, body, Map.of(
+                            "screen", "InvoiceList",
+                            "type", "DEPOSIT_PAID_TENANT"));
+                }
+            });
+        }
+
+        // Manager — KHÔNG kèm số tiền (chính sách money visibility)
+        User manager = contract.getAssignedManager();
+        if (manager == null && contract.getProperty() != null
+                && contract.getProperty().getOperationManagerId() != null) {
+            manager = userRepository.findById(contract.getProperty().getOperationManagerId()).orElse(null);
+        }
+        if (manager != null) {
+            String title = "💰 Khách đã thanh toán xong";
+            String body = "Khách " + tenantName + " · Phòng " + roomLabel
+                    + " đã thanh toán xong. Tiếp tục bước xác thực OTP để hoàn tất hợp đồng.";
+            notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                    .userId(manager.getId())
+                    .title(title)
+                    .content(body)
+                    .type("DEPOSIT_PAID_MANAGER")
+                    .build());
+            String token = manager.getPushToken();
+            if (token != null && !token.isBlank()) {
+                pushNotificationService.sendPushNotification(token, title, body, Map.of(
+                        "screen", "ResumeContract",
+                        "params", Map.of("contractId", contract.getId()),
+                        "type", "DEPOSIT_PAID_MANAGER"));
+            }
+        }
     }
 
     @Override
@@ -549,6 +787,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         } else if (request.getWaterMeterCapturedAt() != null && contract.getWaterMeterImageUrl() != null) {
             contract.setWaterMeterCapturedAt(request.getWaterMeterCapturedAt());
         }
+
+        applyMeterOverridesIfAny(contract,
+                request.getElectricMeterOverrideToken(), request.getElectricMeterOverrideReason(),
+                request.getInitialElectricReading(),
+                request.getWaterMeterOverrideToken(), request.getWaterMeterOverrideReason(),
+                request.getInitialWaterReading());
         if (request.getRoomConditionNote() != null) contract.setRoomConditionNote(request.getRoomConditionNote());
         if (request.getExpectedReceptionDate() != null) contract.setExpectedReceptionDate(request.getExpectedReceptionDate());
 
@@ -894,8 +1138,17 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     private String generateContractCode() {
-        long next = tenantContractRepository.count() + 1;
-        return "HD-MT-" + Year.now().getValue() + "-" + String.format("%05d", next);
+        int year = Year.now().getValue();
+        for (int i = 0; i < 30; i++) {
+            int seq = ThreadLocalRandom.current().nextInt(1, 100_000);
+            String code = "HD-MT-" + year + "-" + String.format("%05d", seq);
+            if (!tenantContractRepository.existsByContractCode(code)) {
+                return code;
+            }
+        }
+        // fallback: timestamp + random — luôn unique đủ thực tế
+        return "HD-MT-" + year + "-" + (System.currentTimeMillis() % 100_000_000L)
+                + ThreadLocalRandom.current().nextInt(10, 99);
     }
 
     private TenantContractResponse toResponse(TenantContract c) {
@@ -947,6 +1200,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
+                .paidAt(c.getPaidAt())
+                .depositPaidAt(c.getDepositPaidAt())
+                .depositMethod(c.getDepositMethod())
+                .activatedAt(c.getActivatedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)
                 .tenantRolePromoted(rolePromoted)

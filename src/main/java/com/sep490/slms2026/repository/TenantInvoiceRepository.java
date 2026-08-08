@@ -21,6 +21,10 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
 
     Optional<TenantInvoice> findByPayosOrderCode(Long payosOrderCode);
 
+    Optional<TenantInvoice> findByCode(String code);
+
+    List<TenantInvoice> findByTenantContractId(Long tenantContractId);
+
     List<TenantInvoice> findByStatusInAndDueDateIsNotNull(List<TenantInvoiceStatus> statuses);
 
     boolean existsByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(

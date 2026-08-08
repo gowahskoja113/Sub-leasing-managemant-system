@@ -99,6 +99,10 @@ public class TenantContractResponse {
     private Long payosOrderCode;
     private String payosCheckoutUrl;
     private String payosQrCode;
+    private LocalDateTime paidAt;
+    private LocalDateTime depositPaidAt;
+    private String depositMethod;
+    private LocalDateTime activatedAt;
 
     // Onboarding: thông tin tài khoản tenant sau confirm
     private String  tenantUsername;        // = SĐT khách (username). Không còn mật khẩu mặc định — khách tự kích hoạt trên app.

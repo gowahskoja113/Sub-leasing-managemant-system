@@ -75,6 +75,12 @@ public class OnboardTenantRequest {
     /** Thời điểm chụp ảnh đồng hồ nước (ISO-8601). Null → BE ghi = lúc lưu. */
     private java.time.LocalDateTime waterMeterCapturedAt;
 
+    /** Token override khi không chụp được ảnh (POST /manager/meter-override/verify). */
+    private java.util.UUID electricMeterOverrideToken;
+    private String electricMeterOverrideReason;
+    private java.util.UUID waterMeterOverrideToken;
+    private String waterMeterOverrideReason;
+
     // Ảnh hiện trạng phòng/nhà (Cloudinary URLs) + ghi chú
     /** @deprecated Ưu tiên {@link #roomConditionPhotos} kèm capturedAt. Vẫn nhận để tương thích FE cũ. */
     private List<String> roomConditionUrls;

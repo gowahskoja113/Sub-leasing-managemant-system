@@ -85,7 +85,14 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contract_condition_photos", "captured_at", "TIMESTAMP");
         ensureOtpVerificationsPurposeConstraint();
         dropUniqueConstraintOnUserFullName();
-
+        // Mentor feedback 07/08: onboard invoice + handover tracking + meter override
+        addColumnIfNotExists("tenant_contracts", "deposit_paid_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "deposit_method", "VARCHAR(50)");
+        addColumnIfNotExists("tenant_contracts", "activated_at", "TIMESTAMP");
+        addColumnIfNotExists("properties", "manager_accepted_at", "TIMESTAMP");
+        dropNotNullIfExists("tenant_invoices", "tenant_user_id");
+        dropNotNullIfExists("tenant_payments", "tenant_user_id");
+        ensureMeterOverrideTables();
     }
 
     /**
@@ -697,6 +704,39 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             jdbcTemplate.execute("CREATE TABLE " + table + " (" + columnDefinitions + ")");
             log.info("Created table {}", table);
         }
+    }
+
+    private void ensureMeterOverrideTables() {
+        createTableIfNotExists(
+                "meter_override_tokens",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                token UUID NOT NULL UNIQUE,
+                manager_id UUID NOT NULL,
+                contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                meter_kind VARCHAR(20) NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "meter_override_logs",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                manager_id UUID NOT NULL,
+                contract_id BIGINT NOT NULL,
+                meter_kind VARCHAR(20) NOT NULL,
+                entered_value NUMERIC(19, 4),
+                reason TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "meter_override_fail_counters",
+                """
+                manager_id UUID PRIMARY KEY,
+                fail_count INT NOT NULL DEFAULT 0,
+                locked_until TIMESTAMP
+                """);
     }
 
     private void alterColumnToUuidIfBigint(String table, String column) {

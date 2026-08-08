@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface TenantPaymentRepository extends JpaRepository<TenantPayment, Long> {
 
     List<TenantPayment> findByTenantUserIdOrderByPaidAtDesc(UUID tenantUserId);
+
+    List<TenantPayment> findByTenantInvoiceId(Long tenantInvoiceId);
 }

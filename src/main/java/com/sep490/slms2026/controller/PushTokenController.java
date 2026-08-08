@@ -34,4 +34,15 @@ public class PushTokenController {
         userRepository.save(user);
         return ResponseEntity.ok(Map.of("success", true));
     }
+
+    /** Gỡ push token khi logout — tránh máy đã đăng xuất vẫn nhận notify của tài khoản cũ. */
+    @DeleteMapping("/me/push-token")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> deletePushToken(Principal principal) {
+        User user = userRepository.findByUsername(principal.getName())
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+        user.setPushToken(null);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
 }

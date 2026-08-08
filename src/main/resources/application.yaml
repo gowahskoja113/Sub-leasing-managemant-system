@@ -125,3 +125,9 @@ contract:
   max-early-move-in-days: 3
   # Quá N ngày kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show)
   no-show-grace-days: 10
+
+# Mã passcode admin cho phép manager nhập chỉ số thủ công (không chụp ảnh)
+manager:
+  override:
+    passcode: ${MANAGER_OVERRIDE_PASSCODE:}
+    ttl-minutes: ${MANAGER_OVERRIDE_TTL_MINUTES:15}

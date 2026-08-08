@@ -117,6 +117,8 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
 
+    boolean existsByContractCode(String contractCode);
+
 
     @Query("""
             SELECT COALESCE(SUM(c.rentAmount), 0)

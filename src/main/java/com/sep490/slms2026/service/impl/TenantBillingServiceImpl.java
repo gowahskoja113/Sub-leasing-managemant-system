@@ -446,6 +446,30 @@ public class TenantBillingServiceImpl implements TenantBillingService {
 
     private List<TenantInvoiceItemResponse> buildItems(TenantInvoice invoice) {
         List<TenantInvoiceItemResponse> items = new ArrayList<>();
+        // Hoá đơn onboard: 2 dòng (tiền nhà tháng đầu + cọc)
+        if (invoice.getNote() != null && invoice.getNote().startsWith("ONBOARD|")) {
+            BigDecimal rent = parseOnboardField(invoice.getNote(), "rentAmount");
+            BigDecimal deposit = parseOnboardField(invoice.getNote(), "depositAmount");
+            String months = parseOnboardFieldRaw(invoice.getNote(), "depositMonths");
+            if (rent != null) {
+                items.add(TenantInvoiceItemResponse.builder()
+                        .label("Tiền nhà tháng đầu")
+                        .amount(rent)
+                        .build());
+            }
+            if (deposit != null) {
+                String depositLabel = (months != null && !months.isBlank())
+                        ? "Tiền cọc (" + months + " tháng)"
+                        : "Tiền cọc";
+                items.add(TenantInvoiceItemResponse.builder()
+                        .label(depositLabel)
+                        .amount(deposit)
+                        .build());
+            }
+            if (!items.isEmpty()) {
+                return items;
+            }
+        }
         switch (invoice.getInvoiceType()) {
             case ELECTRICITY -> items.add(TenantInvoiceItemResponse.builder()
                     .label("Điện (" + formatQty(invoice.getKwhUsed()) + " kWh)")
@@ -475,6 +499,30 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                     .build());
         }
         return items;
+    }
+
+    private static BigDecimal parseOnboardField(String note, String key) {
+        String raw = parseOnboardFieldRaw(note, key);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String parseOnboardFieldRaw(String note, String key) {
+        if (note == null) {
+            return null;
+        }
+        for (String part : note.split("\\|")) {
+            if (part.startsWith(key + "=")) {
+                return part.substring(key.length() + 1);
+            }
+        }
+        return null;
     }
 
     private String formatQty(BigDecimal value) {

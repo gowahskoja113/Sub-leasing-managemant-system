@@ -117,6 +117,10 @@ public class Property implements Serializable {
     @Column(name = "submitted_to_host_at")
     private LocalDateTime submittedToHostAt;
 
+    /** Thời điểm gán OM và nhà chuyển ACTIVE (manager đã nhận nhà). */
+    @Column(name = "manager_accepted_at")
+    private LocalDateTime managerAcceptedAt;
+
     @Column(name = "host_contingency_percent")
     private BigDecimal hostContingencyPercent;
 

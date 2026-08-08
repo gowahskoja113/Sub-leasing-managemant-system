@@ -27,7 +27,8 @@ public class TenantInvoice implements Serializable {
     @Column(nullable = false, unique = true)
     private String code;
 
-    @Column(name = "tenant_user_id", nullable = false)
+    /** Nullable cho hoá đơn onboard khi HĐ còn DRAFT/PENDING (chưa có account tenant). */
+    @Column(name = "tenant_user_id")
     private UUID tenantUserId;
 
     @ManyToOne(fetch = FetchType.LAZY)

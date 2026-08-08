@@ -118,6 +118,18 @@ public class TenantContract implements Serializable {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** Thời điểm ghi nhận đã thu cọc / tiền onboard (PayOS hoặc tiền mặt). */
+    @Column(name = "deposit_paid_at")
+    private LocalDateTime depositPaidAt;
+
+    /** Phương thức thu cọc: PAYOS | CASH | ... */
+    @Column(name = "deposit_method", length = 50)
+    private String depositMethod;
+
+    /** Thời điểm HĐ chuyển sang ACTIVE (confirm OTP thành công). */
+    @Column(name = "activated_at")
+    private LocalDateTime activatedAt;
+
     /** Khách xác nhận đã trả cọc tiền mặt. */
     @Column(name = "deposit_cash_tenant_confirmed_at")
     private LocalDateTime depositCashTenantConfirmedAt;
