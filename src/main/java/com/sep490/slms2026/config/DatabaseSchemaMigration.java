@@ -93,6 +93,11 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropNotNullIfExists("tenant_invoices", "tenant_user_id");
         dropNotNullIfExists("tenant_payments", "tenant_user_id");
         ensureMeterOverrideTables();
+        // OCR split config per room (default điện 5+1, nước 5+3)
+        addColumnIfNotExists("rooms", "elec_integer_digits", "INTEGER DEFAULT 5");
+        addColumnIfNotExists("rooms", "elec_decimal_digits", "INTEGER DEFAULT 1");
+        addColumnIfNotExists("rooms", "water_integer_digits", "INTEGER DEFAULT 5");
+        addColumnIfNotExists("rooms", "water_decimal_digits", "INTEGER DEFAULT 3");
     }
 
     /**

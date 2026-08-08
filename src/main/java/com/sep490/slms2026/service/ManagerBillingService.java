@@ -14,6 +14,9 @@ public interface ManagerBillingService {
     List<ManagerInvoiceResponse> listInvoices(UUID managerUserId, boolean isAdmin,
                                               String period, String status, String type);
 
+    /** Chi tiết 1 hoá đơn kèm {@code items[]} (onboard: tiền nhà + cọc). */
+    ManagerInvoiceResponse getInvoice(UUID managerUserId, boolean isAdmin, Long invoiceId);
+
     List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin, String status);
 
     ManagerPaymentResponse verifyPayment(UUID managerUserId, boolean isAdmin, Long claimId);

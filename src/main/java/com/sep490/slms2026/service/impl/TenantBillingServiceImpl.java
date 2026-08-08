@@ -1,7 +1,6 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.CreateRentInvoiceRequest;
-import com.sep490.slms2026.dto.response.TenantInvoiceItemResponse;
 import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
 import com.sep490.slms2026.entity.*;
@@ -12,6 +11,7 @@ import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
+import com.sep490.slms2026.util.InvoiceItemBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,7 +21,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -424,7 +423,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
                 .billingPeriod(invoice.getBillingPeriod())
-                .items(buildItems(invoice))
+                .items(InvoiceItemBuilder.buildItems(invoice))
                 .totalAmount(invoice.getTotalAmount())
                 .lateFee(invoice.getLateFee())
                 .grandTotal(invoice.getGrandTotal())
@@ -442,94 +441,6 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosOrderCode(invoice.getPayosOrderCode())
                 .build();
-    }
-
-    private List<TenantInvoiceItemResponse> buildItems(TenantInvoice invoice) {
-        List<TenantInvoiceItemResponse> items = new ArrayList<>();
-        // Hoá đơn onboard: 2 dòng (tiền nhà tháng đầu + cọc)
-        if (invoice.getNote() != null && invoice.getNote().startsWith("ONBOARD|")) {
-            BigDecimal rent = parseOnboardField(invoice.getNote(), "rentAmount");
-            BigDecimal deposit = parseOnboardField(invoice.getNote(), "depositAmount");
-            String months = parseOnboardFieldRaw(invoice.getNote(), "depositMonths");
-            if (rent != null) {
-                items.add(TenantInvoiceItemResponse.builder()
-                        .label("Tiền nhà tháng đầu")
-                        .amount(rent)
-                        .build());
-            }
-            if (deposit != null) {
-                String depositLabel = (months != null && !months.isBlank())
-                        ? "Tiền cọc (" + months + " tháng)"
-                        : "Tiền cọc";
-                items.add(TenantInvoiceItemResponse.builder()
-                        .label(depositLabel)
-                        .amount(deposit)
-                        .build());
-            }
-            if (!items.isEmpty()) {
-                return items;
-            }
-        }
-        switch (invoice.getInvoiceType()) {
-            case ELECTRICITY -> items.add(TenantInvoiceItemResponse.builder()
-                    .label("Điện (" + formatQty(invoice.getKwhUsed()) + " kWh)")
-                    .amount(invoice.getTotalAmount())
-                    .build());
-            case WATER -> items.add(TenantInvoiceItemResponse.builder()
-                    .label("Nước (" + formatQty(invoice.getM3Used()) + " m³)")
-                    .amount(invoice.getTotalAmount())
-                    .build());
-            case RENT -> items.add(TenantInvoiceItemResponse.builder()
-                    .label("Tiền thuê phòng")
-                    .amount(invoice.getTotalAmount())
-                    .build());
-            case SERVICE -> items.add(TenantInvoiceItemResponse.builder()
-                    .label("Phí dịch vụ")
-                    .amount(invoice.getTotalAmount())
-                    .build());
-            default -> items.add(TenantInvoiceItemResponse.builder()
-                    .label("Khoản thu")
-                    .amount(invoice.getTotalAmount())
-                    .build());
-        }
-        if (invoice.getLateFee() != null && invoice.getLateFee().compareTo(BigDecimal.ZERO) > 0) {
-            items.add(TenantInvoiceItemResponse.builder()
-                    .label("Phí trễ hạn")
-                    .amount(invoice.getLateFee())
-                    .build());
-        }
-        return items;
-    }
-
-    private static BigDecimal parseOnboardField(String note, String key) {
-        String raw = parseOnboardFieldRaw(note, key);
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(raw);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static String parseOnboardFieldRaw(String note, String key) {
-        if (note == null) {
-            return null;
-        }
-        for (String part : note.split("\\|")) {
-            if (part.startsWith(key + "=")) {
-                return part.substring(key.length() + 1);
-            }
-        }
-        return null;
-    }
-
-    private String formatQty(BigDecimal value) {
-        if (value == null) {
-            return "0";
-        }
-        return value.stripTrailingZeros().toPlainString();
     }
 
     private TenantPaymentResponse toPaymentResponse(TenantPayment payment) {

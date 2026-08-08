@@ -15,6 +15,7 @@ import com.sep490.slms2026.repository.TenantPaymentClaimRepository;
 import com.sep490.slms2026.service.ManagerBillingService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
+import com.sep490.slms2026.util.InvoiceItemBuilder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,8 +65,22 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                         ym != null ? ym.getYear() : null,
                         ym != null ? ym.getMonthValue() : null)
                 .stream()
-                .map(this::toManagerInvoice)
+                .map(inv -> toManagerInvoice(inv, false))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ManagerInvoiceResponse getInvoice(UUID managerUserId, boolean isAdmin, Long invoiceId) {
+        TenantInvoice invoice = tenantInvoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hoá đơn ID=" + invoiceId));
+        if (!isAdmin) {
+            UUID opManagerId = invoice.getTenantContract().getProperty().getOperationManagerId();
+            if (opManagerId == null || !managerUserId.equals(opManagerId)) {
+                throw new BusinessException("Bạn không có quyền xem hoá đơn này");
+            }
+        }
+        return toManagerInvoice(invoice, true);
     }
 
     @Override
@@ -133,13 +148,15 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .build();
     }
 
-    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice) {
+    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice, boolean includeItems) {
         String tenantName = null;
         if (invoice.getTenantContract().getTenant() != null
                 && invoice.getTenantContract().getTenant().getUser() != null) {
             tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+        } else if (invoice.getTenantContract().getDraftTenantName() != null) {
+            tenantName = invoice.getTenantContract().getDraftTenantName();
         }
-        return ManagerInvoiceResponse.builder()
+        ManagerInvoiceResponse.ManagerInvoiceResponseBuilder b = ManagerInvoiceResponse.builder()
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
@@ -149,11 +166,18 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .tenantName(tenantName)
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
+                .billingPeriod(invoice.getBillingPeriod())
                 .amount(invoice.getGrandTotal())
                 .status(invoice.getStatus().name())
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
-                .build();
+                .paidAt(invoice.getPaidAt())
+                .paymentMethod(invoice.getPaymentMethod())
+                .transactionId(invoice.getTransactionId());
+        if (includeItems) {
+            b.items(InvoiceItemBuilder.buildItems(invoice));
+        }
+        return b.build();
     }
 
     private ManagerPaymentResponse toManagerPayment(TenantPaymentClaim claim) {

@@ -71,6 +71,43 @@ public class Room implements Serializable {
     @Column(name = "water_meter_code")
     private String waterMeterCode;
 
+    /**
+     * Cấu hình tách phần nguyên / thập phân khi OCR chỉ số (mentor feedback).
+     * Mặc định VN: điện 5+1, nước 5+3.
+     */
+    @Column(name = "elec_integer_digits")
+    @Builder.Default
+    private Integer elecIntegerDigits = 5;
+
+    @Column(name = "elec_decimal_digits")
+    @Builder.Default
+    private Integer elecDecimalDigits = 1;
+
+    @Column(name = "water_integer_digits")
+    @Builder.Default
+    private Integer waterIntegerDigits = 5;
+
+    @Column(name = "water_decimal_digits")
+    @Builder.Default
+    private Integer waterDecimalDigits = 3;
+
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
+
+    @PrePersist
+    @PreUpdate
+    private void applyMeterDigitDefaults() {
+        if (elecIntegerDigits == null) {
+            elecIntegerDigits = 5;
+        }
+        if (elecDecimalDigits == null) {
+            elecDecimalDigits = 1;
+        }
+        if (waterIntegerDigits == null) {
+            waterIntegerDigits = 5;
+        }
+        if (waterDecimalDigits == null) {
+            waterDecimalDigits = 3;
+        }
+    }
 }

@@ -61,6 +61,7 @@ public class SampleDataSeeder implements ApplicationRunner {
     private final EquipmentManifestRepository equipmentManifestRepository;
     private final TenantContractRepository tenantContractRepository;
     private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final TenantPaymentRepository tenantPaymentRepository;
     private final PasswordEncoder passwordEncoder;
 
     private Map<String, EquipmentCatalog> catalogByName;
@@ -650,7 +651,18 @@ public class SampleDataSeeder implements ApplicationRunner {
                 .paymentMethod("SEED")
                 .build();
         try {
-            tenantInvoiceRepository.save(onboard);
+            TenantInvoice saved = tenantInvoiceRepository.save(onboard);
+            tenantPaymentRepository.save(TenantPayment.builder()
+                    .tenantInvoice(saved)
+                    .tenantUserId(tenantUserId)
+                    .invoiceCode(saved.getCode())
+                    .invoiceType(saved.getInvoiceType())
+                    .amount(saved.getGrandTotal())
+                    .method("SEED")
+                    .paidAt(saved.getPaidAt())
+                    .propertyName(property.getPropertyName())
+                    .roomNumber(roomNumber)
+                    .build());
         } catch (Exception e) {
             log.warn("SampleDataSeeder: bỏ qua hoá đơn onboard ({}).", e.getMessage());
         }

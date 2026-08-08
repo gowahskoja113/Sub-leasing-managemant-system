@@ -42,6 +42,17 @@ public class ManagerBillingController {
                 user.getId(), isAdmin, period, status, type));
     }
 
+    /**
+     * Chi tiết hoá đơn kèm items[] — onboard trả 2 dòng: tiền nhà tháng đầu + tiền cọc.
+     * Admin / manager web dùng endpoint này thay vì nhồi items vào list.
+     */
+    @GetMapping("/api/v1/manager/invoices/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ManagerInvoiceResponse> getInvoice(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        return ResponseEntity.ok(managerBillingService.getInvoice(user.getId(), isAdmin(user), id));
+    }
+
     @GetMapping("/api/v1/manager/payments")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<List<ManagerPaymentResponse>> listPayments(

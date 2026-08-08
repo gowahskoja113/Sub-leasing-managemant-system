@@ -34,7 +34,19 @@ public class AdminHandoverServiceImpl implements AdminHandoverService {
     public AdminHandoverStatusDto getHandoverStatus(Long propertyId) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy BĐS ID=" + propertyId));
+        return buildStatus(property, true);
+    }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<AdminHandoverStatusDto> listHandoverStatus() {
+        return propertyRepository.findAll().stream()
+                .map(p -> buildStatus(p, false))
+                .toList();
+    }
+
+    private AdminHandoverStatusDto buildStatus(Property property, boolean includeRooms) {
+        Long propertyId = property.getId();
         String managerName = null;
         UUID omId = property.getOperationManagerId();
         if (omId != null) {
@@ -55,7 +67,9 @@ public class AdminHandoverServiceImpl implements AdminHandoverService {
             if (active != null) {
                 handedOver = 1;
             }
-            roomHandovers.add(toRoomHandover("Toàn nhà", active));
+            if (includeRooms) {
+                roomHandovers.add(toRoomHandover("Toàn nhà", active));
+            }
         } else {
             for (Room room : rooms) {
                 TenantContract active = contracts.stream()
@@ -67,7 +81,9 @@ public class AdminHandoverServiceImpl implements AdminHandoverService {
                 if (active != null) {
                     handedOver++;
                 }
-                roomHandovers.add(toRoomHandover(room.getRoomNumber(), active));
+                if (includeRooms) {
+                    roomHandovers.add(toRoomHandover(room.getRoomNumber(), active));
+                }
             }
         }
 
@@ -83,7 +99,7 @@ public class AdminHandoverServiceImpl implements AdminHandoverService {
                 .managerAcceptedAt(property.getManagerAcceptedAt())
                 .totalRooms(totalRooms)
                 .roomsHandedOver(handedOver)
-                .rooms(roomHandovers)
+                .rooms(includeRooms ? roomHandovers : null)
                 .build();
     }
 

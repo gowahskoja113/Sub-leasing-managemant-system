@@ -52,4 +52,10 @@ public class AddRoomRequest {
     // Optional — null nếu tòa dùng đồng hồ chung
     private String electricMeterCode;
     private String waterMeterCode;
+
+    /** OCR split — null = default BE (điện 5+1, nước 5+3). */
+    private Integer elecIntegerDigits;
+    private Integer elecDecimalDigits;
+    private Integer waterIntegerDigits;
+    private Integer waterDecimalDigits;
 }

@@ -222,7 +222,8 @@ public class OcrServiceImpl implements OcrService {
 
     /** Chọn cụm số dài nhất làm gợi ý (chỉ số đồng hồ thường là số dài nhất trong ảnh). */
     /**
-     * Gọi Google Cloud Vision TEXT_DETECTION, trả về toàn bộ chữ đọc được.
+     * Gọi Google Cloud Vision DOCUMENT_TEXT_DETECTION (đọc tốt hơn TEXT_DETECTION
+     * với màn LCD 7 đoạn / đồng hồ điện tử; mentor feedback 08/2026).
      * Trả null khi chưa cấu hình key hoặc gọi lỗi — để caller rơi về OCR.space.
      */
     private String readTextWithVision(String imageUrl) {
@@ -234,7 +235,8 @@ public class OcrServiceImpl implements OcrService {
             String body = objectMapper.writeValueAsString(java.util.Map.of(
                     "requests", List.of(java.util.Map.of(
                             "image", java.util.Map.of("source", java.util.Map.of("imageUri", imageUrl)),
-                            "features", List.of(java.util.Map.of("type", "TEXT_DETECTION"))))));
+                            "features", List.of(java.util.Map.of(
+                                    "type", "DOCUMENT_TEXT_DETECTION"))))));
 
             String url = visionBaseUrl + "?key="
                     + URLEncoder.encode(visionApiKey.trim(), StandardCharsets.UTF_8);

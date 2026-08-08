@@ -30,5 +30,11 @@ public class RoomResponse {
     private RoomStatus status;
     private String electricMeterCode;
     private String waterMeterCode;
+    /** Số chữ số phần nguyên điện (default 5). */
+    private Integer elecIntegerDigits;
+    /** Số chữ số phần thập phân điện — khung đỏ (default 1). */
+    private Integer elecDecimalDigits;
+    private Integer waterIntegerDigits;
+    private Integer waterDecimalDigits;
     private CurrentTenantResponse currentTenant;
 }
