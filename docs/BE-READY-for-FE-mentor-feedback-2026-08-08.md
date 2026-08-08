@@ -1,9 +1,9 @@
 # BE Ready — FE update guide (mentor feedback 07–08/08/2026)
 
-**Ngày:** 08/08/2026  
+**Ngày:** 08/08/2026 (cập nhật push multi-device + CONTRACT_ACTIVATED / PRICE_APPROVAL_RESULT)  
 **Từ:** BE team  
 **Cho:** FE (mobile manager/tenant + web admin)  
-**Map với:** `PLAN-mentor-feedback-2026-08-08.md`
+**Map với:** `PLAN-mentor-feedback-2026-08-08.md` + `SETUP-push-notifications-2026-08-08.md` (FE)
 
 > Backend đã xong (hoặc bổ sung) các phần BE trong plan mentor. Doc này là **hợp đồng API** để FE bám và cập nhật màn hình / service layer. Không cần đợi thêm BE trừ mục ghi chú ở cuối.
 
@@ -23,6 +23,10 @@ Khi PayOS webhook gọi `markDepositPaid` / `completeDepositPayment`:
 | `note` encode 2 cấu phần | ✅ `ONBOARD\|rentAmount=…\|depositAmount=…\|depositMonths=…` |
 | Push tenant `DEPOSIT_PAID_TENANT` → screen `InvoiceList` | ✅ (có số tiền) |
 | Push manager `DEPOSIT_PAID_MANAGER` → screen `ResumeContract` | ✅ (**không** kèm số tiền) |
+| Push tenant `CONTRACT_ACTIVATED` sau OTP | ✅ → `ContractDetail` |
+| Push manager `PRICE_APPROVAL_RESULT` (host duyệt/từ chối giá) | ✅ (**không** số tiền) |
+| Multi-device push token (`user_push_tokens`) | ✅ |
+| `DELETE /user/me/push-token` khi logout | ✅ |
 | Idempotent (retry webhook / backfill) | ✅ |
 
 `TenantContractResponse` đã có:
@@ -239,23 +243,80 @@ Accounts seed mặc định: password `123456`.
 
 ---
 
-## 9. Push token
+## 9. Push notification (bổ sung 08/08 — FE handoff)
+
+### API token (multi-device)
 
 ```http
-POST   /api/v1/user/me/push-token   { "pushToken": "ExponentPushToken[…]" }
-DELETE /api/v1/user/me/push-token   // logout
+POST   /api/v1/user/me/push-token
+Authorization: Bearer …
+Content-Type: application/json
+
+{ "pushToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]" }
 ```
 
-Payload deep-link gửi kèm notify (đã wire BE):
+→ Lưu token vào bảng `user_push_tokens` (1 account → nhiều máy).  
+Cột `User.push_token` = token mới nhất (dùng check nhanh / back-compat).
 
-| type | screen gợi ý |
+```http
+DELETE /api/v1/user/me/push-token
+Authorization: Bearer …
+```
+
+| Body | Hành vi |
 |---|---|
-| `DEPOSIT_PAID_TENANT` | `InvoiceList` |
-| `DEPOSIT_PAID_MANAGER` | `ResumeContract` + `params.contractId` |
+| *(không body)* | Gỡ **tất cả** token của account (logout) |
+| `{ "pushToken": "…" }` | Gỡ **đúng máy** đó |
 
-FCM credentials + rebuild APK vẫn do FE/ops (ngoài BE).
+Response: `{ "success": true }`
 
----
+### Deep-link payload (field `data` gửi kèm Expo push)
+
+| type | Người nhận | Khi nào | `screen` / params |
+|---|---|---|---|
+| `DEPOSIT_PAID_TENANT` | tenant | PayOS / completeDeposit (có số tiền) | `InvoiceList` |
+| `DEPOSIT_PAID_MANAGER` | manager | cùng lúc ( **không** số tiền) | `ResumeContract` + `params.contractId` |
+| `CONTRACT_ACTIVATED` | tenant | OTP confirm → HĐ `ACTIVE` | `ContractDetail` + `params.contractId` |
+| `PRICE_APPROVAL_RESULT` | manager | host duyệt/từ chối giá (không số tiền) | `ResumeContract` + `params.contractId` + `approved` bool |
+| `TENANT_ONBOARDING` | manager | được gán tiếp nhận khách | `ResumeContract` + `params.contractId` |
+| `TENANT_CONTRACT_NO_SHOW` | manager | HĐ auto-hủy no-show | `ResumeContract` + `params.contractId` |
+| `MAINTENANCE` | tenant/manager | đổi trạng thái bảo trì | `MaintenanceDetail` + `requestId` |
+| Billing types (RENT_*, …) | tenant | cron nhắc/quá hạn | `InvoiceList` + `invoiceId` |
+
+In-app: cùng lúc ghi vào bảng `notifications` (list `GET` notify hiện có).
+
+### Chính sách ẩn tiền (ý mentor 15)
+
+- Tin **manager** (`DEPOSIT_PAID_MANAGER`, `PRICE_APPROVAL_RESULT`): body **không** chứa số tiền.
+- Tin **tenant** (`DEPOSIT_PAID_TENANT`, billing): **có** số tiền khi liên quan thanh toán.
+
+### FE / ops ngoài BE (bắt buộc mới nhận tin thật trên Android)
+
+1. FCM V1 credentials nạp EAS (`eas credentials`) + `google-services.json` package `com.pinkyusteam.sep`.
+2. Build native (`eas build -p android --profile preview`) — **không** chạy remote push trên Expo Go SDK 53.
+3. Sau login gọi `POST …/push-token`; logout gọi `DELETE …/push-token`.
+4. deep-link: đọc `data.type` / `data.screen` / `data.params` (đã có `navigateFromNotification` phía FE).
+
+### Kiểm tra nhanh
+
+```sql
+-- legacy (latest)
+SELECT username, push_token FROM "User" WHERE push_token IS NOT NULL;
+-- multi-device
+SELECT user_id, token, updated_at FROM user_push_tokens;
+```
+
+```bash
+curl -X POST https://exp.host/--/api/v2/push/send \
+  -H "Content-Type: application/json" \
+  -d '{"to":"ExponentPushToken[…]","title":"Test","body":"Xin chào","data":{"type":"DEPOSIT_PAID_TENANT","screen":"InvoiceList"}}'
+```
+
+| `details.error` | Ý nghĩa |
+|---|---|
+| `DeviceNotRegistered` | Token cũ — login lại |
+| `InvalidCredentials` | Chưa nạp FCM lên EAS |
+| `MessageTooBig` | Payload > 4KB |
 
 ## 10. Checklist FE theo vai
 
@@ -268,7 +329,9 @@ FCM credentials + rebuild APK vẫn do FE/ops (ngoài BE).
 - [ ] Override passcode flow + fields request
 - [ ] Tenant: thẻ đã trả nhận phòng (items từ invoice)
 - [ ] Manager: badge đã thu
-- [ ] Push pipe / logout DELETE token (nếu chưa)
+- [ ] Push: đăng ký token sau login; logout `DELETE /user/me/push-token` (body optional = gỡ 1 máy)
+- [ ] Push deep-link: handle `CONTRACT_ACTIVATED` → `ContractDetail`, `PRICE_APPROVAL_RESULT` → `ResumeContract`
+- [ ] FCM + EAS credentials + rebuild APK native (không Expo Go)
 - [ ] Fail-open OCR
 
 ### Web — FE billing admin (bạn kia)
@@ -286,10 +349,11 @@ FCM credentials + rebuild APK vẫn do FE/ops (ngoài BE).
 
 | Mục | Ghi chú |
 |---|---|
-| Ý 15 ẩn tiền manager | FE only (constants) |
-| RENT_* notification copy | FE content; BE only pipe + deposit types |
+| Ý 15 ẩn tiền manager (UI copy) | FE constants; BE push manager đã ẩn số tiền |
+| RENT_* notification copy text | FE content; BE only pipe + schedule |
 | ML Kit offline | FE native build |
 | Làm tròn chỉ số server-side | FE quyết (điện nguyên / nước 1 lẻ) — BE lưu `BigDecimal` |
+| FCM key / google-services.json | FE/ops (không commit secret) |
 
 ---
 
@@ -299,10 +363,13 @@ FCM credentials + rebuild APK vẫn do FE/ops (ngoài BE).
 2. Giả lập webhook PayOS (hoặc env sandbox) → check:
    - contract `paymentStatus=PAID`, `depositPaidAt` set  
    - `GET` tenant invoices có `HD-ONBOARD-*`, `items` length 2  
-   - notification repo + push nếu có token  
-3. `POST /manager/meter-override/verify` → token → update draft không ảnh + reason → `GET /admin/meter-overrides` thấy log.  
-4. `GET /admin/handover-status` → list; `?propertyId=` → rooms.  
-5. `GET /manager/invoices/{onboardId}` → items.
+   - `notifications` + push `DEPOSIT_PAID_*` nếu user có token  
+3. OTP confirm HĐ → notification `CONTRACT_ACTIVATED` + push tenant.  
+4. Host approve/reject giá → manager nhận `PRICE_APPROVAL_RESULT` (không số tiền).  
+5. `POST /manager/meter-override/verify` → token → update draft không ảnh + reason → `GET /admin/meter-overrides` thấy log.  
+6. `GET /admin/handover-status` → list; `?propertyId=` → rooms.  
+7. `GET /manager/invoices/{onboardId}` → items.  
+8. `POST/DELETE /user/me/push-token` + row trong `user_push_tokens`.
 
 ---
 

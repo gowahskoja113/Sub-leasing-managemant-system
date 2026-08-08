@@ -2,13 +2,11 @@ package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.TenantInvoice;
-import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
-import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.BillingCronService;
-import com.sep490.slms2026.service.PushNotificationService;
+import com.sep490.slms2026.service.UserPushTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,7 +22,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -32,9 +29,8 @@ import java.util.Optional;
 public class BillingCronServiceImpl implements BillingCronService {
 
     private final TenantInvoiceRepository tenantInvoiceRepository;
-    private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
-    private final PushNotificationService pushNotificationService;
+    private final UserPushTokenService userPushTokenService;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -167,14 +163,15 @@ public class BillingCronServiceImpl implements BillingCronService {
                 .build();
         notificationRepository.save(notification);
 
-        Optional<User> userOpt = userRepository.findById(invoice.getTenantUserId());
-        if (userOpt.isPresent() && userOpt.get().getPushToken() != null) {
-            pushNotificationService.sendPushNotification(
-                    userOpt.get().getPushToken(), 
-                    title, 
-                    content, 
-                    Map.of("invoiceId", invoice.getId())
-            );
+        if (invoice.getTenantUserId() != null) {
+            userPushTokenService.sendToUser(
+                    invoice.getTenantUserId(),
+                    title,
+                    content,
+                    Map.of(
+                            "invoiceId", invoice.getId(),
+                            "type", type != null ? type : "BILLING",
+                            "screen", "InvoiceList"));
         }
     }
 }

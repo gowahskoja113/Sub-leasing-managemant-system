@@ -24,8 +24,8 @@ import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.PropertyImageStorage;
-import com.sep490.slms2026.service.PushNotificationService;
 import com.sep490.slms2026.service.TenantPendingChargeService;
+import com.sep490.slms2026.service.UserPushTokenService;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,7 +61,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
     private final HostNotificationRepository hostNotificationRepository;
-    private final PushNotificationService pushNotificationService;
+    private final UserPushTokenService userPushTokenService;
     private final TenantPendingChargeService tenantPendingChargeService;
 
     /** Số ngày chờ tenant confirm trước khi auto-confirm. */
@@ -876,17 +876,23 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
             String title = "Cập nhật yêu cầu bảo trì";
             String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
-            saveAndPush(req.getTenant().getUser().getId(), req.getTenant().getUser().getPushToken(), title, body, req.getId());
+            saveAndPush(req.getTenant().getUser().getId(), title, body, req.getId());
         }
     }
 
     private void notifyPropertyManager(MaintenanceRequest req, String title, String body) {
-        if (req.getProperty() == null || req.getProperty().getManagedBy() == null) {
+        UUID managerId = null;
+        if (req.getProperty() != null) {
+            if (req.getProperty().getOperationManagerId() != null) {
+                managerId = req.getProperty().getOperationManagerId();
+            } else if (req.getProperty().getManagedBy() != null) {
+                managerId = req.getProperty().getManagedBy();
+            }
+        }
+        if (managerId == null) {
             return;
         }
-        UUID managerId = req.getProperty().getManagedBy();
-        userRepository.findById(managerId).ifPresent(manager ->
-                saveAndPush(managerId, manager.getPushToken(), title, body, req.getId()));
+        saveAndPush(managerId, title, body, req.getId());
     }
 
     private void notifyPropertyHost(MaintenanceRequest req, String title, String body) {
@@ -912,17 +918,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
-    private void saveAndPush(UUID userId, String pushToken, String title, String body, Long requestId) {
+    private void saveAndPush(UUID userId, String title, String body, Long requestId) {
         notificationRepository.save(Notification.builder()
                 .userId(userId)
                 .title(title)
                 .content(body)
                 .type("MAINTENANCE")
                 .build());
-        if (pushToken != null && !pushToken.isBlank()) {
-            pushNotificationService.sendPushNotification(
-                    pushToken, title, body, java.util.Map.of("requestId", requestId));
-        }
+        userPushTokenService.sendToUser(
+                userId, title, body, java.util.Map.of(
+                        "requestId", requestId,
+                        "type", "MAINTENANCE",
+                        "screen", "MaintenanceDetail"));
     }
 
     private List<String> storeFiles(Long requestId, List<MultipartFile> files) {

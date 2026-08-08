@@ -39,7 +39,6 @@ import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
-import com.sep490.slms2026.service.PushNotificationService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.PhoneUtils;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
@@ -85,7 +84,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final OtpService otpService;
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
-    private final PushNotificationService pushNotificationService;
+    private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
     private final MeterOverrideService meterOverrideService;
 
     @Override
@@ -362,6 +361,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
         backfillOnboardingInvoiceTenant(saved);
+        notifyContractActivated(saved);
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
     }
@@ -586,22 +586,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     .content(body)
                     .type("DEPOSIT_PAID_TENANT")
                     .build());
-            userRepository.findById(tenantUserId).ifPresent(u -> {
-                String token = u.getPushToken();
-                if (token != null && !token.isBlank()) {
-                    pushNotificationService.sendPushNotification(token, title, body, Map.of(
-                            "screen", "InvoiceList",
-                            "type", "DEPOSIT_PAID_TENANT"));
-                }
-            });
+            userPushTokenService.sendToUser(tenantUserId, title, body, Map.of(
+                    "screen", "InvoiceList",
+                    "type", "DEPOSIT_PAID_TENANT"));
         }
 
         // Manager — KHÔNG kèm số tiền (chính sách money visibility)
-        User manager = contract.getAssignedManager();
-        if (manager == null && contract.getProperty() != null
-                && contract.getProperty().getOperationManagerId() != null) {
-            manager = userRepository.findById(contract.getProperty().getOperationManagerId()).orElse(null);
-        }
+        User manager = resolveContractManager(contract);
         if (manager != null) {
             String title = "💰 Khách đã thanh toán xong";
             String body = "Khách " + tenantName + " · Phòng " + roomLabel
@@ -612,14 +603,45 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     .content(body)
                     .type("DEPOSIT_PAID_MANAGER")
                     .build());
-            String token = manager.getPushToken();
-            if (token != null && !token.isBlank()) {
-                pushNotificationService.sendPushNotification(token, title, body, Map.of(
-                        "screen", "ResumeContract",
-                        "params", Map.of("contractId", contract.getId()),
-                        "type", "DEPOSIT_PAID_MANAGER"));
-            }
+            userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
+                    "screen", "ResumeContract",
+                    "params", Map.of("contractId", contract.getId()),
+                    "type", "DEPOSIT_PAID_MANAGER"));
         }
+    }
+
+    /** Tenant: OTP xong, HĐ ACTIVE — có deep-link ContractDetail. */
+    private void notifyContractActivated(TenantContract contract) {
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId == null) {
+            return;
+        }
+        String roomLabel = contract.getRoom() != null && contract.getRoom().getRoomNumber() != null
+                ? contract.getRoom().getRoomNumber() : "nguyên căn";
+        String code = contract.getContractCode() != null ? contract.getContractCode() : ("#" + contract.getId());
+        String title = "🎉 Hợp đồng đã kích hoạt";
+        String body = "Hợp đồng " + code + " · Phòng " + roomLabel
+                + " đã có hiệu lực. Xem chi tiết trong app.";
+        notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                .userId(tenantUserId)
+                .title(title)
+                .content(body)
+                .type("CONTRACT_ACTIVATED")
+                .build());
+        userPushTokenService.sendToUser(tenantUserId, title, body, Map.of(
+                "screen", "ContractDetail",
+                "params", Map.of("contractId", contract.getId()),
+                "type", "CONTRACT_ACTIVATED"));
+    }
+
+    private User resolveContractManager(TenantContract contract) {
+        if (contract.getAssignedManager() != null) {
+            return contract.getAssignedManager();
+        }
+        if (contract.getProperty() != null && contract.getProperty().getOperationManagerId() != null) {
+            return userRepository.findById(contract.getProperty().getOperationManagerId()).orElse(null);
+        }
+        return null;
     }
 
     @Override
@@ -929,10 +951,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .content(body)
                 .type("TENANT_CONTRACT_NO_SHOW")
                 .build());
-        String token = manager.getPushToken();
-        if (token != null && !token.isBlank()) {
-            pushNotificationService.sendPushNotification(token, title, body, Map.of());
-        }
+        userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
+                "screen", "ResumeContract",
+                "params", Map.of("contractId", contract.getId()),
+                "type", "TENANT_CONTRACT_NO_SHOW"));
     }
 
     private TenantContract findContract(Long contractId) {
@@ -1266,13 +1288,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .type("TENANT_ONBOARDING")
                 .build());
 
-        String token = manager.getPushToken();
-        if (token != null && !token.isBlank()) {
-            Map<String, Object> data = Map.of(
-                    "screen", "ResumeContract",
-                    "params", Map.of("contractId", contract.getId()));
-            pushNotificationService.sendPushNotification(token, title, body, data);
-        }
+        userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
+                "screen", "ResumeContract",
+                "params", Map.of("contractId", contract.getId()),
+                "type", "TENANT_ONBOARDING"));
     }
 
     private static String resolveContractFileUrl(TenantContract contract) {

@@ -98,6 +98,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("rooms", "elec_decimal_digits", "INTEGER DEFAULT 1");
         addColumnIfNotExists("rooms", "water_integer_digits", "INTEGER DEFAULT 5");
         addColumnIfNotExists("rooms", "water_decimal_digits", "INTEGER DEFAULT 3");
+        // Multi-device Expo push tokens (1 account → nhiều máy)
+        ensureUserPushTokensTable();
     }
 
     /**
@@ -405,6 +407,45 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 is_read BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
                 """);
+    }
+
+    /**
+     * Multi-device push: backfill từ User.push_token nếu có (1 token/user → 1 row).
+     */
+    private void ensureUserPushTokensTable() {
+        createTableIfNotExists(
+                "user_push_tokens",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL,
+                token VARCHAR(512) NOT NULL UNIQUE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        try {
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_user_push_tokens_user_id ON user_push_tokens(user_id)");
+        } catch (Exception e) {
+            log.debug("idx_user_push_tokens_user_id: {}", e.getMessage());
+        }
+        try {
+            int n = jdbcTemplate.update(
+                    """
+                    INSERT INTO user_push_tokens (user_id, token, created_at, updated_at)
+                    SELECT u.id, TRIM(u.push_token), NOW(), NOW()
+                    FROM "User" u
+                    WHERE u.push_token IS NOT NULL
+                      AND TRIM(u.push_token) <> ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM user_push_tokens t WHERE t.token = TRIM(u.push_token)
+                      )
+                    """);
+            if (n > 0) {
+                log.info("Backfilled {} push tokens into user_push_tokens", n);
+            }
+        } catch (Exception e) {
+            log.warn("Backfill user_push_tokens skipped: {}", e.getMessage());
+        }
     }
 
     private void ensureTenantPaymentClaimsTable() {

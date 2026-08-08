@@ -50,7 +50,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     private UserStatus status = UserStatus.INACTIVE;
 
-    // Push token (FCM / Expo) cho thông báo đẩy — chủ yếu dùng cho tenant
+    // Push tokens: multi-device trong user_push_tokens; cột này = token mới nhất (back-compat)
     @Column(name = "push_token")
     private String pushToken;
 

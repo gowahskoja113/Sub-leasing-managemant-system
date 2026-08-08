@@ -34,7 +34,8 @@ public class HostPortalServiceImpl implements HostPortalService {
     private final TenantContractRepository tenantContractRepository;
     private final InboundContractRepository inboundContractRepository;
     private final UserRepository userRepository;
-    private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+    private final NotificationRepository notificationRepository;
+    private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
 
     @Override
     @Transactional
@@ -469,21 +470,7 @@ public class HostPortalServiceImpl implements HostPortalService {
             throw new BusinessException("Chỉ duyệt hợp đồng đang chờ duyệt giá");
         }
         contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.APPROVED_AWAITING_DEPOSIT);
-        
-        // Notification logic
-        if (contract.getProperty().getManagedBy() != null) {
-            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
-                String token = manager.getPushToken();
-                if (token != null) {
-                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
-                    pushNotificationService.sendPushNotification(token, 
-                            "Host đã duyệt giá hợp đồng " + contract.getContractCode(), 
-                            "Vui lòng tiếp tục thu cọc để hoàn tất hợp đồng.", 
-                            data);
-                }
-            });
-        }
-
+        notifyPriceApprovalResult(contract, true, null);
         return toContractDto(tenantContractRepository.save(contract));
     }
 
@@ -497,22 +484,40 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
         contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.PRICE_REJECTED);
         contract.setPriceRejectReason(reason);
-        
-        // Notification logic
-        if (contract.getProperty().getManagedBy() != null) {
-            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
-                String token = manager.getPushToken();
-                if (token != null) {
-                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
-                    pushNotificationService.sendPushNotification(token, 
-                            "Host đã từ chối giá hợp đồng " + contract.getContractCode(), 
-                            "Lý do: " + reason, 
-                            data);
-                }
-            });
-        }
-        
+        notifyPriceApprovalResult(contract, false, reason);
         return toContractDto(tenantContractRepository.save(contract));
+    }
+
+    /**
+     * Manager push khi host duyệt/từ chối giá — type {@code PRICE_APPROVAL_RESULT}.
+     * Không kèm số tiền (chính sách money visibility).
+     */
+    private void notifyPriceApprovalResult(TenantContract contract, boolean approved, String rejectReason) {
+        User manager = contract.getAssignedManager();
+        if (manager == null && contract.getProperty() != null
+                && contract.getProperty().getOperationManagerId() != null) {
+            manager = userRepository.findById(contract.getProperty().getOperationManagerId()).orElse(null);
+        }
+        if (manager == null) {
+            return;
+        }
+        String code = contract.getContractCode() != null ? contract.getContractCode() : ("#" + contract.getId());
+        String title = approved ? "Host đã duyệt giá" : "Host đã từ chối giá";
+        String body = approved
+                ? ("Hợp đồng " + code + " đã được duyệt giá. Tiếp tục thu cọc để hoàn tất.")
+                : ("Hợp đồng " + code + " bị từ chối giá."
+                + (rejectReason != null && !rejectReason.isBlank() ? (" Lý do: " + rejectReason) : ""));
+        notificationRepository.save(Notification.builder()
+                .userId(manager.getId())
+                .title(title)
+                .content(body)
+                .type("PRICE_APPROVAL_RESULT")
+                .build());
+        userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
+                "screen", "ResumeContract",
+                "params", Map.of("contractId", contract.getId()),
+                "type", "PRICE_APPROVAL_RESULT",
+                "approved", approved));
     }
 
     @Override
