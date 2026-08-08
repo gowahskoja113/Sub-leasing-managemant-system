@@ -219,7 +219,21 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getAddedEquipments(),
                 request.getAddedEquipmentIds());
 
-        TenantContract saved = tenantContractRepository.save(contract);
+        TenantContract saved = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                if (attempt > 0) {
+                    contract.setContractCode(generateContractCode());
+                }
+                saved = tenantContractRepository.saveAndFlush(contract);
+                break;
+            } catch (DataIntegrityViolationException e) {
+                if (attempt == 2) {
+                    throw new BusinessException("Hệ thống đang bận, vui lòng thử lại để sinh mã hợp đồng");
+                }
+                log.warn("Trùng mã hợp đồng {}, thử lại lần {}", contract.getContractCode(), attempt + 1);
+            }
+        }
 
         if (request.isDraft() && saved.getAssignedManager() != null) {
             notifyAssignedManager(saved);
@@ -948,9 +962,24 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     private String generateContractCode() {
-        Long maxId = tenantContractRepository.getMaxId();
-        long next = (maxId == null ? 0 : maxId) + 1;
-        return "HD-MT-" + Year.now().getValue() + "-" + String.format("%05d", next);
+        int year = Year.now().getValue();
+        String prefix = "HD-MT-" + year + "-";
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String lastCode = tenantContractRepository.findFirstByContractCodeStartingWithOrderByContractCodeDesc(prefix)
+                    .map(TenantContract::getContractCode).orElse(null);
+            long next = 1;
+            if (lastCode != null && lastCode.length() > prefix.length()) {
+                try {
+                    next = Long.parseLong(lastCode.substring(prefix.length())) + 1;
+                } catch (NumberFormatException e) {}
+            }
+            next += attempt;
+            String code = prefix + String.format("%05d", next);
+            if (!tenantContractRepository.existsByContractCode(code)) {
+                return code;
+            }
+        }
+        throw new BusinessException("Không sinh được mã hợp đồng, vui lòng thử lại");
     }
 
     private TenantContractResponse toResponse(TenantContract c) {

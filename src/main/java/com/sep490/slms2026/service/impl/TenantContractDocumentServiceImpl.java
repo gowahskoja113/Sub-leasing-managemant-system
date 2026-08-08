@@ -70,7 +70,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     @Override
     @Transactional(readOnly = true)
     public TenantContractDocumentResponse generateAndStore(Long contractId) {
-        return getDocument(contractId);
+        com.sep490.slms2026.security.CustomUserDetails user = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().stream().anyMatch(a -> Role.ROLE_ADMIN.name().equals(a.getAuthority())) ? Role.ROLE_ADMIN.name() : Role.ROLE_MANAGER.name();
+        return getDocument(contractId, user.getId(), role);
     }
 
     @Override
@@ -85,8 +87,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     @Override
     @Transactional(readOnly = true)
-    public TenantContractDocumentResponse getDocument(Long contractId) {
+    public TenantContractDocumentResponse getDocument(Long contractId, UUID userId, String roleName) {
         TenantContract contract = loadAndSync(contractId);
+        assertCanView(contract, userId, roleName);
         if (resolveContractFileUrl(contract) == null) {
             throw new BusinessException(
                     "Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl");
@@ -147,7 +150,15 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     private void assertCanView(TenantContract contract, UUID userId, String roleName) {
         Role role = Role.valueOf(roleName);
-        if (role == Role.ROLE_ADMIN || role == Role.ROLE_MANAGER) {
+        if (role == Role.ROLE_ADMIN) {
+            return;
+        }
+        if (role == Role.ROLE_MANAGER) {
+            UUID opManagerId = contract.getProperty() != null
+                    ? contract.getProperty().getOperationManagerId() : null;
+            if (opManagerId == null || !opManagerId.equals(userId)) {
+                throw new BusinessException("Bạn không quản lý toà nhà của hợp đồng này");
+            }
             return;
         }
         if (role == Role.ROLE_TENANT) {

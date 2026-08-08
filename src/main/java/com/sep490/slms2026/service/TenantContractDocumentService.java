@@ -21,7 +21,7 @@ public interface TenantContractDocumentService {
     byte[] renderDraftDocument(Long contractId);
 
     /** Trả metadata + URL file HĐ (ưu tiên {@code draftContractFileUrl}). */
-    TenantContractDocumentResponse getDocument(Long contractId);
+    TenantContractDocumentResponse getDocument(Long contractId, UUID userId, String roleName);
 
     /**
      * Tải nội dung file HĐ đã lưu (PDF/DOCX trên Cloudinary hoặc legacy local) — dùng cho nút View Contract trên FE.

@@ -29,4 +29,6 @@ public class ManagerInvoiceResponse {
     private String status;
     private LocalDate dueDate;
     private LocalDateTime createdAt;
+    private String payosQrCode;
+    private String payosCheckoutUrl;
 }

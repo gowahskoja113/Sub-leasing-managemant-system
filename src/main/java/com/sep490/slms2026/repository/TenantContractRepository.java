@@ -198,4 +198,8 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     @Query("SELECT MAX(c.id) FROM TenantContract c")
     Long getMaxId();
+
+    Optional<TenantContract> findFirstByContractCodeStartingWithOrderByContractCodeDesc(String prefix);
+
+    boolean existsByContractCode(String contractCode);
 }

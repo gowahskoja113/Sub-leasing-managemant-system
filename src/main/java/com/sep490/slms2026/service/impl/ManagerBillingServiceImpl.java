@@ -206,6 +206,8 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .status(invoice.getStatus().name())
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
+                .payosQrCode(invoice.getPayosQrCode())
+                .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
                 .build();
 
         if (!isAdmin && invoice.getInvoiceType() == TenantInvoiceType.RENT) {
