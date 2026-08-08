@@ -5,6 +5,7 @@ import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -79,4 +80,8 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
             @Param("type") TenantInvoiceType type,
             @Param("year") Integer year,
             @Param("month") Integer month);
+    
+    @Modifying
+    @Query("DELETE FROM TenantInvoice i WHERE i.tenantContract.id = :contractId")
+    void deleteByTenantContractId(@Param("contractId") Long contractId);
 }

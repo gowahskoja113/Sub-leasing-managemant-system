@@ -181,4 +181,21 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             @Param("contractStatus") ContractStatus contractStatus,
             @Param("priceApprovalStatus") com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus,
             Pageable pageable);
+
+    @Query("SELECT c FROM TenantContract c " +
+           "WHERE (:status IS NULL OR c.paymentStatus = :status) " +
+           "ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC")
+    Page<TenantContract> findAdminDeposits(@Param("status") com.sep490.slms2026.enums.PaymentStatus status, Pageable pageable);
+
+    @Query("SELECT c FROM TenantContract c " +
+           "JOIN c.property p " +
+           "WHERE p.operationManagerId = :managerUserId " +
+           "AND (:status IS NULL OR c.paymentStatus = :status) " +
+           "ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC")
+    Page<TenantContract> findManagerDeposits(@Param("managerUserId") UUID managerUserId, 
+                                             @Param("status") com.sep490.slms2026.enums.PaymentStatus status, 
+                                             Pageable pageable);
+
+    @Query("SELECT MAX(c.id) FROM TenantContract c")
+    Long getMaxId();
 }

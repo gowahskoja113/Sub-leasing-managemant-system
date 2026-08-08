@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -39,6 +40,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
+
+    @Value("${billing.first-cycle-grace-days:3}")
+    private long firstCycleGraceDays;
 
     @Override
     @Transactional
@@ -250,6 +254,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .tenantUserId(tenantUserId)
                 .tenantContract(contract)
                 .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.REGULAR)
                 .propertyName(property.getPropertyName())
                 .roomNumber(room != null ? room.getRoomNumber() : property.getPropertyName())
                 .billingMonth(billingMonth.getMonthValue())
@@ -312,6 +317,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .tenantUserId(contract.getTenant().getId())
                 .tenantContract(contract)
                 .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.FIRST)
                 .propertyName(contract.getProperty().getPropertyName())
                 .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
                 .billingMonth(currentMonth.getMonthValue())
@@ -321,7 +327,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .lateFee(BigDecimal.ZERO)
                 .grandTotal(amount)
                 .status(TenantInvoiceStatus.PENDING)
-                .dueDate(LocalDate.now())
+                .dueDate(LocalDate.now().plusDays(firstCycleGraceDays))
                 .createdAt(LocalDateTime.now())
                 .autoIssued(true)
                 .build());
@@ -507,6 +513,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
+                .cycleType(invoice.getCycleType() != null ? invoice.getCycleType().name() : null)
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .month(invoice.getBillingMonth())

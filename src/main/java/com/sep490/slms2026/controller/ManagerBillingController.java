@@ -16,6 +16,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import com.sep490.slms2026.dto.response.ManagerDepositDto;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+
 @RestController
 @RequiredArgsConstructor
 public class ManagerBillingController {
@@ -68,6 +72,16 @@ public class ManagerBillingController {
         String reason = request != null ? request.getReason() : null;
         return ResponseEntity.ok(managerBillingService.rejectPayment(
                 user.getId(), isAdmin(user), id, reason));
+    }
+
+    @GetMapping("/api/v1/manager/deposits")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Page<ManagerDepositDto>> listManagerDeposits(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        return ResponseEntity.ok(managerBillingService.getManagerDeposits(user.getId(), status, PageRequest.of(page, size)));
     }
 
     private static boolean isAdmin(CustomUserDetails user) {

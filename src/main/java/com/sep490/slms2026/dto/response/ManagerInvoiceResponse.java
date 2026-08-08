@@ -21,7 +21,11 @@ public class ManagerInvoiceResponse {
     private String tenantName;
     private Integer month;
     private Integer year;
+    private String billingPeriod;
     private BigDecimal amount;
+    private BigDecimal totalAmount;
+    private BigDecimal lateFee;
+    private String cycleType;
     private String status;
     private LocalDate dueDate;
     private LocalDateTime createdAt;

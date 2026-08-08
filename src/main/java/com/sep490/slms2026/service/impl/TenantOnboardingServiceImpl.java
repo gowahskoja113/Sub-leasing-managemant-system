@@ -29,6 +29,7 @@ import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.repository.TenantPaymentClaimRepository;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.repository.NotificationRepository;
@@ -79,6 +80,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     @Override
@@ -444,6 +446,24 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
             disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
         }
+    }
+
+    @Override
+    @Transactional
+    public void deleteContract(Long contractId) {
+        TenantContract contract = findContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE || contract.getStatus() == ContractStatus.PENDING) {
+            releaseContractOccupancy(contract);
+        }
+        
+        // Disable account if no other active contracts
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+        }
+
+        tenantPaymentClaimRepository.deleteByTenantContractId(contractId);
+        tenantInvoiceRepository.deleteByTenantContractId(contractId);
+        tenantContractRepository.delete(contract);
     }
 
     @Override
@@ -928,7 +948,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     private String generateContractCode() {
-        long next = tenantContractRepository.count() + 1;
+        Long maxId = tenantContractRepository.getMaxId();
+        long next = (maxId == null ? 0 : maxId) + 1;
         return "HD-MT-" + Year.now().getValue() + "-" + String.format("%05d", next);
     }
 
@@ -944,6 +965,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         Tenant tenant = c.getTenant();
         User tenantUser = tenant != null ? tenant.getUser() : null;
         Room room = c.getRoom();
+        com.sep490.slms2026.security.CustomUserDetails currentUser = null;
+        try {
+            currentUser = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        } catch (Exception e) {
+            // Ignore if no security context
+        }
+        boolean isManager = false;
+        if (currentUser != null) {
+            isManager = currentUser.getAuthorities().stream()
+                    .anyMatch(a -> Role.ROLE_MANAGER.name().equals(a.getAuthority()));
+        }
+
         return TenantContractResponse.builder()
                 .id(c.getId())
                 .propertyId(c.getProperty().getId())
@@ -959,8 +992,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
                 .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
-                .rentAmount(c.getRentAmount())
-                .deposit(c.getDeposit())
+                .rentAmount(isManager ? null : c.getRentAmount())
+                .deposit(isManager ? null : c.getDeposit())
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())

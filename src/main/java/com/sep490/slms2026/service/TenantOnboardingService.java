@@ -41,6 +41,9 @@ public interface TenantOnboardingService {
 
     /** Hủy hợp đồng đang chờ (chưa ACTIVE). */
     void cancelContract(Long contractId);
+    
+    /** Hard delete hợp đồng (chỉ dành cho test/import nhầm). */
+    void deleteContract(Long contractId);
 
     /**
      * Thanh lý / chấm dứt HĐ đang ACTIVE (hoặc EXPIRED) — trả phòng sớm, vi phạm, thỏa thuận.

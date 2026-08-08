@@ -102,6 +102,11 @@ billing:
   reminder-days-before: 3
   late-fee-percent: 2
   overdue-renotify-days: 7
+  first-cycle-grace-days: 3
+  rent:
+    due-day: 5
+    final-reminder-day: 7
+    termination-after-days: 3
 
 # Bảo trì: tự xác nhận nếu tenant không phản hồi
 maintenance:

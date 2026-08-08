@@ -53,6 +53,18 @@ public class BillingCronServiceImpl implements BillingCronService {
     @Value("${billing.overdue-renotify-days:7}")
     private int overdueRenotifyDays;
 
+    @Value("${billing.first-cycle-grace-days:3}")
+    private int firstCycleGraceDays;
+
+    @Value("${billing.rent.due-day:5}")
+    private int rentDueDay;
+
+    @Value("${billing.rent.final-reminder-day:7}")
+    private int finalReminderDay;
+
+    @Value("${billing.rent.termination-after-days:3}")
+    private int terminationAfterDays;
+
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Ho_Chi_Minh")
     @Transactional
     public void dailyBillingSweepTask() {
@@ -86,71 +98,87 @@ public class BillingCronServiceImpl implements BillingCronService {
             long daysUntilDue = ChronoUnit.DAYS.between(today, invoice.getDueDate());
             boolean stateChanged = false;
 
-            if (invoice.getInvoiceType() == TenantInvoiceType.RENT) {
+            if (invoice.getCycleType() == com.sep490.slms2026.enums.RentCycleType.FIRST) {
+                long daysSinceIssued = ChronoUnit.DAYS.between(invoice.getCreatedAt().toLocalDate(), today);
+
+                if (daysSinceIssued >= 1 && daysSinceIssued <= firstCycleGraceDays) {
+                    long daysLeft = firstCycleGraceDays - daysSinceIssued + 1;
+                    sendNotification(invoice, "RENT_FIRST_CYCLE_REMINDER",
+                            "🧾 Còn " + daysLeft + " ngày để đóng tiền phòng đầu tiên",
+                            String.format("Tiền phòng kỳ đầu %sđ chưa thanh toán. Hạn chót %s. Quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
+                                    formatCurrency(invoice.getGrandTotal()),
+                                    invoice.getDueDate().format(formatter)));
+                    invoice.setLastReminderDate(today);
+                    stateChanged = true;
+                    reminded++;
+                } else if (daysSinceIssued > firstCycleGraceDays) {
+                    if (invoice.getStatus() != TenantInvoiceStatus.OVERDUE) {
+                        invoice.setStatus(TenantInvoiceStatus.OVERDUE);
+                        sendNotification(invoice, "RENT_FIRST_CYCLE_OVERDUE",
+                                "Hóa đơn tiền phòng kỳ đầu quá hạn",
+                                String.format("Tiền phòng kỳ đầu %sđ đã quá hạn thanh toán. Vui lòng thanh toán ngay.",
+                                        formatCurrency(invoice.getGrandTotal())));
+                        
+                        notifyManagerFirstCycleOverdue(invoice);
+                        invoice.getTenantContract().setTerminationProposed(true);
+                        tenantContractRepository.save(invoice.getTenantContract());
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        overdueMarked++;
+                    }
+                }
+                if (stateChanged) {
+                    tenantInvoiceRepository.save(invoice);
+                }
+                continue;
+            } else if (invoice.getInvoiceType() == TenantInvoiceType.RENT) {
                 String period = "tháng " + String.format("%02d/%d", invoice.getBillingMonth(), invoice.getBillingYear());
                 String formattedAmount = formatCurrency(invoice.getGrandTotal());
                 String formattedDueDate = invoice.getDueDate().format(formatter);
                 
-                if (daysUntilDue == 2) {
-                    String title = "⏰ Còn 2 ngày tới hạn đóng tiền phòng";
-                    String content = String.format("Tiền phòng %s %sđ chưa được thanh toán. Hạn cuối là %s. Thanh toán sớm để không bị ghi nhận quá hạn.", period, formattedAmount, formattedDueDate);
-                    sendNotification(invoice, "BILLING_REMINDER", title, content);
+                if (daysUntilDue > 0 && daysUntilDue <= rentDueDay - 2) {
+                    sendNotification(invoice, "BILLING_REMINDER",
+                        String.format("⏰ Còn %d ngày tới hạn đóng tiền phòng", daysUntilDue),
+                        String.format("Tiền phòng %s %sđ chưa được thanh toán. Hạn cuối là %s. Thanh toán sớm để không bị ghi nhận quá hạn.",
+                            period, formattedAmount, formattedDueDate));
                     invoice.setLastReminderDate(today);
                     stateChanged = true;
                     reminded++;
                 } else if (daysUntilDue == 0) {
-                    String title = "⚠️ Hôm nay là hạn cuối đóng tiền phòng";
-                    String content = String.format("Tiền phòng %s %sđ đến hạn hôm nay (%s). Vui lòng thanh toán trong hôm nay; sau hôm nay hoá đơn sẽ bị ghi nhận quá hạn.", period, formattedAmount, formattedDueDate);
-                    sendNotification(invoice, "BILLING_REMINDER", title, content);
+                    sendNotification(invoice, "BILLING_REMINDER",
+                        "⚠️ Hôm nay là hạn cuối đóng tiền phòng",
+                        String.format("Tiền phòng %s %sđ đến hạn hôm nay (%s). Vui lòng thanh toán trong hôm nay; sau hôm nay hoá đơn sẽ bị ghi nhận quá hạn.",
+                            period, formattedAmount, formattedDueDate));
                     invoice.setLastReminderDate(today);
                     stateChanged = true;
                     reminded++;
                 } else if (daysUntilDue < 0) {
+                    long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+
                     if (invoice.getStatus() != TenantInvoiceStatus.OVERDUE) {
                         invoice.setStatus(TenantInvoiceStatus.OVERDUE);
-                        String title = "Hóa đơn tiền phòng quá hạn";
-                        String content = String.format("Tiền phòng %s %sđ đã quá hạn thanh toán. Vui lòng thanh toán ngay.", period, formattedAmount);
-                        sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        sendNotification(invoice, "BILLING_OVERDUE",
+                            "Hóa đơn tiền phòng quá hạn",
+                            String.format("Tiền phòng %s %sđ đã quá hạn thanh toán. Vui lòng thanh toán ngay.",
+                                period, formattedAmount));
                         invoice.setLastReminderDate(today);
                         stateChanged = true;
                         overdueMarked++;
-                    } else {
-                        // Already overdue, check for 10 days overdue
-                        long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
-                        if (overdueDays == 10 && !Boolean.TRUE.equals(invoice.getTenantContract().getTerminationProposed())) {
-                            // Notify manager
-                            UUID managerId = null;
-                            if (invoice.getTenantContract().getProperty().getManagedBy() != null) {
-                                managerId = invoice.getTenantContract().getProperty().getManagedBy();
-                            } else if (invoice.getTenantContract().getProperty().getOperationManagerId() != null) {
-                                managerId = invoice.getTenantContract().getProperty().getOperationManagerId();
-                            }
-                            if (managerId != null) {
-                                String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
-                                String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
-                                String title = "⛔ Quá hạn tiền phòng 10 ngày — được quyền chấm dứt hợp đồng";
-                                String content = String.format("%s · Phòng %s chưa thanh toán tiền phòng %s (%sđ). Hợp đồng đã bị gắn cờ đề nghị chấm dứt.", tenantName, roomStr, period, formattedAmount);
-                                sendPushNotificationOnly(managerId, title, content, "RENT_OVERDUE_MANAGER", "RentInvoice");
-                            }
-                            
-                            // Notify all hosts (ROLE_OWNER)
-                            List<com.sep490.slms2026.entity.User> hosts = userRepository.findByRoleAndStatus(com.sep490.slms2026.enums.Role.ROLE_OWNER, com.sep490.slms2026.enums.UserStatus.ACTIVE);
-                            for (com.sep490.slms2026.entity.User host : hosts) {
-                                String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
-                                String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "nguyên căn";
-                                String propertyName = invoice.getTenantContract().getProperty().getPropertyName();
-                                String title = "⛔ Khách thuê quá hạn tiền phòng 10 ngày";
-                                String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán tiền phòng %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.", 
-                                        tenantName, roomStr, propertyName, period);
-                                sendPushNotificationOnly(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice");
-                            }
-                            
-                            invoice.getTenantContract().setTerminationProposed(true);
-                            tenantContractRepository.save(invoice.getTenantContract());
-                            
-                            invoice.setLastReminderDate(today);
-                            stateChanged = true;
-                        }
+                    } else if (overdueDays == finalReminderDay - rentDueDay) {
+                        sendNotification(invoice, "BILLING_OVERDUE",
+                            "🔴 Nhắc lần cuối — tiền phòng quá hạn",
+                            String.format("Tiền phòng %s %sđ đã quá hạn %d ngày. Từ ngày mai, quản lý được quyền chấm dứt hợp đồng vì không thanh toán. Vui lòng thanh toán ngay hôm nay.",
+                                period, formattedAmount, overdueDays));
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        reminded++;
+                    } else if (overdueDays >= terminationAfterDays
+                            && !Boolean.TRUE.equals(invoice.getTenantContract().getTerminationProposed())) {
+                        notifyManagerAndHostsOverdue(invoice, period, formattedAmount, overdueDays);
+                        invoice.getTenantContract().setTerminationProposed(true);
+                        tenantContractRepository.save(invoice.getTenantContract());
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
                     }
                 }
             } else {
@@ -284,6 +312,51 @@ public class BillingCronServiceImpl implements BillingCronService {
         });
     }
 
+    private void notifyManagerFirstCycleOverdue(TenantInvoice invoice) {
+        UUID managerId = invoice.getTenantContract().getProperty().getManagedBy() != null
+                ? invoice.getTenantContract().getProperty().getManagedBy()
+                : invoice.getTenantContract().getProperty().getOperationManagerId();
+        if (managerId == null) return;
+
+        String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+        String roomStr = invoice.getTenantContract().getRoom() != null
+                ? invoice.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+
+        sendPushNotificationOnly(managerId,
+            "⛔ Khách mới chưa đóng tiền phòng kỳ đầu",
+            String.format("%s · Phòng %s đã quá %d ngày kể từ ngày nhận phòng mà chưa thanh toán "
+                + "tiền phòng đầu tiên (%sđ). Bạn được quyền chấm dứt hợp đồng.",
+                tenantName, roomStr, firstCycleGraceDays, formatCurrency(invoice.getGrandTotal())),
+            "RENT_FIRST_CYCLE_MANAGER", "RentInvoice");
+    }
+
+    private void notifyManagerAndHostsOverdue(TenantInvoice invoice, String period, String formattedAmount, long overdueDays) {
+        UUID managerId = null;
+        if (invoice.getTenantContract().getProperty().getManagedBy() != null) {
+            managerId = invoice.getTenantContract().getProperty().getManagedBy();
+        } else if (invoice.getTenantContract().getProperty().getOperationManagerId() != null) {
+            managerId = invoice.getTenantContract().getProperty().getOperationManagerId();
+        }
+        if (managerId != null) {
+            String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+            String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+            String title = String.format("⛔ Quá hạn tiền phòng %d ngày — được quyền chấm dứt hợp đồng", overdueDays);
+            String content = String.format("%s · Phòng %s chưa thanh toán tiền phòng %s (%sđ). Hợp đồng đã bị gắn cờ đề nghị chấm dứt.", tenantName, roomStr, period, formattedAmount);
+            sendPushNotificationOnly(managerId, title, content, "RENT_OVERDUE_MANAGER", "RentInvoice");
+        }
+        
+        List<com.sep490.slms2026.entity.User> hosts = userRepository.findByRoleAndStatus(com.sep490.slms2026.enums.Role.ROLE_OWNER, com.sep490.slms2026.enums.UserStatus.ACTIVE);
+        for (com.sep490.slms2026.entity.User host : hosts) {
+            String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+            String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "nguyên căn";
+            String propertyName = invoice.getTenantContract().getProperty().getPropertyName();
+            String title = String.format("⛔ Khách thuê quá hạn tiền phòng %d ngày", overdueDays);
+            String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán tiền phòng %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.", 
+                    tenantName, roomStr, propertyName, period);
+            sendPushNotificationOnly(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice");
+        }
+    }
+
     @Scheduled(cron = "0 5 0 1 * *", zone = "Asia/Ho_Chi_Minh")
     @Transactional
     public void generateMonthlyRentInvoices() {
@@ -318,6 +391,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                         .tenantUserId(contract.getTenant().getId())
                         .tenantContract(contract)
                         .invoiceType(TenantInvoiceType.RENT)
+                        .cycleType(com.sep490.slms2026.enums.RentCycleType.REGULAR)
                         .propertyName(contract.getProperty().getPropertyName())
                         .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
                         .billingMonth(currentMonth.getMonthValue())

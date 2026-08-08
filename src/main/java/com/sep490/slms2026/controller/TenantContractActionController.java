@@ -34,7 +34,14 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
             @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_ADMIN.name().equals(a.getAuthority()));
+        if (isAdmin) {
+            return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+        } else {
+            return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+        }
     }
 
     /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
@@ -204,6 +211,14 @@ public class TenantContractActionController {
     public ResponseEntity<Void> cancelContract(@PathVariable Long id) {
         tenantOnboardingService.cancelContract(id);
         return ResponseEntity.ok().build();
+    }
+
+    /** DELETE /{id} — Xóa cứng hợp đồng (Hard delete). */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteContract(@PathVariable Long id) {
+        tenantOnboardingService.deleteContract(id);
+        return ResponseEntity.noContent().build();
     }
 
     /**

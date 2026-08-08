@@ -23,6 +23,11 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
+import com.sep490.slms2026.dto.response.ManagerDepositDto;
+import com.sep490.slms2026.repository.TenantContractRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 @Service
 @RequiredArgsConstructor
 public class ManagerBillingServiceImpl implements ManagerBillingService {
@@ -31,6 +36,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final PropertyAccessService propertyAccessService;
     private final TenantBillingService tenantBillingService;
+    private final TenantContractRepository tenantContractRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -64,7 +70,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                         ym != null ? ym.getYear() : null,
                         ym != null ? ym.getMonthValue() : null)
                 .stream()
-                .map(this::toManagerInvoice)
+                .map(inv -> toManagerInvoice(inv, isAdmin))
                 .toList();
     }
 
@@ -106,6 +112,39 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         return toManagerPayment(tenantPaymentClaimRepository.save(claim));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ManagerDepositDto> getManagerDeposits(UUID managerUserId, String status, Pageable pageable) {
+        com.sep490.slms2026.enums.PaymentStatus paymentStatus = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                paymentStatus = com.sep490.slms2026.enums.PaymentStatus.valueOf(status.toUpperCase());
+            } catch (Exception e) {}
+        }
+
+        return tenantContractRepository.findManagerDeposits(managerUserId, paymentStatus, pageable)
+                .map(contract -> {
+                    String tenantPhone = null;
+                    if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                        tenantPhone = contract.getTenant().getUser().getPhoneNumber();
+                    }
+                    return ManagerDepositDto.builder()
+                            .contractId(contract.getId())
+                            .contractCode(contract.getContractCode())
+                            .propertyName(contract.getProperty() != null ? contract.getProperty().getPropertyName() : null)
+                            .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
+                            .tenantName(contract.getTenant() != null && contract.getTenant().getUser() != null ? contract.getTenant().getUser().getFullName() : null)
+                            .tenantPhone(tenantPhone)
+                            .depositMonths(contract.getDepositMonths())
+                            .paymentStatus(contract.getPaymentStatus() != null ? contract.getPaymentStatus().name() : null)
+                            .depositMethod(contract.getPayosOrderCode() != null ? "PAYOS" : (contract.getDepositCashManagerConfirmedAt() != null || contract.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
+                            .depositPaidAt(contract.getPaidAt() != null ? contract.getPaidAt() : contract.getDepositCashManagerConfirmedAt())
+                            .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
+                            .moveInDate(contract.getMoveInDate())
+                            .build();
+                });
+    }
+
     private TenantPaymentClaim loadClaimForManager(Long claimId, UUID managerUserId, boolean isAdmin) {
         TenantPaymentClaim claim = tenantPaymentClaimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -135,13 +174,21 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .build();
     }
 
-    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice) {
+    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice, boolean isAdmin) {
         String tenantName = null;
-        if (invoice.getTenantContract().getTenant() != null
-                && invoice.getTenantContract().getTenant().getUser() != null) {
-            tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+        UUID tenantUserId = null;
+        Long roomId = null;
+        if (invoice.getTenantContract().getTenant() != null) {
+            if (invoice.getTenantContract().getTenant().getUser() != null) {
+                tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+                tenantUserId = invoice.getTenantContract().getTenant().getUser().getId();
+            }
         }
-        return ManagerInvoiceResponse.builder()
+        if (invoice.getTenantContract().getRoom() != null) {
+            roomId = invoice.getTenantContract().getRoom().getId();
+        }
+
+        ManagerInvoiceResponse response = ManagerInvoiceResponse.builder()
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
@@ -151,11 +198,23 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .tenantName(tenantName)
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
+                .billingPeriod(invoice.getBillingPeriod())
                 .amount(invoice.getGrandTotal())
+                .totalAmount(invoice.getTotalAmount())
+                .lateFee(invoice.getLateFee())
+                .cycleType(invoice.getCycleType() != null ? invoice.getCycleType().name() : null)
                 .status(invoice.getStatus().name())
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
                 .build();
+
+        if (!isAdmin && invoice.getInvoiceType() == TenantInvoiceType.RENT) {
+            response.setAmount(null);
+            response.setTotalAmount(null);
+            response.setLateFee(null);
+        }
+
+        return response;
     }
 
     private ManagerPaymentResponse toManagerPayment(TenantPaymentClaim claim) {

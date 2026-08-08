@@ -16,6 +16,7 @@ public class TenantInvoiceResponse {
     private Long id;
     private String code;
     private String type;
+    private String cycleType;
     private String propertyName;
     private String roomNumber;
     private Integer month;
