@@ -24,12 +24,17 @@ public class ManagerInvoiceResponse {
     private Integer year;
     private String billingPeriod;
     private BigDecimal amount;
+    private BigDecimal totalAmount;
+    private BigDecimal lateFee;
+    private String cycleType;
     private String status;
     private LocalDate dueDate;
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
     private String paymentMethod;
     private String transactionId;
+    private String payosQrCode;
+    private String payosCheckoutUrl;
     /** Chỉ populate ở GET /manager/invoices/{id} — list để nhẹ payload. */
     private List<TenantInvoiceItemResponse> items;
 }

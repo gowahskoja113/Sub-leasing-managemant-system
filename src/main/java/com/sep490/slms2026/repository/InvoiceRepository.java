@@ -11,4 +11,5 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     Page<Invoice> findByMonthAndDeletedFalse(String month, Pageable pageable);
     Page<Invoice> findByStatusAndDeletedFalse(InvoiceStatus status, Pageable pageable);
     Page<Invoice> findByDeletedFalse(Pageable pageable);
+    java.util.List<Invoice> findByTenantIdAndStatusAndDeletedFalse(java.util.UUID tenantId, InvoiceStatus status);
 }

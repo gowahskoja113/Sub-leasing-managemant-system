@@ -213,4 +213,8 @@ public class TenantContract implements Serializable {
 
     @Column(name = "termination_note", columnDefinition = "TEXT")
     private String terminationNote;
+
+    @Column(name = "termination_proposed")
+    @Builder.Default
+    private Boolean terminationProposed = false;
 }

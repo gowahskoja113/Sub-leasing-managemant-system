@@ -15,6 +15,8 @@ import java.util.List;
 import com.sep490.slms2026.service.BillingCronService;
 import java.util.Map;
 
+import com.sep490.slms2026.dto.response.AdminDepositDto;
+
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
@@ -29,16 +31,12 @@ public class AdminBillingController {
         return ResponseEntity.ok(billingCronService.runDailySweep());
     }
 
-
-    @GetMapping("/invoices")
-    public ResponseEntity<Page<AdminInvoiceDto>> listInvoices(
-            @RequestParam(required = false) String month,
-            @RequestParam(required = false) String hostId,
+    @GetMapping("/deposits")
+    public ResponseEntity<Page<AdminDepositDto>> listDeposits(
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(adminBillingService.getAdminInvoices(month, hostId, status, keyword, PageRequest.of(page, size)));
+        return ResponseEntity.ok(adminBillingService.getAdminDeposits(status, PageRequest.of(page, size)));
     }
 
     @GetMapping("/hosts")

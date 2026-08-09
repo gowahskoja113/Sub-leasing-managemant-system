@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+import com.sep490.slms2026.service.PropertyAccessService;
+
 @RestController
 @RequestMapping("/api/v1/properties/{propertyId}")
 @RequiredArgsConstructor
@@ -21,6 +23,7 @@ public class TenantContractController {
 
     private final TenantOnboardingService tenantOnboardingService;
     private final ContractEquipmentService contractEquipmentService;
+    private final PropertyAccessService propertyAccessService;
 
     /**
      * POST /api/v1/properties/{propertyId}/rooms/{roomId}/tenant-contract
@@ -56,6 +59,7 @@ public class TenantContractController {
     @GetMapping("/tenant-contracts")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<List<TenantContractResponse>> listByProperty(@PathVariable Long propertyId) {
+        propertyAccessService.assertCanManageProperty(propertyId);
         return ResponseEntity.ok(tenantOnboardingService.getContractsByProperty(propertyId));
     }
 

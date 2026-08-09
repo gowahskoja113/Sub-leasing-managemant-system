@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.sep490.slms2026.enums.RentCycleType;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import jakarta.persistence.*;
@@ -41,6 +42,10 @@ public class TenantInvoice implements Serializable {
     @Enumerated(EnumType.STRING)
     @Column(name = "invoice_type", nullable = false)
     private TenantInvoiceType invoiceType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cycle_type", length = 16)
+    private RentCycleType cycleType;
 
     @Column(name = "property_name", nullable = false)
     private String propertyName;
@@ -113,4 +118,7 @@ public class TenantInvoice implements Serializable {
 
     @Column(name = "payos_qr_code", columnDefinition = "TEXT")
     private String payosQrCode;
+
+    @Column(name = "auto_issued")
+    private Boolean autoIssued;
 }

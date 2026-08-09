@@ -107,6 +107,13 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         renovationLineRepository.deleteByPropertyId(propertyId);
         renovationSessionRepository.deleteByPropertyId(propertyId);
         equipmentManifestRepository.deleteByPropertyId(propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_payment_claims WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM household_members WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_equipments WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_condition_photos WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contracts WHERE property_id = ?", propertyId);
+        
         jdbcTemplate.update("DELETE FROM property_images WHERE property_id = ?", propertyId);
         roomRepository.deleteAllByPropertyId(propertyId);
         jdbcTemplate.update("DELETE FROM properties WHERE id = ?", propertyId);

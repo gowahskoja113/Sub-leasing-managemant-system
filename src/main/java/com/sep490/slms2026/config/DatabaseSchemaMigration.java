@@ -80,6 +80,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "termination_reason", "TEXT");
         addColumnIfNotExists("tenant_contracts", "termination_note", "TEXT");
         ensureCheckoutRequestsTable();
+        ensureCheckoutRequestsStatusConstraint();
+        ensureTenantContractsStatusConstraint();
         addColumnIfNotExists("tenant_contracts", "electric_meter_captured_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "water_meter_captured_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contract_condition_photos", "captured_at", "TIMESTAMP");
@@ -922,6 +924,35 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         if (Boolean.TRUE.equals(exists)) {
             jdbcTemplate.execute("DROP TABLE " + table + " CASCADE");
             log.info("Dropped legacy table {}", table);
+        }
+    }
+
+    private void ensureCheckoutRequestsStatusConstraint() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE checkout_requests DROP CONSTRAINT IF EXISTS checkout_requests_status_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE checkout_requests ADD CONSTRAINT checkout_requests_status_check CHECK (status IN (
+                        'PENDING', 'APPROVED', 'INSPECTING', 'WAITING_TENANT',
+                        'DISPUTED', 'SETTLING', 'REJECTED', 'COMPLETED', 'CANCELLED'
+                    ))
+                    """);
+            log.info("Migrated checkout_requests_status_check constraint to include new statuses");
+        } catch (Exception e) {
+            log.warn("Could not migrate checkout_requests_status_check constraint: {}", e.getMessage());
+        }
+    }
+
+    private void ensureTenantContractsStatusConstraint() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE tenant_contracts DROP CONSTRAINT IF EXISTS tenant_contracts_status_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE tenant_contracts ADD CONSTRAINT tenant_contracts_status_check CHECK (status IN (
+                        'DRAFT', 'PENDING', 'ACTIVE', 'EXPIRED', 'TERMINATED'
+                    ))
+                    """);
+            log.info("Migrated tenant_contracts_status_check constraint");
+        } catch (Exception e) {
+            log.warn("Could not migrate tenant_contracts_status_check constraint: {}", e.getMessage());
         }
     }
 }

@@ -60,4 +60,20 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
+
+    @Column(name = "dispute_count")
+    @Builder.Default
+    private Integer disputeCount = 0;
+
+    @Column(name = "dispute_reason", columnDefinition = "TEXT")
+    private String disputeReason;
+
+    @ElementCollection
+    @CollectionTable(name = "checkout_request_dispute_photos", joinColumns = @JoinColumn(name = "checkout_request_id"))
+    @Column(name = "photo_url")
+    @Builder.Default
+    private java.util.List<String> disputePhotos = new java.util.ArrayList<>();
+
+    @Column(name = "disputed_at")
+    private LocalDateTime disputedAt;
 }

@@ -34,6 +34,10 @@ import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.TenantPaymentRepository;
 import com.sep490.slms2026.repository.UserRepository;
+import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.repository.TenantPaymentClaimRepository;
+import com.sep490.slms2026.enums.TenantInvoiceStatus;
+import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.MeterOverrideService;
@@ -86,6 +90,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final NotificationRepository notificationRepository;
     private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
     private final MeterOverrideService meterOverrideService;
+    private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
+    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     @Override
     @Transactional
@@ -223,7 +229,21 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 request.getAddedEquipments(),
                 request.getAddedEquipmentIds());
 
-        TenantContract saved = tenantContractRepository.save(contract);
+        TenantContract saved = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                if (attempt > 0) {
+                    contract.setContractCode(generateContractCode());
+                }
+                saved = tenantContractRepository.saveAndFlush(contract);
+                break;
+            } catch (DataIntegrityViolationException e) {
+                if (attempt == 2) {
+                    throw new BusinessException("Hệ thống đang bận, vui lòng thử lại để sinh mã hợp đồng");
+                }
+                log.warn("Trùng mã hợp đồng {}, thử lại lần {}", contract.getContractCode(), attempt + 1);
+            }
+        }
 
         // Override nhập tay chỉ số (không có ảnh) — sau khi có contractId
         applyMeterOverridesIfAny(saved, request.getElectricMeterOverrideToken(),
@@ -247,6 +267,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         if (saved.getStatus() == ContractStatus.ACTIVE) {
             contractEquipmentService.disableDeclinedForActiveContract(saved);
+            tenantBillingService.generateProratedRentForNewContract(saved);
         }
 
         return toResponse(saved);
@@ -361,6 +382,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
         backfillOnboardingInvoiceTenant(saved);
+        tenantBillingService.generateProratedRentForNewContract(saved);
         notifyContractActivated(saved);
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
@@ -703,6 +725,28 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setStatus(ContractStatus.TERMINATED);
         contract.setTerminatedAt(LocalDateTime.now());
         tenantContractRepository.save(contract);
+
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteContract(Long contractId) {
+        TenantContract contract = findContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE || contract.getStatus() == ContractStatus.PENDING) {
+            releaseContractOccupancy(contract);
+        }
+        
+        // Disable account if no other active contracts
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+        }
+
+        tenantPaymentClaimRepository.deleteByTenantContractId(contractId);
+        tenantInvoiceRepository.deleteByTenantContractId(contractId);
+        tenantContractRepository.delete(contract);
     }
 
     @Override
@@ -714,6 +758,17 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         if (contract.getStatus() != ContractStatus.ACTIVE && contract.getStatus() != ContractStatus.EXPIRED) {
             throw new BusinessException("Chỉ thanh lý được hợp đồng đang ACTIVE hoặc EXPIRED");
+        }
+
+        if (request.getType() == com.sep490.slms2026.enums.ContractTerminationType.VIOLATION) {
+            boolean hasOverdueInvoice = tenantInvoiceRepository.findForTenant(contract.getTenant().getUser().getId(), TenantInvoiceStatus.OVERDUE, TenantInvoiceType.RENT)
+                    .stream()
+                    .anyMatch(inv -> inv.getTenantContract().getId().equals(contractId) 
+                            && inv.getDueDate() != null
+                            && inv.getDueDate().isBefore(LocalDate.now().minusDays(2)));
+            if (!hasOverdueInvoice) {
+                throw new BusinessException("Không thể đơn phương chấm dứt hợp đồng (lỗi vi phạm) nếu không có hoá đơn tiền phòng quá hạn trên 3 ngày.");
+            }
         }
 
         LocalDate effectiveDate = request.getEffectiveDate() != null
@@ -734,7 +789,25 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setEndDate(effectiveDate);
 
         TenantContract saved = tenantContractRepository.save(contract);
+
+        if (saved.getTenant() != null && saved.getTenant().getUser() != null) {
+            disableTenantAccountIfNoActiveContracts(saved.getTenant().getUser());
+        }
+
         return toResponse(saved);
+    }
+
+    private void disableTenantAccountIfNoActiveContracts(User user) {
+        if (user == null || user.getRole() != Role.ROLE_TENANT) return;
+        boolean conThue = tenantContractRepository.findByTenantId(user.getId()).stream()
+                .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
+                            || c.getStatus() == ContractStatus.PENDING
+                            || c.getStatus() == ContractStatus.DRAFT
+                            || c.getStatus() == ContractStatus.EXPIRED);
+        if (!conThue) {
+            user.setStatus(UserStatus.DISABLE);
+            userRepository.save(user);
+        }
     }
 
     private void releaseContractOccupancy(TenantContract contract) {
@@ -921,6 +994,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             contract.setTerminationReason("Tự động hủy: khách không đến nhận nhà quá " + noShowGraceDays
                     + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
             tenantContractRepository.save(contract);
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+            }
             notifyContractAutoCancelled(contract);
             count++;
             log.info("Auto-cancel HĐ #{} ({}) — no-show quá {} ngày (moveInDate={})",
@@ -1053,6 +1129,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         // Tái dùng account theo SĐT (local / +84) hoặc username (= SĐT lúc tạo)
         User existing = findExistingUserByPhone(localPhone, internationalPhone);
         if (existing != null) {
+            existing.setStatus(UserStatus.ACTIVE);
             boolean promoted = false;
             if (existing.getRole() == Role.ROLE_USER) {
                 // ROLE_USER → nâng quyền lên ROLE_TENANT khi onboard
@@ -1161,9 +1238,20 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     private String generateContractCode() {
         int year = Year.now().getValue();
-        for (int i = 0; i < 30; i++) {
-            int seq = ThreadLocalRandom.current().nextInt(1, 100_000);
-            String code = "HD-MT-" + year + "-" + String.format("%05d", seq);
+        String prefix = "HD-MT-" + year + "-";
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String lastCode = tenantContractRepository.findFirstByContractCodeStartingWithOrderByContractCodeDesc(prefix)
+                    .map(TenantContract::getContractCode).orElse(null);
+            long next = 1;
+            if (lastCode != null && lastCode.length() > prefix.length()) {
+                try {
+                    next = Long.parseLong(lastCode.substring(prefix.length())) + 1;
+                } catch (NumberFormatException e) {
+                    // ignore malformed legacy codes
+                }
+            }
+            next += attempt;
+            String code = prefix + String.format("%05d", next);
             if (!tenantContractRepository.existsByContractCode(code)) {
                 return code;
             }
@@ -1185,6 +1273,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         Tenant tenant = c.getTenant();
         User tenantUser = tenant != null ? tenant.getUser() : null;
         Room room = c.getRoom();
+        com.sep490.slms2026.security.CustomUserDetails currentUser = null;
+        try {
+            currentUser = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        } catch (Exception e) {
+            // Ignore if no security context
+        }
+        boolean isManager = false;
+        if (currentUser != null) {
+            isManager = currentUser.getAuthorities().stream()
+                    .anyMatch(a -> Role.ROLE_MANAGER.name().equals(a.getAuthority()));
+        }
+
         return TenantContractResponse.builder()
                 .id(c.getId())
                 .propertyId(c.getProperty().getId())
@@ -1200,9 +1300,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantCccdIssuePlace(tenant != null ? tenant.getCccdIssuePlace() : c.getDraftTenantCccdIssuePlace())
                 .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
-                .rentAmount(c.getRentAmount())
-                .deposit(c.getDeposit())
-                .initialPaymentAmount(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
+                .rentAmount(isManager ? null : c.getRentAmount())
+                .deposit(isManager ? null : c.getDeposit())
+                .initialPaymentAmount(isManager ? null : TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
@@ -1223,8 +1323,16 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
                 .paidAt(c.getPaidAt())
-                .depositPaidAt(c.getDepositPaidAt())
-                .depositMethod(c.getDepositMethod())
+                .depositPaidAt(c.getDepositPaidAt() != null
+                        ? c.getDepositPaidAt()
+                        : (c.getPaidAt() != null ? c.getPaidAt() : c.getDepositCashManagerConfirmedAt()))
+                .depositMethod(c.getDepositMethod() != null
+                        ? c.getDepositMethod()
+                        : (c.getPayosOrderCode() != null
+                                ? "PAYOS"
+                                : (c.getDepositCashManagerConfirmedAt() != null || c.getDepositCashTenantConfirmedAt() != null
+                                        ? "CASH"
+                                        : null)))
                 .activatedAt(c.getActivatedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)

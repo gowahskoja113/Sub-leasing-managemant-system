@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -80,6 +81,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.BAD_REQUEST.value())
                         .error(message)
+                        .code("INVALID_JSON")
+                        .message(message)
                         .build());
     }
 
@@ -93,6 +96,8 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .status(HttpStatus.BAD_REQUEST.value())
                 .error("Validation failed")
+                .code("VALIDATION_FAILED")
+                .message("Dữ liệu gửi lên không hợp lệ, vui lòng kiểm tra lại.")
                 .fieldErrors(fieldErrors)
                 .build();
         return ResponseEntity.badRequest().body(body);
@@ -105,6 +110,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error(ex.getMessage())
+                        .code("NOT_FOUND")
+                        .message(ex.getMessage())
                         .build());
     }
 
@@ -115,6 +122,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
                         .error(ex.getMessage())
+                        .code(ex.getCode())
+                        .message(ex.getMessage())
                         .build());
     }
 
@@ -135,6 +144,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.CONFLICT.value())
                         .error(ex.getMessage())
+                        .code("CONFLICT")
+                        .message(ex.getMessage())
                         .build());
     }
 
@@ -147,6 +158,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error("Not Found")
+                        .code("NOT_FOUND")
+                        .message("Route không tồn tại")
                         .build());
     }
 
@@ -159,6 +172,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error("Not Found")
+                        .code("NOT_FOUND")
+                        .message("Route không có handler")
                         .build());
     }
 
@@ -169,7 +184,22 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .error("Internal server error")
+                        .error("Internal Server Error")
+                        .code("INTERNAL_SERVER_ERROR")
+                        .message("Lỗi hệ thống không xác định")
+                        .build());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error("Dữ liệu không hợp lệ hoặc vi phạm ràng buộc hệ thống (DATA_INTEGRITY_VIOLATION)")
+                        .code("DATA_INTEGRITY_VIOLATION")
+                        .message("Dữ liệu không hợp lệ hoặc vi phạm ràng buộc hệ thống")
                         .build());
     }
 }

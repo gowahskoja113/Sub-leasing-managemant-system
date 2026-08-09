@@ -12,5 +12,7 @@ public class ErrorResponse {
     private LocalDateTime timestamp;
     private int status;
     private String error;
+    private String code;
+    private String message;
     private Map<String, String> fieldErrors; // chỉ có khi validation fail
 }

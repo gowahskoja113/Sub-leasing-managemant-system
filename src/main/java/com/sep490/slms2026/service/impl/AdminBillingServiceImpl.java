@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.sep490.slms2026.dto.response.AdminDepositDto;
+
 @Service
 @RequiredArgsConstructor
 public class AdminBillingServiceImpl implements AdminBillingService {
@@ -33,105 +35,45 @@ public class AdminBillingServiceImpl implements AdminBillingService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<AdminInvoiceDto> getAdminInvoices(String month, String hostId, String status, String keyword, Pageable pageable) {
-        YearMonth ym = month != null && !month.isBlank() ? parseMonth(month, YearMonth.now()) : YearMonth.now();
-        List<AdminInvoiceDto> allInvoices = buildInvoices(ym, hostId, status, keyword);
-        
-        // Sort by due date descending
-        allInvoices.sort((a, b) -> b.getDueDate().compareTo(a.getDueDate()));
-
-        return slicePage(allInvoices, pageable);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<AdminHostDto> getAdminHosts() {
         return userRepository.findByRole(Role.ROLE_OWNER).stream()
                 .map(u -> new AdminHostDto(u.getId(), u.getFullName()))
                 .collect(Collectors.toList());
     }
 
-    private List<AdminInvoiceDto> buildInvoices(YearMonth ym, String hostIdFilter, String statusFilter, String keyword) {
-        LocalDate dueDate = ym.atEndOfMonth().plusDays(5);
-        LocalDate today = LocalDate.now();
-        List<AdminInvoiceDto> invoices = new ArrayList<>();
-
-        for (TenantContract contract : tenantContractRepository.findByStatus(ContractStatus.ACTIVE)) {
-            if (!isContractActiveInMonth(contract, ym)) {
-                continue;
-            }
-
-            // Filter by hostId
-            if (hostIdFilter != null && !hostIdFilter.isBlank()) {
-                UUID contractHostId = contract.getProperty().getManagedBy();
-                if (contractHostId == null || !contractHostId.toString().equals(hostIdFilter)) {
-                    continue;
-                }
-            }
-
-            String currentStatus;
-            if (contract.getPaymentStatus() == PaymentStatus.PAID
-                    && contract.getPaidAt() != null
-                    && ym.equals(YearMonth.from(contract.getPaidAt()))) {
-                currentStatus = "PAID";
-            } else if (dueDate.isBefore(today)) {
-                currentStatus = "OVERDUE";
-            } else {
-                currentStatus = "UNPAID";
-            }
-
-            // Filter by status
-            if (statusFilter != null && !statusFilter.isBlank() && !statusFilter.equalsIgnoreCase(currentStatus)) {
-                continue;
-            }
-
-            String invoiceId = contract.getId() + "-" + ym;
-            String tenantName = contract.getTenant().getUser().getFullName();
-            String buildingName = contract.getProperty().getPropertyName();
-            String roomCode = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "NGUYEN_CAN";
-            
-            // Filter by keyword (invoiceId, tenantName, buildingName)
-            if (keyword != null && !keyword.isBlank()) {
-                String kw = keyword.toLowerCase();
-                boolean matches = invoiceId.toLowerCase().contains(kw)
-                        || (tenantName != null && tenantName.toLowerCase().contains(kw))
-                        || (buildingName != null && buildingName.toLowerCase().contains(kw));
-                if (!matches) {
-                    continue;
-                }
-            }
-
-            UUID hostUuid = contract.getProperty().getManagedBy();
-            String hostName = "Unknown";
-            if (hostUuid != null) {
-                var hostUser = userRepository.findById(hostUuid).orElse(null);
-                if (hostUser != null) {
-                    hostName = hostUser.getFullName();
-                }
-            }
-
-            invoices.add(AdminInvoiceDto.builder()
-                    .id(invoiceId)
-                    .hostId(hostUuid != null ? hostUuid.toString() : null)
-                    .hostName(hostName)
-                    .buildingName(buildingName)
-                    .tenantName(tenantName)
-                    .roomCode(roomCode)
-                    .amount(contract.getRentAmount())
-                    .dueDate(dueDate)
-                    .status(currentStatus)
-                    .build());
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AdminDepositDto> getAdminDeposits(String status, Pageable pageable) {
+        PaymentStatus paymentStatus = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                paymentStatus = PaymentStatus.valueOf(status.toUpperCase());
+            } catch (Exception e) {}
         }
-        return invoices;
-    }
 
-    private boolean isContractActiveInMonth(TenantContract contract, YearMonth ym) {
-        LocalDate monthStart = ym.atDay(1);
-        LocalDate monthEnd = ym.atEndOfMonth();
-        if (contract.getStartDate().isAfter(monthEnd)) {
-            return false;
-        }
-        return contract.getEndDate() == null || !contract.getEndDate().isBefore(monthStart);
+        return tenantContractRepository.findAdminDeposits(paymentStatus, pageable)
+                .map(contract -> {
+                    String tenantPhone = null;
+                    if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                        tenantPhone = contract.getTenant().getUser().getPhoneNumber();
+                    }
+                    return AdminDepositDto.builder()
+                            .contractId(contract.getId())
+                            .contractCode(contract.getContractCode())
+                            .propertyName(contract.getProperty() != null ? contract.getProperty().getPropertyName() : null)
+                            .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
+                            .tenantName(contract.getTenant() != null && contract.getTenant().getUser() != null ? contract.getTenant().getUser().getFullName() : null)
+                            .tenantPhone(tenantPhone)
+                            .deposit(contract.getDeposit())
+                            .depositMonths(contract.getDepositMonths())
+                            .rentAmount(contract.getRentAmount())
+                            .paymentStatus(contract.getPaymentStatus() != null ? contract.getPaymentStatus().name() : null)
+                            .depositMethod(contract.getPayosOrderCode() != null ? "PAYOS" : (contract.getDepositCashManagerConfirmedAt() != null || contract.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
+                            .depositPaidAt(contract.getPaidAt() != null ? contract.getPaidAt() : contract.getDepositCashManagerConfirmedAt())
+                            .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
+                            .moveInDate(contract.getMoveInDate())
+                            .build();
+                });
     }
 
     private YearMonth parseMonth(String month, YearMonth defaultMonth) {

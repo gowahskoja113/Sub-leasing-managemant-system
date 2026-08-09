@@ -29,12 +29,27 @@ public class TenantContractActionController {
     private final TenantOnboardingService tenantOnboardingService;
     private final TenantContractDocumentService tenantContractDocumentService;
 
+    private String getHighestRole(CustomUserDetails user) {
+        boolean isAdmin = user.getAuthorities().stream().anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_ADMIN.name().equals(a.getAuthority()));
+        if (isAdmin) return com.sep490.slms2026.enums.Role.ROLE_ADMIN.name();
+        boolean isManager = user.getAuthorities().stream().anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_MANAGER.name().equals(a.getAuthority()));
+        if (isManager) return com.sep490.slms2026.enums.Role.ROLE_MANAGER.name();
+        return com.sep490.slms2026.enums.Role.ROLE_TENANT.name();
+    }
+
     /** GET / — danh sách HĐ (vd list DRAFT). */
     @GetMapping
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
             @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_ADMIN.name().equals(a.getAuthority()));
+        if (isAdmin) {
+            return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+        } else {
+            return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+        }
     }
 
     /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
@@ -42,7 +57,7 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<TenantContractResponse> get(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
+        String role = getHighestRole(user);
         return ResponseEntity.ok(tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role));
     }
@@ -74,10 +89,11 @@ public class TenantContractActionController {
     @PostMapping("/{id}/draft-document")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<byte[]> generateDraftDocument(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
         TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
                 id,
-                SecurityUtils.requireCurrentUser().getId(),
-                SecurityUtils.requireCurrentUser().getAuthorities().iterator().next().getAuthority());
+                user.getId(),
+                getHighestRole(user));
         byte[] pdf = tenantContractDocumentService.renderDraftDocument(id);
         String filename = "DRAFT-" + contract.getContractCode() + ".pdf";
         return ResponseEntity.ok()
@@ -91,9 +107,8 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
-        tenantContractDocumentService.getContractForUser(id, user.getId(), role);
-        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id));
+        String role = getHighestRole(user);
+        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id, user.getId(), role));
     }
 
     /**
@@ -104,7 +119,7 @@ public class TenantContractActionController {
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
     public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
+        String role = getHighestRole(user);
         TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role);
         byte[] file = tenantContractDocumentService.downloadContractDocument(id, user.getId(), role);
@@ -204,6 +219,14 @@ public class TenantContractActionController {
     public ResponseEntity<Void> cancelContract(@PathVariable Long id) {
         tenantOnboardingService.cancelContract(id);
         return ResponseEntity.ok().build();
+    }
+
+    /** DELETE /{id} — Xóa cứng hợp đồng (Hard delete). */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteContract(@PathVariable Long id) {
+        tenantOnboardingService.deleteContract(id);
+        return ResponseEntity.noContent().build();
     }
 
     /**

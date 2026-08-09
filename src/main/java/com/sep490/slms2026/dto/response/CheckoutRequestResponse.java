@@ -27,6 +27,10 @@ public class CheckoutRequestResponse {
     private String reason;
     private String note;
     private String status;
+    private Integer disputeCount;
+    private String disputeReason;
+    private java.util.List<String> disputePhotos;
+    private LocalDateTime disputedAt;
     private LocalDateTime createdAt;
     private LocalDateTime reviewedAt;
     private UUID reviewedBy;

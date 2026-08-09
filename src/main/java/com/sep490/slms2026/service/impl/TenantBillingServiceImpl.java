@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -38,6 +39,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
+
+    @Value("${billing.first-cycle-grace-days:3}")
+    private long firstCycleGraceDays;
 
     @Override
     @Transactional
@@ -215,10 +219,22 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         YearMonth billingMonth = parseBillingMonth(request.getBillingMonth());
         TenantContract contract = loadAndValidateContract(propertyId, roomId, request.getContractId());
 
+        YearMonth currentMonth = YearMonth.now();
+        if (billingMonth.equals(currentMonth)) {
+            if (LocalDate.now().getDayOfMonth() > 5) {
+                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Chỉ được tạo hóa đơn tiền nhà tháng hiện tại từ ngày 1 đến ngày 5.");
+            }
+        }
+
         var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
                 contract.getId(), TenantInvoiceType.RENT, billingMonth.getYear(), billingMonth.getMonthValue());
         if (existing.isPresent()) {
-            return toResponse(existing.get());
+            TenantInvoiceStatus status = existing.get().getStatus();
+            if (status == TenantInvoiceStatus.PAID) {
+                throw new BusinessException("409: PERIOD_ALREADY_SETTLED - Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn tiền nhà.");
+            } else if (status != TenantInvoiceStatus.CANCELLED) {
+                throw new BusinessException("409: INVOICE_ALREADY_EXISTS - Hoá đơn tiền nhà của kỳ này đã tồn tại.");
+            }
         }
 
         if (contract.getRentAmount() != null
@@ -237,6 +253,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .tenantUserId(tenantUserId)
                 .tenantContract(contract)
                 .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.REGULAR)
                 .propertyName(property.getPropertyName())
                 .roomNumber(room != null ? room.getRoomNumber() : property.getPropertyName())
                 .billingMonth(billingMonth.getMonthValue())
@@ -249,9 +266,79 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .status(TenantInvoiceStatus.PENDING)
                 .dueDate(request.getDueDate())
                 .createdAt(now)
+                .autoIssued(false)
                 .build());
 
         return toResponse(invoice);
+    }
+    
+    @Transactional
+    public void generateProratedRentForNewContract(TenantContract contract) {
+        if (contract == null || contract.getTenant() == null || contract.getRentAmount() == null) {
+            return;
+        }
+        YearMonth currentMonth = YearMonth.now();
+        var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+            contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
+        if (existing.isPresent()) {
+            return;
+        }
+
+        LocalDate billStart = contract.getStartDate();
+        LocalDate startOfMonth = currentMonth.atDay(1);
+        LocalDate endOfMonth = currentMonth.atEndOfMonth();
+        LocalDate billEnd = contract.getEndDate() != null && contract.getEndDate().isBefore(endOfMonth) ? contract.getEndDate() : endOfMonth;
+
+        if (billStart.isAfter(billEnd) || billStart.isBefore(startOfMonth)) {
+            // Either invalid dates or contract started in a previous month (should not happen on new onboard)
+            return;
+        }
+
+        long days = java.time.temporal.ChronoUnit.DAYS.between(billStart, billEnd) + 1;
+        long daysInMonth = currentMonth.lengthOfMonth();
+        BigDecimal amount = contract.getRentAmount();
+        
+        if (days <= 3 && contract.getEndDate() == null) {
+            // Requirement A1: If moving in late and staying for <= 3 days of the month, skip issuing here, will be bundled next month
+            return;
+        }
+
+        if (days < daysInMonth) {
+            amount = amount.multiply(BigDecimal.valueOf(days)).divide(BigDecimal.valueOf(daysInMonth), 0, java.math.RoundingMode.HALF_UP);
+        }
+        
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
+                .code("HD-RENT-" + contract.getId() + "-" + currentMonth)
+                .tenantUserId(contract.getTenant().getId())
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.FIRST)
+                .propertyName(contract.getProperty().getPropertyName())
+                .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
+                .billingMonth(currentMonth.getMonthValue())
+                .billingYear(currentMonth.getYear())
+                .billingPeriod("Tiền nhà tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear()))
+                .totalAmount(amount)
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(amount)
+                .status(TenantInvoiceStatus.PENDING)
+                .dueDate(LocalDate.now().plusDays(firstCycleGraceDays))
+                .createdAt(LocalDateTime.now())
+                .autoIssued(true)
+                .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month) {
+        propertyAccessService.assertCanManageProperty(propertyId);
+        YearMonth ym = parseBillingMonth(month);
+        return tenantInvoiceRepository.findRentInvoicesByPropertyAndMonth(propertyId, ym.getYear(), ym.getMonthValue())
+                .stream().map(this::toResponse).toList();
     }
 
     private void syncInvoicesForTenant(UUID tenantUserId) {
@@ -364,6 +451,13 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         invoice.setPaymentMethod(method);
         invoice.setTransactionId(transactionId);
 
+        if (invoice.getInvoiceType() == TenantInvoiceType.RENT && invoice.getTenantContract() != null) {
+            if (Boolean.TRUE.equals(invoice.getTenantContract().getTerminationProposed())) {
+                invoice.getTenantContract().setTerminationProposed(false);
+                tenantContractRepository.save(invoice.getTenantContract());
+            }
+        }
+
         tenantPaymentRepository.save(TenantPayment.builder()
                 .tenantInvoice(invoice)
                 .tenantUserId(invoice.getTenantUserId())
@@ -418,6 +512,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
+                .cycleType(invoice.getCycleType() != null ? invoice.getCycleType().name() : null)
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .month(invoice.getBillingMonth())
@@ -440,6 +535,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosOrderCode(invoice.getPayosOrderCode())
+                .autoIssued(invoice.getAutoIssued())
                 .build();
     }
 
