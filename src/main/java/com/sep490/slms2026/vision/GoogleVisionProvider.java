@@ -43,11 +43,12 @@ public class GoogleVisionProvider implements VisionProvider {
     @Value("${vision.google.timeout-seconds:8}")
     private int timeoutSeconds;
 
-    private final ObjectMapper objectMapper;
+    // Spring Boot 4 may not expose ObjectMapper as a bean (Jackson auto-config differs) —
+    // tạo local mapper giống OcrServiceImpl / PayosServiceImpl.
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient;
 
-    public GoogleVisionProvider(ObjectMapper objectMapper, HttpClient visionHttpClient) {
-        this.objectMapper = objectMapper;
+    public GoogleVisionProvider(HttpClient visionHttpClient) {
         this.httpClient = visionHttpClient;
     }
 
