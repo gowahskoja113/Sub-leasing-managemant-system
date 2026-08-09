@@ -24,4 +24,18 @@ public interface HostNotificationRepository extends JpaRepository<HostNotificati
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE HostNotification n SET n.read = true WHERE n.userId = :userId AND n.read = false")
     void markAllRead(@Param("userId") UUID userId);
+
+    @Modifying
+    @Query(value = """
+        INSERT INTO host_notifications (user_id, dedupe_key, type, title, message, priority, is_read, created_at)
+        VALUES (:userId, :dedupeKey, :type, :title, :message, :priority, false, NOW())
+        ON CONFLICT (user_id, dedupe_key) DO NOTHING
+        """, nativeQuery = true)
+    void insertIfAbsent(
+            @Param("userId") UUID userId,
+            @Param("dedupeKey") String dedupeKey,
+            @Param("type") String type,
+            @Param("title") String title,
+            @Param("message") String message,
+            @Param("priority") String priority);
 }

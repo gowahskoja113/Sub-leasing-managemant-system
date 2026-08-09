@@ -4,12 +4,13 @@ import com.sep490.slms2026.dto.response.NotificationResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 public interface AppNotificationService {
 
-    Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, Pageable pageable);
+    Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, List<String> types, Pageable pageable);
 
     Map<String, Long> unreadCount(UUID userId);
 

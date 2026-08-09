@@ -32,6 +32,7 @@ public class HostPortalServiceImpl implements HostPortalService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
     private final InboundContractRepository inboundContractRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
@@ -209,23 +210,28 @@ public class HostPortalServiceImpl implements HostPortalService {
 
     @Override
     @Transactional(readOnly = true)
-    public HostReceivablesAgingResponse getReceivablesAging() {
-        YearMonth ym = YearMonth.now();
-        List<HostInvoiceDto> invoices = new ArrayList<>(buildInvoices(ym, null));
+    public HostReceivablesAgingResponse getReceivablesAging(String month) {
+        YearMonth ym = month != null && !month.isBlank() ? parseMonth(month, YearMonth.now()) : YearMonth.now();
+        List<TenantInvoice> dbInvoices = tenantInvoiceRepository.findForManager(
+                null, null, com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue());
+
         LocalDate today = LocalDate.now();
 
-        Map<String, List<HostInvoiceDto>> buckets = new LinkedHashMap<>();
+        Map<String, List<TenantInvoice>> buckets = new LinkedHashMap<>();
+        buckets.put("Chưa tới hạn", new ArrayList<>());
         buckets.put("0-30 ngày", new ArrayList<>());
         buckets.put("31-60 ngày", new ArrayList<>());
         buckets.put("61-90 ngày", new ArrayList<>());
         buckets.put(">90 ngày", new ArrayList<>());
 
-        for (HostInvoiceDto invoice : invoices) {
-            if ("PAID".equals(invoice.status())) {
+        for (TenantInvoice invoice : dbInvoices) {
+            if (invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
                 continue;
             }
-            long days = ChronoUnit.DAYS.between(invoice.dueDate(), today);
-            if (days <= 30) {
+            long days = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+            if (days < 0) {
+                buckets.get("Chưa tới hạn").add(invoice);
+            } else if (days <= 30) {
                 buckets.get("0-30 ngày").add(invoice);
             } else if (days <= 60) {
                 buckets.get("31-60 ngày").add(invoice);
@@ -239,22 +245,28 @@ public class HostPortalServiceImpl implements HostPortalService {
         List<HostReceivablesAgingResponse.AgingBucket> agingBuckets = buckets.entrySet().stream()
                 .map(e -> HostReceivablesAgingResponse.AgingBucket.builder()
                         .label(e.getKey())
-                        .amount(e.getValue().stream().map(HostInvoiceDto::amount).reduce(BigDecimal.ZERO, BigDecimal::add))
+                        .amount(e.getValue().stream().map(TenantInvoice::getGrandTotal).reduce(BigDecimal.ZERO, BigDecimal::add))
                         .count(e.getValue().size())
                         .build())
                 .toList();
 
-        List<HostReceivablesAgingResponse.TopDebtor> topDebtors = invoices.stream()
-                .filter(i -> !"PAID".equals(i.status()))
-                .sorted(Comparator.comparing(HostInvoiceDto::amount).reversed())
+        List<HostReceivablesAgingResponse.TopDebtor> topDebtors = dbInvoices.stream()
+                .filter(i -> i.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID)
+                .sorted(Comparator.comparing(TenantInvoice::getGrandTotal).reversed())
                 .limit(10)
-                .map(i -> HostReceivablesAgingResponse.TopDebtor.builder()
-                        .tenantName(i.tenantName())
-                        .propertyName(i.propertyName())
-                        .roomCode(i.roomCode())
-                        .amount(i.amount())
-                        .overdueDays(Math.max(0, ChronoUnit.DAYS.between(i.dueDate(), today)))
-                        .build())
+                .map(i -> {
+                    String tenantName = null;
+                    if (i.getTenantContract().getTenant() != null && i.getTenantContract().getTenant().getUser() != null) {
+                        tenantName = i.getTenantContract().getTenant().getUser().getFullName();
+                    }
+                    return HostReceivablesAgingResponse.TopDebtor.builder()
+                            .tenantName(tenantName)
+                            .propertyName(i.getPropertyName())
+                            .roomCode(i.getRoomNumber())
+                            .amount(i.getGrandTotal())
+                            .overdueDays(Math.max(0, ChronoUnit.DAYS.between(i.getDueDate(), today)))
+                            .build();
+                })
                 .toList();
 
         return HostReceivablesAgingResponse.builder()
@@ -266,23 +278,32 @@ public class HostPortalServiceImpl implements HostPortalService {
     @Override
     @Transactional(readOnly = true)
     public HostDepositsResponse getDeposits(String status) {
-        List<TenantContract> contracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        List<TenantContract> contracts = tenantContractRepository.findAll();
         List<HostDepositsResponse.DepositItem> items = contracts.stream()
                 .filter(c -> c.getDeposit() != null && c.getDeposit().compareTo(BigDecimal.ZERO) > 0)
-                .map(c -> HostDepositsResponse.DepositItem.builder()
-                        .tenantName(c.getTenant().getUser().getFullName())
-                        .propertyName(c.getProperty().getPropertyName())
-                        .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : "NGUYEN_CAN")
-                        .amount(c.getDeposit())
-                        .heldSince(c.getStartDate())
-                        .status(mapDepositStatus(c.getStatus()))
-                        .build())
-                .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.status()))
+                .map(c -> {
+                    String tenantName = null;
+                    if (c.getTenant() != null && c.getTenant().getUser() != null) {
+                        tenantName = c.getTenant().getUser().getFullName();
+                    }
+                    return HostDepositsResponse.DepositItem.builder()
+                            .contractId(c.getId())
+                            .contractCode(c.getContractCode())
+                            .endDate(c.getEndDate())
+                            .tenantName(tenantName)
+                            .propertyName(c.getProperty().getPropertyName())
+                            .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : "NGUYEN_CAN")
+                            .amount(c.getDeposit())
+                            .heldSince(c.getStartDate())
+                            .status(mapDepositStatus(c.getStatus()))
+                            .build();
+                })
+                .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
                 .toList();
 
         BigDecimal totalHeld = items.stream()
-                .filter(i -> "HELD".equals(i.status()))
-                .map(HostDepositsResponse.DepositItem::amount)
+                .filter(i -> "HELD".equals(i.getStatus()))
+                .map(HostDepositsResponse.DepositItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return HostDepositsResponse.builder().totalHeld(totalHeld).items(items).build();
@@ -623,18 +644,7 @@ public class HostPortalServiceImpl implements HostPortalService {
 
     private void ensureNotification(UUID userId, String dedupeKey, String type,
                                     String title, String message, String priority) {
-        if (hostNotificationRepository.existsByUserIdAndDedupeKey(userId, dedupeKey)) {
-            return;
-        }
-        hostNotificationRepository.save(HostNotification.builder()
-                .userId(userId)
-                .dedupeKey(dedupeKey)
-                .type(type)
-                .title(title)
-                .message(message)
-                .priority(priority)
-                .read(false)
-                .build());
+        hostNotificationRepository.insertIfAbsent(userId, dedupeKey, type, title, message, priority);
     }
 
     private List<HostInvoiceDto> buildInvoices(YearMonth ym, String statusFilter) {
