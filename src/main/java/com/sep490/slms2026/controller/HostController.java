@@ -47,6 +47,12 @@ public class HostController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/notifications/unread-count")
+    public ResponseEntity<Map<String, Long>> unreadCount() {
+        return ResponseEntity.ok(Map.of("count", 
+                hostPortalService.listNotifications(currentUserId(), true, PageRequest.of(0, 1)).getTotalElements()));
+    }
+
     @GetMapping("/dashboard/summary")
     public ResponseEntity<HostDashboardSummaryResponse> dashboardSummary(@RequestParam String month) {
         return ResponseEntity.ok(hostPortalService.getDashboardSummary(month));
@@ -70,8 +76,8 @@ public class HostController {
     }
 
     @GetMapping("/finance/receivables-aging")
-    public ResponseEntity<HostReceivablesAgingResponse> receivablesAging() {
-        return ResponseEntity.ok(hostPortalService.getReceivablesAging());
+    public ResponseEntity<HostReceivablesAgingResponse> receivablesAging(@RequestParam(required = false) String month) {
+        return ResponseEntity.ok(hostPortalService.getReceivablesAging(month));
     }
 
     @GetMapping("/finance/deposits")

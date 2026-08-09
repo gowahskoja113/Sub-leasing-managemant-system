@@ -35,13 +35,13 @@ public class ManagerBillingController {
     }
 
     @GetMapping("/api/v1/manager/invoices")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<List<ManagerInvoiceResponse>> listInvoices(
             @RequestParam(required = false) String period,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String type) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        boolean isAdmin = isAdmin(user);
+        boolean isAdmin = isAdminOrOwner(user);
         return ResponseEntity.ok(managerBillingService.listInvoices(
                 user.getId(), isAdmin, period, status, type));
     }
@@ -51,18 +51,18 @@ public class ManagerBillingController {
      * Admin / manager web dùng endpoint này thay vì nhồi items vào list.
      */
     @GetMapping("/api/v1/manager/invoices/{id}")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<ManagerInvoiceResponse> getInvoice(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        return ResponseEntity.ok(managerBillingService.getInvoice(user.getId(), isAdmin(user), id));
+        return ResponseEntity.ok(managerBillingService.getInvoice(user.getId(), isAdminOrOwner(user), id));
     }
 
     @GetMapping("/api/v1/manager/payments")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<List<ManagerPaymentResponse>> listPayments(
             @RequestParam(required = false) String status) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        boolean isAdmin = isAdmin(user);
+        boolean isAdmin = isAdminOrOwner(user);
         return ResponseEntity.ok(managerBillingService.listPayments(user.getId(), isAdmin, status));
     }
 
@@ -98,5 +98,10 @@ public class ManagerBillingController {
     private static boolean isAdmin(CustomUserDetails user) {
         return user.getAuthorities().stream()
                 .anyMatch(a -> Role.ROLE_ADMIN.name().equals(a.getAuthority()));
+    }
+
+    private static boolean isAdminOrOwner(CustomUserDetails user) {
+        return user.getAuthorities().stream()
+                .anyMatch(a -> Role.ROLE_ADMIN.name().equals(a.getAuthority()) || Role.ROLE_OWNER.name().equals(a.getAuthority()));
     }
 }

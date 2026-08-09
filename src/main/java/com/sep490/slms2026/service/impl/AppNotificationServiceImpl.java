@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,10 +26,13 @@ public class AppNotificationServiceImpl implements AppNotificationService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, Pageable pageable) {
+    public Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, List<String> types, Pageable pageable) {
+        if (types != null && types.isEmpty()) {
+            types = null; // empty list means no filter
+        }
         Page<Notification> page = unreadOnly
-                ? notificationRepository.findByUserIdAndReadFalseOrderByIdDesc(userId, pageable)
-                : notificationRepository.findByUserIdOrderByIdDesc(userId, pageable);
+                ? notificationRepository.findByUserIdAndReadFalseAndTypeInOrderByIdDesc(userId, types, pageable)
+                : notificationRepository.findByUserIdAndTypeInOrderByIdDesc(userId, types, pageable);
         return page.map(this::toResponse);
     }
 

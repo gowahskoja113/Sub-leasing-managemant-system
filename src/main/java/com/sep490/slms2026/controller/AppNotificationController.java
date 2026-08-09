@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,10 +26,11 @@ public class AppNotificationController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Page<NotificationResponse>> listNotifications(
             @RequestParam(required = false, defaultValue = "false") boolean unreadOnly,
+            @RequestParam(required = false) List<String> types,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(appNotificationService.listNotifications(
-                currentUserId(), unreadOnly, PageRequest.of(page, size)));
+                currentUserId(), unreadOnly, types, PageRequest.of(page, size)));
     }
 
     @GetMapping("/unread-count")

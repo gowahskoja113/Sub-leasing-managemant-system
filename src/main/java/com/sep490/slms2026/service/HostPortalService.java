@@ -24,7 +24,7 @@ public interface HostPortalService {
 
     HostPropertyPnlResponse getPropertyPnl(String month);
 
-    HostReceivablesAgingResponse getReceivablesAging();
+    HostReceivablesAgingResponse getReceivablesAging(String month);
 
     HostDepositsResponse getDeposits(String status);
 

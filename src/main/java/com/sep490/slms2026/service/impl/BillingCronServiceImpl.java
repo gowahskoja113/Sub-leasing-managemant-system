@@ -8,6 +8,7 @@ import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import java.time.YearMonth;
 import java.util.UUID;
+import com.sep490.slms2026.repository.HostNotificationRepository;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
@@ -38,6 +39,7 @@ public class BillingCronServiceImpl implements BillingCronService {
 
     private final TenantInvoiceRepository tenantInvoiceRepository;
     private final NotificationRepository notificationRepository;
+    private final HostNotificationRepository hostNotificationRepository;
     private final UserPushTokenService userPushTokenService;
     private final TenantContractRepository tenantContractRepository;
     private final UserRepository userRepository;
@@ -355,6 +357,19 @@ public class BillingCronServiceImpl implements BillingCronService {
             String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán tiền phòng %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.", 
                     tenantName, roomStr, propertyName, period);
             sendPushNotificationOnly(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice");
+            
+            try {
+                hostNotificationRepository.insertIfAbsent(
+                    host.getId(), 
+                    "rent-overdue:" + invoice.getId(), 
+                    "RENT_OVERDUE_HOST", 
+                    title, 
+                    content, 
+                    "HIGH"
+                );
+            } catch (Exception e) {
+                log.error("Failed to insert host notification for rent overdue", e);
+            }
         }
     }
 
