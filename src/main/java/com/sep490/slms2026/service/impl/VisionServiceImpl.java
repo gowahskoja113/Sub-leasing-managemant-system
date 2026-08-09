@@ -1,49 +1,42 @@
 package com.sep490.slms2026.service.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sep490.slms2026.dto.response.VisionLabelItem;
 import com.sep490.slms2026.dto.response.VisionLabelsResponse;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.VisionService;
+import com.sep490.slms2026.vision.GoogleVisionProvider;
+import com.sep490.slms2026.vision.ImageSource;
+import com.sep490.slms2026.vision.LocalVisionProvider;
+import com.sep490.slms2026.vision.VisionProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
+/**
+ * Orchestrator: validate URL, chọn provider (google | local | auto), rate-limit chỉ cho Google.
+ * Logic gọi model/API nằm ở {@link VisionProvider}.
+ */
 @Slf4j
 @Service
 public class VisionServiceImpl implements VisionService {
 
     private static final long WINDOW_MS = 3_600_000L;
 
-    @Value("${vision.google.api-key:}")
-    private String apiKey;
-
-    @Value("${vision.google.base-url:https://vision.googleapis.com/v1/images:annotate}")
-    private String baseUrl;
-
-    @Value("${vision.max-results:20}")
-    private int maxResults;
+    @Value("${vision.provider:auto}")
+    private String providerMode;
 
     @Value("${vision.rate-limit-per-hour:20}")
     private int rateLimitPerHour;
@@ -52,79 +45,99 @@ public class VisionServiceImpl implements VisionService {
     @Value("${vision.allowed-image-hosts:res.cloudinary.com}")
     private String allowedImageHosts;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(15))
-            .build();
+    private final Map<String, VisionProvider> providersByName;
+    private final HttpClient httpClient;
 
-    /** userId -> timestamps (ms) các lần gọi trong cửa sổ 1 giờ. */
+    /** userId -> timestamps (ms) các lần gọi Google trong cửa sổ 1 giờ. */
     private final Map<UUID, Deque<Long>> requestLog = new ConcurrentHashMap<>();
+
+    public VisionServiceImpl(List<VisionProvider> providers, HttpClient visionHttpClient) {
+        this.httpClient = visionHttpClient;
+        Map<String, VisionProvider> map = new ConcurrentHashMap<>();
+        for (VisionProvider p : providers) {
+            map.put(p.name().toLowerCase(Locale.ROOT), p);
+        }
+        this.providersByName = Map.copyOf(map);
+    }
 
     @Override
     public VisionLabelsResponse detectLabels(String imageUrl) {
         validateImageUrl(imageUrl);
-        enforceRateLimit();
+        ImageSource src = ImageSource.of(imageUrl, httpClient);
 
-        if (!StringUtils.hasText(apiKey)) {
-            throw new BusinessException("Chưa cấu hình Google Vision API key. Vui lòng liên hệ quản trị.");
+        List<VisionProvider> order = providersInOrder();
+        if (order.isEmpty()) {
+            throw new BusinessException("Chưa cấu hình dịch vụ nhận diện ảnh. Vui lòng liên hệ quản trị.");
         }
 
-        try {
-            String body = buildRequestBody(imageUrl);
-            String url = baseUrl + "?key=" + URLEncoder.encode(apiKey.trim(), StandardCharsets.UTF_8);
+        Exception lastError = null;
+        boolean anyAvailable = false;
+        boolean googleQuotaExhausted = false;
 
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(30))
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
+        for (VisionProvider p : order) {
+            if (!p.isAvailable()) {
+                log.debug("Vision provider {} chưa sẵn sàng, bỏ qua", p.name());
+                continue;
+            }
+            anyAvailable = true;
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("Google Vision HTTP {}: {}", response.statusCode(), response.body());
-                throw new BusinessException("Dịch vụ nhận diện ảnh đang lỗi. Vui lòng thử lại.");
+            // Rate limit chỉ Google. Hết slot → skip, thử local (không tốn quota).
+            if (GoogleVisionProvider.NAME.equals(p.name()) && !tryAcquireGoogleQuota()) {
+                googleQuotaExhausted = true;
+                log.info("Hết quota Google Vision trong giờ, thử provider tiếp theo");
+                continue;
             }
 
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode first = root.path("responses").path(0);
-
-            if (first.has("error")) {
-                String msg = first.path("error").path("message").asText("unknown");
-                log.warn("Google Vision lỗi: {}", msg);
-                throw new BusinessException("Không nhận diện được ảnh. Vui lòng thử ảnh khác.");
+            try {
+                var labels = p.detect(src);
+                log.info("Vision provider={} trả {} nhãn", p.name(), labels.size());
+                return VisionLabelsResponse.builder().labels(labels).build();
+            } catch (Exception e) {
+                lastError = e;
+                log.warn("Vision provider {} lỗi, thử provider tiếp theo: {}", p.name(), e.getMessage());
             }
-
-            List<VisionLabelItem> labels = new ArrayList<>();
-            for (JsonNode ann : first.path("labelAnnotations")) {
-                String name = ann.path("description").asText("");
-                if (name.isBlank()) {
-                    continue;
-                }
-                labels.add(VisionLabelItem.builder()
-                        .name(name)
-                        .score(ann.path("score").asDouble(0))
-                        .build());
-            }
-
-            return VisionLabelsResponse.builder().labels(labels).build();
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Lỗi gọi Google Vision", e);
-            throw new BusinessException("Dịch vụ nhận diện ảnh đang lỗi. Vui lòng thử lại.");
         }
+
+        if (!anyAvailable) {
+            throw new BusinessException("Chưa cấu hình dịch vụ nhận diện ảnh. Vui lòng liên hệ quản trị.");
+        }
+        if (googleQuotaExhausted && lastError == null
+                && !isProviderAvailable(LocalVisionProvider.NAME)) {
+            throw new BusinessException("Bạn đã gửi quá nhiều ảnh để nhận diện. Vui lòng thử lại sau.");
+        }
+        if (lastError instanceof BusinessException be) {
+            throw be;
+        }
+        throw new BusinessException("Không nhận diện được ảnh. Vui lòng thử ảnh khác.");
     }
 
-    private String buildRequestBody(String imageUrl) throws Exception {
-        ObjectNode root = objectMapper.createObjectNode();
-        ArrayNode requests = root.putArray("requests");
-        ObjectNode req = requests.addObject();
-        req.putObject("image").putObject("source").put("imageUri", imageUrl);
-        ArrayNode features = req.putArray("features");
-        ObjectNode feature = features.addObject();
-        feature.put("type", "LABEL_DETECTION");
-        feature.put("maxResults", Math.max(1, maxResults));
-        return objectMapper.writeValueAsString(root);
+    private boolean isProviderAvailable(String name) {
+        VisionProvider p = providersByName.get(name);
+        return p != null && p.isAvailable();
+    }
+
+    /**
+     * auto → [google, local]; google → [google]; local → [local].
+     */
+    List<VisionProvider> providersInOrder() {
+        String mode = StringUtils.hasText(providerMode)
+                ? providerMode.trim().toLowerCase(Locale.ROOT)
+                : "auto";
+
+        List<String> names = switch (mode) {
+            case GoogleVisionProvider.NAME -> List.of(GoogleVisionProvider.NAME);
+            case LocalVisionProvider.NAME -> List.of(LocalVisionProvider.NAME);
+            default -> List.of(GoogleVisionProvider.NAME, LocalVisionProvider.NAME); // auto
+        };
+
+        List<VisionProvider> ordered = new ArrayList<>();
+        for (String name : names) {
+            VisionProvider p = providersByName.get(name);
+            if (p != null) {
+                ordered.add(p);
+            }
+        }
+        return ordered;
     }
 
     private void validateImageUrl(String imageUrl) {
@@ -144,13 +157,13 @@ public class VisionServiceImpl implements VisionService {
         if (host == null || host.isBlank()) {
             throw new BusinessException("URL ảnh không hợp lệ");
         }
-        String normalizedHost = host.toLowerCase();
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(allowedImageHosts)) {
             return;
         }
         boolean allowed = false;
         for (String raw : allowedImageHosts.split(",")) {
-            String allowedHost = raw.trim().toLowerCase();
+            String allowedHost = raw.trim().toLowerCase(Locale.ROOT);
             if (allowedHost.isEmpty()) {
                 continue;
             }
@@ -164,24 +177,30 @@ public class VisionServiceImpl implements VisionService {
         }
     }
 
-    private void enforceRateLimit() {
+    /**
+     * @return true nếu còn slot quota và đã ghi nhận 1 lượt; false nếu đã chạm trần.
+     */
+    private boolean tryAcquireGoogleQuota() {
         if (rateLimitPerHour <= 0) {
-            return;
+            return true;
         }
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         UUID userId = user.getId();
         long now = System.currentTimeMillis();
         Deque<Long> times = requestLog.computeIfAbsent(userId, id -> new ConcurrentLinkedDeque<>());
-        while (true) {
-            Long oldest = times.peekFirst();
-            if (oldest == null || now - oldest < WINDOW_MS) {
-                break;
+        synchronized (times) {
+            while (true) {
+                Long oldest = times.peekFirst();
+                if (oldest == null || now - oldest < WINDOW_MS) {
+                    break;
+                }
+                times.pollFirst();
             }
-            times.pollFirst();
+            if (times.size() >= rateLimitPerHour) {
+                return false;
+            }
+            times.addLast(now);
+            return true;
         }
-        if (times.size() >= rateLimitPerHour) {
-            throw new BusinessException("Bạn đã gửi quá nhiều ảnh để nhận diện. Vui lòng thử lại sau.");
-        }
-        times.addLast(now);
     }
 }

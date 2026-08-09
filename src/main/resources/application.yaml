@@ -70,13 +70,25 @@ ocr:
     base-url: https://api.ocr.space/parse/image
     api-key: ${OCR_SPACE_API_KEY:helloworld}   # 'helloworld' là key demo giới hạn, nên thay bằng key free riêng
 
-# Nhận diện vật thể trên ảnh (Google Cloud Vision LABEL_DETECTION).
+# Nhận diện vật thể trên ảnh (Google Cloud Vision + model local ONNX fallback).
 # Bật Vision API + tạo API key: https://console.cloud.google.com/apis/library/vision.googleapis.com
+# provider: google | local | auto (auto = Google trước, lỗi/timeout/hết quota → local)
 vision:
+  provider: ${VISION_PROVIDER:auto}
   google:
     base-url: https://vision.googleapis.com/v1/images:annotate
     api-key: ${GOOGLE_VISION_API_KEY:}
+    # auto: ~8s để fallback local nhanh; có thể set 30 nếu chỉ dùng google
+    timeout-seconds: ${VISION_GOOGLE_TIMEOUT_SECONDS:8}
+  local:
+    model-path: ${VISION_LOCAL_MODEL_PATH:classpath:models/equipment-mobilenetv3.onnx}
+    labels-path: ${VISION_LOCAL_LABELS_PATH:classpath:models/labels.txt}
+    min-score: ${VISION_LOCAL_MIN_SCORE:0.35}
+    max-results: 10
+    # Bắt buộc 1 thread trên VPS 2 core — chừa CPU cho web + PostgreSQL
+    intra-op-threads: 1
   max-results: 20
+  # Chỉ đếm khi gọi Google (local không tốn quota)
   rate-limit-per-hour: 20
   # Chỉ cho phép ảnh từ domain Cloudinary hệ thống (tránh proxy đọc ảnh ngoài)
   allowed-image-hosts: ${VISION_ALLOWED_IMAGE_HOSTS:res.cloudinary.com}

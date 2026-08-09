@@ -161,6 +161,13 @@
             <version>10.7.2</version>
         </dependency>
 
+        <!-- Local vision: MobileNetV3 ONNX trong JVM (fallback khi Google Vision chết) -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>
