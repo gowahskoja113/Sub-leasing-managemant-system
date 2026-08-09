@@ -67,20 +67,28 @@ public class SampleDataSeeder implements ApplicationRunner {
     private Map<String, EquipmentCatalog> catalogByName;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
         catalogByName = equipmentCatalogRepository.findAll().stream()
                 .collect(Collectors.toMap(EquipmentCatalog::getName, c -> c, (a, b) -> a));
 
         // Idempotent full seed: chỉ chạy khi chưa có manager01
         if (!userRepository.existsByUsername("manager01")) {
-            seedFreshDemo();
+            try {
+                seedFreshDemo();
+            } catch (Exception e) {
+                log.warn("SampleDataSeeder seedFreshDemo thất bại (bỏ qua, không chặn start): {}", e.getMessage());
+            }
             return;
         }
 
         // DB đã seed cũ (tenant01..22): bổ sung tenant23..50 + HĐ đa trạng thái nếu chưa có
         if (userRepository.existsByUsername("tenant22") && !userRepository.existsByUsername("tenant50")) {
-            expandDemoContracts();
+            try {
+                expandDemoContracts();
+            } catch (Exception e) {
+                // Production có HĐ thật (trùng contract_code) không được chặn API boot
+                log.warn("SampleDataSeeder expand thất bại (bỏ qua, không chặn start): {}", e.getMessage());
+            }
         } else {
             log.info("SampleDataSeeder: dữ liệu mẫu đã tồn tại, bỏ qua.");
         }
@@ -468,8 +476,26 @@ public class SampleDataSeeder implements ApplicationRunner {
     // ------------------------------------------------------------------
     private int contractSeq = 0;
 
+    /** Tiếp số HD-MT-yyyy-xxxxx từ max trong DB — tránh trùng unique contract_code trên server. */
+    private void syncContractSeqFromDb() {
+        int year = LocalDate.now().getYear();
+        String prefix = "HD-MT-" + year + "-";
+        int max = 0;
+        for (TenantContract c : tenantContractRepository.findAll()) {
+            String code = c.getContractCode();
+            if (code == null || !code.startsWith(prefix)) continue;
+            try {
+                max = Math.max(max, Integer.parseInt(code.substring(prefix.length())));
+            } catch (NumberFormatException ignored) {
+                // skip non-numeric suffix
+            }
+        }
+        contractSeq = max;
+    }
+
     private void seedContractsAndInvoicesDiverse(List<User> tenants, List<User> managers) {
         if (tenants.isEmpty()) return;
+        syncContractSeqFromDb();
 
         List<Room> availableUnits = collectAvailableUnits();
         int totalNeeded = Math.min(50, Math.min(tenants.size(), availableUnits.size()));
@@ -509,6 +535,7 @@ public class SampleDataSeeder implements ApplicationRunner {
     }
 
     private void seedExtraNonActiveContracts(List<User> tenants, List<User> managers) {
+        syncContractSeqFromDb();
         List<Room> availableUnits = collectAvailableUnits();
         int n = Math.min(tenants.size(), Math.min(availableUnits.size(), 28));
         // 15 draft, 8 pending, 5 price among extra
