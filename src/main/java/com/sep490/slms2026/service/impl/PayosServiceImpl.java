@@ -28,6 +28,8 @@ import java.util.List;
 public class PayosServiceImpl implements PayosService {
 
     private static final String CREATE_URL = "https://api-merchant.payos.vn/v2/payment-requests";
+    /** Ngân hàng VietQR thường không cho chuyển dưới 2.000đ — sàn số gửi PayOS. */
+    private static final long MIN_PAYOS_CHARGE_AMOUNT = 2_000L;
 
     @Value("${payos.client-id:}")
     private String clientId;
@@ -118,18 +120,17 @@ public class PayosServiceImpl implements PayosService {
         }
     }
 
-    /** Số gửi PayOS = amount / divisor (tối thiểu 1). */
+    /** Số gửi PayOS = amount / divisor, sàn tối thiểu 2.000đ (giới hạn ngân hàng). */
     private long toPayosChargeAmount(long amount) {
         if (amount <= 0) {
             throw new BusinessException("Số tiền thanh toán không hợp lệ");
         }
         long divisor = amountDivisor <= 0 ? 1L : amountDivisor;
         long charged = amount / divisor;
-        if (charged < 1) {
-            throw new BusinessException(
-                    "Số tiền sau khi chia (÷" + divisor + ") quá nhỏ để tạo thanh toán PayOS");
-        }
-        if (divisor > 1) {
+        if (charged < MIN_PAYOS_CHARGE_AMOUNT) {
+            log.info("PayOS charge floor: gốc {} ÷ {} = {} → sàn {}", amount, divisor, charged, MIN_PAYOS_CHARGE_AMOUNT);
+            charged = MIN_PAYOS_CHARGE_AMOUNT;
+        } else if (divisor > 1) {
             log.info("PayOS amount-divisor={}: gốc {} → charge {}", divisor, amount, charged);
         }
         return charged;

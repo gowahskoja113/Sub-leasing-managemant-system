@@ -490,8 +490,46 @@ function writeDot2(props) {
 /**
  * 25 HĐ nháp: tenant01..25 (SĐT seed 0904…) ↔ 25 BĐS đợt 1.
  * Ưu tiên: 15 NORENO nguyên căn (sẵn sau đợt 1) + 10 RENO (WH + RM 101) sau khi xong đợt 2.
+ *
+ * Demo ngày: 2026-08-11 (contract.max-early-move-in-days = 3).
+ * Cột "Ngày vào ở" = lịch dự kiến — khi confirm OTP ngày demo:
+ *   - đúng ngày (moveIn = 2026-08-11) → OK
+ *   - sớm ≤3 ngày (moveIn = 12..14/08) → OK, BE set moveIn/start = today, giữ endDate
+ *   - sớm >3 ngày (moveIn ≥ 15/08) → reject BusinessException
  */
 function writeDraft(props) {
+  /** @type {{ code: string, moveIn: string, end: string, label: string, expect: string }[]} */
+  const DEMO_CASES = [
+    // ── A. Onboard đúng ngày (8) — confirm 11/08 ──
+    { code: "A1", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A2", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A3", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A4", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A5", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A6", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A7", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    { code: "A8", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
+    // ── B. Sớm trong vòng 3 ngày (9) — daysEarly = 1..3 ──
+    { code: "B1", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
+    { code: "B2", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
+    { code: "B3", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
+    { code: "B4", moveIn: "2026-08-13", end: "2027-08-12", label: "SỚM ≤3N (+2)", expect: "OK sớm 2 ngày → moveIn=11/08" },
+    { code: "B5", moveIn: "2026-08-13", end: "2027-08-12", label: "SỚM ≤3N (+2)", expect: "OK sớm 2 ngày → moveIn=11/08" },
+    { code: "B6", moveIn: "2026-08-13", end: "2027-08-12", label: "SỚM ≤3N (+2)", expect: "OK sớm 2 ngày → moveIn=11/08" },
+    { code: "B7", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
+    { code: "B8", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
+    { code: "B9", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
+    // ── C. Sớm hơn 3 ngày (8) — daysEarly ≥ 4 → reject ──
+    { code: "C1", moveIn: "2026-08-15", end: "2027-08-14", label: "SỚM >3N (+4)", expect: "REJECT confirm 11/08 (sớm 4 ngày)" },
+    { code: "C2", moveIn: "2026-08-15", end: "2027-08-14", label: "SỚM >3N (+4)", expect: "REJECT confirm 11/08 (sớm 4 ngày)" },
+    { code: "C3", moveIn: "2026-08-16", end: "2027-08-15", label: "SỚM >3N (+5)", expect: "REJECT confirm 11/08 (sớm 5 ngày)" },
+    { code: "C4", moveIn: "2026-08-16", end: "2027-08-15", label: "SỚM >3N (+5)", expect: "REJECT confirm 11/08 (sớm 5 ngày)" },
+    { code: "C5", moveIn: "2026-08-18", end: "2027-08-17", label: "SỚM >3N (+7)", expect: "REJECT confirm 11/08 (sớm 7 ngày)" },
+    { code: "C6", moveIn: "2026-08-20", end: "2027-08-19", label: "SỚM >3N (+9)", expect: "REJECT confirm 11/08 (sớm 9 ngày)" },
+    { code: "C7", moveIn: "2026-08-25", end: "2027-08-24", label: "SỚM >3N (+14)", expect: "REJECT confirm 11/08 (sớm 14 ngày)" },
+    { code: "C8", moveIn: "2026-09-01", end: "2027-08-31", label: "SỚM >3N (+21)", expect: "REJECT confirm 11/08 (sớm ~3 tuần)" },
+  ];
+
   const headers = [
     "Mã HĐ inbound", "Mã BĐS", "Tên tòa nhà", "Loại thuê", "Số phòng",
     "Họ tên khách thuê", "CCCD", "Số điện thoại", "Ngày sinh", "Ngày cấp CCCD",
@@ -511,16 +549,24 @@ function writeDraft(props) {
   if (picks.length !== 25) {
     throw new Error(`Expected 25 draft properties, got ${picks.length}`);
   }
+  if (DEMO_CASES.length !== 25) {
+    throw new Error(`Expected 25 demo cases, got ${DEMO_CASES.length}`);
+  }
 
   const ISSUE = [
     "CA TP. Hồ Chí Minh", "CA Quận 1", "CA Bình Thạnh", "CA Gò Vấp", "CA Phú Nhuận",
   ];
 
   const rows = [headers];
-  const ref = [["#", "Mã HĐ master", "Tên tòa nhà", "Loại", "Số phòng", "Tenant seed", "SĐT", "Ghi chú"]];
+  const ref = [[
+    "#", "Case", "Nhóm demo", "Ngày vào ở (kế hoạch)", "Ngày kết thúc",
+    "Mã HĐ master", "Tên tòa nhà", "Loại", "Số phòng",
+    "Tenant seed", "SĐT", "Kỳ vọng confirm 11/08", "Ghi chú BĐS",
+  ]];
 
   for (let i = 0; i < 25; i++) {
     const p = picks[i];
+    const demo = DEMO_CASES[i];
     const t = i + 1; // tenant01..25
     const name = fullNameByIndex(t + 9); // khớp SampleDataSeeder
     const phone = `0904${String(t).padStart(6, "0")}`;
@@ -530,10 +576,13 @@ function writeDraft(props) {
     const roomNo = isRoom ? "101" : "";
     const rent = p.monthlyRent;
     const depositMonths = 1 + (i % 2);
-    const moveIn = "2026-10-01";
-    const end = "2027-09-30";
     const birthY = 1988 + (i % 12);
     const issueY = 2018 + (i % 6);
+    const bdsNote = isRoom
+      ? "Cần import đợt 2 (THEO_PHONG) trước — phòng 101"
+      : p.mode === "NORENO"
+        ? "Sẵn sau đợt 1 (NORENO)"
+        : "Cần import đợt 2 (NGUYEN_CAN) trước";
 
     rows.push([
       p.code, // Mã HĐ inbound — map nhanh sau import
@@ -548,28 +597,32 @@ function writeDraft(props) {
       ymd(issueY, 1 + (i % 12), 10 + (i % 15)),
       ISSUE[i % ISSUE.length],
       `${20 + i} Lê Lợi, ${p.district}`,
-      moveIn,
-      end,
+      demo.moveIn,
+      demo.end,
       rent,
       depositMonths,
       rent * depositMonths,
-      moveIn,
+      demo.moveIn, // Ngày đón khách dự kiến = lịch kế hoạch
     ]);
 
     ref.push([
-      t, p.code, p.name, rentType, roomNo || "(nguyên căn)",
-      `tenant${pad2(t)}`, phone,
-      isRoom
-        ? "Cần import đợt 2 (THEO_PHONG) trước — phòng 101"
-        : p.mode === "NORENO"
-          ? "Sẵn sau đợt 1 (NORENO)"
-          : "Cần import đợt 2 (NGUYEN_CAN) trước",
+      t, demo.code, demo.label, demo.moveIn, demo.end,
+      p.code, p.name, rentType, roomNo || "(nguyên căn)",
+      `tenant${pad2(t)}`, phone, demo.expect, bdsNote,
     ]);
   }
 
   const guide = [
-    ["Hướng dẫn import HĐ thuê nháp (DRAFT) — 25 dòng map tenant01..25"],
+    ["Hướng dẫn import HĐ thuê nháp (DRAFT) — Demo nhận nhà 11/08/2026"],
     [""],
+    ["MỤC TIÊU DEMO (confirm OTP / kích hoạt HĐ ngày 11/08/2026)"],
+    ["  contract.max-early-move-in-days = 3 (application.yaml)"],
+    ["  A (8 HĐ): Ngày vào ở = 2026-08-11 → onboard ĐÚNG NGÀY → OK"],
+    ["  B (9 HĐ): Ngày vào ở = 12/13/14-08 → sớm 1–3 ngày → OK, BE ghi moveIn/start = 11/08, giữ endDate"],
+    ["  C (8 HĐ): Ngày vào ở ≥ 15/08 → sớm >3 ngày → REJECT: \"Chỉ được nhận nhà sớm tối đa 3 ngày...\""],
+    ["  Chi tiết case A1..C8: sheet 0. Tham_Chieu_BDS"],
+    [""],
+    ["QUY TRÌNH IMPORT"],
     ["1. Seed tài khoản: tenant01..tenant28 / 123456 (chưa thuê)."],
     ["2. Import đợt 1: docs/SLMS2026_import_matrix_dot1.xlsx"],
     ["3. Import đợt 2 (RENO): docs/SLMS2026_import_matrix_dot2.xlsx"],
@@ -579,6 +632,8 @@ function writeDraft(props) {
     ["7. SĐT/CCCD/họ tên khớp SampleDataSeeder tenant01..25."],
     ["8. tenant26..28 không có dòng nháp — dùng test gán tay."],
     ["9. Nên dryRun=true trước; Auth ADMIN hoặc MANAGER."],
+    [""],
+    ["SCRIPT GỐC: node docs/generate-matrix-50.js (regenerate cả ma trận + draft)"],
   ];
 
   const wb = XLSX.utils.book_new();
@@ -589,10 +644,10 @@ function writeDraft(props) {
   };
   add("0. Huong_Dan", guide, [110]);
   add("1. Hop_Dong_Nhap_Khach", rows, headers.map((h) => Math.min(26, Math.max(12, h.length + 2))));
-  add("0. Tham_Chieu_BDS", ref, [4, 36, 32, 12, 12, 12, 12, 40]);
+  add("0. Tham_Chieu_BDS", ref, [4, 8, 16, 18, 14, 36, 28, 12, 12, 12, 12, 36, 36]);
 
   XLSX.writeFile(wb, DRAFT);
-  console.log("Wrote", DRAFT, "drafts", rows.length - 1);
+  console.log("Wrote", DRAFT, "drafts", rows.length - 1, "demoDay=2026-08-11");
 }
 
 // ─── main ─────────────────────────────────────────────────────
