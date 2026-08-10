@@ -45,6 +45,7 @@ import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.PhoneUtils;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import lombok.RequiredArgsConstructor;
@@ -295,8 +296,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         ensureDepositPaymentAllowed(contract);
 
-        // Onboard: thu tháng đầu (giá thuê) + cọc (deposit hoặc rent * depositMonths).
-        // VD: thuê 5tr, cọc 2 tháng → 5 + 10 = 15tr.
+        // Onboard: chỉ thu cọc (deposit hoặc rent * depositMonths).
+        // VD: thuê 5tr, cọc 2 tháng → 10tr. Tiền nhà pro-rata phát sau khi HĐ ACTIVE.
         BigDecimal resolvedDeposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
         if ((contract.getDeposit() == null || contract.getDeposit().compareTo(BigDecimal.ZERO) <= 0)
                 && resolvedDeposit.compareTo(BigDecimal.ZERO) > 0) {
@@ -305,11 +306,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         BigDecimal total = TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract);
         long amount = total.longValue();
         if (amount <= 0) {
-            throw new BusinessException("Số tiền thanh toán onboard không hợp lệ");
+            throw new BusinessException("Số tiền thanh toán cọc không hợp lệ");
         }
         long orderCode = System.currentTimeMillis(); // duy nhất, < giới hạn PayOS
         PayosService.PaymentLink link = payosService.createPaymentLink(
-                orderCode, amount, "Thue+Coc HD " + contract.getId());
+                orderCode, amount, "Coc HD " + contract.getId());
 
         contract.setPayosOrderCode(link.orderCode);
         contract.setPaymentStatus(PaymentStatus.PENDING);
@@ -424,7 +425,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     /**
-     * Ghi nhận thanh toán onboard (tiền tháng đầu + cọc): set PAID, sinh hoá đơn + giao dịch, notify.
+     * Ghi nhận thanh toán cọc onboard: set PAID, sinh hoá đơn + giao dịch, notify.
      * Idempotent — PayOS có thể retry webhook; cũng backfill hoá đơn nếu HĐ đã PAID trước đó nhưng thiếu sổ.
      */
     private void completeDepositPayment(TenantContract contract, Long payosOrderCode, String method) {
@@ -459,31 +460,28 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return false;
         }
 
-        BigDecimal rent = contract.getRentAmount() != null ? contract.getRentAmount() : BigDecimal.ZERO;
         BigDecimal deposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
-        BigDecimal total = rent.add(deposit);
         UUID tenantUserId = resolveTenantUserId(contract);
         String propertyName = contract.getProperty() != null ? contract.getProperty().getPropertyName() : "";
         String roomNumber = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null;
         int depositMonths = contract.getDepositMonths() != null ? contract.getDepositMonths() : 1;
         String moveIn = contract.getMoveInDate() != null ? contract.getMoveInDate().toString() : "";
 
-        String note = "ONBOARD|rentAmount=" + rent.toPlainString()
-                + "|depositAmount=" + deposit.toPlainString()
+        String note = "ONBOARD|depositAmount=" + deposit.toPlainString()
                 + "|depositMonths=" + depositMonths;
 
         TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
                 .code(code)
                 .tenantUserId(tenantUserId)
                 .tenantContract(contract)
-                .invoiceType(TenantInvoiceType.RENT)
+                .invoiceType(TenantInvoiceType.OTHER)
                 .propertyName(propertyName != null ? propertyName : "")
                 .roomNumber(roomNumber)
-                .billingPeriod("Thu lúc nhận phòng " + moveIn)
+                .billingPeriod("Tiền cọc lúc nhận phòng " + moveIn)
                 .note(note)
-                .totalAmount(total)
+                .totalAmount(deposit)
                 .lateFee(BigDecimal.ZERO)
-                .grandTotal(total)
+                .grandTotal(deposit)
                 .status(TenantInvoiceStatus.PAID)
                 .createdAt(paidAt)
                 .paidAt(paidAt)
@@ -497,7 +495,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantUserId(tenantUserId)
                 .invoiceCode(invoice.getCode())
                 .invoiceType(invoice.getInvoiceType())
-                .amount(total)
+                .amount(deposit)
                 .method(method)
                 .paidAt(paidAt)
                 .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
@@ -599,9 +597,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         // Tenant — kèm số tiền
         UUID tenantUserId = resolveTenantUserId(contract);
         if (tenantUserId != null) {
-            String title = "✅ Đã nhận thanh toán";
-            String body = "Hệ thống đã ghi nhận khoản thu lúc nhận phòng (" + amountText
-                    + "đ). Xem chi tiết trong Hoá đơn.";
+            String title = "✅ Đã nhận thanh toán cọc";
+            String body = "Hệ thống đã ghi nhận tiền cọc (" + amountText
+                    + "đ). Tiền nhà (theo ngày ở) sẽ có trên app sau khi hoàn tất nhận nhà.";
             notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
                     .userId(tenantUserId)
                     .title(title)
@@ -1056,7 +1054,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         if (TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract).compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(
-                    "Số tiền thanh toán onboard không hợp lệ (cần giá thuê và tiền cọc / số tháng cọc)");
+                    "Số tiền cọc không hợp lệ (cần tiền cọc hoặc giá thuê × số tháng cọc)");
         }
     }
 
@@ -1303,6 +1301,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .rentAmount(isManager ? null : c.getRentAmount())
                 .deposit(isManager ? null : c.getDeposit())
                 .initialPaymentAmount(isManager ? null : TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
+                .depositPaymentBreakdown(isManager ? null : PaymentBreakdownBuilder.forDepositOnboard(c))
+                .firstRentPaymentBreakdown(isManager ? null : PaymentBreakdownBuilder.forFirstRentPreview(c))
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())

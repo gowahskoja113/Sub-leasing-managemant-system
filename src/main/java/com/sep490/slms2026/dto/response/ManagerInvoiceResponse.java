@@ -37,4 +37,9 @@ public class ManagerInvoiceResponse {
     private String payosCheckoutUrl;
     /** Chỉ populate ở GET /manager/invoices/{id} — list để nhẹ payload. */
     private List<TenantInvoiceItemResponse> items;
+    /**
+     * Cách tính tiền — detail endpoint; list thường null (trừ khi cần).
+     * Manager RENT: vẫn có structure/formula text nhưng số tiền đã mask null theo policy.
+     */
+    private PaymentBreakdownResponse paymentBreakdown;
 }

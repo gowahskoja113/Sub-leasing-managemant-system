@@ -23,6 +23,11 @@ public class TenantInvoiceResponse {
     private Integer year;
     private String billingPeriod;
     private List<TenantInvoiceItemResponse> items;
+    /**
+     * Cách tính tiền (cọc onboard / FIRST pro-rata / REGULAR) — FE UI minh bạch.
+     * Ưu tiên field này + lines[]; items[] vẫn giữ cho list gọn.
+     */
+    private PaymentBreakdownResponse paymentBreakdown;
     private BigDecimal totalAmount;
     private BigDecimal lateFee;
     private BigDecimal grandTotal;

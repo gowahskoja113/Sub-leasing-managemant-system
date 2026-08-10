@@ -24,6 +24,7 @@ import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
 import com.sep490.slms2026.util.DocxToPdfConverter;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import com.sep490.slms2026.util.VietnameseNumberToWords;
 import lombok.RequiredArgsConstructor;
@@ -383,6 +384,8 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
                 .initialPaymentAmount(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
+                .depositPaymentBreakdown(PaymentBreakdownBuilder.forDepositOnboard(c))
+                .firstRentPaymentBreakdown(PaymentBreakdownBuilder.forFirstRentPreview(c))
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())

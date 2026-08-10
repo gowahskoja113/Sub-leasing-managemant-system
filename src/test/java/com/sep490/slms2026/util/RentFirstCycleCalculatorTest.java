@@ -1,0 +1,84 @@
+package com.sep490.slms2026.util;
+
+import com.sep490.slms2026.entity.TenantContract;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class RentFirstCycleCalculatorTest {
+
+    @Test
+    void proRata_month30_fromDay25() {
+        // 25→30 inclusive = 6 days
+        var r = RentFirstCycleCalculator.calculate(
+                LocalDate.of(2026, 4, 25),
+                null,
+                new BigDecimal("5000000"),
+                YearMonth.of(2026, 4));
+
+        assertEquals("PRO_RATA", r.outcome());
+        assertEquals(6, r.billedDays());
+        assertEquals(30, r.daysInMonth());
+        assertEquals(0, new BigDecimal("1000000").compareTo(r.amount())); // 5tr * 6 / 30
+        assertTrue(r.proRated());
+        assertFalse(r.deferredToNextMonth());
+        assertNotNull(r.formula());
+    }
+
+    @Test
+    void deferred_whenLastThreeDays() {
+        var r = RentFirstCycleCalculator.calculate(
+                LocalDate.of(2026, 4, 28),
+                null,
+                new BigDecimal("5000000"),
+                YearMonth.of(2026, 4));
+
+        assertEquals("DEFERRED", r.outcome());
+        assertTrue(r.deferredToNextMonth());
+        assertEquals(0, BigDecimal.ZERO.compareTo(r.amount()));
+    }
+
+    @Test
+    void fullMonth_whenStartOnFirst() {
+        var r = RentFirstCycleCalculator.calculate(
+                LocalDate.of(2026, 4, 1),
+                null,
+                new BigDecimal("5000000"),
+                YearMonth.of(2026, 4));
+
+        assertEquals("FULL", r.outcome());
+        assertEquals(0, new BigDecimal("5000000").compareTo(r.amount()));
+        assertFalse(r.proRated());
+    }
+
+    @Test
+    void depositBreakdown_onlyDeposit() {
+        TenantContract c = TenantContract.builder()
+                .rentAmount(new BigDecimal("5000000"))
+                .depositMonths(2)
+                .build();
+        var b = PaymentBreakdownBuilder.forDepositOnboard(c);
+        assertEquals("DEPOSIT_ONBOARD", b.getKind());
+        assertEquals(0, new BigDecimal("10000000").compareTo(b.getTotalAmount()));
+        assertNotNull(b.getFormula());
+        assertFalse(b.getLines().isEmpty());
+    }
+
+    @Test
+    void firstRentPreview_fromContract() {
+        TenantContract c = TenantContract.builder()
+                .rentAmount(new BigDecimal("5000000"))
+                .moveInDate(LocalDate.of(2026, 4, 25))
+                .startDate(LocalDate.of(2026, 4, 25))
+                .build();
+        var b = PaymentBreakdownBuilder.forFirstRentPreview(c);
+        assertEquals("RENT_FIRST_PRO_RATA", b.getKind());
+        assertEquals(Integer.valueOf(6), b.getBilledDays());
+        assertEquals(0, new BigDecimal("1000000").compareTo(b.getTotalAmount()));
+        assertEquals(Boolean.TRUE, b.getIncludesMoveInDay());
+    }
+}

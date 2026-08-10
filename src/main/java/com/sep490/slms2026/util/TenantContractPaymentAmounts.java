@@ -28,11 +28,11 @@ public final class TenantContractPaymentAmounts {
     }
 
     /**
-     * Tổng phải trả lúc onboard / PayOS: tiền thuê tháng đầu + tiền cọc.
-     * VD: thuê 5tr, cọc 2 tháng → 15tr.
+     * Tổng phải trả lúc onboard / PayOS: chỉ tiền cọc.
+     * Tiền nhà tháng vào ở (cộng dồn theo ngày) phát hành sau khi HĐ ACTIVE để tenant thanh toán trên app.
+     * VD: thuê 5tr, cọc 2 tháng → 10tr lúc onboard.
      */
     public static BigDecimal resolveInitialPaymentAmount(TenantContract contract) {
-        BigDecimal rent = contract.getRentAmount() != null ? contract.getRentAmount() : BigDecimal.ZERO;
-        return rent.add(resolveDepositAmount(contract));
+        return resolveDepositAmount(contract);
     }
 }

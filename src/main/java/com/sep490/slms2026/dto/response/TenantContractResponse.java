@@ -65,11 +65,24 @@ public class TenantContractResponse {
     private BigDecimal rentAmount;
     private BigDecimal deposit;
     /**
-     * Tổng phải thanh toán lúc onboard: tiền thuê tháng đầu + tiền cọc
+     * Tổng phải thanh toán lúc onboard: chỉ tiền cọc
      * (deposit, hoặc rentAmount × depositMonths nếu deposit trống).
-     * VD: thuê 5tr, cọc 2 tháng → 15tr.
+     * VD: thuê 5tr, cọc 2 tháng → 10tr. Tiền nhà pro-rata trả trên app sau khi ACTIVE.
      */
     private BigDecimal initialPaymentAmount;
+
+    /**
+     * Cách tính QR cọc onboard (formula + lines) — FE bảng minh bạch lúc gen QR.
+     * Null với ROLE_MANAGER (ẩn số tiền).
+     */
+    private PaymentBreakdownResponse depositPaymentBreakdown;
+
+    /**
+     * Preview tiền nhà chu kỳ đầu (pro-rata / deferred / full) theo moveIn/startDate.
+     * Dùng trước khi có hoá đơn RENT FIRST. Null với ROLE_MANAGER.
+     */
+    private PaymentBreakdownResponse firstRentPaymentBreakdown;
+
     private LocalDate moveInDate;
     private LocalDate startDate;
     private LocalDate endDate;

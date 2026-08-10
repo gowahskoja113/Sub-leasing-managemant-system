@@ -12,6 +12,8 @@ import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -276,6 +278,11 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         return toResponse(invoice);
     }
     
+    /**
+     * Phát hành hoá đơn tiền nhà lần đầu (sau onboard ACTIVE): pro-rata theo số ngày còn lại của tháng.
+     * VD: tháng 30 ngày, vào ngày 25 → (rent/30) × 6 ngày (tính cả ngày vào ở).
+     * Vào ≤ 3 ngày cuối tháng → gộp vào hoá đơn tháng sau (cron ngày 1).
+     */
     @Transactional
     public void generateProratedRentForNewContract(TenantContract contract) {
         if (contract == null || contract.getTenant() == null || contract.getRentAmount() == null) {
@@ -288,34 +295,18 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             return;
         }
 
-        LocalDate billStart = contract.getStartDate();
-        LocalDate startOfMonth = currentMonth.atDay(1);
-        LocalDate endOfMonth = currentMonth.atEndOfMonth();
-        LocalDate billEnd = contract.getEndDate() != null && contract.getEndDate().isBefore(endOfMonth) ? contract.getEndDate() : endOfMonth;
-
-        if (billStart.isAfter(billEnd) || billStart.isBefore(startOfMonth)) {
-            // Either invalid dates or contract started in a previous month (should not happen on new onboard)
+        RentFirstCycleCalculator.Result r = RentFirstCycleCalculator.calculate(contract, currentMonth);
+        if (r.deferredToNextMonth() || "OUT_OF_MONTH".equals(r.outcome())
+                || r.amount() == null || r.amount().compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
 
-        long days = java.time.temporal.ChronoUnit.DAYS.between(billStart, billEnd) + 1;
-        long daysInMonth = currentMonth.lengthOfMonth();
-        BigDecimal amount = contract.getRentAmount();
-        
-        if (days <= 3 && contract.getEndDate() == null) {
-            // Requirement A1: If moving in late and staying for <= 3 days of the month, skip issuing here, will be bundled next month
-            return;
+        String periodLabel = RentFirstCycleCalculator.periodLabel(r);
+        if (periodLabel == null) {
+            periodLabel = "Tiền nhà tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear());
         }
 
-        if (days < daysInMonth) {
-            amount = amount.multiply(BigDecimal.valueOf(days)).divide(BigDecimal.valueOf(daysInMonth), 0, java.math.RoundingMode.HALF_UP);
-        }
-        
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
-
-        TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
+        tenantInvoiceRepository.save(TenantInvoice.builder()
                 .code("HD-RENT-" + contract.getId() + "-" + currentMonth)
                 .tenantUserId(contract.getTenant().getId())
                 .tenantContract(contract)
@@ -325,10 +316,15 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
                 .billingMonth(currentMonth.getMonthValue())
                 .billingYear(currentMonth.getYear())
-                .billingPeriod("Tiền nhà tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear()))
-                .totalAmount(amount)
+                .billingPeriod(periodLabel)
+                .note("FIRST_CYCLE|days=" + r.billedDays() + "|daysInMonth=" + r.daysInMonth()
+                        + "|rentAmount=" + contract.getRentAmount().toPlainString()
+                        + "|periodStart=" + r.periodStart()
+                        + "|periodEnd=" + r.periodEnd()
+                        + "|formula=" + (r.formula() != null ? r.formula().replace("|", "/") : ""))
+                .totalAmount(r.amount())
                 .lateFee(BigDecimal.ZERO)
-                .grandTotal(amount)
+                .grandTotal(r.amount())
                 .status(TenantInvoiceStatus.PENDING)
                 .dueDate(LocalDate.now().plusDays(firstCycleGraceDays))
                 .createdAt(LocalDateTime.now())
@@ -523,6 +519,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .year(invoice.getBillingYear())
                 .billingPeriod(invoice.getBillingPeriod())
                 .items(InvoiceItemBuilder.buildItems(invoice))
+                .paymentBreakdown(PaymentBreakdownBuilder.fromInvoice(invoice))
                 .totalAmount(invoice.getTotalAmount())
                 .lateFee(invoice.getLateFee())
                 .grandTotal(invoice.getGrandTotal())

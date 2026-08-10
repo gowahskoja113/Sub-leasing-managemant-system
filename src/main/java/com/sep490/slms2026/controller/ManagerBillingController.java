@@ -47,7 +47,7 @@ public class ManagerBillingController {
     }
 
     /**
-     * Chi tiết hoá đơn kèm items[] — onboard trả 2 dòng: tiền nhà tháng đầu + tiền cọc.
+     * Chi tiết hoá đơn kèm items[] — hoá đơn cọc onboard trả dòng tiền cọc.
      * Admin / manager web dùng endpoint này thay vì nhồi items vào list.
      */
     @GetMapping("/api/v1/manager/invoices/{id}")

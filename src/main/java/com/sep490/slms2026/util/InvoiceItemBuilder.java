@@ -9,7 +9,7 @@ import java.util.List;
 
 /**
  * Build dòng chi tiết hoá đơn (tenant + manager/admin).
- * Hoá đơn onboard dùng note prefix {@code ONBOARD|} để tách tiền nhà tháng đầu + cọc.
+ * Hoá đơn cọc onboard: note {@code ONBOARD|…}. FIRST cycle: note {@code FIRST_CYCLE|…}.
  */
 public final class InvoiceItemBuilder {
 
@@ -22,7 +22,8 @@ public final class InvoiceItemBuilder {
             BigDecimal rent = parseOnboardField(invoice.getNote(), "rentAmount");
             BigDecimal deposit = parseOnboardField(invoice.getNote(), "depositAmount");
             String months = parseOnboardFieldRaw(invoice.getNote(), "depositMonths");
-            if (rent != null) {
+            // Data cũ: onboard = tháng đầu + cọc. Data mới: chỉ cọc.
+            if (rent != null && rent.compareTo(BigDecimal.ZERO) > 0) {
                 items.add(TenantInvoiceItemResponse.builder()
                         .label("Tiền nhà tháng đầu")
                         .amount(rent)
@@ -38,6 +39,26 @@ public final class InvoiceItemBuilder {
                         .build());
             }
             if (!items.isEmpty()) {
+                return items;
+            }
+        }
+        if (invoice.getNote() != null && invoice.getNote().startsWith("FIRST_CYCLE|")) {
+            BigDecimal rent = parseOnboardField(invoice.getNote(), "rentAmount");
+            String days = parseOnboardFieldRaw(invoice.getNote(), "days");
+            String daysInMonth = parseOnboardFieldRaw(invoice.getNote(), "daysInMonth");
+            if (rent != null && days != null && daysInMonth != null) {
+                items.add(TenantInvoiceItemResponse.builder()
+                        .label("Giá thuê / tháng")
+                        .amount(rent)
+                        .build());
+                items.add(TenantInvoiceItemResponse.builder()
+                        .label("Số ngày tính (" + days + "/" + daysInMonth + ", gồm ngày vào ở)")
+                        .amount(null)
+                        .build());
+                items.add(TenantInvoiceItemResponse.builder()
+                        .label("Thành tiền pro-rata")
+                        .amount(invoice.getTotalAmount())
+                        .build());
                 return items;
             }
         }

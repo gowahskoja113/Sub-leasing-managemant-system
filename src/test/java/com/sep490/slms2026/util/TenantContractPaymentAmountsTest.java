@@ -10,14 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class TenantContractPaymentAmountsTest {
 
     @Test
-    void initialPayment_rentPlusDepositTwoMonths() {
+    void initialPayment_depositOnlyWhenDepositProvided() {
         TenantContract c = TenantContract.builder()
                 .rentAmount(new BigDecimal("5000000"))
                 .deposit(new BigDecimal("10000000"))
                 .depositMonths(2)
                 .build();
 
-        assertEquals(0, new BigDecimal("15000000")
+        assertEquals(0, new BigDecimal("10000000")
                 .compareTo(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c)));
     }
 
@@ -30,7 +30,7 @@ class TenantContractPaymentAmountsTest {
 
         assertEquals(0, new BigDecimal("10000000")
                 .compareTo(TenantContractPaymentAmounts.resolveDepositAmount(c)));
-        assertEquals(0, new BigDecimal("15000000")
+        assertEquals(0, new BigDecimal("10000000")
                 .compareTo(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c)));
     }
 }

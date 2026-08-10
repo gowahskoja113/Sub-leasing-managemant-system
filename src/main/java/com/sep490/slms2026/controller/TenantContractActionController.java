@@ -156,7 +156,7 @@ public class TenantContractActionController {
                 && content[0] == '%' && content[1] == 'P' && content[2] == 'D' && content[3] == 'F';
     }
 
-    /** POST /{id}/deposit-payment — tạo link/QR thanh toán onboard (thuê tháng đầu + cọc) qua PayOS. */
+    /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc onboard qua PayOS. */
     @PostMapping("/{id}/deposit-payment")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractResponse> createDepositPayment(@PathVariable Long id) {

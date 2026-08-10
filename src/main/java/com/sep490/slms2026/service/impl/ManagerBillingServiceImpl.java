@@ -16,6 +16,8 @@ import com.sep490.slms2026.service.ManagerBillingService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.dto.response.PaymentBreakdownResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -224,6 +226,8 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
 
         if (includeItems) {
             response.setItems(InvoiceItemBuilder.buildItems(invoice));
+            PaymentBreakdownResponse breakdown = PaymentBreakdownBuilder.fromInvoice(invoice);
+            response.setPaymentBreakdown(breakdown);
         }
 
         // Manager không xem số tiền hóa đơn thuê phòng; admin vẫn xem đầy đủ.
@@ -231,9 +235,31 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
             response.setAmount(null);
             response.setTotalAmount(null);
             response.setLateFee(null);
+            if (response.getPaymentBreakdown() != null) {
+                maskMoneyOnBreakdown(response.getPaymentBreakdown());
+            }
+            if (response.getItems() != null) {
+                response.getItems().forEach(i -> i.setAmount(null));
+            }
         }
 
         return response;
+    }
+
+    private static void maskMoneyOnBreakdown(PaymentBreakdownResponse b) {
+        b.setTotalAmount(null);
+        b.setRentAmountMonthly(null);
+        b.setDepositAmount(null);
+        b.setDailyRate(null);
+        b.setFormula(null);
+        if (b.getLines() != null) {
+            b.getLines().forEach(line -> {
+                line.setAmount(null);
+                if (line.getUnit() != null && "VND".equalsIgnoreCase(line.getUnit())) {
+                    line.setDisplayValue("***");
+                }
+            });
+        }
     }
 
     private ManagerPaymentResponse toManagerPayment(TenantPaymentClaim claim) {
