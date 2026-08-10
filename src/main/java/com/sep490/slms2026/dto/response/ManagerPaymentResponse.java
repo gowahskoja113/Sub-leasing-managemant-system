@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 public class ManagerPaymentResponse {
     private Long id;
     private String invoiceCode;
+    private String invoiceType;
     private String tenantName;
     private String roomNumber;
     private String propertyName;

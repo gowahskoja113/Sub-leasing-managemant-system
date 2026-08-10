@@ -2,6 +2,7 @@ package com.sep490.slms2026.dto.response;
 
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -18,6 +19,7 @@ public class ManagerDepositDto {
     private String tenantName;
     private String tenantPhone;
     private Integer depositMonths;
+    private BigDecimal deposit;
     private String paymentStatus;
     private String depositMethod;
     private LocalDateTime depositPaidAt;
