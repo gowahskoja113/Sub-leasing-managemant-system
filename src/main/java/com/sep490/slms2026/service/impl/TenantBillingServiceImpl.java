@@ -111,6 +111,10 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     @Transactional
     public void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy) {
         TenantInvoice invoice = claim.getTenantInvoice();
+        if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
+            throw new BusinessException("Hóa đơn đã được thanh toán qua kênh khác. Vui lòng 'Từ chối' yêu cầu này để tránh ghi trùng.");
+        }
+        
         claim.setStatus(PaymentClaimStatus.VERIFIED);
         claim.setVerifiedAt(LocalDateTime.now());
         claim.setVerifiedBy(verifiedBy);
