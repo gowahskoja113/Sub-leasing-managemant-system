@@ -27,11 +27,11 @@ import java.util.stream.Collectors;
  * {@code docs/SLMS2026_import_tenant_draft_contracts.xlsx}.</p>
  *
  * <p>Mật khẩu mặc định: <b>123456</b>.</p>
- * <p>Tài khoản: admin01–02, owner01–06, manager01–05, tenant01–28.</p>
+ * <p>Tài khoản: admin01–02, owner01–06, manager01–05, tenant01–36.</p>
  * <p>Tenant chỉ có tài khoản — chưa gán hợp đồng / chưa thuê nhà.</p>
  *
  * <p>Chạy sau {@link MasterDataSeeder} (@Order 1) và {@link ZoneDataSeeder} (@Order 2).
- * Idempotent: có {@code manager01} thì bỏ qua full seed; thiếu tenant28 thì bổ sung tenant.</p>
+ * Idempotent: có {@code manager01} thì bỏ qua full seed; thiếu tenant36 thì bổ sung tenant.</p>
  */
 @Slf4j
 @Component
@@ -40,8 +40,8 @@ import java.util.stream.Collectors;
 public class SampleDataSeeder implements ApplicationRunner {
 
     private static final String DEFAULT_PASSWORD = "123456";
-    /** 25–30 tenant sẵn tài khoản, chưa thuê. */
-    private static final int TENANT_COUNT = 28;
+    /** 25–40 tenant sẵn tài khoản, chưa thuê. Cần ≥36 cho file draft (25 gốc + 11 MTX#40..#50). */
+    private static final int TENANT_COUNT = 36;
 
     private final UserRepository userRepository;
     private final ZoneRepository zoneRepository;

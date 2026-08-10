@@ -2,7 +2,7 @@
  * Sinh ~50 BĐS (ma trận onboarding) vào:
  *   - SLMS2026_import_matrix_dot1.xlsx  (đợt 1)
  *   - SLMS2026_import_matrix_dot2.xlsx  (đợt 2 — chỉ RENO)
- * và 25 HĐ nháp map tenant01..25 → 25 căn/phòng đợt 1:
+ * và HĐ nháp (25 gốc + 11 MTX#40..#50):
  *   - SLMS2026_import_tenant_draft_contracts.xlsx
  *
  * Zone chỉ dùng quận có trong ZoneDataSeeder (tránh lỗi resolve zone khi import).
@@ -190,8 +190,8 @@ function buildProperties() {
   return props;
 }
 
-// ─── Handover (đợt 1) ─────────────────────────────────────────
-/** Số phòng ngủ gợi ý (nguyên căn): ưu tiên totalRooms-1, tối thiểu 1. */
+// ─── Handover (đợt 1) — giữ nguyên, không làm dày ─────────────
+/** Số phòng ngủ gợi ý (nguyên căn): ưu tiên totalRooms-1, tối thiểu 1. (dùng đợt 2 mua TB) */
 function bedroomCount(p) {
   if (p.shape === "RM") return p.rooms;
   const n = Math.max(1, (p.totalRooms || p.rooms || 2) - 1);
@@ -202,58 +202,36 @@ function handoverRows(p) {
   if (!p.handover) return [];
   const rows = [];
   const c = p.code;
-  const beds = bedroomCount(p);
 
   if (p.furn === "BASIC") {
     if (p.shape === "WH") {
-      // NT cơ bản: ĐH phòng khách + giường từng PN + quạt + nóng lạnh
       rows.push([c, "Điều hòa", "Máy 1.5HP", "Phòng khách", "GOOD", 1, "NT cơ bản"]);
-      for (let i = 1; i <= beds; i++) {
-        rows.push([c, "Giường", i === 1 ? "Giường gỗ 1m6" : "Giường gỗ 1m2", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
-      }
-      rows.push([c, "Quạt", "Quạt trần", "Phòng khách", "GOOD", 1, ""]);
-      rows.push([c, "Nóng lạnh", "15L", "WC tầng 1", "GOOD", 1, ""]);
-      if (beds >= 2 || p.stt % 2 === 0) {
-        rows.push([c, "Tủ lạnh", "Tủ 150L", "Bếp", "GOOD", 1, "NT cơ bản"]);
-      }
+      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ", "GOOD", 1, ""]);
     } else {
-      // THEO_PHONG: 1 giường/phòng khai thác + quạt hành lang + TB chung tối thiểu
-      for (let i = 1; i <= p.rooms; i++) {
-        const num = String(100 + i);
-        rows.push([c, "Giường", "Giường sắt cũ", `Phòng ${num}`, "GOOD", 1, "TB chủ"]);
-      }
-      rows.push([c, "Quạt", "Quạt trần", "Hành lang", "GOOD", 1, ""]);
-      rows.push([c, "Nóng lạnh", "Máy cũ", "WC chung", "GOOD", 1, "Dùng chung"]);
+      rows.push([c, "Giường", "Giường sắt cũ", "Tầng 2", "GOOD", Math.min(2, p.rooms), "TB chủ"]);
+      if (p.stt % 2 === 0) rows.push([c, "Quạt", "Quạt trần", "Hành lang", "GOOD", 1, ""]);
     }
   } else if (p.furn === "FULL") {
     if (p.shape === "WH") {
       rows.push([c, "Điều hòa", "1.5HP Inverter", "Phòng khách", "GOOD", 1, ""]);
-      for (let i = 1; i <= beds; i++) {
-        rows.push([c, "Điều hòa", i === 1 ? "1HP Inverter" : "1HP", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
-      }
+      rows.push([c, "Điều hòa", "1HP", "Phòng ngủ 1", "GOOD", 1, ""]);
       rows.push([c, "Tủ lạnh", "Inverter 200L", "Bếp", "GOOD", 1, ""]);
       rows.push([c, "Máy giặt", "Cửa trước 8kg", "Sân sau", "GOOD", 1, ""]);
       rows.push([c, "Nóng lạnh", "15L", "WC tầng 1", "GOOD", 1, ""]);
-      if (p.floors >= 2) {
-        rows.push([c, "Nóng lạnh", "15L", "WC tầng 2", "GOOD", 1, ""]);
-      }
-      for (let i = 1; i <= beds; i++) {
-        rows.push([c, "Giường", i === 1 ? "Giường gỗ 1m6" : "Giường gỗ 1m6", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
-      }
+      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ 1", "GOOD", 1, ""]);
+      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ 2", "GOOD", 1, ""]);
       rows.push([c, "Quạt", "Quạt trần", "Phòng khách", "GOOD", 1, ""]);
-      for (let i = 1; i <= beds; i++) {
-        rows.push([c, "Quạt", "Quạt đứng", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
-      }
+      rows.push([c, "Quạt", "Quạt đứng", "Phòng ngủ 1", "GOOD", 1, ""]);
     } else {
-      // THEO_PHONG full: TB dùng chung + 1 giường + 1 quạt mỗi phòng
       rows.push([c, "Máy giặt", "Máy cũ chung", "Sân phơi", "GOOD", 1, "TB dùng chung"]);
       rows.push([c, "Tủ lạnh", "Tủ cũ tầng 1", "Bếp chung", "GOOD", 1, ""]);
-      rows.push([c, "Nóng lạnh", "Máy cũ", "WC chung", "GOOD", 1, ""]);
-      for (let i = 1; i <= p.rooms; i++) {
-        const num = String(100 + i);
-        rows.push([c, "Giường", "Giường gỗ 1m6", `Phòng ${num}`, "GOOD", 1, ""]);
-        rows.push([c, "Quạt", "Quạt đứng", `Phòng ${num}`, "GOOD", 1, ""]);
-      }
+    }
+  } else {
+    // NONE + có cờ bàn giao (ma trận #28–29 HO-NOBUY): ≥1 TB chủ — không để trống sheet
+    if (p.shape === "WH") {
+      rows.push([c, "Máy giặt", "Máy cũ", "Sân sau", "GOOD", 1, "TB chủ — không NT"]);
+    } else {
+      rows.push([c, "Nóng lạnh", "Máy cũ", "WC chung", "GOOD", 1, "TB chủ — không NT"]);
     }
   }
   return rows;
@@ -291,17 +269,23 @@ function renoRows(p) {
   if (p.furn === "FULL") {
     rows.push([c, "FURNITURE", "Nội thất", base + 3_000_000, "Lắp đặt nội thất"]);
   }
+  if (p.buyEquip) {
+    rows.push([c, "EQUIPMENT", "Thiết bị mua thêm", base + 1_500_000, "Mua & lắp TB mới đợt 2"]);
+  }
   if (p.shape === "RM" && p.stt % 3 === 0) {
     rows.push([c, "FLOORING", "Sàn nhà", base + 1_000_000, "Lát gạch từng phòng"]);
   }
   return rows;
 }
 
+/**
+ * TB mua mới đợt 2 (sheet 4. Thiet_Bi_Mua_Moi).
+ * Chỉ khi buyEquip=true. BASIC / FULL đủ bộ; NONE tối thiểu 1 món.
+ */
 function buyEquipRows(p) {
   if (p.mode !== "RENO" || !p.buyEquip) return [];
   const c = p.code;
   const start = p.start;
-  const end = addMonths(+p.start.slice(0, 4), +p.start.slice(5, 7), 1, 24);
   const out = [];
 
   function equip(room, area, name, price, months, note) {
@@ -313,51 +297,58 @@ function buyEquipRows(p) {
   if (p.shape === "WH") {
     const beds = bedroomCount(p);
     if (p.furn === "BASIC") {
-      equip("", "LIVING_ROOM", "Điều hòa", 11_000_000, 24, "ĐH phòng khách");
+      // NT cơ bản nguyên căn: ĐH + quạt + giường theo PN + tủ lạnh + nóng lạnh
+      equip("", "LIVING_ROOM", "Điều hòa", 11_000_000, 24, "ĐH phòng khách — NT cơ bản");
       equip("", "LIVING_ROOM", "Quạt", 900_000, 12, "Quạt trần PK");
       for (let i = 1; i <= beds; i++) {
         equip("", "LIVING_ROOM", "Giường", i === 1 ? 5_000_000 : 4_200_000, 12, `Giường PN ${i}`);
       }
-      equip("", "KITCHEN", "Tủ lạnh", 7_500_000, 24, "");
+      equip("", "KITCHEN", "Tủ lạnh", 7_500_000, 24, "Tủ lạnh — NT cơ bản");
       equip("", "BATHROOM", "Nóng lạnh", 2_800_000, 12, "");
     } else if (p.furn === "FULL") {
+      // Full nguyên căn: ĐH/giường/quạt từng PN + bộ bếp/WC/ban công
       equip("", "LIVING_ROOM", "Điều hòa", 14_000_000, 36, "ĐH phòng khách");
+      equip("", "LIVING_ROOM", "Quạt", 1_200_000, 12, "Quạt trần PK");
       for (let i = 1; i <= beds; i++) {
-        equip("", "LIVING_ROOM", "Điều hòa", 9_500_000, 24, `ĐH PN ${i}`);
+        equip("", "LIVING_ROOM", "Điều hòa", 9_500_000 + (i - 1) * 100_000, 24, `ĐH PN ${i}`);
         equip("", "LIVING_ROOM", "Giường", i === 1 ? 5_500_000 : 4_800_000, 12, `Giường PN ${i}`);
         equip("", "LIVING_ROOM", "Quạt", 750_000, 12, `Quạt PN ${i}`);
       }
-      equip("", "LIVING_ROOM", "Quạt", 1_200_000, 12, "Quạt trần PK");
       equip("", "KITCHEN", "Tủ lạnh", 8_500_000, 24, "");
       equip("", "KITCHEN", "Máy giặt", 9_500_000, 24, "");
       equip("", "BATHROOM", "Nóng lạnh", 3_200_000, 12, "");
+      if (p.floors >= 2) {
+        equip("", "BATHROOM", "Nóng lạnh", 3_000_000, 12, "NL tầng 2");
+      }
       equip("", "BALCONY", "Quạt", 650_000, 12, "");
     } else {
-      // NONE but buy some equipment (case ma trận #4 style)
-      equip("", "LIVING_ROOM", "Điều hòa", 11_000_000, 24, "");
+      // NONE + buyEquip: TB mua tối thiểu (không dán nhãn NT)
+      equip("", "LIVING_ROOM", "Điều hòa", 11_000_000, 24, "Mua bổ sung tối thiểu");
     }
   } else {
-    for (let i = 1; i <= p.rooms; i++) {
-      const num = String(100 + i);
-      if (p.furn === "NONE") {
-        // no room equip when NONE unless buy — still put minimal? skip NONE without items
-        continue;
-      }
-      if (p.furn === "BASIC") {
-        equip(num, "", "Giường", 4_000_000, 12, `NT cơ bản phòng ${num}`);
+    // THEO_PHONG
+    if (p.furn === "BASIC") {
+      for (let i = 1; i <= p.rooms; i++) {
+        const num = String(100 + i);
+        equip(num, "", "Giường", 4_000_000, 12, `Giường phòng ${num} — NT cơ bản`);
         equip(num, "", "Quạt", 750_000, 12, `Quạt phòng ${num}`);
+        // xen kẽ ĐH để cover half-ish rooms với BASIC
         if (i % 2 === 1) equip(num, "", "Điều hòa", 8_500_000, 24, `ĐH phòng ${num}`);
-      } else {
-        // FULL
+      }
+      // 1 TB chung tối thiểu cho tòa phòng trọ BASIC
+      equip("", "KITCHEN", "Tủ lạnh", 6_500_000, 24, "Tủ dùng chung — NT cơ bản");
+    } else if (p.furn === "FULL") {
+      for (let i = 1; i <= p.rooms; i++) {
+        const num = String(100 + i);
         equip(num, "", "Giường", 4_500_000, 12, `Giường phòng ${num}`);
         equip(num, "", "Quạt", 800_000, 12, `Quạt phòng ${num}`);
         equip(num, "", "Điều hòa", 9_200_000, 24, `ĐH phòng ${num}`);
         equip(num, "", "Nóng lạnh", 2_600_000, 12, `NL phòng ${num}`);
       }
-    }
-    // None + buyEquip: 1 item per room minimal (bed only = basic buy path already)
-    if (p.furn === "NONE") {
-      // Ma trận: RENO + không HO + có buy — 1 item/room or common area
+      equip("", "KITCHEN", "Tủ lạnh", 8_000_000, 24, "Tủ dùng chung — full NT");
+      equip("", "BALCONY", "Máy giặt", 9_000_000, 24, "Máy giặt dùng chung — full NT");
+    } else {
+      // NONE + buy: 1 giường phòng 101
       equip(String(101), "", "Giường", 3_500_000, 12, "Mua bổ sung tối thiểu");
     }
   }
@@ -533,19 +524,16 @@ function writeDot2(props) {
 }
 
 /**
- * 25 HĐ nháp: tenant01..25 (SĐT seed 0904…) ↔ 25 BĐS đợt 1.
- * Ưu tiên: 15 NORENO nguyên căn (sẵn sau đợt 1) + 10 RENO (WH + RM 101) sau khi xong đợt 2.
+ * 25 HĐ nháp gốc (tenant01..25) + 11 HĐ thêm MTX#40..#50 (tenant26..36).
+ * Gốc: 15 NORENO WH + 5 RENO WH + 5 RENO RM (phòng 101).
+ * Thêm: MTX#40..#50 — RENO THEO_PHONG phòng 101.
  *
  * Demo ngày: 2026-08-11 (contract.max-early-move-in-days = 3).
- * Cột "Ngày vào ở" = lịch dự kiến — khi confirm OTP ngày demo:
- *   - đúng ngày (moveIn = 2026-08-11) → OK
- *   - sớm ≤3 ngày (moveIn = 12..14/08) → OK, BE set moveIn/start = today, giữ endDate
- *   - sớm >3 ngày (moveIn ≥ 15/08) → reject BusinessException
  */
 function writeDraft(props) {
   /** @type {{ code: string, moveIn: string, end: string, label: string, expect: string }[]} */
-  const DEMO_CASES = [
-    // ── A. Onboard đúng ngày (8) — confirm 11/08 ──
+  // 25 case demo gốc (A/B/C)
+  const DEMO_CASES_BASE = [
     { code: "A1", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
     { code: "A2", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
     { code: "A3", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
@@ -554,7 +542,6 @@ function writeDraft(props) {
     { code: "A6", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
     { code: "A7", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
     { code: "A8", moveIn: "2026-08-11", end: "2027-08-10", label: "ĐÚNG NGÀY", expect: "OK confirm 11/08" },
-    // ── B. Sớm trong vòng 3 ngày (9) — daysEarly = 1..3 ──
     { code: "B1", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
     { code: "B2", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
     { code: "B3", moveIn: "2026-08-12", end: "2027-08-11", label: "SỚM ≤3N (+1)", expect: "OK sớm 1 ngày → moveIn=11/08" },
@@ -564,7 +551,6 @@ function writeDraft(props) {
     { code: "B7", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
     { code: "B8", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
     { code: "B9", moveIn: "2026-08-14", end: "2027-08-13", label: "SỚM ≤3N (+3)", expect: "OK sớm 3 ngày (biên) → moveIn=11/08" },
-    // ── C. Sớm hơn 3 ngày (8) — daysEarly ≥ 4 → reject ──
     { code: "C1", moveIn: "2026-08-15", end: "2027-08-14", label: "SỚM >3N (+4)", expect: "REJECT confirm 11/08 (sớm 4 ngày)" },
     { code: "C2", moveIn: "2026-08-15", end: "2027-08-14", label: "SỚM >3N (+4)", expect: "REJECT confirm 11/08 (sớm 4 ngày)" },
     { code: "C3", moveIn: "2026-08-16", end: "2027-08-15", label: "SỚM >3N (+5)", expect: "REJECT confirm 11/08 (sớm 5 ngày)" },
@@ -573,6 +559,21 @@ function writeDraft(props) {
     { code: "C6", moveIn: "2026-08-20", end: "2027-08-19", label: "SỚM >3N (+9)", expect: "REJECT confirm 11/08 (sớm 9 ngày)" },
     { code: "C7", moveIn: "2026-08-25", end: "2027-08-24", label: "SỚM >3N (+14)", expect: "REJECT confirm 11/08 (sớm 14 ngày)" },
     { code: "C8", moveIn: "2026-09-01", end: "2027-08-31", label: "SỚM >3N (+21)", expect: "REJECT confirm 11/08 (sớm ~3 tuần)" },
+  ];
+
+  // 11 HĐ thêm: MTX#40..#50 — demo nhận nhà đúng ngày (dễ onboard sau cải tạo)
+  const DEMO_CASES_EXTRA = [
+    { code: "D1", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#40" },
+    { code: "D2", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#41" },
+    { code: "D3", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#42" },
+    { code: "D4", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#43" },
+    { code: "D5", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#44" },
+    { code: "D6", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#45" },
+    { code: "D7", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#46" },
+    { code: "D8", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#47" },
+    { code: "D9", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#48" },
+    { code: "D10", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#49" },
+    { code: "D11", moveIn: "2026-08-11", end: "2027-08-10", label: "MTX40+", expect: "OK confirm 11/08 — MTX#50" },
   ];
 
   const headers = [
@@ -585,17 +586,24 @@ function writeDraft(props) {
   const norenoWh = props.filter((p) => p.mode === "NORENO" && p.shape === "WH"); // 15
   const renoWh = props.filter((p) => p.mode === "RENO" && p.shape === "WH");
   const renoRm = props.filter((p) => p.mode === "RENO" && p.shape === "RM");
+  const mtx40to50 = props.filter((p) => p.stt >= 40 && p.stt <= 50);
 
-  const picks = [
+  const basePicks = [
     ...norenoWh.slice(0, 15),
     ...renoWh.slice(0, 5),
     ...renoRm.slice(0, 5),
   ];
-  if (picks.length !== 25) {
-    throw new Error(`Expected 25 draft properties, got ${picks.length}`);
+  if (basePicks.length !== 25) {
+    throw new Error(`Expected 25 base draft properties, got ${basePicks.length}`);
   }
-  if (DEMO_CASES.length !== 25) {
-    throw new Error(`Expected 25 demo cases, got ${DEMO_CASES.length}`);
+  if (mtx40to50.length !== 11) {
+    throw new Error(`Expected 11 MTX#40..#50, got ${mtx40to50.length}`);
+  }
+
+  const picks = [...basePicks, ...mtx40to50];
+  const demos = [...DEMO_CASES_BASE, ...DEMO_CASES_EXTRA];
+  if (picks.length !== demos.length) {
+    throw new Error(`picks ${picks.length} != demos ${demos.length}`);
   }
 
   const ISSUE = [
@@ -609,11 +617,11 @@ function writeDraft(props) {
     "Tenant seed", "SĐT", "Kỳ vọng confirm 11/08", "Ghi chú BĐS",
   ]];
 
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < picks.length; i++) {
     const p = picks[i];
-    const demo = DEMO_CASES[i];
-    const t = i + 1; // tenant01..25
-    const name = fullNameByIndex(t + 9); // khớp SampleDataSeeder
+    const demo = demos[i];
+    const t = i + 1; // tenant01..36
+    const name = fullNameByIndex(t + 9); // khớp SampleDataSeeder (tenant i → fullNameByIndex(i+9))
     const phone = `0904${String(t).padStart(6, "0")}`;
     const cccd = `079${String(t).padStart(9, "0")}`;
     const isRoom = p.shape === "RM";
@@ -624,13 +632,13 @@ function writeDraft(props) {
     const birthY = 1988 + (i % 12);
     const issueY = 2018 + (i % 6);
     const bdsNote = isRoom
-      ? "Cần import đợt 2 (THEO_PHONG) trước — phòng 101"
+      ? `Cần import đợt 2 (THEO_PHONG) trước — phòng 101 (${p.furnLabel})`
       : p.mode === "NORENO"
         ? "Sẵn sau đợt 1 (NORENO)"
         : "Cần import đợt 2 (NGUYEN_CAN) trước";
 
     rows.push([
-      p.code, // Mã HĐ inbound — map nhanh sau import
+      p.code,
       "",
       p.name,
       rentType,
@@ -647,7 +655,7 @@ function writeDraft(props) {
       rent,
       depositMonths,
       rent * depositMonths,
-      demo.moveIn, // Ngày đón khách dự kiến = lịch kế hoạch
+      demo.moveIn,
     ]);
 
     ref.push([
@@ -660,25 +668,30 @@ function writeDraft(props) {
   const guide = [
     ["Hướng dẫn import HĐ thuê nháp (DRAFT) — Demo nhận nhà 11/08/2026"],
     [""],
+    ["PHẠM VI: 36 HĐ nháp = 25 gốc + 11 HĐ thêm MTX#40..#50."],
+    ["  1–15: NORENO nguyên căn (sẵn sau đợt 1)"],
+    ["  16–20: RENO NGUYEN_CAN (cần đợt 2)"],
+    ["  21–25: RENO THEO_PHONG phòng 101 — MTX#32..#36 (cần đợt 2)"],
+    ["  26–36: RENO THEO_PHONG phòng 101 — MTX#40..#50 (cần đợt 2)"],
+    [""],
     ["MỤC TIÊU DEMO (confirm OTP / kích hoạt HĐ ngày 11/08/2026)"],
     ["  contract.max-early-move-in-days = 3 (application.yaml)"],
-    ["  A (8 HĐ): Ngày vào ở = 2026-08-11 → onboard ĐÚNG NGÀY → OK"],
-    ["  B (9 HĐ): Ngày vào ở = 12/13/14-08 → sớm 1–3 ngày → OK, BE ghi moveIn/start = 11/08, giữ endDate"],
-    ["  C (8 HĐ): Ngày vào ở ≥ 15/08 → sớm >3 ngày → REJECT: \"Chỉ được nhận nhà sớm tối đa 3 ngày...\""],
-    ["  Chi tiết case A1..C8: sheet 0. Tham_Chieu_BDS"],
+    ["  A (8 HĐ): Ngày vào ở = 2026-08-11 → OK đúng ngày"],
+    ["  B (9 HĐ): Ngày vào ở = 12/13/14-08 → sớm 1–3 ngày → OK"],
+    ["  C (8 HĐ): Ngày vào ở ≥ 15/08 → sớm >3 ngày → REJECT"],
+    ["  D (11 HĐ MTX#40..#50): Ngày vào ở = 2026-08-11 → OK đúng ngày"],
+    ["  Chi tiết: sheet 0. Tham_Chieu_BDS"],
     [""],
     ["QUY TRÌNH IMPORT"],
-    ["1. Seed tài khoản: tenant01..tenant28 / 123456 (chưa thuê)."],
+    ["1. Seed tài khoản: tenant01..tenant36 / 123456 (SampleDataSeeder TENANT_COUNT)."],
     ["2. Import đợt 1: docs/SLMS2026_import_matrix_dot1.xlsx"],
     ["3. Import đợt 2 (RENO): docs/SLMS2026_import_matrix_dot2.xlsx"],
     ["4. Import file này: POST /api/v1/import/tenant-draft-contracts-excel?dryRun="],
     ["5. Map BĐS: cột Mã HĐ inbound (= mã master) hoặc Tên tòa nhà."],
-    ["6. 15 NORENO nguyên căn + 5 RENO NGUYEN_CAN + 5 RENO THEO_PHONG phòng 101."],
-    ["7. SĐT/CCCD/họ tên khớp SampleDataSeeder tenant01..25."],
-    ["8. tenant26..28 không có dòng nháp — dùng test gán tay."],
-    ["9. Nên dryRun=true trước; Auth ADMIN hoặc MANAGER."],
+    ["6. SĐT/CCCD/họ tên khớp SampleDataSeeder tenant01..36."],
+    ["7. Nên dryRun=true trước; Auth ADMIN hoặc MANAGER."],
     [""],
-    ["SCRIPT GỐC: node docs/generate-matrix-50.js (regenerate cả ma trận + draft)"],
+    ["SCRIPT GỐC: node docs/generate-matrix-50.js"],
   ];
 
   const wb = XLSX.utils.book_new();
@@ -689,10 +702,10 @@ function writeDraft(props) {
   };
   add("0. Huong_Dan", guide, [110]);
   add("1. Hop_Dong_Nhap_Khach", rows, headers.map((h) => Math.min(26, Math.max(12, h.length + 2))));
-  add("0. Tham_Chieu_BDS", ref, [4, 8, 16, 18, 14, 36, 28, 12, 12, 12, 12, 36, 36]);
+  add("0. Tham_Chieu_BDS", ref, [4, 8, 16, 18, 14, 36, 28, 12, 12, 12, 12, 36, 50]);
 
   XLSX.writeFile(wb, DRAFT);
-  console.log("Wrote", DRAFT, "drafts", rows.length - 1, "demoDay=2026-08-11");
+  console.log("Wrote", DRAFT, "drafts", rows.length - 1, "(25 base + 11 MTX#40..#50)");
 }
 
 // ─── main ─────────────────────────────────────────────────────
