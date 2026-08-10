@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface MeterOverridePasscodeRepository extends JpaRepository<MeterOverridePasscode, Long> {
 
@@ -34,4 +35,6 @@ public interface MeterOverridePasscodeRepository extends JpaRepository<MeterOver
             ORDER BY p.createdAt DESC
             """)
     List<MeterOverridePasscode> findActive(@Param("now") LocalDateTime now);
+
+    long countByCreatedByAndCreatedAtAfter(UUID createdBy, LocalDateTime after);
 }

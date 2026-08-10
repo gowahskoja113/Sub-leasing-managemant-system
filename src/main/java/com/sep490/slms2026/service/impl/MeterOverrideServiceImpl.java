@@ -43,6 +43,8 @@ public class MeterOverrideServiceImpl implements MeterOverrideService {
     private static final int LOCK_MINUTES = 5;
     private static final int CODE_DIGITS = 6;
     private static final int MAX_GEN_ATTEMPTS = 20;
+    /** Trần số mã một admin được gen trong cửa sổ 1 giờ (chống spam chìa khoá bypass ảnh). */
+    private static final int MAX_GEN_PER_HOUR = 20;
 
     private final MeterOverrideTokenRepository tokenRepository;
     private final MeterOverridePasscodeRepository passcodeRepository;
@@ -65,6 +67,12 @@ public class MeterOverrideServiceImpl implements MeterOverrideService {
     @Transactional
     public MeterOverridePasscodeResponse generatePasscode(UUID adminId, MeterOverridePasscodeGenerateRequest request) {
         LocalDateTime now = LocalDateTime.now();
+        long recent = passcodeRepository.countByCreatedByAndCreatedAtAfter(adminId, now.minusHours(1));
+        if (recent >= MAX_GEN_PER_HOUR) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Đã tạo quá nhiều mã trong 1 giờ. Chờ ít phút rồi thử lại.");
+        }
+
         int ttl = passcodeTtlMinutes;
         if (request != null && request.getTtlMinutes() != null) {
             ttl = Math.max(1, Math.min(request.getTtlMinutes(), 60));

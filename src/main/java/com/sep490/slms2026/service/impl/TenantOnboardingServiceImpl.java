@@ -246,6 +246,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             }
         }
 
+        // Bắt buộc bằng chứng khi ghi chỉ số: ảnh HOẶC override token (sau passcode admin)
+        requireMeterEvidence(request.getInitialElectricReading(),
+                request.getElectricMeterImageUrl(), request.getElectricMeterOverrideToken(), "điện");
+        requireMeterEvidence(request.getInitialWaterReading(),
+                request.getWaterMeterImageUrl(), request.getWaterMeterOverrideToken(), "nước");
+
         // Override nhập tay chỉ số (không có ảnh) — sau khi có contractId
         applyMeterOverridesIfAny(saved, request.getElectricMeterOverrideToken(),
                 request.getElectricMeterOverrideReason(), request.getInitialElectricReading(),
@@ -521,6 +527,23 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     tenantPaymentRepository.save(payment);
                 }
             }
+        }
+    }
+
+    /**
+     * Ghi chỉ số thì phải có bằng chứng: ảnh mặt đồng hồ, HOẶC override token (sau passcode admin).
+     * Xét riêng từng đồng hồ. {@code reading == null} = chưa tới bước ghi chỉ số → không chặn.
+     */
+    private static void requireMeterEvidence(
+            BigDecimal reading, String imageUrl, UUID overrideToken, String label) {
+        if (reading == null) {
+            return;
+        }
+        boolean hasPhoto = imageUrl != null && !imageUrl.isBlank();
+        if (!hasPhoto && overrideToken == null) {
+            throw new BusinessException(
+                    "Thiếu bằng chứng chỉ số " + label + ": cần ảnh mặt đồng hồ, "
+                            + "hoặc mã do admin cấp kèm lý do.");
         }
     }
 
@@ -880,6 +903,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         } else if (request.getWaterMeterCapturedAt() != null && contract.getWaterMeterImageUrl() != null) {
             contract.setWaterMeterCapturedAt(request.getWaterMeterCapturedAt());
         }
+
+        // Ảnh đã merge vào contract — dùng URL sau merge (không lấy request, tránh miss ảnh đã có sẵn)
+        requireMeterEvidence(request.getInitialElectricReading(),
+                contract.getElectricMeterImageUrl(), request.getElectricMeterOverrideToken(), "điện");
+        requireMeterEvidence(request.getInitialWaterReading(),
+                contract.getWaterMeterImageUrl(), request.getWaterMeterOverrideToken(), "nước");
 
         applyMeterOverridesIfAny(contract,
                 request.getElectricMeterOverrideToken(), request.getElectricMeterOverrideReason(),
