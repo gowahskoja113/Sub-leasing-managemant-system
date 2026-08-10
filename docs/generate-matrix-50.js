@@ -191,33 +191,69 @@ function buildProperties() {
 }
 
 // ─── Handover (đợt 1) ─────────────────────────────────────────
+/** Số phòng ngủ gợi ý (nguyên căn): ưu tiên totalRooms-1, tối thiểu 1. */
+function bedroomCount(p) {
+  if (p.shape === "RM") return p.rooms;
+  const n = Math.max(1, (p.totalRooms || p.rooms || 2) - 1);
+  return n;
+}
+
 function handoverRows(p) {
   if (!p.handover) return [];
   const rows = [];
   const c = p.code;
+  const beds = bedroomCount(p);
 
   if (p.furn === "BASIC") {
     if (p.shape === "WH") {
+      // NT cơ bản: ĐH phòng khách + giường từng PN + quạt + nóng lạnh
       rows.push([c, "Điều hòa", "Máy 1.5HP", "Phòng khách", "GOOD", 1, "NT cơ bản"]);
-      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ", "GOOD", 1, ""]);
+      for (let i = 1; i <= beds; i++) {
+        rows.push([c, "Giường", i === 1 ? "Giường gỗ 1m6" : "Giường gỗ 1m2", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
+      }
+      rows.push([c, "Quạt", "Quạt trần", "Phòng khách", "GOOD", 1, ""]);
+      rows.push([c, "Nóng lạnh", "15L", "WC tầng 1", "GOOD", 1, ""]);
+      if (beds >= 2 || p.stt % 2 === 0) {
+        rows.push([c, "Tủ lạnh", "Tủ 150L", "Bếp", "GOOD", 1, "NT cơ bản"]);
+      }
     } else {
-      rows.push([c, "Giường", "Giường sắt cũ", "Tầng 2", "GOOD", Math.min(2, p.rooms), "TB chủ"]);
-      if (p.stt % 2 === 0) rows.push([c, "Quạt", "Quạt trần", "Hành lang", "GOOD", 1, ""]);
+      // THEO_PHONG: 1 giường/phòng khai thác + quạt hành lang + TB chung tối thiểu
+      for (let i = 1; i <= p.rooms; i++) {
+        const num = String(100 + i);
+        rows.push([c, "Giường", "Giường sắt cũ", `Phòng ${num}`, "GOOD", 1, "TB chủ"]);
+      }
+      rows.push([c, "Quạt", "Quạt trần", "Hành lang", "GOOD", 1, ""]);
+      rows.push([c, "Nóng lạnh", "Máy cũ", "WC chung", "GOOD", 1, "Dùng chung"]);
     }
   } else if (p.furn === "FULL") {
     if (p.shape === "WH") {
       rows.push([c, "Điều hòa", "1.5HP Inverter", "Phòng khách", "GOOD", 1, ""]);
-      rows.push([c, "Điều hòa", "1HP", "Phòng ngủ 1", "GOOD", 1, ""]);
+      for (let i = 1; i <= beds; i++) {
+        rows.push([c, "Điều hòa", i === 1 ? "1HP Inverter" : "1HP", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
+      }
       rows.push([c, "Tủ lạnh", "Inverter 200L", "Bếp", "GOOD", 1, ""]);
       rows.push([c, "Máy giặt", "Cửa trước 8kg", "Sân sau", "GOOD", 1, ""]);
       rows.push([c, "Nóng lạnh", "15L", "WC tầng 1", "GOOD", 1, ""]);
-      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ 1", "GOOD", 1, ""]);
-      rows.push([c, "Giường", "Giường gỗ 1m6", "Phòng ngủ 2", "GOOD", 1, ""]);
+      if (p.floors >= 2) {
+        rows.push([c, "Nóng lạnh", "15L", "WC tầng 2", "GOOD", 1, ""]);
+      }
+      for (let i = 1; i <= beds; i++) {
+        rows.push([c, "Giường", i === 1 ? "Giường gỗ 1m6" : "Giường gỗ 1m6", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
+      }
       rows.push([c, "Quạt", "Quạt trần", "Phòng khách", "GOOD", 1, ""]);
-      rows.push([c, "Quạt", "Quạt đứng", "Phòng ngủ 1", "GOOD", 1, ""]);
+      for (let i = 1; i <= beds; i++) {
+        rows.push([c, "Quạt", "Quạt đứng", `Phòng ngủ ${i}`, "GOOD", 1, ""]);
+      }
     } else {
+      // THEO_PHONG full: TB dùng chung + 1 giường + 1 quạt mỗi phòng
       rows.push([c, "Máy giặt", "Máy cũ chung", "Sân phơi", "GOOD", 1, "TB dùng chung"]);
       rows.push([c, "Tủ lạnh", "Tủ cũ tầng 1", "Bếp chung", "GOOD", 1, ""]);
+      rows.push([c, "Nóng lạnh", "Máy cũ", "WC chung", "GOOD", 1, ""]);
+      for (let i = 1; i <= p.rooms; i++) {
+        const num = String(100 + i);
+        rows.push([c, "Giường", "Giường gỗ 1m6", `Phòng ${num}`, "GOOD", 1, ""]);
+        rows.push([c, "Quạt", "Quạt đứng", `Phòng ${num}`, "GOOD", 1, ""]);
+      }
     }
   }
   return rows;
@@ -275,14 +311,23 @@ function buyEquipRows(p) {
   }
 
   if (p.shape === "WH") {
+    const beds = bedroomCount(p);
     if (p.furn === "BASIC") {
       equip("", "LIVING_ROOM", "Điều hòa", 11_000_000, 24, "ĐH phòng khách");
+      equip("", "LIVING_ROOM", "Quạt", 900_000, 12, "Quạt trần PK");
+      for (let i = 1; i <= beds; i++) {
+        equip("", "LIVING_ROOM", "Giường", i === 1 ? 5_000_000 : 4_200_000, 12, `Giường PN ${i}`);
+      }
       equip("", "KITCHEN", "Tủ lạnh", 7_500_000, 24, "");
+      equip("", "BATHROOM", "Nóng lạnh", 2_800_000, 12, "");
     } else if (p.furn === "FULL") {
-      equip("", "LIVING_ROOM", "Điều hòa", 14_000_000, 36, "");
-      equip("", "LIVING_ROOM", "Quạt", 1_200_000, 12, "Quạt trần");
-      equip("", "LIVING_ROOM", "Giường", 5_500_000, 12, "Giường PN chính");
-      equip("", "LIVING_ROOM", "Giường", 4_800_000, 12, "Giường PN 2");
+      equip("", "LIVING_ROOM", "Điều hòa", 14_000_000, 36, "ĐH phòng khách");
+      for (let i = 1; i <= beds; i++) {
+        equip("", "LIVING_ROOM", "Điều hòa", 9_500_000, 24, `ĐH PN ${i}`);
+        equip("", "LIVING_ROOM", "Giường", i === 1 ? 5_500_000 : 4_800_000, 12, `Giường PN ${i}`);
+        equip("", "LIVING_ROOM", "Quạt", 750_000, 12, `Quạt PN ${i}`);
+      }
+      equip("", "LIVING_ROOM", "Quạt", 1_200_000, 12, "Quạt trần PK");
       equip("", "KITCHEN", "Tủ lạnh", 8_500_000, 24, "");
       equip("", "KITCHEN", "Máy giặt", 9_500_000, 24, "");
       equip("", "BATHROOM", "Nóng lạnh", 3_200_000, 12, "");
@@ -300,8 +345,8 @@ function buyEquipRows(p) {
       }
       if (p.furn === "BASIC") {
         equip(num, "", "Giường", 4_000_000, 12, `NT cơ bản phòng ${num}`);
-        if (i % 2 === 1) equip(num, "", "Quạt", 750_000, 12, `Quạt phòng ${num}`);
-        else equip(num, "", "Điều hòa", 8_500_000, 24, `ĐH phòng ${num}`);
+        equip(num, "", "Quạt", 750_000, 12, `Quạt phòng ${num}`);
+        if (i % 2 === 1) equip(num, "", "Điều hòa", 8_500_000, 24, `ĐH phòng ${num}`);
       } else {
         // FULL
         equip(num, "", "Giường", 4_500_000, 12, `Giường phòng ${num}`);
