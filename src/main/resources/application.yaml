@@ -143,8 +143,10 @@ contract:
   # Quá N ngày kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show)
   no-show-grace-days: 10
 
-# Mã passcode admin cho phép manager nhập chỉ số thủ công (không chụp ảnh)
+# Meter override: admin gen OTP passcode → manager verify 1 lần → overrideToken
 manager:
   override:
-    passcode: ${MANAGER_OVERRIDE_PASSCODE:}
+    # TTL mã admin gen (phút), mặc định 10
+    passcode-ttl-minutes: ${MANAGER_OVERRIDE_PASSCODE_TTL_MINUTES:10}
+    # TTL overrideToken sau verify (phút), mặc định 15
     ttl-minutes: ${MANAGER_OVERRIDE_TTL_MINUTES:15}

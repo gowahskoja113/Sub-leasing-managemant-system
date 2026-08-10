@@ -1,7 +1,6 @@
 package com.sep490.slms2026.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.*;
 
 @Getter
@@ -14,7 +13,10 @@ public class MeterOverrideVerifyRequest {
     @NotBlank
     private String passcode;
 
-    @NotNull
+    /**
+     * Optional — null khi manager đang đón khách mới (HĐ chưa tạo ở bước chỉ số).
+     * Có contractId thì BE verify HĐ tồn tại và gắn token vào HĐ đó.
+     */
     private Long contractId;
 
     /** ELEC | WATER */

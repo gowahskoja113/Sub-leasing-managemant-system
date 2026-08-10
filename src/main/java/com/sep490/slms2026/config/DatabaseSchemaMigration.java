@@ -95,6 +95,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropNotNullIfExists("tenant_invoices", "tenant_user_id");
         dropNotNullIfExists("tenant_payments", "tenant_user_id");
         ensureMeterOverrideTables();
+        // Onboarding: token xin trước khi HĐ tạo → contract_id được null
+        dropNotNullIfExists("meter_override_tokens", "contract_id");
+        ensureMeterOverridePasscodesTable();
         // OCR split config per room (default điện 5+1, nước 5+3)
         addColumnIfNotExists("rooms", "elec_integer_digits", "INTEGER DEFAULT 5");
         addColumnIfNotExists("rooms", "elec_decimal_digits", "INTEGER DEFAULT 1");
@@ -761,7 +764,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 id BIGSERIAL PRIMARY KEY,
                 token UUID NOT NULL UNIQUE,
                 manager_id UUID NOT NULL,
-                contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                contract_id BIGINT REFERENCES tenant_contracts(id),
                 meter_kind VARCHAR(20) NOT NULL,
                 expires_at TIMESTAMP NOT NULL,
                 used_at TIMESTAMP,
@@ -785,6 +788,29 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 fail_count INT NOT NULL DEFAULT 0,
                 locked_until TIMESTAMP
                 """);
+    }
+
+    /** Admin-generated one-time passcodes (OTP style). */
+    private void ensureMeterOverridePasscodesTable() {
+        createTableIfNotExists(
+                "meter_override_passcodes",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                code VARCHAR(16) NOT NULL,
+                created_by UUID NOT NULL,
+                note TEXT,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                used_by UUID,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        // Index giúp tra cứu mã còn sống
+        try {
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_meter_override_passcodes_code ON meter_override_passcodes(code)");
+        } catch (Exception ignored) {
+            // already exists / concurrent
+        }
     }
 
     private void alterColumnToUuidIfBigint(String table, String column) {

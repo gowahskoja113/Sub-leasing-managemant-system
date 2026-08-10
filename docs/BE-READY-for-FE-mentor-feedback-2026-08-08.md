@@ -130,14 +130,53 @@ FE (Onboarding / meterPhoto):
 
 ## 4. N3 — Meter override passcode (ý 5)
 
-### Verify
+### Cơ chế (OTP do admin gen — không còn mã env cố định)
+
+```text
+Manager kẹt (không chụp được) → gọi admin
+Admin: POST /api/v1/admin/meter-override/passcodes  →  mã 6 số, TTL ~10'
+Admin gửi mã cho manager (chat/điện thoại)
+Manager: POST /api/v1/manager/meter-override/verify  + mã đó
+  → mã OTP chết ngay (1 lần)
+  → nhận overrideToken (UUID, TTL ~15', 1 lần dùng lúc submit chỉ số)
+Submit onboard kèm overrideToken + reason
+```
+
+### Admin gen mã
+
+```http
+POST /api/v1/admin/meter-override/passcodes
+Authorization: Bearer <admin>
+{ "ttlMinutes": 10, "note": "Manager An — P.302" }   // body optional
+```
+
+**200**
+
+```json
+{
+  "id": 1,
+  "code": "482910",
+  "expiresAt": "…",
+  "usable": true,
+  "message": "Gửi mã này cho manager. Mã dùng 1 lần, hết hạn sau 10 phút."
+}
+```
+
+```http
+GET /api/v1/admin/meter-override/passcodes?activeOnly=true
+```
+
+Env: `MANAGER_OVERRIDE_PASSCODE_TTL_MINUTES` (mặc định 10), `MANAGER_OVERRIDE_TTL_MINUTES` (token sau verify, mặc định 15).  
+**Không còn** `MANAGER_OVERRIDE_PASSCODE` cố định.
+
+### Manager verify
 
 ```http
 POST /api/v1/manager/meter-override/verify
 {
-  "passcode": "…",
-  "contractId": 42,
-  "meterKind": "ELEC"   // hoặc WATER; ELECTRIC/ELECTRICITY cũng accept → ELEC
+  "passcode": "482910",
+  "contractId": null,   // null khi đang đón khách mới (HĐ chưa tạo)
+  "meterKind": "ELEC"   // hoặc WATER
 }
 ```
 
@@ -147,12 +186,12 @@ POST /api/v1/manager/meter-override/verify
 {
   "valid": true,
   "overrideToken": "uuid",
-  "expiresAt": "2026-08-08T18:00:00",
+  "expiresAt": "…",
   "message": "OK"
 }
 ```
 
-**403** `{ "valid": false, "message": "Mã không đúng…" }`  
+**403** `{ "valid": false, "message": "Mã không đúng hoặc đã hết hạn…" }`  
 **429** lock 5 phút sau 5 lần sai.
 
 ### Gửi kèm khi onboard / update draft
@@ -178,7 +217,7 @@ Reason bắt buộc. Token one-time, TTL default 15 phút (`MANAGER_OVERRIDE_TTL
 GET /api/v1/admin/meter-overrides
 ```
 
-Env demo: `MANAGER_OVERRIDE_PASSCODE` (xem `.env` server).
+Env: `MANAGER_OVERRIDE_PASSCODE_TTL_MINUTES` / `MANAGER_OVERRIDE_TTL_MINUTES` (admin gen OTP; không còn mật khẩu env cố định).
 
 ### UI gợi ý
 
@@ -376,7 +415,7 @@ curl -X POST https://exp.host/--/api/v2/push/send \
 ## Liên hệ BE nếu
 
 - Webhook PayOS local không bắn → cần tunnel / manual complete (hỏi BE script).  
-- Passcode 403 "Chưa cấu hình MANAGER_OVERRIDE_PASSCODE" → set env server.  
+- Passcode 403 "Mã không đúng hoặc đã hết hạn" → admin gen mã mới (`POST /admin/meter-override/passcodes`).
 - `items` rỗng trên hóa đơn cũ không có `note ONBOARD|` → chỉ áp dụng HĐ/payment sau bản BE này + seed mới.
 
 **BE sẵn sàng cho FE cập nhật theo checklist §10.**

@@ -26,7 +26,8 @@ public class MeterOverrideToken implements Serializable {
     @Column(name = "manager_id", nullable = false)
     private UUID managerId;
 
-    @Column(name = "contract_id", nullable = false)
+    /** Null khi token xin giữa luồng đón khách (HĐ chưa tạo). */
+    @Column(name = "contract_id")
     private Long contractId;
 
     /** ELEC | WATER */
