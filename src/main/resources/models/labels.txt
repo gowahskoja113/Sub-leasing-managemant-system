@@ -15,7 +15,7 @@ wardrobe
 table
 curtain
 toilet
-light
+light fixture
 door
 
 # --- 1 bối cảnh trong nhà (luật 4 validateEquipmentPhoto) ---

@@ -89,7 +89,7 @@ vision:
     intra-op-threads: 1
   max-results: 20
   # Chỉ đếm khi gọi Google (local không tốn quota)
-  rate-limit-per-hour: 20
+  rate-limit-per-hour: ${VISION_RATE_LIMIT_PER_HOUR:20}
   # Chỉ cho phép ảnh từ domain Cloudinary hệ thống (tránh proxy đọc ảnh ngoài)
   allowed-image-hosts: ${VISION_ALLOWED_IMAGE_HOSTS:res.cloudinary.com}
 
