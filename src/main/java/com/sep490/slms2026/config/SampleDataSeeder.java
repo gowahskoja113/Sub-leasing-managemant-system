@@ -27,11 +27,12 @@ import java.util.stream.Collectors;
  * {@code docs/SLMS2026_import_tenant_draft_contracts.xlsx}.</p>
  *
  * <p>Mật khẩu mặc định: <b>123456</b>.</p>
- * <p>Tài khoản: admin01–02, owner01–06, manager01–05, tenant01–36.</p>
+ * <p>Tài khoản: admin01–02, owner01–06, manager01–05;
+ * tenant login bằng <b>SĐT</b> ({@code 0904000001}…{@code 0904000036}), không còn {@code tenant01}…</p>
  * <p>Tenant chỉ có tài khoản — chưa gán hợp đồng / chưa thuê nhà.</p>
  *
  * <p>Chạy sau {@link MasterDataSeeder} (@Order 1) và {@link ZoneDataSeeder} (@Order 2).
- * Idempotent: có {@code manager01} thì bỏ qua full seed; thiếu tenant36 thì bổ sung tenant.</p>
+ * Idempotent: có {@code manager01} thì bỏ qua full seed; thiếu tenant cuối (SĐT) thì bổ sung tenant.</p>
  */
 @Slf4j
 @Component
@@ -58,14 +59,14 @@ public class SampleDataSeeder implements ApplicationRunner {
             return;
         }
 
-        // DB cũ: bảo đảm đủ tenant01..28, không seed BĐS/HĐ
-        if (!userRepository.existsByUsername(String.format("tenant%02d", TENANT_COUNT))) {
+        // DB cũ: bảo đảm đủ tenant (username = SĐT 0904xxxxxx), không seed BĐS/HĐ
+        if (!userRepository.existsByUsername(tenantPhone(TENANT_COUNT))) {
             try {
                 List<Zone> districts = loadDistrictZones();
                 seedManagers(5, districts);
                 int created = seedTenants(TENANT_COUNT).size();
-                log.info("SampleDataSeeder: bổ sung tenant (đến tenant{}), tạo/đọc được {} user. Không seed BĐS.",
-                        String.format("%02d", TENANT_COUNT), created);
+                log.info("SampleDataSeeder: bổ sung tenant (đến {}), tạo/đọc được {} user. Không seed BĐS.",
+                        tenantPhone(TENANT_COUNT), created);
             } catch (Exception e) {
                 log.warn("SampleDataSeeder expand tenants thất bại (bỏ qua): {}", e.getMessage());
             }
@@ -166,10 +167,13 @@ public class SampleDataSeeder implements ApplicationRunner {
     private List<User> seedTenants(int n) {
         List<User> tenants = new ArrayList<>();
         for (int i = 1; i <= n; i++) {
-            String username = String.format("tenant%02d", i);
-            String phone = String.format("0904%06d", i);
+            // Login tenant = số điện thoại (0904000001 …)
+            String phone = tenantPhone(i);
+            String username = phone;
             if (userRepository.existsByUsername(username) || userRepository.existsByPhoneNumber(phone)) {
-                userRepository.findByUsername(username).ifPresent(tenants::add);
+                userRepository.findByUsername(username)
+                        .or(() -> userRepository.findByPhoneNumber(phone))
+                        .ifPresent(tenants::add);
                 continue;
             }
             User u = newUser(username, phone, fullNameByIndex(i + 9), Role.ROLE_TENANT);
@@ -181,6 +185,11 @@ public class SampleDataSeeder implements ApplicationRunner {
             if (saved != null) tenants.add(saved);
         }
         return tenants;
+    }
+
+    /** SĐT demo tenant i (1-based): 0904000001, 0904000002, … — đồng thời là username. */
+    private static String tenantPhone(int index) {
+        return String.format("0904%06d", index);
     }
 
     private User saveQuietly(User u, String username) {
