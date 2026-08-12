@@ -48,6 +48,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/api/v1/user/register",
                                 "/api/v1/payos/webhook",
+                                "/ws/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"

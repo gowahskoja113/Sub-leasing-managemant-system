@@ -10,6 +10,7 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
+import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
@@ -38,6 +39,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final PayosService payosService;
     private final PropertyAccessService propertyAccessService;
+    private final RealtimeEventService realtimeEventService;
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
@@ -99,7 +101,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             String payosStatus = payosService.getPaymentStatus(invoice.getPayosOrderCode());
             if ("PAID".equalsIgnoreCase(payosStatus)) {
                 markPaid(invoice, "QR", "VQR-" + invoice.getPayosOrderCode());
-                invoice = tenantInvoiceRepository.save(invoice);
+                invoice = saveAndPublishPaidInvoice(invoice);
             } else {
                 createBankTransferClaim(invoice, null);
             }
@@ -122,7 +124,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         claim.setVerifiedBy(verifiedBy);
         tenantPaymentClaimRepository.save(claim);
         markPaid(invoice, claim.getMethod(), "CLAIM-" + claim.getId());
-        tenantInvoiceRepository.save(invoice);
+        saveAndPublishPaidInvoice(invoice);
     }
 
     @Override
@@ -167,7 +169,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         tenantInvoiceRepository.findByPayosOrderCode(payosOrderCode).ifPresent(invoice -> {
             if (invoice.getStatus() != TenantInvoiceStatus.PAID) {
                 markPaid(invoice, "QR", "VQR-" + payosOrderCode);
-                tenantInvoiceRepository.save(invoice);
+                saveAndPublishPaidInvoice(invoice);
                 log.info("Đã ghi nhận thanh toán hóa đơn tenant orderCode={}", payosOrderCode);
             }
         });
@@ -470,6 +472,12 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .build());
+    }
+
+    private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice) {
+        TenantInvoice savedInvoice = tenantInvoiceRepository.save(invoice);
+        realtimeEventService.publishInvoicePaid(savedInvoice);
+        return savedInvoice;
     }
 
     private TenantInvoice loadOwnedInvoice(Long invoiceId, UUID tenantUserId) {
