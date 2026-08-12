@@ -91,6 +91,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "deposit_paid_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "deposit_method", "VARCHAR(50)");
         addColumnIfNotExists("tenant_contracts", "activated_at", "TIMESTAMP");
+        // Snapshot số tiền QR onboard — hoá đơn webhook khớp số đã quét
+        addColumnIfNotExists("tenant_contracts", "onboard_qr_amount", "NUMERIC(19, 2)");
+        addColumnIfNotExists("tenant_contracts", "onboard_qr_deposit_amount", "NUMERIC(19, 2)");
+        addColumnIfNotExists("tenant_contracts", "onboard_qr_first_rent_amount", "NUMERIC(19, 2)");
         addColumnIfNotExists("properties", "manager_accepted_at", "TIMESTAMP");
         dropNotNullIfExists("tenant_invoices", "tenant_user_id");
         dropNotNullIfExists("tenant_payments", "tenant_user_id");

@@ -45,4 +45,9 @@ public class TenantInvoiceResponse {
     private String payosQrCode;
     private Long payosOrderCode;
     private Boolean autoIssued;
+    /**
+     * true nếu tiền nhà chu kỳ đầu đã thu cùng QR onboard ({@code onboardPaid=true} trong note),
+     * hoặc đây là hoá đơn {@code HD-ONBOARD-*}. FE gắn nhãn "đã thu lúc nhận nhà".
+     */
+    private Boolean onboardPaid;
 }

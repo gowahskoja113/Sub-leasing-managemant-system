@@ -223,6 +223,8 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .transactionId(invoice.getTransactionId())
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
+                .onboardPaid(invoice.getNote() != null
+                        && (invoice.getNote().contains("onboardPaid=true") || invoice.getNote().startsWith("ONBOARD|")))
                 .build();
 
         if (includeItems) {

@@ -42,4 +42,8 @@ public class ManagerInvoiceResponse {
      * Manager RENT: vẫn có structure/formula text nhưng số tiền đã mask null theo policy.
      */
     private PaymentBreakdownResponse paymentBreakdown;
+    /**
+     * true nếu đã thu cùng QR onboard (FIRST {@code onboardPaid=true} hoặc hoá đơn HD-ONBOARD).
+     */
+    private Boolean onboardPaid;
 }

@@ -19,8 +19,8 @@ public interface TenantOnboardingService {
     TenantContractResponse getContract(Long contractId);
 
     /**
-     * Tạo link/QR thanh toán onboard qua PayOS (cọc + tiền nhà pro-rata chu kỳ đầu).
-     * Tiền nhà pro-rata phát hành sau khi HĐ ACTIVE để tenant thanh toán trên app.
+     * Tạo link/QR thanh toán onboard qua PayOS (cọc + tiền nhà chu kỳ đầu trên một QR).
+     * Sau khi thanh toán thành công, BE ghi nhận hoá đơn onboard + FIRST RENT (PAID) nếu có tiền nhà.
      */
     TenantContractResponse createDepositPayment(Long contractId);
 

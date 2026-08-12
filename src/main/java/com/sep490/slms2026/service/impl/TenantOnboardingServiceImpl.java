@@ -43,6 +43,7 @@ import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
+import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.PhoneUtils;
@@ -94,6 +95,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final MeterOverrideService meterOverrideService;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+    private final RealtimeEventService realtimeEventService;
 
     @Override
     @Transactional
@@ -309,7 +311,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 && resolvedDeposit.compareTo(BigDecimal.ZERO) > 0) {
             contract.setDeposit(resolvedDeposit);
         }
-        BigDecimal total = TenantContractPaymentAmounts.resolveInitialPaymentAmount(contract);
+        BigDecimal deposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
+        BigDecimal firstRent = TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
+        BigDecimal total = deposit.add(firstRent);
         long amount = total.longValue();
         if (amount <= 0) {
             throw new BusinessException("Số tiền thanh toán onboard không hợp lệ");
@@ -320,6 +324,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         contract.setPayosOrderCode(link.orderCode);
         contract.setPaymentStatus(PaymentStatus.PENDING);
+        // Snapshot để webhook ghi hoá đơn đúng số đã quét (không tính lại nếu HĐ bị sửa sau).
+        contract.setOnboardQrAmount(total);
+        contract.setOnboardQrDepositAmount(deposit);
+        contract.setOnboardQrFirstRentAmount(firstRent);
         tenantContractRepository.save(contract);
 
         TenantContractResponse res = toResponse(contract);
@@ -466,10 +474,16 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return false;
         }
 
-        BigDecimal deposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
-        BigDecimal firstRentAmount = TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
+        BigDecimal deposit = contract.getOnboardQrDepositAmount() != null
+                ? contract.getOnboardQrDepositAmount()
+                : TenantContractPaymentAmounts.resolveDepositAmount(contract);
+        BigDecimal firstRentAmount = contract.getOnboardQrFirstRentAmount() != null
+                ? contract.getOnboardQrFirstRentAmount()
+                : TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
         RentFirstCycleCalculator.Result firstRent = TenantContractPaymentAmounts.resolveFirstRentCycle(contract);
-        BigDecimal grandTotal = deposit.add(firstRentAmount);
+        BigDecimal grandTotal = contract.getOnboardQrAmount() != null
+                ? contract.getOnboardQrAmount()
+                : deposit.add(firstRentAmount);
         UUID tenantUserId = resolveTenantUserId(contract);
         String propertyName = contract.getProperty() != null ? contract.getProperty().getPropertyName() : "";
         String roomNumber = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null;
@@ -527,6 +541,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomNumber(roomNumber)
                 .build());
 
+        realtimeEventService.publishInvoicePaid(invoice);
         tenantBillingService.recordPaidFirstRentFromOnboard(contract, payosOrderCode, method, paidAt);
         return true;
     }
@@ -747,6 +762,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPriceApprovalStatus() != com.sep490.slms2026.enums.PriceApprovalStatus.PRICE_REJECTED &&
             contract.getPriceApprovalStatus() != com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL) {
             throw new BusinessException("Hợp đồng không ở trạng thái có thể gửi duyệt lại");
+        }
+        if (contract.getPayosOrderCode() != null && contract.getPaymentStatus() == PaymentStatus.PENDING) {
+            throw new BusinessException(
+                    "Đang có QR thanh toán onboard PENDING — hủy/tạo lại QR trước khi sửa giá, hoặc đợi thanh toán xong");
+        }
+        if (contract.getPaymentStatus() == PaymentStatus.PAID) {
+            throw new BusinessException("Hợp đồng đã thanh toán onboard, không thể gửi duyệt lại giá");
         }
         contract.setRentAmount(request.getRentAmount());
         contract.setDeposit(request.getDeposit());

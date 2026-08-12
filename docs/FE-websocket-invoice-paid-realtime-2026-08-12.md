@@ -204,7 +204,8 @@ Nếu không nhận event:
 
 ## 10. Ngoài phạm vi (chưa làm)
 
-- Realtime thanh toán **cọc** (`markDepositPaid`)
 - Realtime tạo hóa đơn mới / quá hạn
 - Mobile tenant subscribe socket
 - SockJS fallback
+
+> **Cập nhật 12/08/2026:** Realtime thanh toán **cọc / onboard** (`markDepositPaid`) đã bắn `INVOICE_PAID` cho hoá đơn `HD-ONBOARD-*` và FIRST RENT (nếu có) — cùng format event hiện tại.

@@ -115,6 +115,19 @@ public class TenantContract implements Serializable {
     @Column(name = "payos_order_code")
     private Long payosOrderCode;
 
+    /**
+     * Snapshot tổng tiền QR onboard lúc tạo link PayOS (cọc + first rent).
+     * Dùng lại khi webhook PAID để hoá đơn khớp số đã quét, không tính lại từ HĐ.
+     */
+    @Column(name = "onboard_qr_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrAmount;
+
+    @Column(name = "onboard_qr_deposit_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrDepositAmount;
+
+    @Column(name = "onboard_qr_first_rent_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrFirstRentAmount;
+
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 

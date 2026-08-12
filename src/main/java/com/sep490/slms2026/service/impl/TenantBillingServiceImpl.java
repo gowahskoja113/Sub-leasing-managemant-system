@@ -282,19 +282,36 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
     
     /**
-     * Phát hành hoá đơn tiền nhà lần đầu (sau onboard ACTIVE): pro-rata theo số ngày còn lại của tháng.
-     * VD: tháng 30 ngày, vào ngày 25 → (rent/30) × 6 ngày (tính cả ngày vào ở).
-     * Vào ≤ 3 ngày cuối tháng → gộp vào hoá đơn tháng sau (cron ngày 1).
+     * Sau khi HĐ ACTIVE: phát hành tiền nhà tháng hiện tại nếu chưa có.
+     * <ul>
+     *   <li>startDate thuộc tháng hiện tại → hoá đơn FIRST (pro-rata/full), bỏ qua nếu đã thu qua QR onboard cùng tháng.</li>
+     *   <li>startDate thuộc tháng trước → catch-up REGULAR tháng hiện tại (cron ngày 1 đã bỏ qua vì HĐ chưa ACTIVE).</li>
+     * </ul>
      */
     @Transactional
     public void generateProratedRentForNewContract(TenantContract contract) {
         if (contract == null || contract.getTenant() == null || contract.getRentAmount() == null) {
             return;
         }
-        if (hasFirstRentPaidViaOnboard(contract.getId())) {
+        YearMonth currentMonth = YearMonth.now();
+        LocalDate anchor = contract.getStartDate() != null ? contract.getStartDate() : contract.getMoveInDate();
+        YearMonth firstCycleMonth = anchor != null ? YearMonth.from(anchor) : currentMonth;
+
+        if (firstCycleMonth.isAfter(currentMonth)) {
+            // startDate tháng tương lai — tiền nhà đã (hoặc sẽ) thu qua QR onboard; không phát tháng hiện tại.
             return;
         }
-        YearMonth currentMonth = YearMonth.now();
+
+        if (firstCycleMonth.isBefore(currentMonth)) {
+            // Đã qua tháng chu kỳ đầu (thường đã PAID qua onboard) → bù full tháng hiện tại nếu cron miss.
+            issueRegularRentIfAbsent(contract, currentMonth);
+            return;
+        }
+
+        // firstCycleMonth == currentMonth
+        if (hasFirstRentPaidViaOnboardForMonth(contract.getId(), currentMonth)) {
+            return;
+        }
         var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
             contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
         if (existing.isPresent()) {
@@ -338,6 +355,41 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .build());
     }
 
+    private void issueRegularRentIfAbsent(TenantContract contract, YearMonth billingMonth) {
+        var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                contract.getId(), TenantInvoiceType.RENT, billingMonth.getYear(), billingMonth.getMonthValue());
+        if (existing.isPresent()) {
+            return;
+        }
+        BigDecimal amount = contract.getRentAmount();
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        String periodLabel = "Tiền nhà tháng " + String.format("%02d/%d",
+                billingMonth.getMonthValue(), billingMonth.getYear());
+        tenantInvoiceRepository.save(TenantInvoice.builder()
+                .code("HD-RENT-" + contract.getId() + "-" + billingMonth)
+                .tenantUserId(contract.getTenant().getId())
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.REGULAR)
+                .propertyName(contract.getProperty().getPropertyName())
+                .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber()
+                        : contract.getProperty().getPropertyName())
+                .billingMonth(billingMonth.getMonthValue())
+                .billingYear(billingMonth.getYear())
+                .billingPeriod(periodLabel)
+                .note("REGULAR|catchUpAfterOnboard=true|rentAmount=" + amount.toPlainString())
+                .totalAmount(amount)
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(amount)
+                .status(TenantInvoiceStatus.PENDING)
+                .dueDate(LocalDate.now().plusDays(firstCycleGraceDays))
+                .createdAt(LocalDateTime.now())
+                .autoIssued(true)
+                .build());
+    }
+
     @Override
     @Transactional
     public void recordPaidFirstRentFromOnboard(TenantContract contract, Long payosOrderCode, String method,
@@ -345,7 +397,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         if (contract == null || contract.getRentAmount() == null) {
             return;
         }
-        BigDecimal firstRentAmount = TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
+        BigDecimal firstRentAmount = contract.getOnboardQrFirstRentAmount() != null
+                ? contract.getOnboardQrFirstRentAmount()
+                : TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
         if (firstRentAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
@@ -365,7 +419,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         }
 
         UUID tenantUserId = contract.getTenant() != null ? contract.getTenant().getId() : null;
-        tenantInvoiceRepository.save(TenantInvoice.builder()
+        saveAndPublishPaidInvoice(TenantInvoice.builder()
                 .code("HD-RENT-" + contract.getId() + "-" + billingMonth)
                 .tenantUserId(tenantUserId)
                 .tenantContract(contract)
@@ -397,18 +451,27 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .build());
     }
 
-    private boolean hasFirstRentPaidViaOnboard(Long contractId) {
-        return tenantInvoiceRepository.findByCode("HD-ONBOARD-" + contractId)
-                .filter(inv -> inv.getStatus() == TenantInvoiceStatus.PAID)
-                .map(inv -> parseOnboardFirstRentAmount(inv.getNote()))
-                .filter(amt -> amt.compareTo(BigDecimal.ZERO) > 0)
-                .isPresent()
-                || tenantInvoiceRepository.findByTenantContractId(contractId).stream()
+    /**
+     * Chỉ chặn phát hành FIRST của đúng tháng đã thu qua onboard — không chặn tháng khác.
+     */
+    private boolean hasFirstRentPaidViaOnboardForMonth(Long contractId, YearMonth ym) {
+        boolean paidFirstInvoice = tenantInvoiceRepository.findByTenantContractId(contractId).stream()
                 .anyMatch(inv -> inv.getInvoiceType() == TenantInvoiceType.RENT
                         && inv.getCycleType() == RentCycleType.FIRST
                         && inv.getStatus() == TenantInvoiceStatus.PAID
                         && inv.getNote() != null
-                        && inv.getNote().contains("onboardPaid=true"));
+                        && inv.getNote().contains("onboardPaid=true")
+                        && ym.getYear() == (inv.getBillingYear() != null ? inv.getBillingYear() : -1)
+                        && ym.getMonthValue() == (inv.getBillingMonth() != null ? inv.getBillingMonth() : -1));
+        if (paidFirstInvoice) {
+            return true;
+        }
+        return tenantInvoiceRepository.findByCode("HD-ONBOARD-" + contractId)
+                .filter(inv -> inv.getStatus() == TenantInvoiceStatus.PAID)
+                .filter(inv -> parseOnboardFirstRentAmount(inv.getNote()).compareTo(BigDecimal.ZERO) > 0)
+                .map(inv -> parseOnboardPeriodStartMonth(inv.getNote()))
+                .filter(ym::equals)
+                .isPresent();
     }
 
     private static BigDecimal parseOnboardFirstRentAmount(String note) {
@@ -425,6 +488,30 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             }
         }
         return BigDecimal.ZERO;
+    }
+
+    private static YearMonth parseOnboardPeriodStartMonth(String note) {
+        if (note == null) {
+            return null;
+        }
+        for (String part : note.split("\\|")) {
+            if (part.startsWith("periodStart=")) {
+                try {
+                    return YearMonth.from(LocalDate.parse(part.substring("periodStart=".length()).trim()));
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    static boolean isOnboardPaidInvoice(TenantInvoice invoice) {
+        if (invoice == null || invoice.getNote() == null) {
+            return false;
+        }
+        String note = invoice.getNote();
+        return note.contains("onboardPaid=true") || note.startsWith("ONBOARD|");
     }
 
     @Override
@@ -638,6 +725,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosOrderCode(invoice.getPayosOrderCode())
                 .autoIssued(invoice.getAutoIssued())
+                .onboardPaid(isOnboardPaidInvoice(invoice))
                 .build();
     }
 
