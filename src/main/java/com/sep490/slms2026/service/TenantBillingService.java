@@ -8,6 +8,7 @@ import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.entity.TenantPaymentClaim;
 import com.sep490.slms2026.entity.UtilityInvoice;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,4 +37,10 @@ public interface TenantBillingService {
     List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month);
 
     void generateProratedRentForNewContract(TenantContract contract);
+
+    /**
+     * Ghi nhận tiền nhà chu kỳ đầu đã thu gộp QR onboard (PAID, không tạo TenantPayment riêng).
+     */
+    void recordPaidFirstRentFromOnboard(TenantContract contract, Long payosOrderCode, String method,
+                                        LocalDateTime paidAt);
 }

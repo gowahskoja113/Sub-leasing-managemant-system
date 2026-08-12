@@ -56,14 +56,16 @@ class RentFirstCycleCalculatorTest {
     }
 
     @Test
-    void depositBreakdown_onlyDeposit() {
+    void onboardBreakdown_depositPlusProRata() {
         TenantContract c = TenantContract.builder()
                 .rentAmount(new BigDecimal("5000000"))
                 .depositMonths(2)
+                .moveInDate(LocalDate.of(2026, 4, 25))
+                .startDate(LocalDate.of(2026, 4, 25))
                 .build();
         var b = PaymentBreakdownBuilder.forDepositOnboard(c);
         assertEquals("DEPOSIT_ONBOARD", b.getKind());
-        assertEquals(0, new BigDecimal("10000000").compareTo(b.getTotalAmount()));
+        assertEquals(0, new BigDecimal("11000000").compareTo(b.getTotalAmount()));
         assertNotNull(b.getFormula());
         assertFalse(b.getLines().isEmpty());
     }

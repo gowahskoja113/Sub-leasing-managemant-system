@@ -65,7 +65,7 @@ public class TenantContractResponse {
     private BigDecimal rentAmount;
     private BigDecimal deposit;
     /**
-     * Tổng phải thanh toán lúc onboard: chỉ tiền cọc
+     * Tổng phải thanh toán lúc onboard: tiền cọc + tiền nhà pro-rata chu kỳ đầu (một QR).
      * (deposit, hoặc rentAmount × depositMonths nếu deposit trống).
      * VD: thuê 5tr, cọc 2 tháng → 10tr. Tiền nhà pro-rata trả trên app sau khi ACTIVE.
      */

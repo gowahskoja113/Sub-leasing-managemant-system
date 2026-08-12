@@ -15,6 +15,7 @@ import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
+import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -290,6 +291,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         if (contract == null || contract.getTenant() == null || contract.getRentAmount() == null) {
             return;
         }
+        if (hasFirstRentPaidViaOnboard(contract.getId())) {
+            return;
+        }
         YearMonth currentMonth = YearMonth.now();
         var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
             contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
@@ -332,6 +336,95 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .createdAt(LocalDateTime.now())
                 .autoIssued(true)
                 .build());
+    }
+
+    @Override
+    @Transactional
+    public void recordPaidFirstRentFromOnboard(TenantContract contract, Long payosOrderCode, String method,
+                                               LocalDateTime paidAt) {
+        if (contract == null || contract.getRentAmount() == null) {
+            return;
+        }
+        BigDecimal firstRentAmount = TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
+        if (firstRentAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        LocalDate anchor = contract.getStartDate() != null ? contract.getStartDate() : contract.getMoveInDate();
+        YearMonth billingMonth = anchor != null ? YearMonth.from(anchor) : YearMonth.from(paidAt.toLocalDate());
+        var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                contract.getId(), TenantInvoiceType.RENT, billingMonth.getYear(), billingMonth.getMonthValue());
+        if (existing.isPresent()) {
+            return;
+        }
+
+        RentFirstCycleCalculator.Result r = TenantContractPaymentAmounts.resolveFirstRentCycle(contract);
+        String periodLabel = RentFirstCycleCalculator.periodLabel(r);
+        if (periodLabel == null) {
+            periodLabel = "Tiền nhà tháng " + String.format("%02d/%d",
+                    billingMonth.getMonthValue(), billingMonth.getYear());
+        }
+
+        UUID tenantUserId = contract.getTenant() != null ? contract.getTenant().getId() : null;
+        tenantInvoiceRepository.save(TenantInvoice.builder()
+                .code("HD-RENT-" + contract.getId() + "-" + billingMonth)
+                .tenantUserId(tenantUserId)
+                .tenantContract(contract)
+                .invoiceType(TenantInvoiceType.RENT)
+                .cycleType(RentCycleType.FIRST)
+                .propertyName(contract.getProperty().getPropertyName())
+                .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber()
+                        : contract.getProperty().getPropertyName())
+                .billingMonth(billingMonth.getMonthValue())
+                .billingYear(billingMonth.getYear())
+                .billingPeriod(periodLabel)
+                .note("FIRST_CYCLE|onboardPaid=true|days=" + r.billedDays()
+                        + "|daysInMonth=" + r.daysInMonth()
+                        + "|rentAmount=" + contract.getRentAmount().toPlainString()
+                        + "|periodStart=" + r.periodStart()
+                        + "|periodEnd=" + r.periodEnd()
+                        + "|formula=" + (r.formula() != null ? r.formula().replace("|", "/") : ""))
+                .totalAmount(firstRentAmount)
+                .lateFee(BigDecimal.ZERO)
+                .grandTotal(firstRentAmount)
+                .status(TenantInvoiceStatus.PAID)
+                .dueDate(paidAt.toLocalDate())
+                .createdAt(paidAt)
+                .paidAt(paidAt)
+                .paymentMethod(method)
+                .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
+                .payosOrderCode(payosOrderCode)
+                .autoIssued(true)
+                .build());
+    }
+
+    private boolean hasFirstRentPaidViaOnboard(Long contractId) {
+        return tenantInvoiceRepository.findByCode("HD-ONBOARD-" + contractId)
+                .filter(inv -> inv.getStatus() == TenantInvoiceStatus.PAID)
+                .map(inv -> parseOnboardFirstRentAmount(inv.getNote()))
+                .filter(amt -> amt.compareTo(BigDecimal.ZERO) > 0)
+                .isPresent()
+                || tenantInvoiceRepository.findByTenantContractId(contractId).stream()
+                .anyMatch(inv -> inv.getInvoiceType() == TenantInvoiceType.RENT
+                        && inv.getCycleType() == RentCycleType.FIRST
+                        && inv.getStatus() == TenantInvoiceStatus.PAID
+                        && inv.getNote() != null
+                        && inv.getNote().contains("onboardPaid=true"));
+    }
+
+    private static BigDecimal parseOnboardFirstRentAmount(String note) {
+        if (note == null) {
+            return BigDecimal.ZERO;
+        }
+        for (String part : note.split("\\|")) {
+            if (part.startsWith("firstRentAmount=")) {
+                try {
+                    return new BigDecimal(part.substring("firstRentAmount=".length()).trim());
+                } catch (NumberFormatException e) {
+                    return BigDecimal.ZERO;
+                }
+            }
+        }
+        return BigDecimal.ZERO;
     }
 
     @Override

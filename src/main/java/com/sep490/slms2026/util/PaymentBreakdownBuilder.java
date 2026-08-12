@@ -24,24 +24,27 @@ public final class PaymentBreakdownBuilder {
     private PaymentBreakdownBuilder() {
     }
 
-    /** Cọc lúc onboard (QR PayOS). */
+    /** Cọc + tiền nhà pro-rata chu kỳ đầu — một QR PayOS lúc onboard. */
     public static PaymentBreakdownResponse forDepositOnboard(TenantContract contract) {
         if (contract == null) {
             return null;
         }
         BigDecimal rent = contract.getRentAmount() != null ? contract.getRentAmount() : BigDecimal.ZERO;
         BigDecimal deposit = TenantContractPaymentAmounts.resolveDepositAmount(contract);
+        RentFirstCycleCalculator.Result firstRent = TenantContractPaymentAmounts.resolveFirstRentCycle(contract);
+        BigDecimal firstRentAmount = TenantContractPaymentAmounts.resolveFirstRentAmount(contract);
         int months = contract.getDepositMonths() != null ? contract.getDepositMonths() : 0;
         boolean fromMonths = (contract.getDeposit() == null || contract.getDeposit().compareTo(BigDecimal.ZERO) <= 0)
                 && months > 0 && rent.compareTo(BigDecimal.ZERO) > 0;
 
-        String formula;
-        if (fromMonths) {
-            formula = String.format("%s × %d = %s",
-                    RentFirstCycleCalculator.formatVn(rent), months, RentFirstCycleCalculator.formatVn(deposit));
-        } else {
-            formula = RentFirstCycleCalculator.formatVn(deposit);
-        }
+        BigDecimal total = deposit.add(firstRentAmount);
+        String depositFormula = fromMonths
+                ? String.format("%s × %d = %s",
+                RentFirstCycleCalculator.formatVn(rent), months, RentFirstCycleCalculator.formatVn(deposit))
+                : RentFirstCycleCalculator.formatVn(deposit);
+        String formula = firstRentAmount.compareTo(BigDecimal.ZERO) > 0
+                ? depositFormula + " + " + (firstRent.formula() != null ? firstRent.formula() : RentFirstCycleCalculator.formatVn(firstRentAmount))
+                : depositFormula;
 
         List<PaymentBreakdownLineResponse> lines = new ArrayList<>();
         if (rent.compareTo(BigDecimal.ZERO) > 0) {
@@ -50,23 +53,56 @@ public final class PaymentBreakdownBuilder {
         if (months > 0) {
             lines.add(line("depositMonths", "Số tháng cọc", String.valueOf(months), null, "tháng"));
         }
-        lines.add(line("depositAmount", "Tiền cọc phải trả", RentFirstCycleCalculator.formatVn(deposit), deposit, "VND"));
-        lines.add(line("total", "Tổng QR onboard", RentFirstCycleCalculator.formatVn(deposit), deposit, "VND"));
+        lines.add(line("depositAmount", "Tiền cọc", RentFirstCycleCalculator.formatVn(deposit), deposit, "VND"));
+        if (firstRent.deferredToNextMonth()) {
+            lines.add(line("firstRentDeferred", "Tiền nhà chu kỳ đầu",
+                    "Gộp tháng sau (≤ " + RentFirstCycleCalculator.DEFER_THRESHOLD_DAYS + " ngày cuối tháng)",
+                    BigDecimal.ZERO, "VND"));
+        } else if (firstRentAmount.compareTo(BigDecimal.ZERO) > 0) {
+            if (firstRent.daysInMonth() > 0) {
+                lines.add(line("daysInMonth", "Số ngày trong tháng",
+                        String.valueOf(firstRent.daysInMonth()), null, "ngày"));
+            }
+            if (firstRent.billedDays() > 0) {
+                lines.add(line("billedDays", "Số ngày tính tiền nhà (gồm ngày vào ở)",
+                        String.valueOf(firstRent.billedDays()), null, "ngày"));
+            }
+            if (firstRent.periodStart() != null && firstRent.periodEnd() != null) {
+                lines.add(line("period", "Kỳ tiền nhà chu kỳ đầu",
+                        firstRent.periodStart().format(DAY_MONTH_YEAR) + " → "
+                                + firstRent.periodEnd().format(DAY_MONTH_YEAR),
+                        null, null));
+            }
+            lines.add(line("firstRentAmount", "Tiền nhà chu kỳ đầu",
+                    RentFirstCycleCalculator.formatVn(firstRentAmount), firstRentAmount, "VND"));
+        }
+        lines.add(line("total", "Tổng QR onboard", RentFirstCycleCalculator.formatVn(total), total, "VND"));
+
+        String explanation = firstRent.deferredToNextMonth()
+                ? "QR gồm tiền cọc. Tiền nhà vài ngày cuối tháng sẽ gộp vào hoá đơn tháng sau."
+                : (firstRentAmount.compareTo(BigDecimal.ZERO) > 0
+                ? "Một lần quét QR gồm tiền cọc và tiền nhà pro-rata chu kỳ đầu. "
+                + "Sau OTP xác nhận, không cần thanh toán tiền nhà lần 2 trên app."
+                : "QR chỉ gồm tiền cọc (chưa có tiền nhà chu kỳ đầu trong kỳ này).");
 
         return PaymentBreakdownResponse.builder()
                 .kind("DEPOSIT_ONBOARD")
-                .title("Tiền cọc lúc nhận nhà")
+                .title("Thanh toán lúc nhận nhà (cọc + tiền nhà)")
                 .formula(formula)
-                .explanation("Lúc onboard chỉ thu tiền cọc qua QR. "
-                        + "Tiền nhà tháng vào ở (pro-rata theo ngày) phát hành sau khi HĐ ACTIVE — thanh toán trên app, "
-                        + "không gộp trong QR cọc.")
-                .totalAmount(deposit)
+                .explanation(explanation)
+                .totalAmount(total)
                 .rentAmountMonthly(rent.compareTo(BigDecimal.ZERO) > 0 ? rent : null)
                 .depositMonths(months > 0 ? months : null)
                 .depositAmount(deposit)
-                .proRated(false)
-                .deferredToNextMonth(false)
-                .includesMoveInDay(null)
+                .dailyRate(firstRent.dailyRate() != null && firstRent.dailyRate().compareTo(BigDecimal.ZERO) > 0
+                        ? firstRent.dailyRate() : null)
+                .daysInMonth(firstRent.daysInMonth() > 0 ? firstRent.daysInMonth() : null)
+                .billedDays(firstRent.billedDays() > 0 ? firstRent.billedDays() : null)
+                .periodStart(firstRent.periodStart())
+                .periodEnd(firstRent.periodEnd())
+                .proRated(firstRent.proRated())
+                .deferredToNextMonth(firstRent.deferredToNextMonth())
+                .includesMoveInDay(firstRent.billedDays() > 0 ? true : null)
                 .lines(lines)
                 .build();
     }
@@ -119,7 +155,21 @@ public final class PaymentBreakdownBuilder {
         if (deposit == null) {
             deposit = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : BigDecimal.ZERO;
         }
-        BigDecimal rent = parseNoteAmount(invoice.getNote(), "rentAmount");
+        BigDecimal rentMonthly = parseNoteAmount(invoice.getNote(), "rentAmount");
+        BigDecimal firstRentAmount = parseNoteAmount(invoice.getNote(), "firstRentAmount");
+        if (firstRentAmount == null) {
+            // Legacy: rentAmount trong note = tiền nhà gộp onboard
+            BigDecimal legacyRent = parseNoteAmount(invoice.getNote(), "rentAmount");
+            if (legacyRent != null && legacyRent.compareTo(deposit) != 0
+                    && invoice.getGrandTotal() != null
+                    && invoice.getGrandTotal().compareTo(deposit) > 0) {
+                firstRentAmount = invoice.getGrandTotal().subtract(deposit);
+            }
+        }
+        Integer billedDays = parseNoteInt(invoice.getNote(), "billedDays");
+        Integer daysInMonth = parseNoteInt(invoice.getNote(), "daysInMonth");
+        LocalDate periodStart = parseNoteDate(invoice.getNote(), "periodStart");
+        LocalDate periodEnd = parseNoteDate(invoice.getNote(), "periodEnd");
         String monthsRaw = parseNoteRaw(invoice.getNote(), "depositMonths");
         Integer months = null;
         try {
@@ -130,39 +180,54 @@ public final class PaymentBreakdownBuilder {
             // keep null
         }
 
-        // Data cũ: note có rentAmount > 0 gộp tháng đầu + cọc
-        boolean legacyWithRent = rent != null && rent.compareTo(BigDecimal.ZERO) > 0;
+        boolean hasFirstRent = firstRentAmount != null && firstRentAmount.compareTo(BigDecimal.ZERO) > 0;
         List<PaymentBreakdownLineResponse> lines = new ArrayList<>();
-        if (legacyWithRent) {
-            lines.add(line("rentAmount", "Tiền nhà tháng đầu (legacy)", RentFirstCycleCalculator.formatVn(rent), rent, "VND"));
+        if (rentMonthly != null && rentMonthly.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line("rentAmount", "Giá thuê / tháng",
+                    RentFirstCycleCalculator.formatVn(rentMonthly), rentMonthly, "VND"));
         }
         if (months != null) {
             lines.add(line("depositMonths", "Số tháng cọc", String.valueOf(months), null, "tháng"));
         }
         lines.add(line("depositAmount", "Tiền cọc", RentFirstCycleCalculator.formatVn(deposit), deposit, "VND"));
-        lines.add(line("total", "Tổng đã thu",
-                RentFirstCycleCalculator.formatVn(invoice.getGrandTotal() != null ? invoice.getGrandTotal() : deposit),
-                invoice.getGrandTotal() != null ? invoice.getGrandTotal() : deposit,
-                "VND"));
+        if (hasFirstRent) {
+            if (periodStart != null && periodEnd != null) {
+                lines.add(line("period", "Kỳ tiền nhà chu kỳ đầu",
+                        periodStart.format(DAY_MONTH_YEAR) + " → " + periodEnd.format(DAY_MONTH_YEAR),
+                        null, null));
+            }
+            lines.add(line("firstRentAmount", "Tiền nhà chu kỳ đầu",
+                    RentFirstCycleCalculator.formatVn(firstRentAmount), firstRentAmount, "VND"));
+        }
+        BigDecimal total = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : deposit;
+        lines.add(line("total", "Tổng đã thu", RentFirstCycleCalculator.formatVn(total), total, "VND"));
 
-        String formula = legacyWithRent
-                ? RentFirstCycleCalculator.formatVn(rent) + " + " + RentFirstCycleCalculator.formatVn(deposit)
-                : (months != null && rent != null
-                ? String.format("%s × %d", RentFirstCycleCalculator.formatVn(rent), months)
-                : RentFirstCycleCalculator.formatVn(deposit));
+        String formula;
+        if (hasFirstRent) {
+            formula = RentFirstCycleCalculator.formatVn(deposit) + " + "
+                    + RentFirstCycleCalculator.formatVn(firstRentAmount);
+        } else if (months != null && rentMonthly != null) {
+            formula = String.format("%s × %d", RentFirstCycleCalculator.formatVn(rentMonthly), months);
+        } else {
+            formula = RentFirstCycleCalculator.formatVn(deposit);
+        }
 
         return PaymentBreakdownResponse.builder()
                 .kind("DEPOSIT_ONBOARD")
-                .title("Tiền cọc lúc nhận nhà")
+                .title(hasFirstRent ? "Thanh toán lúc nhận nhà (cọc + tiền nhà)" : "Tiền cọc lúc nhận nhà")
                 .formula(formula)
-                .explanation(legacyWithRent
-                        ? "Hoá đơn cũ: gộp tiền nhà tháng đầu + cọc. Flow mới chỉ thu cọc trên QR."
-                        : "Chỉ thu tiền cọc lúc onboard. Tiền nhà pro-rata là hoá đơn RENT cycle FIRST riêng.")
-                .totalAmount(invoice.getGrandTotal() != null ? invoice.getGrandTotal() : deposit)
-                .rentAmountMonthly(rent)
+                .explanation(hasFirstRent
+                        ? "Đã thu cọc và tiền nhà pro-rata chu kỳ đầu trong một lần thanh toán onboard."
+                        : "Chỉ thu tiền cọc lúc onboard.")
+                .totalAmount(total)
+                .rentAmountMonthly(rentMonthly)
                 .depositMonths(months)
                 .depositAmount(deposit)
-                .proRated(false)
+                .daysInMonth(daysInMonth)
+                .billedDays(billedDays)
+                .periodStart(periodStart)
+                .periodEnd(periodEnd)
+                .proRated(hasFirstRent && billedDays != null && daysInMonth != null && billedDays < daysInMonth)
                 .lines(lines)
                 .build();
     }
