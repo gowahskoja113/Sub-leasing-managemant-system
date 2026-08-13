@@ -28,14 +28,13 @@ public class PushNotificationService {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    // Spring Boot 4 không expose ObjectMapper Jackson 2 thành bean — tự new như OCR/PayOS.
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final UserPushTokenRepository userPushTokenRepository;
     private final UserRepository userRepository;
 
-    public PushNotificationService(ObjectMapper objectMapper,
-                                   UserPushTokenRepository userPushTokenRepository,
+    public PushNotificationService(UserPushTokenRepository userPushTokenRepository,
                                    UserRepository userRepository) {
-        this.objectMapper = objectMapper;
         this.userPushTokenRepository = userPushTokenRepository;
         this.userRepository = userRepository;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
