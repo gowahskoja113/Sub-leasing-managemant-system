@@ -312,16 +312,21 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private void validateInvoiceAmounts(CreateUtilityInvoiceRequest request) {
         BigDecimal expectedConsumption = request.getNewReading().subtract(request.getPrevReading());
         if (expectedConsumption.compareTo(request.getConsumption()) != 0) {
-            throw new BusinessException("Tiêu thụ không khớp (chỉ số mới − chỉ số cũ)");
+            throw new BusinessException("CONSUMPTION_MISMATCH",
+                    "Tiêu thụ không khớp (chỉ số mới − chỉ số cũ)");
         }
         BigDecimal expectedAmount = request.getConsumption()
                 .multiply(request.getUnitPrice())
                 .setScale(2, RoundingMode.HALF_UP);
-        if (expectedAmount.compareTo(request.getAmount().setScale(2, RoundingMode.HALF_UP)) != 0) {
-            throw new BusinessException("Thành tiền không khớp (tiêu thụ × đơn giá)");
+        BigDecimal actualAmount = request.getAmount().setScale(2, RoundingMode.HALF_UP);
+        // Cho phép ±1đ: đơn giá EVN/nước chưa làm tròn × tiêu thụ có thể lệch 1đ so với tổng hoá đơn nhà nước.
+        if (expectedAmount.subtract(actualAmount).abs().compareTo(BigDecimal.ONE) > 0) {
+            throw new BusinessException("AMOUNT_MISMATCH",
+                    "Thành tiền không khớp (tiêu thụ × đơn giá)");
         }
         if (request.getNewReading().compareTo(request.getPrevReading()) < 0) {
-            throw new BusinessException("Chỉ số mới phải lớn hơn hoặc bằng chỉ số cũ");
+            throw new BusinessException("READING_ORDER_INVALID",
+                    "Chỉ số mới phải lớn hơn hoặc bằng chỉ số cũ");
         }
     }
 

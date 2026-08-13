@@ -110,6 +110,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         // Multi-device Expo push tokens (1 account → nhiều máy)
         ensureUserPushTokensTable();
         ensureBillingConfigTable();
+        ensureEvnBillsUtilityTypeColumn();
     }
 
     /**
@@ -1007,6 +1008,37 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     VALUES (1, 3, 2, 1, NOW())
                     """);
             log.info("Seeded billing_config singleton (reminder=3, grace=2, meterReminder=1)");
+        }
+    }
+
+    /**
+     * Gộp hoá đơn điện/nước admin-chốt trên bảng evn_bills (không tạo bảng mới).
+     * Dòng cũ = ELECTRIC. unit_price nới scale để trả đơn giá chưa làm tròn.
+     */
+    private void ensureEvnBillsUtilityTypeColumn() {
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'evn_bills'
+                )
+                """,
+                Boolean.class);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        addColumnIfNotExists("evn_bills", "type", "VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC'");
+        try {
+            jdbcTemplate.update("UPDATE evn_bills SET type = 'ELECTRIC' WHERE type IS NULL OR TRIM(type) = ''");
+        } catch (Exception e) {
+            log.warn("Could not backfill evn_bills.type: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute("ALTER TABLE evn_bills ALTER COLUMN unit_price TYPE NUMERIC(19, 8)");
+            log.info("Widened evn_bills.unit_price to NUMERIC(19,8)");
+        } catch (Exception e) {
+            log.warn("Could not alter evn_bills.unit_price scale: {}", e.getMessage());
         }
     }
 }

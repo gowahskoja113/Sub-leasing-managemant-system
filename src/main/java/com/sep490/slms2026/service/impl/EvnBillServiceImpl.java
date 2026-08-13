@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.CreateEvnBillRequest;
+import com.sep490.slms2026.dto.request.CreateUtilityBillRequest;
 import com.sep490.slms2026.dto.response.EvnBillResponse;
 import com.sep490.slms2026.entity.EvnBill;
 import com.sep490.slms2026.entity.Notification;
@@ -19,6 +20,7 @@ import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EvnBillService;
 import com.sep490.slms2026.service.UserPushTokenService;
+import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
@@ -40,6 +42,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class EvnBillServiceImpl implements EvnBillService {
 
+    /** Đủ chữ số để consumption × unitPrice khớp totalAmount, không làm tròn về VND nguyên. */
+    static final int UNIT_PRICE_SCALE = 8;
+
     private final EvnBillRepository evnBillRepository;
     private final PropertyRepository propertyRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
@@ -50,36 +55,80 @@ public class EvnBillServiceImpl implements EvnBillService {
     @Override
     @Transactional
     public EvnBillResponse createEvnBill(CreateEvnBillRequest request) {
+        return createPublishedBill(
+                request.getPropertyId(),
+                UtilityType.ELECTRIC,
+                request.getBillingPeriod(),
+                request.getMonth(),
+                request.getYear(),
+                request.getTotalKwh(),
+                request.getTotalAmount(),
+                request.getImageUrl(),
+                true);
+    }
+
+    @Override
+    @Transactional
+    public EvnBillResponse createUtilityBill(CreateUtilityBillRequest request) {
+        return createPublishedBill(
+                request.getPropertyId(),
+                UtilityTypeMapper.fromApi(request.getType()),
+                request.getBillingPeriod(),
+                request.getMonth(),
+                request.getYear(),
+                request.getTotalQuantity(),
+                request.getTotalAmount(),
+                request.getImageUrl(),
+                false);
+    }
+
+    private EvnBillResponse createPublishedBill(
+            Long propertyId,
+            UtilityType type,
+            String billingPeriod,
+            Integer month,
+            Integer year,
+            Integer totalQuantity,
+            BigDecimal totalAmount,
+            String imageUrl,
+            boolean evnLegacyCodes) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
 
-        Property property = propertyRepository.findById(request.getPropertyId())
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy toà nhà ID: " + request.getPropertyId()));
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy toà nhà ID: " + propertyId));
 
-        Optional<EvnBill> existing = evnBillRepository.findByPropertyIdAndMonthAndYearAndStatus(
-                request.getPropertyId(), request.getMonth(), request.getYear(), EvnBillStatus.PUBLISHED);
+        Optional<EvnBill> existing = evnBillRepository.findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+                propertyId, month, year, type, EvnBillStatus.PUBLISHED);
         if (existing.isPresent()) {
-            throw new BusinessException("EVN_BILL_ALREADY_EXISTS",
-                    "Đã tồn tại hoá đơn EVN cho kỳ này.");
+            if (evnLegacyCodes) {
+                throw new BusinessException("EVN_BILL_ALREADY_EXISTS",
+                        "Đã tồn tại hoá đơn EVN cho kỳ này.");
+            }
+            String label = type == UtilityType.WATER ? "nước" : "điện";
+            throw new BusinessException("UTILITY_BILL_ALREADY_EXISTS",
+                    "Đã tồn tại hoá đơn " + label + " cho kỳ này.");
         }
 
-        BigDecimal unitPrice = request.getTotalAmount().divide(new BigDecimal(request.getTotalKwh()), 0, RoundingMode.HALF_UP);
+        BigDecimal unitPrice = totalAmount.divide(
+                new BigDecimal(totalQuantity), UNIT_PRICE_SCALE, RoundingMode.HALF_UP);
 
         EvnBill bill = EvnBill.builder()
                 .property(property)
-                .billingPeriod(request.getBillingPeriod())
-                .month(request.getMonth())
-                .year(request.getYear())
-                .totalKwh(request.getTotalKwh())
-                .totalAmount(request.getTotalAmount())
+                .type(type)
+                .billingPeriod(billingPeriod)
+                .month(month)
+                .year(year)
+                .totalQuantity(totalQuantity)
+                .totalAmount(totalAmount)
                 .unitPrice(unitPrice)
-                .imageUrl(request.getImageUrl())
+                .imageUrl(imageUrl)
                 .status(EvnBillStatus.PUBLISHED)
                 .createdBy(user.getId())
                 .createdAt(LocalDateTime.now())
                 .build();
 
         evnBillRepository.save(bill);
-        notifyManagerEvnBillPublished(property, bill);
+        notifyManagerBillPublished(property, bill);
 
         return toResponse(bill, user.getUsername());
     }
@@ -87,21 +136,36 @@ public class EvnBillServiceImpl implements EvnBillService {
     @Override
     @Transactional
     public void revokeEvnBill(Long id) {
+        revoke(id, true);
+    }
+
+    @Override
+    @Transactional
+    public void revokeUtilityBill(Long id) {
+        revoke(id, false);
+    }
+
+    private void revoke(Long id, boolean evnLegacyCodes) {
         EvnBill bill = evnBillRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hoá đơn EVN."));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        evnLegacyCodes ? "Không tìm thấy hoá đơn EVN." : "Không tìm thấy hoá đơn tiện ích."));
 
         if (bill.getStatus() == EvnBillStatus.REVOKED) {
             return;
         }
 
+        UtilityType invoiceType = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
         List<UtilityInvoice> utilityInvoices = utilityInvoiceRepository.findByFilters(
-                bill.getProperty().getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
-        
-        // Cần chặn thu hồi khi kỳ đó đã có hoá đơn điện được gửi
-        // Trong hệ thống, nếu tồn tại utility invoice thì là đã gửi (vì UtilityInvoice đại diện cho việc chốt/gửi)
+                bill.getProperty().getId(), bill.getBillingPeriod(), invoiceType);
+
         if (!utilityInvoices.isEmpty()) {
-            throw new BusinessException("EVN_BILL_IN_USE",
-                    "Không thể thu hồi vì đã có hoá đơn điện được gửi cho khách trong kỳ này.");
+            if (evnLegacyCodes) {
+                throw new BusinessException("EVN_BILL_IN_USE",
+                        "Không thể thu hồi vì đã có hoá đơn điện được gửi cho khách trong kỳ này.");
+            }
+            String label = invoiceType == UtilityType.WATER ? "nước" : "điện";
+            throw new BusinessException("UTILITY_BILL_IN_USE",
+                    "Không thể thu hồi vì đã có hoá đơn " + label + " được gửi cho khách trong kỳ này.");
         }
 
         bill.setStatus(EvnBillStatus.REVOKED);
@@ -111,32 +175,36 @@ public class EvnBillServiceImpl implements EvnBillService {
     @Override
     @Transactional(readOnly = true)
     public List<EvnBillResponse> getEvnBills(Long propertyId, Integer month, Integer year, boolean isManager) {
+        return getUtilityBills(propertyId, month, year, UtilityType.ELECTRIC, isManager);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EvnBillResponse> getUtilityBills(
+            Long propertyId, Integer month, Integer year, UtilityType type, boolean isManager) {
         EvnBillStatus statusFilter = isManager ? EvnBillStatus.PUBLISHED : null;
         List<EvnBill> bills;
 
         if (isManager) {
             CustomUserDetails user = SecurityUtils.requireCurrentUser();
             if (propertyId != null) {
-                // Kiểm tra quyền
                 if (!propertyRepository.findIdsByOperationManagerId(user.getId()).contains(propertyId)) {
                     throw new AccessDeniedException("Bạn không có quyền quản lý nhà này");
                 }
-                bills = evnBillRepository.findByFilters(propertyId, month, year, statusFilter);
+                bills = evnBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
             } else {
                 List<Long> managerPropIds = propertyRepository.findIdsByOperationManagerId(user.getId());
                 if (managerPropIds.isEmpty()) {
                     return List.of();
                 }
-                // Thay vì query từng nhà, có thể query DB nhưng EvnBillRepository.findByFilters chỉ nhận 1 propertyId
-                // Vì là list nên ta cứ fetch cho tất cả các nhà quản lý (nếu ko quá nhiều)
                 bills = managerPropIds.stream()
-                        .flatMap(pid -> evnBillRepository.findByFilters(pid, month, year, statusFilter).stream())
+                        .flatMap(pid -> evnBillRepository.findByFilters(pid, month, year, type, statusFilter).stream())
                         .collect(Collectors.toList());
             }
         } else {
-            bills = evnBillRepository.findByFilters(propertyId, month, year, statusFilter);
+            bills = evnBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
         }
-        
+
         return bills.stream().map(bill -> {
             String username = null;
             if (bill.getCreatedBy() != null) {
@@ -147,62 +215,74 @@ public class EvnBillServiceImpl implements EvnBillService {
         }).collect(Collectors.toList());
     }
 
-    /** In-app + Expo push tới đúng manager phụ trách nhà — không broadcast. */
-    private void notifyManagerEvnBillPublished(Property property, EvnBill bill) {
+    private void notifyManagerBillPublished(Property property, EvnBill bill) {
         UUID managerId = property.getOperationManagerId();
         if (managerId == null) {
             managerId = property.getManagedBy();
         }
         if (managerId == null) {
-            log.warn("EVN bill {} published but property {} has no operation manager — skip notify",
+            log.warn("Utility bill {} published but property {} has no operation manager — skip notify",
                     bill.getId(), property.getId());
             return;
         }
 
+        boolean water = bill.getType() == UtilityType.WATER;
         String rentalType = Boolean.TRUE.equals(property.getWholeHouse()) ? "NGUYEN_CAN" : "THEO_PHONG";
-        String title = "Đã có hoá đơn điện kỳ " + bill.getMonth() + "/" + bill.getYear();
+        String unit = water ? "m³" : "kWh";
+        String kind = water ? "nước" : "điện";
+        String notifType = water ? "WATER_BILL_PUBLISHED" : "EVN_BILL_PUBLISHED";
+        String title = "Đã có hoá đơn " + kind + " kỳ " + bill.getMonth() + "/" + bill.getYear();
         String content = (property.getPropertyName() != null ? property.getPropertyName() : "Nhà")
                 + " · " + rentalType
-                + " · " + bill.getTotalKwh() + " kWh"
-                + " · đơn giá " + formatVnInt(bill.getUnitPrice()) + "đ/kWh";
+                + " · " + bill.getTotalQuantity() + " " + unit
+                + " · đơn giá " + formatVnPrice(bill.getUnitPrice()) + "đ/" + unit;
         String paramsJson = "{\"propertyId\":" + property.getId() + "}";
 
         notificationRepository.save(Notification.builder()
                 .userId(managerId)
                 .title(title)
                 .content(content)
-                .type("EVN_BILL_PUBLISHED")
+                .type(notifType)
                 .screen("UtilityBilling")
                 .paramsJson(paramsJson)
                 .read(false)
                 .build());
 
         Map<String, Object> data = new HashMap<>();
-        data.put("type", "EVN_BILL_PUBLISHED");
+        data.put("type", notifType);
         data.put("screen", "UtilityBilling");
         data.put("propertyId", property.getId());
         data.put("params", Map.of("propertyId", property.getId()));
         userPushTokenService.sendToUser(managerId, title, content, data);
     }
 
-    private static String formatVnInt(BigDecimal value) {
+    private static String formatVnPrice(BigDecimal value) {
         if (value == null) {
             return "0";
         }
-        return String.format("%,d", value.setScale(0, RoundingMode.HALF_UP).longValue()).replace(',', '.');
+        BigDecimal rounded = value.setScale(2, RoundingMode.HALF_UP);
+        if (rounded.stripTrailingZeros().scale() <= 0) {
+            return String.format("%,d", rounded.longValue()).replace(',', '.');
+        }
+        return String.format("%,.2f", rounded.doubleValue()).replace(',', '@').replace('.', ',').replace('@', '.');
     }
 
     private EvnBillResponse toResponse(EvnBill bill, String username) {
+        UtilityType type = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
+        Integer qty = bill.getTotalQuantity();
         return EvnBillResponse.builder()
                 .id(bill.getId())
                 .propertyId(bill.getProperty().getId())
                 .propertyName(bill.getProperty().getPropertyName())
+                .type(UtilityTypeMapper.toApi(type))
                 .billingPeriod(bill.getBillingPeriod())
                 .month(bill.getMonth())
                 .year(bill.getYear())
-                .totalKwh(bill.getTotalKwh())
+                .totalQuantity(qty)
+                .totalKwh(type == UtilityType.ELECTRIC ? qty : null)
                 .totalAmount(bill.getTotalAmount())
                 .unitPrice(bill.getUnitPrice())
+                .unitPriceExact(bill.getUnitPrice())
                 .imageUrl(bill.getImageUrl())
                 .status(bill.getStatus().name())
                 .createdBy(username)

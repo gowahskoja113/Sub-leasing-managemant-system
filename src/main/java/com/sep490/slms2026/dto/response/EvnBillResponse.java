@@ -12,12 +12,20 @@ public class EvnBillResponse {
     private Long id;
     private Long propertyId;
     private String propertyName;
+    /** ELECTRICITY | WATER */
+    private String type;
     private String billingPeriod;
     private Integer month;
     private Integer year;
+    /** kWh hoặc m³ — field chính cho FE utility-bills. */
+    private Integer totalQuantity;
+    /** Alias EVN cũ = totalQuantity (điện). */
     private Integer totalKwh;
     private BigDecimal totalAmount;
+    /** Đơn giá chưa làm tròn (scale 8). */
     private BigDecimal unitPrice;
+    /** Cùng giá trị unitPrice — FE dùng khi cần đủ chữ số thập phân. */
+    private BigDecimal unitPriceExact;
     private String imageUrl;
     private String status;
     private String createdBy;
