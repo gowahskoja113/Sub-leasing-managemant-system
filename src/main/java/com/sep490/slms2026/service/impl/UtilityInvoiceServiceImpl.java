@@ -202,10 +202,6 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     }
 
     private void validateBillingPeriodLock(Long propertyId, Long roomId, String billingPeriod, UtilityType utilityType) {
-        if (java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).getDayOfMonth() > 10) {
-            throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã qua ngày 10, không thể tạo mới hoá đơn điện/nước cho kỳ này.");
-        }
-
         List<UtilityInvoice> utilities = utilityInvoiceRepository.findByFilters(propertyId, billingPeriod, utilityType);
         if (roomId != null) {
             utilities = utilities.stream().filter(u -> u.getRoom() != null && u.getRoom().getId().equals(roomId)).toList();
@@ -213,24 +209,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             utilities = utilities.stream().filter(u -> u.getRoom() == null).toList();
         }
 
-        if (!utilities.isEmpty()) {
-            boolean allPaid = true;
-            for (UtilityInvoice ui : utilities) {
-                var ti = tenantInvoiceRepository.findByUtilityInvoiceId(ui.getId());
-                if (ti.isPresent()) {
-                    if (ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID && 
-                        ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
-                        allPaid = false;
-                        break;
-                    }
-                } else {
-                    allPaid = false;
-                    break;
-                }
+        for (UtilityInvoice ui : utilities) {
+            var ti = tenantInvoiceRepository.findByUtilityInvoiceId(ui.getId());
+            if (ti.isPresent() && ti.get().getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
+                continue;
             }
-            if (allPaid) {
-                throw new BusinessException("409: PERIOD_ALREADY_SETTLED - Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn.");
-            }
+            String target = (roomId != null) ? ("Phòng " + ui.getRoom().getRoomNumber()) : "Nhà nguyên căn";
+            String typeStr = (utilityType == UtilityType.ELECTRIC) ? "điện" : "nước";
+            throw new BusinessException("409: INVOICE_ALREADY_EXISTS - " + target + " đã nhận hoá đơn " + typeStr + " của kỳ " + billingPeriod + ".");
         }
     }
 
