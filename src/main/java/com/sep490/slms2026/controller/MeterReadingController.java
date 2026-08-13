@@ -2,6 +2,7 @@ package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.CreateMeterReadingRequest;
 import com.sep490.slms2026.dto.response.MeterReadingResponse;
+import com.sep490.slms2026.dto.response.PendingMeterReadingItem;
 import com.sep490.slms2026.service.MeterReadingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -10,11 +11,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 public class MeterReadingController {
 
     private final MeterReadingService meterReadingService;
+
+    @GetMapping("/api/v1/manager/meter-readings/pending")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<List<PendingMeterReadingItem>> listPending(
+            @RequestParam(required = false) String period) {
+        return ResponseEntity.ok(meterReadingService.listPending(period));
+    }
 
     @GetMapping("/api/v1/properties/{propertyId}/rooms/{roomId}/meter-readings/latest")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

@@ -92,6 +92,15 @@ vision:
   rate-limit-per-hour: ${VISION_RATE_LIMIT_PER_HOUR:20}
   # Chỉ cho phép ảnh từ domain Cloudinary hệ thống (tránh proxy đọc ảnh ngoài)
   allowed-image-hosts: ${VISION_ALLOWED_IMAGE_HOSTS:res.cloudinary.com}
+  # Mô tả hiện trạng phòng (Gemini). Quota tách khỏi /labels. Phí: GEMINI_API_KEY của công ty.
+  describe:
+    rate-limit-per-hour: ${VISION_DESCRIBE_RATE_LIMIT_PER_HOUR:40}
+    max-images: ${VISION_DESCRIBE_MAX_IMAGES:8}
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.0-flash}
+    base-url: https://generativelanguage.googleapis.com/v1beta/models
+    timeout-seconds: ${VISION_GEMINI_TIMEOUT_SECONDS:30}
 
 # Thanh toán cọc qua PayOS (https://payos.vn). Lấy key ở Dashboard PayOS.
 payos:
@@ -121,7 +130,9 @@ springdoc:
     operations-sorter: method
     tags-sorter: alpha
 
-# Cấu hình job nhắc nợ + phí trễ hạn
+# Cấu hình job nhắc nợ + phí trễ hạn.
+# reminderLeadDays / graceDays / meterReminderLeadDays lưu DB (admin sửa qua API, không cần restart).
+# Các giá trị yaml dưới đây là fallback / seed khi bảng billing_config chưa có.
 billing:
   reminder-days-before: 3
   late-fee-percent: 2

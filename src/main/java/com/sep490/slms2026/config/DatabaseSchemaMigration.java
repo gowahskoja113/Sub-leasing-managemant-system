@@ -109,6 +109,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("rooms", "water_decimal_digits", "INTEGER DEFAULT 3");
         // Multi-device Expo push tokens (1 account → nhiều máy)
         ensureUserPushTokensTable();
+        ensureBillingConfigTable();
     }
 
     /**
@@ -983,6 +984,29 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             log.info("Migrated tenant_contracts_status_check constraint");
         } catch (Exception e) {
             log.warn("Could not migrate tenant_contracts_status_check constraint: {}", e.getMessage());
+        }
+    }
+
+    private void ensureBillingConfigTable() {
+        createTableIfNotExists(
+                "billing_config",
+                """
+                id BIGINT PRIMARY KEY,
+                reminder_lead_days INTEGER NOT NULL DEFAULT 3,
+                grace_days INTEGER NOT NULL DEFAULT 2,
+                meter_reminder_lead_days INTEGER NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP,
+                updated_by UUID
+                """);
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM billing_config WHERE id = 1", Integer.class);
+        if (count == null || count == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO billing_config
+                        (id, reminder_lead_days, grace_days, meter_reminder_lead_days, updated_at)
+                    VALUES (1, 3, 2, 1, NOW())
+                    """);
+            log.info("Seeded billing_config singleton (reminder=3, grace=2, meterReminder=1)");
         }
     }
 }

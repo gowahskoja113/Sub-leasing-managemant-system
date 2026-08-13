@@ -21,16 +21,21 @@ import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.BillingConfigService;
+import com.sep490.slms2026.service.MeterOverrideService;
+import com.sep490.slms2026.service.MeterReadingService;
 import com.sep490.slms2026.service.PropertyAccessService;
+import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.service.UtilityInvoiceService;
+import com.sep490.slms2026.util.ContractBillingCalendar;
 import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sep490.slms2026.entity.BillingConfig;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.repository.NotificationRepository;
-import com.sep490.slms2026.service.PushNotificationService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
@@ -52,8 +57,11 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final PropertyAccessService propertyAccessService;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final NotificationRepository notificationRepository;
-    private final PushNotificationService pushNotificationService;
+    private final UserPushTokenService userPushTokenService;
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
+    private final MeterReadingService meterReadingService;
+    private final MeterOverrideService meterOverrideService;
+    private final BillingConfigService billingConfigService;
 
     @Override
     @Transactional
@@ -63,12 +71,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         Room room = loadRoom(propertyId, roomId);
         validateRoomBillable(room);
         UtilityType utilityType = UtilityTypeMapper.fromApi(request.getType());
-        validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType);
         validateInvoiceAmounts(request);
 
         TenantContract contract = tenantContractRepository
                 .findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
                 .orElse(null);
+        validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType, contract);
 
         return createAndSend(property, room, contract, utilityType, request);
     }
@@ -82,12 +90,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             throw new BusinessException("API nguyên căn chỉ dùng cho nhà whole-house");
         }
         UtilityType utilityType = UtilityTypeMapper.fromApi(request.getType());
-        validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType);
         validateInvoiceAmounts(request);
 
         TenantContract contract = tenantContractRepository
                 .findByPropertyIdAndRoomIsNullAndStatus(propertyId, ContractStatus.ACTIVE)
                 .orElse(null);
+        validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType, contract);
 
         return createAndSend(property, null, contract, utilityType, request);
     }
@@ -133,6 +141,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         LocalDateTime now = LocalDateTime.now();
+        ensureMeterPhotoOrOverride(property, room, contract, utilityType, request, user);
 
         UtilityInvoice invoice = utilityInvoiceRepository.save(UtilityInvoice.builder()
                 .property(property)
@@ -184,12 +193,10 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         .build();
                 notificationRepository.save(notification);
 
-                String pushToken = contract.getTenant().getUser().getPushToken();
-                if (pushToken != null && !pushToken.isBlank()) {
-                    Map<String, Object> data = new HashMap<>();
-                    data.put("screen", "InvoiceList");
-                    pushNotificationService.sendPushNotification(pushToken, title, content, data);
-                }
+                Map<String, Object> data = new HashMap<>();
+                data.put("screen", "InvoiceList");
+                data.put("type", "UTILITY_INVOICE_CREATED");
+                userPushTokenService.sendToUser(tenantId, title, content, data);
             }
         }
 
@@ -201,9 +208,80 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         return response;
     }
 
-    private void validateBillingPeriodLock(Long propertyId, Long roomId, String billingPeriod, UtilityType utilityType) {
-        if (java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).getDayOfMonth() > 10) {
-            throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã qua ngày 10, không thể tạo mới hoá đơn điện/nước cho kỳ này.");
+    private void ensureMeterPhotoOrOverride(
+            Property property,
+            Room room,
+            TenantContract contract,
+            UtilityType utilityType,
+            CreateUtilityInvoiceRequest request,
+            CustomUserDetails user) {
+        boolean hasRequestPhoto = request.getMeterImageUrl() != null && !request.getMeterImageUrl().isBlank();
+        boolean hasStoredPhoto = meterReadingService.hasPhoto(
+                property.getId(),
+                room != null ? room.getId() : null,
+                utilityType,
+                request.getBillingPeriod());
+        if (hasRequestPhoto || hasStoredPhoto) {
+            return;
+        }
+
+        Long contractId = contract != null ? contract.getId() : null;
+        String kind = utilityType == UtilityType.ELECTRIC ? "ELEC" : "WATER";
+        boolean overridden = meterOverrideService.consumeOverrideIfPresent(
+                user.getId(), contractId, kind, request.getOverrideToken(),
+                request.getNewReading(), request.getOverrideReason());
+        if (overridden) {
+            return;
+        }
+
+        notifyManagerMeterPhotoBlocked(property, room, request.getBillingPeriod());
+        throw new BusinessException("METER_PHOTO_REQUIRED",
+                "Chưa có ảnh công tơ kỳ này — không thể phát hành hoá đơn điện/nước. Chụp ảnh hoặc dùng mã override của admin.");
+    }
+
+    private void notifyManagerMeterPhotoBlocked(Property property, Room room, String period) {
+        java.util.UUID managerId = property.getOperationManagerId();
+        if (managerId == null) {
+            managerId = property.getManagedBy();
+        }
+        if (managerId == null) {
+            return;
+        }
+        String roomLabel = room != null ? room.getRoomNumber() : "nguyên căn";
+        String title = "⛔ Không phát hành hoá đơn — thiếu ảnh công tơ";
+        String content = "Nhà " + property.getPropertyName() + " · Phòng " + roomLabel
+                + " kỳ " + period + " chưa có ảnh công tơ nên hoá đơn điện/nước bị chặn.";
+        notificationRepository.save(Notification.builder()
+                .userId(managerId)
+                .title(title)
+                .content(content)
+                .type("METER_READING_DUE")
+                .screen("MeterReadingPending")
+                .paramsJson("{\"propertyId\":" + property.getId() + "}")
+                .read(false)
+                .build());
+        userPushTokenService.sendToUser(managerId, title, content, Map.of(
+                "type", "METER_READING_DUE",
+                "screen", "MeterReadingPending",
+                "propertyId", property.getId()));
+    }
+
+    private void validateBillingPeriodLock(Long propertyId, Long roomId, String billingPeriod,
+                                          UtilityType utilityType, TenantContract contract) {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
+        java.time.YearMonth periodMonth = ContractBillingCalendar.parsePeriod(billingPeriod).orElse(null);
+        if (periodMonth != null && java.time.YearMonth.from(today).equals(periodMonth)) {
+            BillingConfig config = billingConfigService.current();
+            java.time.LocalDate deadline = contract != null
+                    ? ContractBillingCalendar.dueDate(
+                            periodMonth,
+                            ContractBillingCalendar.billingDayOfMonth(contract),
+                            config.getGraceDays())
+                    : periodMonth.atEndOfMonth();
+            if (today.isAfter(deadline)) {
+                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã quá hạn chót ("
+                        + deadline + "), không thể tạo mới hoá đơn điện/nước cho kỳ này.");
+            }
         }
 
         List<UtilityInvoice> utilities = utilityInvoiceRepository.findByFilters(propertyId, billingPeriod, utilityType);

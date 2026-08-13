@@ -1,8 +1,12 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.request.UpdateBillingConfigRequest;
 import com.sep490.slms2026.dto.response.AdminHostDto;
-import com.sep490.slms2026.dto.response.AdminInvoiceDto;
+import com.sep490.slms2026.dto.response.BillingConfigResponse;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.AdminBillingService;
+import com.sep490.slms2026.service.BillingConfigService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -25,6 +29,18 @@ public class AdminBillingController {
 
     private final AdminBillingService adminBillingService;
     private final BillingCronService billingCronService;
+    private final BillingConfigService billingConfigService;
+
+    @GetMapping("/billing-config")
+    public ResponseEntity<BillingConfigResponse> getBillingConfig() {
+        return ResponseEntity.ok(billingConfigService.get());
+    }
+
+    @PutMapping("/billing-config")
+    public ResponseEntity<BillingConfigResponse> updateBillingConfig(
+            @Valid @RequestBody UpdateBillingConfigRequest request) {
+        return ResponseEntity.ok(billingConfigService.update(request, SecurityUtils.requireCurrentUser().getId()));
+    }
 
     @PostMapping("/billing/run-daily-sweep")
     public ResponseEntity<Map<String, Integer>> runDailySweep() {

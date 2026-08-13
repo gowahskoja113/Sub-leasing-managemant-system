@@ -1,20 +1,27 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.entity.BillingConfig;
+import com.sep490.slms2026.entity.MeterReading;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
+import com.sep490.slms2026.enums.UtilityType;
 import java.time.YearMonth;
 import java.util.UUID;
 import com.sep490.slms2026.repository.HostNotificationRepository;
+import com.sep490.slms2026.repository.MeterReadingRepository;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
+import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.BillingCronService;
 import com.sep490.slms2026.service.UserPushTokenService;
+import com.sep490.slms2026.util.ContractBillingCalendar;
+import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +38,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -43,6 +51,8 @@ public class BillingCronServiceImpl implements BillingCronService {
     private final UserPushTokenService userPushTokenService;
     private final TenantContractRepository tenantContractRepository;
     private final UserRepository userRepository;
+    private final BillingConfigService billingConfigService;
+    private final MeterReadingRepository meterReadingRepository;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -81,6 +91,12 @@ public class BillingCronServiceImpl implements BillingCronService {
         int renotified = 0;
 
         LocalDate today = LocalDate.now();
+        BillingConfig billingConfig = billingConfigService.current();
+        int rentReminderLeadDays = billingConfig.getReminderLeadDays();
+
+        int issued = generateDueRentInvoices(today, billingConfig);
+        int meterReminded = remindPendingMeterReadings(today, billingConfig);
+
         List<TenantInvoiceStatus> statuses = List.of(
                 TenantInvoiceStatus.PENDING,
                 TenantInvoiceStatus.PARTIAL,
@@ -136,7 +152,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                 String formattedAmount = formatCurrency(invoice.getGrandTotal());
                 String formattedDueDate = invoice.getDueDate().format(formatter);
                 
-                if (daysUntilDue > 0 && daysUntilDue <= rentDueDay - 2) {
+                if (daysUntilDue > 0 && daysUntilDue <= rentReminderLeadDays) {
                     sendNotification(invoice, "BILLING_REMINDER",
                         String.format("⏰ Còn %d ngày tới hạn đóng tiền phòng", daysUntilDue),
                         String.format("Tiền phòng %s %sđ chưa được thanh toán. Hạn cuối là %s. Thanh toán sớm để không bị ghi nhận quá hạn.",
@@ -254,6 +270,8 @@ public class BillingCronServiceImpl implements BillingCronService {
         stats.put("reminded", reminded);
         stats.put("overdueMarked", overdueMarked);
         stats.put("renotified", renotified);
+        stats.put("rentIssued", issued);
+        stats.put("meterReminded", meterReminded);
         return stats;
     }
     
@@ -373,34 +391,47 @@ public class BillingCronServiceImpl implements BillingCronService {
         }
     }
 
-    @Scheduled(cron = "0 5 0 1 * *", zone = "Asia/Ho_Chi_Minh")
+    @Scheduled(cron = "0 5 0 * * *", zone = "Asia/Ho_Chi_Minh")
     @Transactional
     public void generateMonthlyRentInvoices() {
-        log.info("Starting generateMonthlyRentInvoices...");
-        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
-        YearMonth currentMonth = YearMonth.now();
-        LocalDate dueDate = currentMonth.atDay(5);
-        
+        log.info("Starting generateDueRentInvoices...");
+        generateDueRentInvoices(LocalDate.now(), billingConfigService.current());
+    }
+
+    int generateDueRentInvoices(LocalDate today, BillingConfig billingConfig) {
+        int issued = 0;
+        YearMonth currentMonth = YearMonth.from(today);
+        List<TenantContract> activeContracts =
+                tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
+        int reminderLeadDays = billingConfig.getReminderLeadDays();
+        int graceDays = billingConfig.getGraceDays();
+
         for (TenantContract contract : activeContracts) {
             try {
-                var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
-                    contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
-                if (existing.isPresent()) continue;
-
-                BigDecimal amount = contract.getRentAmount();
-                if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                LocalDate billStart = contract.getStartDate();
-                YearMonth prevMonth = currentMonth.minusMonths(1);
-                if (billStart.getYear() == prevMonth.getYear() && billStart.getMonthValue() == prevMonth.getMonthValue()) {
-                    long prevDays = java.time.temporal.ChronoUnit.DAYS.between(billStart, prevMonth.atEndOfMonth()) + 1;
-                    if (prevDays <= 3) {
-                        BigDecimal prevAmount = contract.getRentAmount()
-                            .multiply(BigDecimal.valueOf(prevDays))
-                            .divide(BigDecimal.valueOf(prevMonth.lengthOfMonth()), 0, java.math.RoundingMode.HALF_UP);
-                        amount = amount.add(prevAmount);
-                    }
+                if (!ContractBillingCalendar.shouldIssueRegularRent(
+                        today, currentMonth, contract, reminderLeadDays)) {
+                    continue;
                 }
+                var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                        contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
+                if (existing.isPresent()) {
+                    continue;
+                }
+                if (contract.getTenant() == null) {
+                    continue;
+                }
+
+                BigDecimal amount = RentFirstCycleCalculator.regularRentAmount(contract, currentMonth);
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+
+                int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
+                LocalDate dueDate = RentFirstCycleCalculator.regularRentDueDate(
+                        currentMonth,
+                        ContractBillingCalendar.clampDay(currentMonth, billingDay + graceDays),
+                        firstCycleGraceDays,
+                        today);
 
                 TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
                         .code("HD-RENT-" + contract.getId() + "-" + currentMonth)
@@ -409,10 +440,13 @@ public class BillingCronServiceImpl implements BillingCronService {
                         .invoiceType(TenantInvoiceType.RENT)
                         .cycleType(com.sep490.slms2026.enums.RentCycleType.REGULAR)
                         .propertyName(contract.getProperty().getPropertyName())
-                        .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : contract.getProperty().getPropertyName())
+                        .roomNumber(contract.getRoom() != null
+                                ? contract.getRoom().getRoomNumber()
+                                : contract.getProperty().getPropertyName())
                         .billingMonth(currentMonth.getMonthValue())
                         .billingYear(currentMonth.getYear())
-                        .billingPeriod("Tiền nhà tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear()))
+                        .billingPeriod("Tiền nhà tháng " + String.format("%02d/%d",
+                                currentMonth.getMonthValue(), currentMonth.getYear()))
                         .totalAmount(amount)
                         .lateFee(BigDecimal.ZERO)
                         .grandTotal(amount)
@@ -421,53 +455,140 @@ public class BillingCronServiceImpl implements BillingCronService {
                         .createdAt(LocalDateTime.now())
                         .autoIssued(true)
                         .build());
-                
-                String period = "tháng " + String.format("%02d/%d", currentMonth.getMonthValue(), currentMonth.getYear());
+
+                String period = "tháng " + String.format("%02d/%d",
+                        currentMonth.getMonthValue(), currentMonth.getYear());
                 String title = "🧾 Hoá đơn tiền phòng đã có — cần thanh toán";
-                String content = String.format("Tiền phòng %s %sđ vừa được phát hành. Hạn thanh toán %s. Mở app để thanh toán ngay, tránh để quá hạn.",
+                String content = String.format(
+                        "Tiền phòng %s %sđ vừa được phát hành. Hạn thanh toán %s. Mở app để thanh toán ngay, tránh để quá hạn.",
                         period, formatCurrency(amount), dueDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
                 sendNotification(invoice, "RENT_ISSUED", title, content);
+                issued++;
             } catch (Exception e) {
                 log.error("Error generating monthly rent invoice for contract {}", contract.getId(), e);
             }
         }
+        return issued;
     }
 
-    private BigDecimal calculateProratedRent(TenantContract contract, YearMonth billingMonth) {
-        LocalDate startOfMonth = billingMonth.atDay(1);
-        LocalDate endOfMonth = billingMonth.atEndOfMonth();
-        LocalDate billStart = contract.getStartDate().isAfter(startOfMonth) ? contract.getStartDate() : startOfMonth;
-        LocalDate billEnd = contract.getEndDate() != null && contract.getEndDate().isBefore(endOfMonth) ? contract.getEndDate() : endOfMonth;
-
-        if (billStart.isAfter(billEnd)) {
-            return BigDecimal.ZERO;
-        }
-
-        long days = ChronoUnit.DAYS.between(billStart, billEnd) + 1;
-        long daysInMonth = billingMonth.lengthOfMonth();
-        BigDecimal amount = contract.getRentAmount();
-        if (days < daysInMonth) {
-            amount = amount.multiply(BigDecimal.valueOf(days)).divide(BigDecimal.valueOf(daysInMonth), 0, RoundingMode.HALF_UP);
-        }
-        return amount;
-    }
-
-    @Scheduled(cron = "0 10 0 28 * *", zone = "Asia/Ho_Chi_Minh")
+    @Scheduled(cron = "0 10 0 * * *", zone = "Asia/Ho_Chi_Minh")
     @Transactional
-    public void remindUpcomingRentOn28th() {
-        log.info("Starting remindUpcomingRentOn28th...");
-        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
-        YearMonth nextMonth = YearMonth.now().plusMonths(1);
-        String period = "tháng " + String.format("%02d/%d", nextMonth.getMonthValue(), nextMonth.getYear());
-        
+    public void remindUpcomingRent() {
+        log.info("Starting remindUpcomingRent...");
+        BillingConfig billingConfig = billingConfigService.current();
+        LocalDate today = LocalDate.now();
+        LocalDate tomorrow = today.plusDays(1);
+        YearMonth currentMonth = YearMonth.from(today);
+        List<TenantContract> activeContracts =
+                tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
+
         for (TenantContract contract : activeContracts) {
-            BigDecimal amount = calculateProratedRent(contract, nextMonth);
-            if (amount.compareTo(BigDecimal.ZERO) <= 0) continue;
-            
-            String title = "🔔 Nhắc trước: ngày 1 tới hạn đóng tiền phòng";
-            String content = String.format("Tiền phòng %s %sđ sẽ được phát hành vào ngày 1, hạn thanh toán chậm nhất ngày 5. Bạn chuẩn bị trước giúp nhé.",
-                    period, formatCurrency(amount));
+            if (contract.getTenant() == null) {
+                continue;
+            }
+            if (!ContractBillingCalendar.shouldIssueRegularRent(
+                    tomorrow, currentMonth, contract, billingConfig.getReminderLeadDays())) {
+                continue;
+            }
+            var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
+                    contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
+            if (existing.isPresent()) {
+                continue;
+            }
+            BigDecimal amount = RentFirstCycleCalculator.regularRentAmount(contract, currentMonth);
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
+            LocalDate dueDate = ContractBillingCalendar.dueDate(
+                    currentMonth, billingDay, billingConfig.getGraceDays());
+            String period = "tháng " + String.format("%02d/%d",
+                    currentMonth.getMonthValue(), currentMonth.getYear());
+            String title = "🔔 Nhắc trước: ngày mai phát hành hoá đơn tiền phòng";
+            String content = String.format(
+                    "Tiền phòng %s %sđ sẽ được phát hành vào ngày mai, hạn thanh toán chậm nhất %s. Bạn chuẩn bị trước giúp nhé.",
+                    period, formatCurrency(amount), dueDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
             sendPushNotificationOnly(contract.getTenant().getId(), title, content, "RENT_REMINDER_PRE", "InvoiceList");
         }
+    }
+
+    int remindPendingMeterReadings(LocalDate today, BillingConfig billingConfig) {
+        YearMonth currentMonth = YearMonth.from(today);
+        String period = ContractBillingCalendar.normalizePeriod(currentMonth);
+        List<TenantContract> activeContracts =
+                tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
+        java.util.Set<UUID> notifiedManagers = new java.util.HashSet<>();
+        int reminded = 0;
+
+        for (TenantContract contract : activeContracts) {
+            if (contract.getProperty() == null) {
+                continue;
+            }
+            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
+            LocalDate remindDate = ContractBillingCalendar.meterRemindDate(
+                    currentMonth, billingDay,
+                    billingConfig.getReminderLeadDays(),
+                    billingConfig.getMeterReminderLeadDays());
+            LocalDate meterDue = ContractBillingCalendar.meterDueDate(
+                    currentMonth, billingDay, billingConfig.getReminderLeadDays());
+            if (today.isBefore(remindDate) || today.isAfter(meterDue)) {
+                continue;
+            }
+            if (!hasMissingMeterPhoto(contract, period)) {
+                continue;
+            }
+            UUID managerId = contract.getProperty().getOperationManagerId();
+            if (managerId == null) {
+                managerId = contract.getProperty().getManagedBy();
+            }
+            if (managerId == null || !notifiedManagers.add(managerId)) {
+                continue;
+            }
+            LocalDateTime startOfDay = today.atStartOfDay();
+            if (notificationRepository.existsByUserIdAndTypeAndCreatedAtGreaterThanEqual(
+                    managerId, "METER_READING_DUE", startOfDay)) {
+                continue;
+            }
+            String propertyName = contract.getProperty().getPropertyName();
+            String title = "📸 Cần chụp ảnh công tơ";
+            String content = "Nhà " + propertyName
+                    + " chưa có ảnh công tơ kỳ " + period
+                    + ". Hạn ghi điện " + meterDue.format(DateTimeFormatter.ofPattern("dd/MM"))
+                    + " — chưa có ảnh thì không phát hành hoá đơn điện/nước.";
+            String paramsJson = "{\"propertyId\":" + contract.getProperty().getId()
+                    + ",\"period\":\"" + period + "\"}";
+            notificationRepository.save(Notification.builder()
+                    .userId(managerId)
+                    .title(title)
+                    .content(content)
+                    .type("METER_READING_DUE")
+                    .screen("MeterReadingPending")
+                    .paramsJson(paramsJson)
+                    .read(false)
+                    .build());
+            userPushTokenService.sendToUser(managerId, title, content, Map.of(
+                    "type", "METER_READING_DUE",
+                    "screen", "MeterReadingPending",
+                    "propertyId", contract.getProperty().getId(),
+                    "period", period));
+            reminded++;
+        }
+        return reminded;
+    }
+
+    private boolean hasMissingMeterPhoto(TenantContract contract, String period) {
+        Long propertyId = contract.getProperty().getId();
+        Long roomId = contract.getRoom() != null ? contract.getRoom().getId() : null;
+        return !hasMeterPhoto(propertyId, roomId, UtilityType.ELECTRIC, period)
+                || !hasMeterPhoto(propertyId, roomId, UtilityType.WATER, period);
+    }
+
+    private boolean hasMeterPhoto(Long propertyId, Long roomId, UtilityType type, String period) {
+        Optional<MeterReading> reading = roomId == null
+                ? meterReadingRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                        propertyId, type, period)
+                : meterReadingRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                        propertyId, roomId, type, period);
+        return reading.filter(r -> r.getImageUrl() != null && !r.getImageUrl().isBlank()).isPresent();
     }
 }

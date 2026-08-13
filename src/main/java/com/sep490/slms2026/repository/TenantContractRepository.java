@@ -80,6 +80,29 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     List<TenantContract> findByStatus(ContractStatus status);
 
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.status = :status
+            """)
+    List<TenantContract> findByStatusWithPropertyAndTenant(@Param("status") ContractStatus status);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.status = :status
+              AND p.operationManagerId = :managerId
+            """)
+    List<TenantContract> findActiveByOperationManagerId(
+            @Param("status") ContractStatus status,
+            @Param("managerId") UUID managerId);
+
     Page<TenantContract> findByStatus(ContractStatus status, Pageable pageable);
 
     @Query("""

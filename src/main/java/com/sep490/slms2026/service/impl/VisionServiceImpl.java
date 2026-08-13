@@ -1,10 +1,12 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.response.VisionDescribeRoomResponse;
 import com.sep490.slms2026.dto.response.VisionLabelsResponse;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.VisionService;
+import com.sep490.slms2026.vision.GeminiRoomDescribeProvider;
 import com.sep490.slms2026.vision.GoogleVisionProvider;
 import com.sep490.slms2026.vision.ImageSource;
 import com.sep490.slms2026.vision.LocalVisionProvider;
@@ -41,18 +43,30 @@ public class VisionServiceImpl implements VisionService {
     @Value("${vision.rate-limit-per-hour:20}")
     private int rateLimitPerHour;
 
+    @Value("${vision.describe.rate-limit-per-hour:40}")
+    private int describeRateLimitPerHour;
+
+    @Value("${vision.describe.max-images:8}")
+    private int describeMaxImages;
+
     /** Hosts được phép (vd res.cloudinary.com); rỗng = chỉ chặn scheme không phải https. */
     @Value("${vision.allowed-image-hosts:res.cloudinary.com}")
     private String allowedImageHosts;
 
     private final Map<String, VisionProvider> providersByName;
     private final HttpClient httpClient;
+    private final GeminiRoomDescribeProvider geminiRoomDescribeProvider;
 
     /** userId -> timestamps (ms) các lần gọi Google trong cửa sổ 1 giờ. */
     private final Map<UUID, Deque<Long>> requestLog = new ConcurrentHashMap<>();
 
-    public VisionServiceImpl(List<VisionProvider> providers, HttpClient visionHttpClient) {
+    /** Quota riêng cho describe-room (không dùng chung /labels). */
+    private final Map<UUID, Deque<Long>> describeRequestLog = new ConcurrentHashMap<>();
+
+    public VisionServiceImpl(List<VisionProvider> providers, HttpClient visionHttpClient,
+                             GeminiRoomDescribeProvider geminiRoomDescribeProvider) {
         this.httpClient = visionHttpClient;
+        this.geminiRoomDescribeProvider = geminiRoomDescribeProvider;
         Map<String, VisionProvider> map = new ConcurrentHashMap<>();
         for (VisionProvider p : providers) {
             map.put(p.name().toLowerCase(Locale.ROOT), p);
@@ -109,6 +123,35 @@ public class VisionServiceImpl implements VisionService {
             throw be;
         }
         throw new BusinessException("Không nhận diện được ảnh. Vui lòng thử ảnh khác.");
+    }
+
+    @Override
+    public VisionDescribeRoomResponse describeRoom(List<String> imageUrls) {
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            throw new BusinessException("VISION_DESCRIBE_UNAVAILABLE", "Cần ít nhất 1 ảnh hiện trạng.");
+        }
+        int max = Math.max(1, describeMaxImages);
+        if (imageUrls.size() > max) {
+            throw new BusinessException("VISION_DESCRIBE_UNAVAILABLE",
+                    "Tối đa " + max + " ảnh mỗi lần mô tả.");
+        }
+
+        List<ImageSource> images = new ArrayList<>();
+        for (String url : imageUrls) {
+            validateImageUrl(url);
+            images.add(ImageSource.of(url, httpClient));
+        }
+
+        if (!tryAcquireDescribeQuota()) {
+            throw new BusinessException("VISION_DESCRIBE_QUOTA",
+                    "Đã hết lượt tạo mô tả hiện trạng trong giờ. Vui lòng nhập tay hoặc thử lại sau.");
+        }
+
+        String description = geminiRoomDescribeProvider.describe(images);
+        return VisionDescribeRoomResponse.builder()
+                .description(description)
+                .model(geminiRoomDescribeProvider.modelName())
+                .build();
     }
 
     private boolean isProviderAvailable(String name) {
@@ -197,6 +240,30 @@ public class VisionServiceImpl implements VisionService {
                 times.pollFirst();
             }
             if (times.size() >= rateLimitPerHour) {
+                return false;
+            }
+            times.addLast(now);
+            return true;
+        }
+    }
+
+    private boolean tryAcquireDescribeQuota() {
+        if (describeRateLimitPerHour <= 0) {
+            return true;
+        }
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        UUID userId = user.getId();
+        long now = System.currentTimeMillis();
+        Deque<Long> times = describeRequestLog.computeIfAbsent(userId, id -> new ConcurrentLinkedDeque<>());
+        synchronized (times) {
+            while (true) {
+                Long oldest = times.peekFirst();
+                if (oldest == null || now - oldest < WINDOW_MS) {
+                    break;
+                }
+                times.pollFirst();
+            }
+            if (times.size() >= describeRateLimitPerHour) {
                 return false;
             }
             times.addLast(now);

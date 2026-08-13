@@ -35,4 +35,9 @@ public class CreateUtilityInvoiceRequest {
     private BigDecimal amount;
 
     private String meterImageUrl;
+
+    /** Token admin override khi không chụp được ảnh (công tơ hỏng / không vào được phòng). */
+    private java.util.UUID overrideToken;
+
+    private String overrideReason;
 }

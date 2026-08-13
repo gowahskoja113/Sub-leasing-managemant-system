@@ -183,6 +183,63 @@ public final class RentFirstCycleCalculator {
         return rentMonthly.divide(BigDecimal.valueOf(daysInMonth), 0, RoundingMode.HALF_UP);
     }
 
+    /**
+     * Ngày defer của tháng trước (nếu chu kỳ đầu là {@code DEFERRED}) cần cộng vào hoá đơn REGULAR
+     * của {@code billingMonth}. Dùng chung cho cron ngày 1 và catch-up khi HĐ ACTIVE trễ.
+     */
+    public record DeferredCarryOver(BigDecimal amount, int days, YearMonth fromMonth) {
+        public static DeferredCarryOver none() {
+            return new DeferredCarryOver(BigDecimal.ZERO, 0, null);
+        }
+
+        public boolean present() {
+            return amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+        }
+    }
+
+    public static DeferredCarryOver deferredCarryOver(TenantContract contract, YearMonth billingMonth) {
+        if (contract == null || billingMonth == null || contract.getRentAmount() == null
+                || contract.getRentAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return DeferredCarryOver.none();
+        }
+        YearMonth prevMonth = billingMonth.minusMonths(1);
+        Result first = calculate(contract, prevMonth);
+        if (!first.deferredToNextMonth() || first.billedDays() <= 0 || first.daysInMonth() <= 0) {
+            return DeferredCarryOver.none();
+        }
+        BigDecimal amount = contract.getRentAmount()
+                .multiply(BigDecimal.valueOf(first.billedDays()))
+                .divide(BigDecimal.valueOf(first.daysInMonth()), 0, RoundingMode.HALF_UP);
+        return new DeferredCarryOver(amount, first.billedDays(), prevMonth);
+    }
+
+    /** Full tháng + ngày defer tháng trước (nếu có). */
+    public static BigDecimal regularRentAmount(TenantContract contract, YearMonth billingMonth) {
+        if (contract == null || contract.getRentAmount() == null
+                || contract.getRentAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return contract.getRentAmount().add(deferredCarryOver(contract, billingMonth).amount());
+    }
+
+    /**
+     * Hạn hoá đơn REGULAR: ngày {@code dueDayOfMonth} của tháng billing (mặc định 5).
+     * Nếu ngày đó đã qua (catch-up giữa tháng / bù tháng cũ) thì {@code today + graceDays}
+     * để tenant không bị OVERDUE ngay lúc phát hành.
+     */
+    public static LocalDate regularRentDueDate(YearMonth billingMonth, int dueDayOfMonth,
+                                               long graceDaysAfterDuePassed, LocalDate today) {
+        if (billingMonth == null || today == null) {
+            return today;
+        }
+        int day = Math.min(Math.max(dueDayOfMonth, 1), billingMonth.lengthOfMonth());
+        LocalDate due = billingMonth.atDay(day);
+        if (!due.isBefore(today)) {
+            return due;
+        }
+        return today.plusDays(Math.max(graceDaysAfterDuePassed, 0));
+    }
+
     private static Result empty() {
         return new Result(
                 "OUT_OF_MONTH",

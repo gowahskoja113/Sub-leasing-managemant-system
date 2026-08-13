@@ -8,10 +8,13 @@ import com.sep490.slms2026.enums.*;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
+import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantBillingService;
+import com.sep490.slms2026.service.UserPushTokenService;
+import com.sep490.slms2026.util.ContractBillingCalendar;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
@@ -26,7 +29,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -44,6 +49,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
+    private final NotificationRepository notificationRepository;
+    private final UserPushTokenService userPushTokenService;
+    private final BillingConfigService billingConfigService;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -230,8 +238,14 @@ public class TenantBillingServiceImpl implements TenantBillingService {
 
         YearMonth currentMonth = YearMonth.now();
         if (billingMonth.equals(currentMonth)) {
-            if (LocalDate.now().getDayOfMonth() > 5) {
-                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Chỉ được tạo hóa đơn tiền nhà tháng hiện tại từ ngày 1 đến ngày 5.");
+            BillingConfig billingConfig = billingConfigService.current();
+            LocalDate due = ContractBillingCalendar.dueDate(
+                    billingMonth,
+                    ContractBillingCalendar.billingDayOfMonth(contract),
+                    billingConfig.getGraceDays());
+            if (LocalDate.now().isAfter(due)) {
+                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã quá hạn chót phát hành hoá đơn tiền nhà kỳ này ("
+                        + due + ").");
             }
         }
 
@@ -282,10 +296,11 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
     
     /**
-     * Sau khi HĐ ACTIVE: phát hành tiền nhà tháng hiện tại nếu chưa có.
+     * Sau khi HĐ ACTIVE: phát hành tiền nhà còn thiếu.
      * <ul>
      *   <li>startDate thuộc tháng hiện tại → hoá đơn FIRST (pro-rata/full), bỏ qua nếu đã thu qua QR onboard cùng tháng.</li>
-     *   <li>startDate thuộc tháng trước → catch-up REGULAR tháng hiện tại (cron ngày 1 đã bỏ qua vì HĐ chưa ACTIVE).</li>
+     *   <li>startDate thuộc tháng trước → catch-up REGULAR từ tháng sau chu kỳ đầu đến tháng hiện tại
+     *       (cron ngày 1 đã bỏ qua vì HĐ chưa ACTIVE; phải bù hết tháng giữa, không chỉ tháng hiện tại).</li>
      * </ul>
      */
     @Transactional
@@ -303,8 +318,10 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         }
 
         if (firstCycleMonth.isBefore(currentMonth)) {
-            // Đã qua tháng chu kỳ đầu (thường đã PAID qua onboard) → bù full tháng hiện tại nếu cron miss.
-            issueRegularRentIfAbsent(contract, currentMonth);
+            // Tháng đầu thường đã thu qua onboard (hoặc DEFERRED). Bù mọi tháng sau đó đến hiện tại.
+            for (YearMonth m = firstCycleMonth.plusMonths(1); !m.isAfter(currentMonth); m = m.plusMonths(1)) {
+                issueRegularRentIfAbsent(contract, m);
+            }
             return;
         }
 
@@ -356,17 +373,30 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
 
     private void issueRegularRentIfAbsent(TenantContract contract, YearMonth billingMonth) {
+        if (contract.getEndDate() != null
+                && billingMonth.isAfter(YearMonth.from(contract.getEndDate()))) {
+            return;
+        }
         var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
                 contract.getId(), TenantInvoiceType.RENT, billingMonth.getYear(), billingMonth.getMonthValue());
         if (existing.isPresent()) {
             return;
         }
-        BigDecimal amount = contract.getRentAmount();
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal rent = contract.getRentAmount();
+        if (rent == null || rent.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
+        RentFirstCycleCalculator.DeferredCarryOver carry =
+                RentFirstCycleCalculator.deferredCarryOver(contract, billingMonth);
+        BigDecimal amount = rent.add(carry.amount());
         String periodLabel = "Tiền nhà tháng " + String.format("%02d/%d",
                 billingMonth.getMonthValue(), billingMonth.getYear());
+        String note = "REGULAR|catchUpAfterOnboard=true|rentAmount=" + rent.toPlainString();
+        if (carry.present()) {
+            note += "|deferredDays=" + carry.days()
+                    + "|deferredFrom=" + carry.fromMonth()
+                    + "|deferredAmount=" + carry.amount().toPlainString();
+        }
         tenantInvoiceRepository.save(TenantInvoice.builder()
                 .code("HD-RENT-" + contract.getId() + "-" + billingMonth)
                 .tenantUserId(contract.getTenant().getId())
@@ -379,12 +409,19 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .billingMonth(billingMonth.getMonthValue())
                 .billingYear(billingMonth.getYear())
                 .billingPeriod(periodLabel)
-                .note("REGULAR|catchUpAfterOnboard=true|rentAmount=" + amount.toPlainString())
+                .note(note)
                 .totalAmount(amount)
                 .lateFee(BigDecimal.ZERO)
                 .grandTotal(amount)
                 .status(TenantInvoiceStatus.PENDING)
-                .dueDate(LocalDate.now().plusDays(firstCycleGraceDays))
+                .dueDate(RentFirstCycleCalculator.regularRentDueDate(
+                        billingMonth,
+                        ContractBillingCalendar.clampDay(
+                                billingMonth,
+                                ContractBillingCalendar.billingDayOfMonth(contract)
+                                        + billingConfigService.current().getGraceDays()),
+                        firstCycleGraceDays,
+                        LocalDate.now()))
                 .createdAt(LocalDateTime.now())
                 .autoIssued(true)
                 .build());
@@ -657,7 +694,78 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice) {
         TenantInvoice savedInvoice = tenantInvoiceRepository.save(invoice);
         realtimeEventService.publishInvoicePaid(savedInvoice);
+        notifyManagerPaymentReceived(savedInvoice);
         return savedInvoice;
+    }
+
+    /**
+     * In-app + Expo push cho operation manager. Không kèm số tiền (chính sách ẩn tiền manager).
+     * Type chính thức: {@code PAYMENT_RECEIVED_MANAGER}.
+     */
+    private void notifyManagerPaymentReceived(TenantInvoice invoice) {
+        TenantContract contract = invoice.getTenantContract();
+        if (contract == null || contract.getProperty() == null) {
+            return;
+        }
+        UUID managerId = contract.getProperty().getOperationManagerId();
+        if (managerId == null && contract.getProperty().getManagedBy() != null) {
+            managerId = contract.getProperty().getManagedBy();
+        }
+        if (managerId == null && contract.getAssignedManager() != null) {
+            managerId = contract.getAssignedManager().getId();
+        }
+        if (managerId == null) {
+            return;
+        }
+
+        String tenantName = "khách";
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null
+                && contract.getTenant().getUser().getFullName() != null
+                && !contract.getTenant().getUser().getFullName().isBlank()) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        } else if (contract.getDraftTenantName() != null && !contract.getDraftTenantName().isBlank()) {
+            tenantName = contract.getDraftTenantName();
+        }
+        String roomLabel = invoice.getRoomNumber() != null && !invoice.getRoomNumber().isBlank()
+                ? invoice.getRoomNumber()
+                : (contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "nguyên căn");
+        String typeLabel = invoiceTypeLabel(invoice.getInvoiceType());
+
+        String title = "💰 Khách đã thanh toán";
+        String body = "Khách " + tenantName + " · Phòng " + roomLabel + " đã thanh toán " + typeLabel + ".";
+        String paramsJson = "{\"invoiceId\":" + invoice.getId()
+                + ",\"contractId\":" + contract.getId() + "}";
+
+        notificationRepository.save(Notification.builder()
+                .userId(managerId)
+                .title(title)
+                .content(body)
+                .type("PAYMENT_RECEIVED_MANAGER")
+                .screen("InvoiceList")
+                .paramsJson(paramsJson)
+                .read(false)
+                .build());
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("type", "PAYMENT_RECEIVED_MANAGER");
+        data.put("screen", "InvoiceList");
+        data.put("invoiceId", invoice.getId());
+        data.put("contractId", contract.getId());
+        userPushTokenService.sendToUser(managerId, title, body, data);
+    }
+
+    private static String invoiceTypeLabel(TenantInvoiceType type) {
+        if (type == null) {
+            return "hoá đơn";
+        }
+        return switch (type) {
+            case RENT -> "tiền nhà";
+            case ELECTRICITY -> "tiền điện";
+            case WATER -> "tiền nước";
+            case SERVICE -> "phí dịch vụ";
+            case MAINTENANCE -> "phí bảo trì";
+            case OTHER -> "hoá đơn onboard";
+        };
     }
 
     private TenantInvoice loadOwnedInvoice(Long invoiceId, UUID tenantUserId) {

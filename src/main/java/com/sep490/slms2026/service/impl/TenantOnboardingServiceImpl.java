@@ -333,7 +333,6 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         TenantContractResponse res = toResponse(contract);
         res.setPayosCheckoutUrl(link.checkoutUrl);
         res.setPayosQrCode(link.qrCode);
-        res.setInitialPaymentAmount(total);
         return res;
     }
 
