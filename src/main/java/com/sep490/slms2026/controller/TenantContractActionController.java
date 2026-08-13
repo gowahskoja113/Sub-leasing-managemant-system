@@ -187,7 +187,12 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.confirmContract(id, request.getOtp()));
     }
 
-    /** GET /managed — danh sách hợp đồng chờ xử lý của manager. */
+    /**
+     * GET /managed — hợp đồng manager phụ trách.
+     * Không {@code status}: pipeline chờ xử lý (duyệt giá / nháp / pending).
+     * {@code ?status=ACTIVE} (hoặc DRAFT/PENDING/EXPIRED/TERMINATED): lọc theo {@code ContractStatus}.
+     * Cũng nhận {@code PriceApprovalStatus} (PENDING_PRICE_APPROVAL, …).
+     */
     @GetMapping("/managed")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<java.util.List<TenantContractResponse>> getManagedContracts(

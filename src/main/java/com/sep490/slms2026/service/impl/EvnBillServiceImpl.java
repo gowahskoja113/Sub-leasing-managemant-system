@@ -3,6 +3,7 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.CreateEvnBillRequest;
 import com.sep490.slms2026.dto.response.EvnBillResponse;
 import com.sep490.slms2026.entity.EvnBill;
+import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.UtilityInvoice;
 import com.sep490.slms2026.enums.EvnBillStatus;
@@ -10,13 +11,16 @@ import com.sep490.slms2026.enums.UtilityType;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.EvnBillRepository;
+import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EvnBillService;
+import com.sep490.slms2026.service.UserPushTokenService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,10 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EvnBillServiceImpl implements EvnBillService {
@@ -36,6 +44,8 @@ public class EvnBillServiceImpl implements EvnBillService {
     private final PropertyRepository propertyRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final UserRepository userRepository;
+    private final NotificationRepository notificationRepository;
+    private final UserPushTokenService userPushTokenService;
 
     @Override
     @Transactional
@@ -69,6 +79,7 @@ public class EvnBillServiceImpl implements EvnBillService {
                 .build();
 
         evnBillRepository.save(bill);
+        notifyManagerEvnBillPublished(property, bill);
 
         return toResponse(bill, user.getUsername());
     }
@@ -134,6 +145,51 @@ public class EvnBillServiceImpl implements EvnBillService {
             }
             return toResponse(bill, username);
         }).collect(Collectors.toList());
+    }
+
+    /** In-app + Expo push tới đúng manager phụ trách nhà — không broadcast. */
+    private void notifyManagerEvnBillPublished(Property property, EvnBill bill) {
+        UUID managerId = property.getOperationManagerId();
+        if (managerId == null) {
+            managerId = property.getManagedBy();
+        }
+        if (managerId == null) {
+            log.warn("EVN bill {} published but property {} has no operation manager — skip notify",
+                    bill.getId(), property.getId());
+            return;
+        }
+
+        String rentalType = Boolean.TRUE.equals(property.getWholeHouse()) ? "NGUYEN_CAN" : "THEO_PHONG";
+        String title = "Đã có hoá đơn điện kỳ " + bill.getMonth() + "/" + bill.getYear();
+        String content = (property.getPropertyName() != null ? property.getPropertyName() : "Nhà")
+                + " · " + rentalType
+                + " · " + bill.getTotalKwh() + " kWh"
+                + " · đơn giá " + formatVnInt(bill.getUnitPrice()) + "đ/kWh";
+        String paramsJson = "{\"propertyId\":" + property.getId() + "}";
+
+        notificationRepository.save(Notification.builder()
+                .userId(managerId)
+                .title(title)
+                .content(content)
+                .type("EVN_BILL_PUBLISHED")
+                .screen("UtilityBilling")
+                .paramsJson(paramsJson)
+                .read(false)
+                .build());
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("type", "EVN_BILL_PUBLISHED");
+        data.put("screen", "UtilityBilling");
+        data.put("propertyId", property.getId());
+        data.put("params", Map.of("propertyId", property.getId()));
+        userPushTokenService.sendToUser(managerId, title, content, data);
+    }
+
+    private static String formatVnInt(BigDecimal value) {
+        if (value == null) {
+            return "0";
+        }
+        return String.format("%,d", value.setScale(0, RoundingMode.HALF_UP).longValue()).replace(',', '.');
     }
 
     private EvnBillResponse toResponse(EvnBill bill, String username) {

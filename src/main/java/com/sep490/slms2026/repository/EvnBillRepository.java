@@ -11,7 +11,7 @@ import java.util.Optional;
 
 public interface EvnBillRepository extends JpaRepository<EvnBill, Long> {
 
-    @Query("SELECT e FROM EvnBill e WHERE e.property.id = :propertyId " +
+    @Query("SELECT e FROM EvnBill e WHERE (:propertyId IS NULL OR e.property.id = :propertyId) " +
            "AND (:month IS NULL OR e.month = :month) " +
            "AND (:year IS NULL OR e.year = :year) " +
            "AND (:status IS NULL OR e.status = :status) " +

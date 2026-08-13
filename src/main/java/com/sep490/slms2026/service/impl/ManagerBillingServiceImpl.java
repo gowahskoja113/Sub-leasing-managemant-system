@@ -23,6 +23,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
@@ -201,14 +202,17 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         } else if (invoice.getTenantContract().getDraftTenantName() != null) {
             tenantName = invoice.getTenantContract().getDraftTenantName();
         }
+        var contract = invoice.getTenantContract();
         ManagerInvoiceResponse response = ManagerInvoiceResponse.builder()
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
-                .propertyId(invoice.getTenantContract().getProperty().getId())
+                .propertyId(contract.getProperty().getId())
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .tenantName(tenantName)
+                .contractId(contract.getId())
+                .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
                 .billingPeriod(invoice.getBillingPeriod())
@@ -247,7 +251,68 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
             }
         }
 
+        if (!isAdmin) {
+            stripDepositFromManagerResponse(response, invoice);
+        }
+
         return response;
+    }
+
+    /** Manager không được đọc tiền cọc qua invoice — chỉ còn {@code /manager/deposits}. */
+    private static void stripDepositFromManagerResponse(ManagerInvoiceResponse response, TenantInvoice invoice) {
+        BigDecimal deposit = null;
+        if (response.getPaymentBreakdown() != null) {
+            PaymentBreakdownResponse b = response.getPaymentBreakdown();
+            deposit = b.getDepositAmount();
+            b.setDepositAmount(null);
+            b.setDepositMonths(null);
+            if (b.getLines() != null) {
+                b.setLines(b.getLines().stream()
+                        .filter(line -> !"depositAmount".equals(line.getKey())
+                                && !"depositMonths".equals(line.getKey()))
+                        .toList());
+            }
+            if (deposit != null) {
+                b.setFormula(null);
+                b.setTotalAmount(subtractOrNull(b.getTotalAmount(), deposit));
+            }
+        }
+        if (deposit == null) {
+            deposit = parseOnboardDeposit(invoice.getNote());
+        }
+        if (deposit != null) {
+            response.setAmount(subtractOrNull(response.getAmount(), deposit));
+            response.setTotalAmount(subtractOrNull(response.getTotalAmount(), deposit));
+        }
+        if (response.getItems() != null) {
+            response.setItems(response.getItems().stream()
+                    .filter(item -> item.getLabel() == null || !item.getLabel().contains("Tiền cọc"))
+                    .toList());
+        }
+    }
+
+    private static BigDecimal parseOnboardDeposit(String note) {
+        if (note == null || !note.startsWith("ONBOARD|")) {
+            return null;
+        }
+        for (String part : note.split("\\|")) {
+            if (part.startsWith("depositAmount=")) {
+                try {
+                    return new BigDecimal(part.substring("depositAmount=".length()).trim());
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static BigDecimal subtractOrNull(BigDecimal value, BigDecimal deposit) {
+        if (value == null) {
+            return null;
+        }
+        BigDecimal remaining = value.subtract(deposit);
+        return remaining.compareTo(BigDecimal.ZERO) <= 0 ? null : remaining;
     }
 
     private static void maskMoneyOnBreakdown(PaymentBreakdownResponse b) {

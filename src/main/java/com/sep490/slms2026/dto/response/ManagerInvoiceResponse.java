@@ -20,6 +20,8 @@ public class ManagerInvoiceResponse {
     private String propertyName;
     private String roomNumber;
     private String tenantName;
+    private Long contractId;
+    private String contractStatus;
     private Integer month;
     private Integer year;
     private String billingPeriod;

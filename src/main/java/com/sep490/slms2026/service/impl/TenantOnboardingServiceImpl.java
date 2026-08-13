@@ -733,16 +733,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         java.util.UUID managerUserId = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId();
         List<TenantContract> contracts;
         if (status != null && !status.isBlank()) {
-            if ("DRAFT".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status)) {
+            try {
+                ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
+                contracts = tenantContractRepository.findManagedContractsByStatus(managerUserId, contractStatus);
+            } catch (IllegalArgumentException notContractStatus) {
                 try {
-                    ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
-                    contracts = tenantContractRepository.findManagedContractsByStatus(managerUserId, contractStatus);
-                } catch (IllegalArgumentException e) {
-                    contracts = new ArrayList<>();
-                }
-            } else {
-                try {
-                    com.sep490.slms2026.enums.PriceApprovalStatus enumStatus = com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(status.toUpperCase());
+                    com.sep490.slms2026.enums.PriceApprovalStatus enumStatus =
+                            com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(status.toUpperCase());
                     contracts = tenantContractRepository.findManagedContractsByApprovalStatus(managerUserId, enumStatus);
                 } catch (IllegalArgumentException e) {
                     contracts = new ArrayList<>();
