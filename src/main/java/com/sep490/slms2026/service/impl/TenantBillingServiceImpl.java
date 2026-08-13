@@ -244,8 +244,8 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                     ContractBillingCalendar.billingDayOfMonth(contract),
                     billingConfig.getGraceDays());
             if (LocalDate.now().isAfter(due)) {
-                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã quá hạn chót phát hành hoá đơn tiền nhà kỳ này ("
-                        + due + ").");
+                throw new BusinessException("UTILITY_WINDOW_CLOSED",
+                        "Đã quá hạn chót phát hành hoá đơn tiền nhà kỳ này (" + due + ").");
             }
         }
 
@@ -703,6 +703,10 @@ public class TenantBillingServiceImpl implements TenantBillingService {
      * Type chính thức: {@code PAYMENT_RECEIVED_MANAGER}.
      */
     private void notifyManagerPaymentReceived(TenantInvoice invoice) {
+        // FIRST RENT thu cùng QR onboard đã có DEPOSIT_PAID_MANAGER → ResumeContract.
+        if (invoice.getCycleType() == RentCycleType.FIRST && isOnboardPaidInvoice(invoice)) {
+            return;
+        }
         TenantContract contract = invoice.getTenantContract();
         if (contract == null || contract.getProperty() == null) {
             return;

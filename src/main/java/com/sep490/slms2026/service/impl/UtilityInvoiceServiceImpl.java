@@ -279,8 +279,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                             config.getGraceDays())
                     : periodMonth.atEndOfMonth();
             if (today.isAfter(deadline)) {
-                throw new BusinessException("409: UTILITY_WINDOW_CLOSED - Đã quá hạn chót ("
-                        + deadline + "), không thể tạo mới hoá đơn điện/nước cho kỳ này.");
+                throw new BusinessException("UTILITY_WINDOW_CLOSED",
+                        "Đã quá hạn chót (" + deadline + "), không thể tạo mới hoá đơn điện/nước cho kỳ này.");
             }
         }
 

@@ -665,6 +665,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     .title(title)
                     .content(body)
                     .type("DEPOSIT_PAID_TENANT")
+                    .screen("InvoiceList")
                     .build());
             userPushTokenService.sendToUser(tenantUserId, title, body, Map.of(
                     "screen", "InvoiceList",
@@ -682,6 +683,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     .title(title)
                     .content(body)
                     .type("DEPOSIT_PAID_MANAGER")
+                    .screen("ResumeContract")
+                    .paramsJson("{\"contractId\":" + contract.getId() + "}")
                     .build());
             userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
                     "screen", "ResumeContract",
