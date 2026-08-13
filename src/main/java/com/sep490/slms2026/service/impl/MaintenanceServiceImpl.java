@@ -42,7 +42,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -220,7 +222,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
                 "Khách thuê " + user.getFullName() + ": \"" + title + "\" — "
-                        + locationLabel + " (#" + req.getId() + ")");
+                        + locationLabel + " (#" + req.getId() + ")",
+                "MAINTENANCE_CREATED");
 
         return convertToResponse(req);
     }
@@ -311,6 +314,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         repository.save(req);
         addTimeline(req, old, MaintenanceStatus.APPROVED,
                 "Manager duyệt yêu cầu [" + category + "], chờ sửa chữa bên ngoài");
+        notifyTenant(req,
+                "Yêu cầu bảo trì đã được duyệt",
+                "Yêu cầu #" + req.getId() + " \"" + req.getTitle() + "\" đã được tiếp nhận, đang chờ sửa chữa.",
+                "MAINTENANCE_APPROVED");
         return convertToResponse(req);
     }
 
@@ -357,6 +364,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             note = "Manager báo sửa xong, chờ khách thuê xác nhận" + costNote;
         }
         addTimeline(req, old, MaintenanceStatus.WAITING_TENANT_CONFIRM, note);
+        notifyTenantComplete(req, alreadyWaiting);
         return convertToResponse(req);
     }
 
@@ -395,7 +403,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                         "Khách thuê khiếu nại chi phí bồi thường",
                         "Yêu cầu #" + req.getId() + " đã đóng nhưng khách khiếu nại số tiền "
                                 + req.getRepairCost() + "đ"
-                                + (isBlank(reason) ? "" : ". Lý do: " + reason));
+                                + (isBlank(reason) ? "" : ". Lý do: " + reason),
+                        "MAINTENANCE_COST_DISPUTED");
             }
         }
 
@@ -440,7 +449,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "Khách thuê từ chối kết quả sửa: " + req.getRejectReason());
         notifyPropertyManager(req,
                 "Khách thuê từ chối kết quả bảo trì",
-                "Yêu cầu #" + req.getId() + " bị từ chối. Lý do: " + req.getRejectReason());
+                "Yêu cầu #" + req.getId() + " bị từ chối. Lý do: " + req.getRejectReason(),
+                "MAINTENANCE_REJECTED_BY_TENANT");
 
         return convertToResponse(req);
     }
@@ -465,6 +475,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             repository.save(req);
             addTimeline(req, old, MaintenanceStatus.APPROVED,
                     "Manager chấp nhận từ chối của khách, quay lại bước chờ sửa chữa");
+            notifyTenant(req,
+                    "Yêu cầu sửa lại đã được chấp nhận",
+                    "Quản lý chấp nhận từ chối của bạn cho yêu cầu #" + req.getId()
+                            + ". Đơn sẽ được sửa lại.",
+                    "MAINTENANCE_APPROVED");
             return convertToResponse(req);
         }
 
@@ -483,6 +498,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
         addTimeline(req, old, MaintenanceStatus.WAITING_TENANT_CONFIRM,
                 "Manager giữ nguyên kết quả sửa chữa: " + note);
+        notifyTenant(req,
+                "Cần xác nhận lại kết quả sửa chữa",
+                "Quản lý giữ nguyên kết quả cho yêu cầu #" + req.getId()
+                        + ". Lý do: " + note + ". Vui lòng xác nhận lại trong app.",
+                "MAINTENANCE_COMPLETED");
         return convertToResponse(req);
     }
 
@@ -519,6 +539,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "Manager chốt thu bồi thường"
                             + (request.getRepairCost() != null ? " " + req.getRepairCost() + "đ" : "")
                             + (isBlank(request.getNote()) ? "" : ": " + request.getNote().trim()));
+            notifyTenant(req,
+                    "Đã chốt chi phí bồi thường",
+                    "Yêu cầu #" + req.getId() + " — khoản bồi thường "
+                            + req.getRepairCost() + "đ đã được chốt."
+                            + (isBlank(request.getNote()) ? "" : " " + request.getNote().trim()),
+                    "MAINTENANCE_COST_RESOLVED");
         } else if ("WAIVE".equals(action)) {
             req.setCostAgreementStatus(CostAgreementStatus.WAIVED);
             req.setCostDisputeReason(trimToNull(request.getNote()));
@@ -526,6 +552,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             addTimeline(req, req.getStatus(), req.getStatus(),
                     "Manager miễn thu khoản bồi thường"
                             + (isBlank(request.getNote()) ? "" : ": " + request.getNote().trim()));
+            notifyTenant(req,
+                    "Đã miễn thu bồi thường",
+                    "Yêu cầu #" + req.getId() + " — khoản bồi thường đã được miễn thu."
+                            + (isBlank(request.getNote()) ? "" : " " + request.getNote().trim()),
+                    "MAINTENANCE_COST_RESOLVED");
         } else {
             throw new BusinessException("action là bắt buộc và chỉ nhận CHARGE hoặc WAIVE");
         }
@@ -569,6 +600,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             timelineNote = reason != null && !reason.isBlank() ? reason : "Manager hủy yêu cầu";
         }
         addTimeline(req, old, MaintenanceStatus.CANCELLED, timelineNote);
+        if (!tenantSelfCancel) {
+            notifyTenant(req,
+                    "Yêu cầu bảo trì đã bị huỷ",
+                    "Yêu cầu #" + req.getId() + " \"" + req.getTitle() + "\" đã bị huỷ."
+                            + (isBlank(timelineNote) ? "" : " Lý do: " + timelineNote),
+                    "MAINTENANCE_CANCELLED");
+        }
         return convertToResponse(req);
     }
 
@@ -642,7 +680,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (auto) {
             notifyPropertyManager(req,
                     "Bảo trì tự xác nhận",
-                    "Yêu cầu #" + req.getId() + " đã được hệ thống tự xác nhận do khách thuê không phản hồi.");
+                    "Yêu cầu #" + req.getId() + " đã được hệ thống tự xác nhận do khách thuê không phản hồi.",
+                    "MAINTENANCE_AUTO_CONFIRMED");
         }
         return convertToResponse(req);
     }
@@ -870,18 +909,35 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .changedByName(user != null ? user.getFullName() : "System")
                 .build();
         timelineRepository.save(timeline);
-
-        if (req.getTenant() != null && req.getTenant().getUser() != null) {
-            if (user != null && user.getId().equals(req.getTenant().getUser().getId())) {
-                return;
-            }
-            String title = "Cập nhật yêu cầu bảo trì";
-            String body = "Yêu cầu #" + req.getId() + " của bạn đã đổi trạng thái thành: " + newStatus;
-            saveAndPush(req.getTenant().getUser().getId(), title, body, req.getId());
-        }
     }
 
-    private void notifyPropertyManager(MaintenanceRequest req, String title, String body) {
+    private void notifyTenantComplete(MaintenanceRequest req, boolean alreadyWaiting) {
+        String title = alreadyWaiting
+                ? "Cập nhật kết quả sửa chữa — vui lòng xác nhận lại"
+                : "Đã sửa xong — vui lòng xác nhận";
+        StringBuilder body = new StringBuilder();
+        body.append("Yêu cầu #").append(req.getId());
+        if (req.getTitle() != null && !req.getTitle().isBlank()) {
+            body.append(" \"").append(req.getTitle()).append('"');
+        }
+        body.append(" đã sửa xong. Vui lòng xác nhận trong app trong ")
+                .append(Math.max(autoConfirmDays, 1))
+                .append(" ngày — quá hạn hệ thống sẽ tự đóng.");
+        if (req.getCostPaidBy() == CostPaidBy.TENANT && req.getRepairCost() != null) {
+            body.append(" Có khoản bồi thường ").append(req.getRepairCost()).append("đ.");
+        }
+        notifyTenant(req, title, body.toString(), "MAINTENANCE_COMPLETED");
+    }
+
+    private void notifyTenant(MaintenanceRequest req, String title, String body, String type) {
+        if (req.getTenant() == null || req.getTenant().getUser() == null) {
+            return;
+        }
+        saveAndPush(req.getTenant().getUser().getId(), title, body, type,
+                "MaintenanceDetail", "requestId", req.getId());
+    }
+
+    private void notifyPropertyManager(MaintenanceRequest req, String title, String body, String type) {
         UUID managerId = null;
         if (req.getProperty() != null) {
             if (req.getProperty().getOperationManagerId() != null) {
@@ -893,7 +949,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (managerId == null) {
             return;
         }
-        saveAndPush(managerId, title, body, req.getId());
+        saveAndPush(managerId, title, body, type,
+                "MaintenanceTicketDetail", "ticketId", req.getId());
     }
 
     private void notifyPropertyHost(MaintenanceRequest req, String title, String body) {
@@ -919,18 +976,24 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
-    private void saveAndPush(UUID userId, String title, String body, Long requestId) {
+    private void saveAndPush(UUID userId, String title, String body, String type,
+                             String screen, String idKey, Long requestId) {
+        String paramsJson = "{\"" + idKey + "\":" + requestId + "}";
         notificationRepository.save(Notification.builder()
                 .userId(userId)
                 .title(title)
                 .content(body)
-                .type("MAINTENANCE")
+                .type(type)
+                .screen(screen)
+                .paramsJson(paramsJson)
+                .read(false)
                 .build());
-        userPushTokenService.sendToUser(
-                userId, title, body, java.util.Map.of(
-                        "requestId", requestId,
-                        "type", "MAINTENANCE",
-                        "screen", "MaintenanceDetail"));
+        Map<String, Object> data = new HashMap<>();
+        data.put("type", type);
+        data.put("screen", screen);
+        data.put(idKey, requestId);
+        data.put("params", Map.of(idKey, requestId));
+        userPushTokenService.sendToUser(userId, title, body, data);
     }
 
     private List<String> storeFiles(Long requestId, List<MultipartFile> files) {
