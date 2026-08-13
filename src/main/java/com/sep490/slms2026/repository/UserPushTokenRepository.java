@@ -19,5 +19,7 @@ public interface UserPushTokenRepository extends JpaRepository<UserPushToken, Lo
 
     void deleteByUserIdAndToken(UUID userId, String token);
 
+    void deleteByToken(String token);
+
     boolean existsByUserIdAndToken(UUID userId, String token);
 }

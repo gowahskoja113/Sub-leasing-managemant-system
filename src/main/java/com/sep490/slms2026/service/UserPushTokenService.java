@@ -90,8 +90,6 @@ public class UserPushTokenService {
         if (userId == null) {
             return;
         }
-        for (String token : tokensOf(userId)) {
-            pushNotificationService.sendPushNotification(token, title, body, data);
-        }
+        pushNotificationService.sendPushNotifications(tokensOf(userId), title, body, data);
     }
 }

@@ -973,6 +973,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     .priority("HIGH")
                     .read(false)
                     .build());
+            Map<String, Object> data = new HashMap<>();
+            data.put("type", "MAINTENANCE_REOPEN_ESCALATION");
+            data.put("ticketId", req.getId());
+            data.put("requestId", req.getId());
+            userPushTokenService.sendToUser(host.getId(), title, body, data);
         }
     }
 

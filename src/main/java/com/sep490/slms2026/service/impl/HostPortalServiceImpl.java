@@ -625,12 +625,13 @@ public class HostPortalServiceImpl implements HostPortalService {
                     "CONTRACT_PENDING",
                     "Hợp đồng chờ duyệt",
                     "HĐ " + contract.getContractCode() + " — "
-                            + contract.getTenant().getUser().getFullName() + " chờ Host duyệt.",
+                            + resolveTenantDisplayName(contract) + " chờ Host duyệt.",
                     "MEDIUM");
         }
         LocalDate threshold = LocalDate.now().plusDays(EXPIRING_DAYS);
         for (InboundContract lease : inboundContractRepository.findAll()) {
             if (lease.getStatus() == ContractStatus.ACTIVE
+                    && lease.getEndDate() != null
                     && !lease.getEndDate().isAfter(threshold)
                     && lease.getEndDate().isAfter(LocalDate.now())) {
                 ensureNotification(userId, "master-lease-expiring:" + lease.getId(),
@@ -640,6 +641,19 @@ public class HostPortalServiceImpl implements HostPortalService {
                         "MEDIUM");
             }
         }
+    }
+
+    /** HĐ nháp PENDING có thể chưa gắn tenant — dùng draftTenantName. */
+    private static String resolveTenantDisplayName(TenantContract contract) {
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null
+                && contract.getTenant().getUser().getFullName() != null
+                && !contract.getTenant().getUser().getFullName().isBlank()) {
+            return contract.getTenant().getUser().getFullName();
+        }
+        if (contract.getDraftTenantName() != null && !contract.getDraftTenantName().isBlank()) {
+            return contract.getDraftTenantName();
+        }
+        return "khách thuê";
     }
 
     private void ensureNotification(UUID userId, String dedupeKey, String type,
@@ -670,7 +684,7 @@ public class HostPortalServiceImpl implements HostPortalService {
             }
             invoices.add(HostInvoiceDto.builder()
                     .id(contract.getId() + "-" + ym)
-                    .tenantName(contract.getTenant().getUser().getFullName())
+                    .tenantName(resolveTenantDisplayName(contract))
                     .roomCode(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "NGUYEN_CAN")
                     .propertyName(contract.getProperty().getPropertyName())
                     .amount(contract.getRentAmount())
