@@ -33,6 +33,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -785,7 +786,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         if (req.getTenant() == null || req.getTenant().getUser() == null
                 || !req.getTenant().getUser().getId().equals(user.getId())) {
-            throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+            throw new AccessDeniedException("Yêu cầu sửa chữa này không thuộc về bạn");
         }
     }
 
@@ -796,13 +797,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             return;
         }
         if (!"ROLE_MANAGER".equals(role)) {
-            throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+            throw new AccessDeniedException("Chỉ quản lý vận hành mới được thao tác trên yêu cầu sửa chữa này");
         }
         UUID userId = user.getId();
         UUID managedBy = req.getProperty() != null ? req.getProperty().getManagedBy() : null;
         UUID opManager = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
         if (!userId.equals(managedBy) && !userId.equals(opManager)) {
-            throw new BusinessException("Bạn không có quyền thao tác trên yêu cầu này");
+            throw new AccessDeniedException("Bạn không quản lý tòa nhà của yêu cầu sửa chữa này");
         }
     }
 

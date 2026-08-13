@@ -19,6 +19,7 @@ import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.dto.response.PaymentBreakdownResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -85,7 +86,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         if (!isAdmin) {
             UUID opManagerId = invoice.getTenantContract().getProperty().getOperationManagerId();
             if (opManagerId == null || !managerUserId.equals(opManagerId)) {
-                throw new BusinessException("Bạn không có quyền xem hoá đơn này");
+                throw new AccessDeniedException("Bạn không có quyền xem hoá đơn này");
             }
         }
         return toManagerInvoice(invoice, true, isAdmin);
@@ -170,7 +171,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         if (!isAdmin) {
             UUID opManagerId = claim.getTenantInvoice().getTenantContract().getProperty().getOperationManagerId();
             if (!managerUserId.equals(opManagerId)) {
-                throw new BusinessException("Bạn không có quyền xử lý giao dịch này");
+                throw new AccessDeniedException("Bạn không có quyền xử lý giao dịch này");
             }
         }
         return claim;

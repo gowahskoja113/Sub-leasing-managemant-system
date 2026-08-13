@@ -21,6 +21,7 @@ import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
 import com.sep490.slms2026.enums.ContractStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -340,7 +341,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                     return equipment.getProperty().getId().equals(c.getProperty().getId());
                 });
         if (!allowed) {
-            throw new BusinessException("Bạn không có quyền xem thiết bị này");
+            throw new AccessDeniedException("Bạn không có quyền xem thiết bị này");
         }
     }
 
@@ -358,7 +359,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                             && propertyId.equals(c.getProperty().getId());
                 });
         if (!allowed) {
-            throw new BusinessException("Bạn không có quyền xem thiết bị của phòng này");
+            throw new AccessDeniedException("Bạn không có quyền xem thiết bị của phòng này");
         }
     }
 

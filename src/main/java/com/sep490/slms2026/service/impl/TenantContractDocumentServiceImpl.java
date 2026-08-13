@@ -29,6 +29,7 @@ import com.sep490.slms2026.util.TenantContractStatusHelper;
 import com.sep490.slms2026.util.VietnameseNumberToWords;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -159,17 +160,17 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
             UUID opManagerId = contract.getProperty() != null
                     ? contract.getProperty().getOperationManagerId() : null;
             if (opManagerId == null || !opManagerId.equals(userId)) {
-                throw new BusinessException("Bạn không quản lý toà nhà của hợp đồng này");
+                throw new AccessDeniedException("Bạn không quản lý toà nhà của hợp đồng này");
             }
             return;
         }
         if (role == Role.ROLE_TENANT) {
             if (contract.getTenant() == null || !contract.getTenant().getId().equals(userId)) {
-                throw new BusinessException("Bạn không có quyền xem hợp đồng này");
+                throw new AccessDeniedException("Bạn không có quyền xem hợp đồng này");
             }
             return;
         }
-        throw new BusinessException("Bạn không có quyền xem hợp đồng này");
+        throw new AccessDeniedException("Bạn không có quyền xem hợp đồng này");
     }
 
     /**
