@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @Builder
 public class PaymentBreakdownLineResponse {
-    /** rentAmount | depositMonths | depositAmount | daysInMonth | dailyRate | billedDays | period | total */
+    /** rentAmount (chỉ hoá đơn tiền phòng) | depositMonths | depositAmount | daysInMonth | dailyRate | billedDays | period | firstRentAmount | total */
     private String key;
     private String label;
     /** Giá trị hiển thị sẵn (đã format số / ngày). */

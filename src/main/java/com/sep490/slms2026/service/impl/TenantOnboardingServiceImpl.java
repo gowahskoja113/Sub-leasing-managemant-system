@@ -48,6 +48,7 @@ import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.PhoneUtils;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.PaymentMethods;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import lombok.RequiredArgsConstructor;
@@ -507,6 +508,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         Integer billingMonth = firstRent.periodStart() != null ? firstRent.periodStart().getMonthValue() : null;
         Integer billingYear = firstRent.periodStart() != null ? firstRent.periodStart().getYear() : null;
 
+        String publicMethod = PaymentMethods.toPublic(method != null ? method : PaymentMethods.QR);
+
         TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
                 .code(code)
                 .tenantUserId(tenantUserId)
@@ -524,7 +527,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .status(TenantInvoiceStatus.PAID)
                 .createdAt(paidAt)
                 .paidAt(paidAt)
-                .paymentMethod(method)
+                .paymentMethod(publicMethod)
                 .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
                 .payosOrderCode(payosOrderCode)
                 .build());
@@ -535,7 +538,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .invoiceCode(invoice.getCode())
                 .invoiceType(invoice.getInvoiceType())
                 .amount(grandTotal)
-                .method(method)
+                .method(publicMethod)
                 .paidAt(paidAt)
                 .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
                 .propertyName(propertyName)

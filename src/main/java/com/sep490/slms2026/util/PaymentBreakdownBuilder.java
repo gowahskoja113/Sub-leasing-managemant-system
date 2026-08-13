@@ -47,9 +47,6 @@ public final class PaymentBreakdownBuilder {
                 : depositFormula;
 
         List<PaymentBreakdownLineResponse> lines = new ArrayList<>();
-        if (rent.compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line("rentAmount", "Giá thuê / tháng", RentFirstCycleCalculator.formatVn(rent), rent, "VND"));
-        }
         if (months > 0) {
             lines.add(line("depositMonths", "Số tháng cọc", String.valueOf(months), null, "tháng"));
         }
@@ -182,10 +179,6 @@ public final class PaymentBreakdownBuilder {
 
         boolean hasFirstRent = firstRentAmount != null && firstRentAmount.compareTo(BigDecimal.ZERO) > 0;
         List<PaymentBreakdownLineResponse> lines = new ArrayList<>();
-        if (rentMonthly != null && rentMonthly.compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line("rentAmount", "Giá thuê / tháng",
-                    RentFirstCycleCalculator.formatVn(rentMonthly), rentMonthly, "VND"));
-        }
         if (months != null) {
             lines.add(line("depositMonths", "Số tháng cọc", String.valueOf(months), null, "tháng"));
         }

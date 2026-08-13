@@ -17,6 +17,7 @@ import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.PaymentMethods;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import lombok.RequiredArgsConstructor;
@@ -484,7 +485,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .dueDate(paidAt.toLocalDate())
                 .createdAt(paidAt)
                 .paidAt(paidAt)
-                .paymentMethod(method)
+                .paymentMethod(PaymentMethods.toPublic(method != null ? method : PaymentMethods.QR))
                 .transactionId(payosOrderCode != null ? String.valueOf(payosOrderCode) : null)
                 .payosOrderCode(payosOrderCode)
                 .autoIssued(true)
@@ -830,7 +831,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
                 .paidAt(invoice.getPaidAt())
-                .paymentMethod(invoice.getPaymentMethod())
+                .paymentMethod(PaymentMethods.toPublic(invoice.getPaymentMethod()))
                 .transactionId(invoice.getTransactionId())
                 .kwhUsed(invoice.getKwhUsed())
                 .electricityRate(invoice.getElectricityRate())
@@ -851,7 +852,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .invoiceCode(payment.getInvoiceCode())
                 .invoiceType(payment.getInvoiceType().name())
                 .amount(payment.getAmount())
-                .method(payment.getMethod())
+                .method(PaymentMethods.toPublic(payment.getMethod()))
                 .paidAt(payment.getPaidAt())
                 .transactionId(payment.getTransactionId())
                 .propertyName(payment.getPropertyName())

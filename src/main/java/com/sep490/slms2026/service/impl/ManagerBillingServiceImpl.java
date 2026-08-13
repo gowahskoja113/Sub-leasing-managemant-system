@@ -17,6 +17,7 @@ import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.PaymentMethods;
 import com.sep490.slms2026.dto.response.PaymentBreakdownResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -224,7 +225,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
                 .paidAt(invoice.getPaidAt())
-                .paymentMethod(invoice.getPaymentMethod())
+                .paymentMethod(PaymentMethods.toPublic(invoice.getPaymentMethod()))
                 .transactionId(invoice.getTransactionId())
                 .payosQrCode(invoice.getPayosQrCode())
                 .payosCheckoutUrl(invoice.getPayosCheckoutUrl())

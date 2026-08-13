@@ -68,6 +68,8 @@ class RentFirstCycleCalculatorTest {
         assertEquals(0, new BigDecimal("11000000").compareTo(b.getTotalAmount()));
         assertNotNull(b.getFormula());
         assertFalse(b.getLines().isEmpty());
+        assertTrue(b.getLines().stream().noneMatch(l -> "rentAmount".equals(l.getKey())));
+        assertEquals(0, new BigDecimal("5000000").compareTo(b.getRentAmountMonthly()));
     }
 
     @Test
