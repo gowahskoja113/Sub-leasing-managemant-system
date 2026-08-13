@@ -151,11 +151,11 @@ class RentFirstCycleCalculatorTest {
     }
 
     @Test
-    void regularRentDueDate_fallsBackToGrace_whenDay5AlreadyPassed() {
+    void regularRentDueDate_keepsDay5_whenAlreadyPassed() {
         YearMonth aug = YearMonth.of(2026, 8);
-        assertEquals(LocalDate.of(2026, 8, 16),
+        assertEquals(LocalDate.of(2026, 8, 5),
                 RentFirstCycleCalculator.regularRentDueDate(aug, 5, 3, LocalDate.of(2026, 8, 13)));
-        assertEquals(LocalDate.of(2026, 8, 16),
+        assertEquals(LocalDate.of(2026, 7, 5),
                 RentFirstCycleCalculator.regularRentDueDate(YearMonth.of(2026, 7), 5, 3, LocalDate.of(2026, 8, 13)));
     }
 }

@@ -8,7 +8,6 @@ import com.sep490.slms2026.enums.*;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
-import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.RealtimeEventService;
@@ -52,7 +51,6 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final NotificationRepository notificationRepository;
     private final UserPushTokenService userPushTokenService;
-    private final BillingConfigService billingConfigService;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -239,11 +237,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
 
         YearMonth currentMonth = YearMonth.now();
         if (billingMonth.equals(currentMonth)) {
-            BillingConfig billingConfig = billingConfigService.current();
-            LocalDate due = ContractBillingCalendar.dueDate(
-                    billingMonth,
-                    ContractBillingCalendar.billingDayOfMonth(contract),
-                    billingConfig.getGraceDays());
+            LocalDate due = ContractBillingCalendar.regularDueDate(billingMonth);
             if (LocalDate.now().isAfter(due)) {
                 throw new BusinessException("UTILITY_WINDOW_CLOSED",
                         "Đã quá hạn chót phát hành hoá đơn tiền nhà kỳ này (" + due + ").");
@@ -418,14 +412,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .lateFee(BigDecimal.ZERO)
                 .grandTotal(amount)
                 .status(TenantInvoiceStatus.PENDING)
-                .dueDate(RentFirstCycleCalculator.regularRentDueDate(
-                        billingMonth,
-                        ContractBillingCalendar.clampDay(
-                                billingMonth,
-                                ContractBillingCalendar.billingDayOfMonth(contract)
-                                        + billingConfigService.current().getGraceDays()),
-                        firstCycleGraceDays,
-                        LocalDate.now()))
+                .dueDate(ContractBillingCalendar.regularDueDate(billingMonth))
                 .createdAt(LocalDateTime.now())
                 .autoIssued(true)
                 .build());

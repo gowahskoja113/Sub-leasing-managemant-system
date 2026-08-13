@@ -133,13 +133,13 @@ springdoc:
 
 # Cấu hình job nhắc nợ + phí trễ hạn.
 # reminderLeadDays / graceDays / meterReminderLeadDays lưu DB (admin sửa qua API, không cần restart).
+# Tiền nhà REGULAR: tự gen ngày 1, hạn ngày 5; sau ngày 5 catch-up vẫn OVERDUE.
 # Các giá trị yaml dưới đây là fallback / seed khi bảng billing_config chưa có.
 billing:
   reminder-days-before: 3
   late-fee-percent: 2
   overdue-renotify-days: 7
   # Legacy tên: KHÔNG còn nhắc/quá hạn/chấm dứt kỳ đầu (QR onboard đã thu FIRST).
-  # Vẫn dùng khi phát REGULAR mà mốc hạn đã qua (catch-up) → dueDate = today + N.
   # Không nhầm với graceDays admin (BillingRulesCard).
   first-cycle-grace-days: 3
   rent:

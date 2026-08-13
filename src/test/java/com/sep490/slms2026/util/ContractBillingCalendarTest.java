@@ -46,17 +46,26 @@ class ContractBillingCalendarTest {
     }
 
     @Test
-    void shouldIssue_skipsStartMonth() {
+    void regularIssueAndDue_areDay1AndDay5() {
+        YearMonth sep = YearMonth.of(2026, 9);
+        assertEquals(LocalDate.of(2026, 9, 1), ContractBillingCalendar.regularIssueDate(sep));
+        assertEquals(LocalDate.of(2026, 9, 5), ContractBillingCalendar.regularDueDate(sep));
+    }
+
+    @Test
+    void shouldIssue_skipsStartMonth_thenDay1OnwardIncludingCatchUp() {
         TenantContract c = TenantContract.builder()
                 .startDate(LocalDate.of(2026, 8, 15))
                 .moveInDate(LocalDate.of(2026, 8, 15))
                 .build();
         assertFalse(ContractBillingCalendar.shouldIssueRegularRent(
-                LocalDate.of(2026, 8, 20), YearMonth.of(2026, 8), c, 3));
-        assertTrue(ContractBillingCalendar.shouldIssueRegularRent(
-                LocalDate.of(2026, 9, 12), YearMonth.of(2026, 9), c, 3));
+                LocalDate.of(2026, 8, 20), YearMonth.of(2026, 8), c));
         assertFalse(ContractBillingCalendar.shouldIssueRegularRent(
-                LocalDate.of(2026, 9, 10), YearMonth.of(2026, 9), c, 3));
+                LocalDate.of(2026, 8, 31), YearMonth.of(2026, 9), c));
+        assertTrue(ContractBillingCalendar.shouldIssueRegularRent(
+                LocalDate.of(2026, 9, 1), YearMonth.of(2026, 9), c));
+        assertTrue(ContractBillingCalendar.shouldIssueRegularRent(
+                LocalDate.of(2026, 9, 11), YearMonth.of(2026, 9), c));
     }
 
     @Test

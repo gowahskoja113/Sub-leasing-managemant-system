@@ -12,7 +12,8 @@ COPY --from=build /app/target/*.jar app.jar
 
 # Render injects PORT; Spring reads server.port
 ENV PORT=8080
+ENV TZ=Asia/Ho_Chi_Minh
 EXPOSE 8080
 
 # -Xmx1g: heap cố định trên VPS 4GB; ONNX native memory nằm ngoài heap — đừng tăng quá
-ENTRYPOINT ["sh", "-c", "java -Xmx1g -XX:MaxMetaspaceSize=256m -Dserver.port=${PORT} -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "java -Xmx1g -XX:MaxMetaspaceSize=256m -Duser.timezone=Asia/Ho_Chi_Minh -Dserver.port=${PORT} -jar app.jar"]

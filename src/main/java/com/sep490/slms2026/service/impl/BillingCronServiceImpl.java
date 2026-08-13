@@ -26,6 +26,8 @@ import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -64,9 +67,6 @@ public class BillingCronServiceImpl implements BillingCronService {
     @Value("${billing.overdue-renotify-days:7}")
     private int overdueRenotifyDays;
 
-    @Value("${billing.first-cycle-grace-days:3}")
-    private int firstCycleGraceDays;
-
     @Value("${billing.rent.due-day:5}")
     private int rentDueDay;
 
@@ -75,6 +75,23 @@ public class BillingCronServiceImpl implements BillingCronService {
 
     @Value("${billing.rent.termination-after-days:3}")
     private int terminationAfterDays;
+
+    private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    private LocalDate todayVn() {
+        return LocalDate.now(VN);
+    }
+
+    /**
+     * Catch-up khi restart / đổi giờ VPS: cron 00:05 và 08:00 không chạy lại nếu app start sau mốc đó.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void runSweepOnStartup() {
+        log.info("Startup billing sweep (catch-up after restart / clock change)...");
+        Map<String, Integer> result = runDailySweep();
+        log.info("Startup billing sweep done: {}", result);
+    }
 
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Ho_Chi_Minh")
     @Transactional
@@ -91,11 +108,11 @@ public class BillingCronServiceImpl implements BillingCronService {
         int overdueMarked = 0;
         int renotified = 0;
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = todayVn();
         BillingConfig billingConfig = billingConfigService.current();
         int rentReminderLeadDays = billingConfig.getReminderLeadDays();
 
-        int issued = generateDueRentInvoices(today, billingConfig);
+        int issued = generateDueRentInvoices(today);
         int meterReminded = remindPendingMeterReadings(today, billingConfig);
 
         List<TenantInvoiceStatus> statuses = List.of(
@@ -402,21 +419,18 @@ public class BillingCronServiceImpl implements BillingCronService {
     @Transactional
     public void generateMonthlyRentInvoices() {
         log.info("Starting generateDueRentInvoices...");
-        generateDueRentInvoices(LocalDate.now(), billingConfigService.current());
+        generateDueRentInvoices(todayVn());
     }
 
-    int generateDueRentInvoices(LocalDate today, BillingConfig billingConfig) {
+    int generateDueRentInvoices(LocalDate today) {
         int issued = 0;
         YearMonth currentMonth = YearMonth.from(today);
         List<TenantContract> activeContracts =
                 tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
-        int reminderLeadDays = billingConfig.getReminderLeadDays();
-        int graceDays = billingConfig.getGraceDays();
 
         for (TenantContract contract : activeContracts) {
             try {
-                if (!ContractBillingCalendar.shouldIssueRegularRent(
-                        today, currentMonth, contract, reminderLeadDays)) {
+                if (!ContractBillingCalendar.shouldIssueRegularRent(today, currentMonth, contract)) {
                     continue;
                 }
                 var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
@@ -433,12 +447,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                     continue;
                 }
 
-                int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
-                LocalDate dueDate = RentFirstCycleCalculator.regularRentDueDate(
-                        currentMonth,
-                        ContractBillingCalendar.clampDay(currentMonth, billingDay + graceDays),
-                        firstCycleGraceDays,
-                        today);
+                LocalDate dueDate = ContractBillingCalendar.regularDueDate(currentMonth);
 
                 TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
                         .code("HD-RENT-" + contract.getId() + "-" + currentMonth)
@@ -482,10 +491,12 @@ public class BillingCronServiceImpl implements BillingCronService {
     @Transactional
     public void remindUpcomingRent() {
         log.info("Starting remindUpcomingRent...");
-        BillingConfig billingConfig = billingConfigService.current();
-        LocalDate today = LocalDate.now();
+        LocalDate today = todayVn();
         LocalDate tomorrow = today.plusDays(1);
-        YearMonth currentMonth = YearMonth.from(today);
+        if (tomorrow.getDayOfMonth() != ContractBillingCalendar.REGULAR_RENT_ISSUE_DAY) {
+            return;
+        }
+        YearMonth issueMonth = YearMonth.from(tomorrow);
         List<TenantContract> activeContracts =
                 tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
 
@@ -493,24 +504,21 @@ public class BillingCronServiceImpl implements BillingCronService {
             if (contract.getTenant() == null) {
                 continue;
             }
-            if (!ContractBillingCalendar.shouldIssueRegularRent(
-                    tomorrow, currentMonth, contract, billingConfig.getReminderLeadDays())) {
+            if (!ContractBillingCalendar.shouldIssueRegularRent(tomorrow, issueMonth, contract)) {
                 continue;
             }
             var existing = tenantInvoiceRepository.findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(
-                    contract.getId(), TenantInvoiceType.RENT, currentMonth.getYear(), currentMonth.getMonthValue());
+                    contract.getId(), TenantInvoiceType.RENT, issueMonth.getYear(), issueMonth.getMonthValue());
             if (existing.isPresent()) {
                 continue;
             }
-            BigDecimal amount = RentFirstCycleCalculator.regularRentAmount(contract, currentMonth);
+            BigDecimal amount = RentFirstCycleCalculator.regularRentAmount(contract, issueMonth);
             if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
-            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
-            LocalDate dueDate = ContractBillingCalendar.dueDate(
-                    currentMonth, billingDay, billingConfig.getGraceDays());
+            LocalDate dueDate = ContractBillingCalendar.regularDueDate(issueMonth);
             String period = "tháng " + String.format("%02d/%d",
-                    currentMonth.getMonthValue(), currentMonth.getYear());
+                    issueMonth.getMonthValue(), issueMonth.getYear());
             String title = "🔔 Nhắc trước: ngày mai phát hành hoá đơn tiền phòng";
             String content = String.format(
                     "Tiền phòng %s %sđ sẽ được phát hành vào ngày mai, hạn thanh toán chậm nhất %s. Bạn chuẩn bị trước giúp nhé.",

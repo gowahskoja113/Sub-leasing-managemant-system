@@ -9,13 +9,14 @@ import java.time.format.DateTimeParseException;
 import java.util.Optional;
 
 /**
- * Mốc thu tiền theo ngày hiệu lực từng HĐ (mentor 12/08):
- * ngày đóng tiền = ngày trong tháng của {@code startDate};
- * bắt đầu nhắc = mốc − {@code reminderLeadDays};
- * hạn chót = mốc + {@code graceDays} (quá hạn mới OVERDUE).
+ * Vòng lặp tiền nhà REGULAR: phát hành ngày 1, hạn chót ngày 5 hàng tháng.
+ * Công tơ / tiện ích vẫn có thể dùng mốc theo {@code startDate} (issue/due helpers bên dưới).
  * Ngày 29/30/31 ở tháng thiếu ngày được kẹp về cuối tháng.
  */
 public final class ContractBillingCalendar {
+
+    public static final int REGULAR_RENT_ISSUE_DAY = 1;
+    public static final int REGULAR_RENT_DUE_DAY = 5;
 
     private static final DateTimeFormatter ISO_MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final DateTimeFormatter VN_MONTH = DateTimeFormatter.ofPattern("MM/yyyy");
@@ -40,14 +41,30 @@ public final class ContractBillingCalendar {
         return Math.min(Math.max(dayOfMonth, 1), month.lengthOfMonth());
     }
 
-    /** Ngày bắt đầu nhắc / phát hành hoá đơn REGULAR trong tháng. */
+    /** Ngày phát hành hoá đơn REGULAR: luôn ngày 1 của tháng. */
+    public static LocalDate regularIssueDate(YearMonth month) {
+        if (month == null) {
+            return null;
+        }
+        return month.atDay(REGULAR_RENT_ISSUE_DAY);
+    }
+
+    /** Hạn chót REGULAR: ngày 5 (kẹp cuối tháng nếu tháng ngắn). */
+    public static LocalDate regularDueDate(YearMonth month) {
+        if (month == null) {
+            return null;
+        }
+        return month.atDay(clampDay(month, REGULAR_RENT_DUE_DAY));
+    }
+
+    /** Ngày bắt đầu nhắc / phát hành theo mốc billingDay (công tơ). */
     public static LocalDate issueDate(YearMonth month, int billingDay, int reminderLeadDays) {
         int lead = Math.max(reminderLeadDays, 0);
         int actualBilling = clampDay(month, billingDay);
         return month.atDay(clampDay(month, actualBilling - lead));
     }
 
-    /** Hạn chót thanh toán (mốc + grace). */
+    /** Hạn chót thanh toán (mốc + grace) — tiện ích / công tơ. */
     public static LocalDate dueDate(YearMonth month, int billingDay, int graceDays) {
         int grace = Math.max(graceDays, 0);
         int actualBilling = clampDay(month, billingDay);
@@ -64,8 +81,12 @@ public final class ContractBillingCalendar {
         return due.minusDays(Math.max(meterReminderLeadDays, 0));
     }
 
+    /**
+     * REGULAR từ tháng sau tháng start/move-in, khi {@code today >= ngày 1}.
+     * Ngày 6 trở đi vẫn catch-up (hoá đơn sẽ OVERDUE nếu quá ngày 5).
+     */
     public static boolean shouldIssueRegularRent(LocalDate today, YearMonth billingMonth,
-                                                 TenantContract contract, int reminderLeadDays) {
+                                                 TenantContract contract) {
         if (today == null || billingMonth == null || contract == null) {
             return false;
         }
@@ -80,8 +101,7 @@ public final class ContractBillingCalendar {
         if (contract.getEndDate() != null && YearMonth.from(contract.getEndDate()).isBefore(billingMonth)) {
             return false;
         }
-        LocalDate issue = issueDate(billingMonth, billingDayOfMonth(contract), reminderLeadDays);
-        return !today.isBefore(issue);
+        return !today.isBefore(regularIssueDate(billingMonth));
     }
 
     public static String normalizePeriod(YearMonth month) {

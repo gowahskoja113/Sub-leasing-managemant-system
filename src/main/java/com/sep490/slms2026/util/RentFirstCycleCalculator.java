@@ -224,20 +224,15 @@ public final class RentFirstCycleCalculator {
 
     /**
      * Hạn hoá đơn REGULAR: ngày {@code dueDayOfMonth} của tháng billing (mặc định 5).
-     * Nếu ngày đó đã qua (catch-up giữa tháng / bù tháng cũ) thì {@code today + graceDays}
-     * để tenant không bị OVERDUE ngay lúc phát hành.
+     * Catch-up giữa tháng / sau ngày 5 vẫn giữ hạn gốc để hoá đơn thành OVERDUE.
      */
     public static LocalDate regularRentDueDate(YearMonth billingMonth, int dueDayOfMonth,
                                                long graceDaysAfterDuePassed, LocalDate today) {
-        if (billingMonth == null || today == null) {
+        if (billingMonth == null) {
             return today;
         }
         int day = Math.min(Math.max(dueDayOfMonth, 1), billingMonth.lengthOfMonth());
-        LocalDate due = billingMonth.atDay(day);
-        if (!due.isBefore(today)) {
-            return due;
-        }
-        return today.plusDays(Math.max(graceDaysAfterDuePassed, 0));
+        return billingMonth.atDay(day);
     }
 
     private static Result empty() {
