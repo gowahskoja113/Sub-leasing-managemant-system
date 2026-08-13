@@ -40,6 +40,12 @@ public class JwtFilter extends OncePerRequestFilter {
         // Token hợp lệ phải bắt đầu bằng chuỗi "Bearer "
         if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
             jwt = authorizationHeader.substring(7);
+        } else if (request.getRequestURI().equals("/api/v1/notifications/stream")) {
+            // Hỗ trợ SSE (EventSource) không gửi được Authorization header, đọc từ query param
+            jwt = request.getParameter("token");
+        }
+
+        if (jwt != null && !jwt.isBlank()) {
             try {
                 username = jwtUtil.extractUsername(jwt);
             } catch (Exception e) {

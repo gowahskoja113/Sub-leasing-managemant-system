@@ -8,8 +8,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import com.sep490.slms2026.service.SseNotificationService;
 
 import java.util.List;
 import java.util.Map;
@@ -21,6 +24,7 @@ import java.util.UUID;
 public class AppNotificationController {
 
     private final AppNotificationService appNotificationService;
+    private final SseNotificationService sseNotificationService;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -51,6 +55,12 @@ public class AppNotificationController {
     public ResponseEntity<Void> markAllAsRead() {
         appNotificationService.markAllAsRead(currentUserId());
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    public SseEmitter stream() {
+        return sseNotificationService.subscribe(currentUserId());
     }
 
     private static UUID currentUserId() {

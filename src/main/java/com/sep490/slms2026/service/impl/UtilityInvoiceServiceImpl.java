@@ -291,24 +291,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             utilities = utilities.stream().filter(u -> u.getRoom() == null).toList();
         }
 
-        if (!utilities.isEmpty()) {
-            boolean allPaid = true;
-            for (UtilityInvoice ui : utilities) {
-                var ti = tenantInvoiceRepository.findByUtilityInvoiceId(ui.getId());
-                if (ti.isPresent()) {
-                    if (ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID && 
-                        ti.get().getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
-                        allPaid = false;
-                        break;
-                    }
-                } else {
-                    allPaid = false;
-                    break;
-                }
+        for (UtilityInvoice ui : utilities) {
+            var ti = tenantInvoiceRepository.findByUtilityInvoiceId(ui.getId());
+            if (ti.isPresent() && ti.get().getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
+                continue;
             }
-            if (allPaid) {
-                throw new BusinessException("409: PERIOD_ALREADY_SETTLED - Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn.");
-            }
+            String target = (roomId != null) ? ("Phòng " + ui.getRoom().getRoomNumber()) : "Nhà nguyên căn";
+            String typeStr = (utilityType == UtilityType.ELECTRIC) ? "điện" : "nước";
+            throw new BusinessException("409: INVOICE_ALREADY_EXISTS - " + target + " đã nhận hoá đơn " + typeStr + " của kỳ " + billingPeriod + ".");
         }
     }
 
