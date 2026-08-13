@@ -17,6 +17,7 @@ import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EvnBillService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,7 +48,8 @@ public class EvnBillServiceImpl implements EvnBillService {
         Optional<EvnBill> existing = evnBillRepository.findByPropertyIdAndMonthAndYearAndStatus(
                 request.getPropertyId(), request.getMonth(), request.getYear(), EvnBillStatus.PUBLISHED);
         if (existing.isPresent()) {
-            throw new BusinessException("409: Đã tồn tại hoá đơn EVN cho kỳ này.");
+            throw new BusinessException("EVN_BILL_ALREADY_EXISTS",
+                    "Đã tồn tại hoá đơn EVN cho kỳ này.");
         }
 
         BigDecimal unitPrice = request.getTotalAmount().divide(new BigDecimal(request.getTotalKwh()), 0, RoundingMode.HALF_UP);
@@ -87,7 +89,8 @@ public class EvnBillServiceImpl implements EvnBillService {
         // Cần chặn thu hồi khi kỳ đó đã có hoá đơn điện được gửi
         // Trong hệ thống, nếu tồn tại utility invoice thì là đã gửi (vì UtilityInvoice đại diện cho việc chốt/gửi)
         if (!utilityInvoices.isEmpty()) {
-            throw new BusinessException("409: Không thể thu hồi vì đã có hoá đơn điện được gửi cho khách trong kỳ này.");
+            throw new BusinessException("EVN_BILL_IN_USE",
+                    "Không thể thu hồi vì đã có hoá đơn điện được gửi cho khách trong kỳ này.");
         }
 
         bill.setStatus(EvnBillStatus.REVOKED);
@@ -105,7 +108,7 @@ public class EvnBillServiceImpl implements EvnBillService {
             if (propertyId != null) {
                 // Kiểm tra quyền
                 if (!propertyRepository.findIdsByOperationManagerId(user.getId()).contains(propertyId)) {
-                    throw new BusinessException("403: Bạn không có quyền quản lý nhà này");
+                    throw new AccessDeniedException("Bạn không có quyền quản lý nhà này");
                 }
                 bills = evnBillRepository.findByFilters(propertyId, month, year, statusFilter);
             } else {

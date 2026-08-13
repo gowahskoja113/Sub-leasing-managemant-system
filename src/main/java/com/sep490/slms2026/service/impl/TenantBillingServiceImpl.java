@@ -254,9 +254,11 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         if (existing.isPresent()) {
             TenantInvoiceStatus status = existing.get().getStatus();
             if (status == TenantInvoiceStatus.PAID) {
-                throw new BusinessException("409: PERIOD_ALREADY_SETTLED - Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn tiền nhà.");
+                throw new BusinessException("PERIOD_ALREADY_SETTLED",
+                        "Kỳ cước này đã được tất toán, không thể tạo thêm hoá đơn tiền nhà.");
             } else if (status != TenantInvoiceStatus.CANCELLED) {
-                throw new BusinessException("409: INVOICE_ALREADY_EXISTS - Hoá đơn tiền nhà của kỳ này đã tồn tại.");
+                throw new BusinessException("INVOICE_ALREADY_EXISTS",
+                        "Hoá đơn tiền nhà của kỳ này đã tồn tại.");
             }
         }
 

@@ -38,6 +38,7 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put("status", HttpStatus.FORBIDDEN.value());
         body.put("error", "Forbidden");
+        body.put("code", "FORBIDDEN");
         body.put("path", request != null ? request.getRequestURI() : null);
         body.put("message", ex.getMessage() + " - Kiểm tra lại Role hoặc Vùng quản lý địa lý của tài khoản này!");
 

@@ -298,7 +298,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             }
             String target = (roomId != null) ? ("Phòng " + ui.getRoom().getRoomNumber()) : "Nhà nguyên căn";
             String typeStr = (utilityType == UtilityType.ELECTRIC) ? "điện" : "nước";
-            throw new BusinessException("409: INVOICE_ALREADY_EXISTS - " + target + " đã nhận hoá đơn " + typeStr + " của kỳ " + billingPeriod + ".");
+            throw new BusinessException("INVOICE_ALREADY_EXISTS",
+                    target + " đã nhận hoá đơn " + typeStr + " của kỳ " + billingPeriod + ".");
         }
     }
 
