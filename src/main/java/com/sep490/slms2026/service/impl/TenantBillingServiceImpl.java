@@ -298,11 +298,12 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
     
     /**
-     * Sau khi HĐ ACTIVE: phát hành tiền nhà còn thiếu.
+     * Sau khi HĐ ACTIVE: phát hành tiền nhà còn thiếu — không thu trùng QR onboard.
      * <ul>
-     *   <li>startDate thuộc tháng hiện tại → hoá đơn FIRST (pro-rata/full), bỏ qua nếu đã thu qua QR onboard cùng tháng.</li>
-     *   <li>startDate thuộc tháng trước → catch-up REGULAR từ tháng sau chu kỳ đầu đến tháng hiện tại
-     *       (cron ngày 1 đã bỏ qua vì HĐ chưa ACTIVE; phải bù hết tháng giữa, không chỉ tháng hiện tại).</li>
+     *   <li>startDate thuộc tháng hiện tại → hoá đơn FIRST PENDING chỉ khi
+     *       {@code HD-ONBOARD} chưa thu tiền nhà kỳ đầu (defer / kích hoạt không qua QR).</li>
+     *   <li>Đã thu {@code firstRentAmount} trong HD-ONBOARD → return, không tạo FIRST lần 2.</li>
+     *   <li>startDate thuộc tháng trước → catch-up REGULAR từ tháng sau chu kỳ đầu đến tháng hiện tại.</li>
      * </ul>
      */
     @Transactional

@@ -6,6 +6,7 @@ import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.enums.RentCycleType;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.enums.UtilityType;
@@ -111,43 +112,20 @@ public class BillingCronServiceImpl implements BillingCronService {
                 continue;
             }
 
+            // FIRST đã thu trong HD-ONBOARD — huỷ bản PENDING/OVERDUE trùng, không nhắc / không đề nghị chấm dứt.
+            if (invoice.getCycleType() == RentCycleType.FIRST
+                    && invoice.getInvoiceType() == TenantInvoiceType.RENT
+                    && firstRentAlreadyCollectedViaOnboard(invoice)) {
+                invoice.setStatus(TenantInvoiceStatus.CANCELLED);
+                tenantInvoiceRepository.save(invoice);
+                log.info("Huỷ hoá đơn FIRST trùng QR onboard: {}", invoice.getCode());
+                continue;
+            }
+
             long daysUntilDue = ChronoUnit.DAYS.between(today, invoice.getDueDate());
             boolean stateChanged = false;
 
-            if (invoice.getCycleType() == com.sep490.slms2026.enums.RentCycleType.FIRST) {
-                long daysSinceIssued = ChronoUnit.DAYS.between(invoice.getCreatedAt().toLocalDate(), today);
-
-                if (daysSinceIssued >= 1 && daysSinceIssued <= firstCycleGraceDays) {
-                    long daysLeft = firstCycleGraceDays - daysSinceIssued + 1;
-                    sendNotification(invoice, "RENT_FIRST_CYCLE_REMINDER",
-                            "🧾 Còn " + daysLeft + " ngày để đóng tiền phòng đầu tiên",
-                            String.format("Tiền phòng kỳ đầu %sđ chưa thanh toán. Hạn chót %s. Quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
-                                    formatCurrency(invoice.getGrandTotal()),
-                                    invoice.getDueDate().format(formatter)));
-                    invoice.setLastReminderDate(today);
-                    stateChanged = true;
-                    reminded++;
-                } else if (daysSinceIssued > firstCycleGraceDays) {
-                    if (invoice.getStatus() != TenantInvoiceStatus.OVERDUE) {
-                        invoice.setStatus(TenantInvoiceStatus.OVERDUE);
-                        sendNotification(invoice, "RENT_FIRST_CYCLE_OVERDUE",
-                                "Hóa đơn tiền phòng kỳ đầu quá hạn",
-                                String.format("Tiền phòng kỳ đầu %sđ đã quá hạn thanh toán. Vui lòng thanh toán ngay.",
-                                        formatCurrency(invoice.getGrandTotal())));
-                        
-                        notifyManagerFirstCycleOverdue(invoice);
-                        invoice.getTenantContract().setTerminationProposed(true);
-                        tenantContractRepository.save(invoice.getTenantContract());
-                        invoice.setLastReminderDate(today);
-                        stateChanged = true;
-                        overdueMarked++;
-                    }
-                }
-                if (stateChanged) {
-                    tenantInvoiceRepository.save(invoice);
-                }
-                continue;
-            } else if (invoice.getInvoiceType() == TenantInvoiceType.RENT) {
+            if (invoice.getInvoiceType() == TenantInvoiceType.RENT) {
                 String period = "tháng " + String.format("%02d/%d", invoice.getBillingMonth(), invoice.getBillingYear());
                 String formattedAmount = formatCurrency(invoice.getGrandTotal());
                 String formattedDueDate = invoice.getDueDate().format(formatter);
@@ -333,22 +311,51 @@ public class BillingCronServiceImpl implements BillingCronService {
         }
     }
 
-    private void notifyManagerFirstCycleOverdue(TenantInvoice invoice) {
-        UUID managerId = invoice.getTenantContract().getProperty().getManagedBy() != null
-                ? invoice.getTenantContract().getProperty().getManagedBy()
-                : invoice.getTenantContract().getProperty().getOperationManagerId();
-        if (managerId == null) return;
+    /** true nếu HD-ONBOARD đã PAID và có tiền nhà kỳ đầu — không được đòi FIRST lần nữa. */
+    private boolean firstRentAlreadyCollectedViaOnboard(TenantInvoice invoice) {
+        if (invoice.getTenantContract() == null || invoice.getTenantContract().getId() == null) {
+            return false;
+        }
+        if (invoice.getNote() != null && invoice.getNote().contains("onboardPaid=true")) {
+            return false;
+        }
+        return tenantInvoiceRepository.findByCode("HD-ONBOARD-" + invoice.getTenantContract().getId())
+                .filter(onboard -> onboard.getStatus() == TenantInvoiceStatus.PAID)
+                .map(BillingCronServiceImpl::onboardCollectedFirstRent)
+                .filter(amount -> amount.compareTo(BigDecimal.ZERO) > 0)
+                .isPresent();
+    }
 
-        String tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
-        String roomStr = invoice.getTenantContract().getRoom() != null
-                ? invoice.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+    private static BigDecimal onboardCollectedFirstRent(TenantInvoice onboard) {
+        BigDecimal fromNote = parseNoteDecimal(onboard.getNote(), "firstRentAmount");
+        if (fromNote != null && fromNote.compareTo(BigDecimal.ZERO) > 0) {
+            return fromNote;
+        }
+        BigDecimal deposit = parseNoteDecimal(onboard.getNote(), "depositAmount");
+        if (deposit != null && onboard.getGrandTotal() != null) {
+            BigDecimal inferred = onboard.getGrandTotal().subtract(deposit);
+            if (inferred.compareTo(BigDecimal.ZERO) > 0) {
+                return inferred;
+            }
+        }
+        return BigDecimal.ZERO;
+    }
 
-        sendPushNotificationOnly(managerId,
-            "⛔ Khách mới chưa đóng tiền phòng kỳ đầu",
-            String.format("%s · Phòng %s đã quá %d ngày kể từ ngày nhận phòng mà chưa thanh toán "
-                + "tiền phòng đầu tiên (%sđ). Bạn được quyền chấm dứt hợp đồng.",
-                tenantName, roomStr, firstCycleGraceDays, formatCurrency(invoice.getGrandTotal())),
-            "RENT_FIRST_CYCLE_MANAGER", "RentInvoice");
+    private static BigDecimal parseNoteDecimal(String note, String key) {
+        if (note == null) {
+            return null;
+        }
+        String prefix = key + "=";
+        for (String part : note.split("\\|")) {
+            if (part.startsWith(prefix)) {
+                try {
+                    return new BigDecimal(part.substring(prefix.length()).trim());
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private void notifyManagerAndHostsOverdue(TenantInvoice invoice, String period, String formattedAmount, long overdueDays) {

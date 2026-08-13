@@ -189,11 +189,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .initialElectricReading(request.getInitialElectricReading())
                 .initialWaterReading(request.getInitialWaterReading())
                 .electricMeterImageUrl(request.getElectricMeterImageUrl())
-                .electricMeterCapturedAt(resolveCapturedAt(
-                        request.getElectricMeterImageUrl(), request.getElectricMeterCapturedAt()))
+                .electricMeterCapturedAt(resolveCapturedAt(request.getElectricMeterImageUrl()))
                 .waterMeterImageUrl(request.getWaterMeterImageUrl())
-                .waterMeterCapturedAt(resolveCapturedAt(
-                        request.getWaterMeterImageUrl(), request.getWaterMeterCapturedAt()))
+                .waterMeterCapturedAt(resolveCapturedAt(request.getWaterMeterImageUrl()))
                 .roomConditionPhotos(resolveRoomConditionPhotos(
                         request.getRoomConditionPhotos(), request.getRoomConditionUrls()))
                 .roomConditionNote(request.getRoomConditionNote())
@@ -506,6 +504,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         String billingPeriod = firstRentAmount.compareTo(BigDecimal.ZERO) > 0
                 ? "Cọc + tiền nhà lúc nhận phòng " + moveIn
                 : "Tiền cọc lúc nhận phòng " + moveIn;
+        Integer billingMonth = firstRent.periodStart() != null ? firstRent.periodStart().getMonthValue() : null;
+        Integer billingYear = firstRent.periodStart() != null ? firstRent.periodStart().getYear() : null;
 
         TenantInvoice invoice = tenantInvoiceRepository.save(TenantInvoice.builder()
                 .code(code)
@@ -514,6 +514,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .invoiceType(TenantInvoiceType.OTHER)
                 .propertyName(propertyName != null ? propertyName : "")
                 .roomNumber(roomNumber)
+                .billingMonth(billingMonth)
+                .billingYear(billingYear)
                 .billingPeriod(billingPeriod)
                 .note(note.toString())
                 .totalAmount(grandTotal)
@@ -935,17 +937,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (request.getInitialWaterReading() != null) contract.setInitialWaterReading(request.getInitialWaterReading());
         if (request.getElectricMeterImageUrl() != null) {
             contract.setElectricMeterImageUrl(request.getElectricMeterImageUrl());
-            contract.setElectricMeterCapturedAt(resolveCapturedAt(
-                    request.getElectricMeterImageUrl(), request.getElectricMeterCapturedAt()));
-        } else if (request.getElectricMeterCapturedAt() != null && contract.getElectricMeterImageUrl() != null) {
-            contract.setElectricMeterCapturedAt(request.getElectricMeterCapturedAt());
+            contract.setElectricMeterCapturedAt(resolveCapturedAt(request.getElectricMeterImageUrl()));
         }
         if (request.getWaterMeterImageUrl() != null) {
             contract.setWaterMeterImageUrl(request.getWaterMeterImageUrl());
-            contract.setWaterMeterCapturedAt(resolveCapturedAt(
-                    request.getWaterMeterImageUrl(), request.getWaterMeterCapturedAt()));
-        } else if (request.getWaterMeterCapturedAt() != null && contract.getWaterMeterImageUrl() != null) {
-            contract.setWaterMeterCapturedAt(request.getWaterMeterCapturedAt());
+            contract.setWaterMeterCapturedAt(resolveCapturedAt(request.getWaterMeterImageUrl()));
         }
 
         // Ảnh đã merge vào contract — dùng URL sau merge (không lấy request, tránh miss ảnh đã có sẵn)
@@ -1487,14 +1483,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     /**
-     * Có URL → luôn có timestamp bằng chứng: ưu tiên FE gửi, không thì = lúc BE lưu.
+     * Có URL → đóng dấu giờ server (không tin {@code capturedAt} từ máy client).
      * Không có URL → null.
      */
-    private static LocalDateTime resolveCapturedAt(String imageUrl, LocalDateTime capturedAt) {
+    private static LocalDateTime resolveCapturedAt(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) {
             return null;
         }
-        return capturedAt != null ? capturedAt : LocalDateTime.now();
+        return LocalDateTime.now();
     }
 
     private static List<ContractEvidencePhoto> resolveRoomConditionPhotos(
@@ -1509,7 +1505,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 }
                 result.add(ContractEvidencePhoto.builder()
                         .imageUrl(p.getUrl().trim())
-                        .capturedAt(p.getCapturedAt() != null ? p.getCapturedAt() : now)
+                        .capturedAt(now)
                         .build());
             }
             return result;

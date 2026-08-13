@@ -19,14 +19,13 @@ public final class InvoiceItemBuilder {
     public static List<TenantInvoiceItemResponse> buildItems(TenantInvoice invoice) {
         List<TenantInvoiceItemResponse> items = new ArrayList<>();
         if (invoice.getNote() != null && invoice.getNote().startsWith("ONBOARD|")) {
-            BigDecimal rent = parseOnboardField(invoice.getNote(), "rentAmount");
             BigDecimal deposit = parseOnboardField(invoice.getNote(), "depositAmount");
             String months = parseOnboardFieldRaw(invoice.getNote(), "depositMonths");
-            // Data cũ: onboard = tháng đầu + cọc. Data mới: chỉ cọc.
-            if (rent != null && rent.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal firstRent = resolveOnboardFirstRent(invoice, deposit);
+            if (firstRent != null && firstRent.compareTo(BigDecimal.ZERO) > 0) {
                 items.add(TenantInvoiceItemResponse.builder()
-                        .label("Tiền nhà tháng đầu")
-                        .amount(rent)
+                        .label("Tiền nhà chu kỳ đầu")
+                        .amount(firstRent)
                         .build());
             }
             if (deposit != null) {
@@ -91,6 +90,24 @@ public final class InvoiceItemBuilder {
                     .build());
         }
         return items;
+    }
+
+    /**
+     * Ưu tiên {@code firstRentAmount} (pro-rata). Note cũ chỉ có {@code rentAmount} nguyên tháng
+     * → suy ra {@code grandTotal − cọc} cho khớp breakdown.
+     */
+    private static BigDecimal resolveOnboardFirstRent(TenantInvoice invoice, BigDecimal deposit) {
+        BigDecimal firstRent = parseOnboardField(invoice.getNote(), "firstRentAmount");
+        if (firstRent != null && firstRent.compareTo(BigDecimal.ZERO) > 0) {
+            return firstRent;
+        }
+        if (deposit != null && invoice.getGrandTotal() != null) {
+            BigDecimal inferred = invoice.getGrandTotal().subtract(deposit);
+            if (inferred.compareTo(BigDecimal.ZERO) > 0) {
+                return inferred;
+            }
+        }
+        return parseOnboardField(invoice.getNote(), "rentAmount");
     }
 
     private static BigDecimal parseOnboardField(String note, String key) {

@@ -26,7 +26,7 @@ public class CorsProperties {
 
     private List<String> allowedHeaders = List.of("*");
 
-    private List<String> exposedHeaders = List.of("Authorization");
+    private List<String> exposedHeaders = List.of("Authorization", "Date");
 
     private boolean allowCredentials = true;
 

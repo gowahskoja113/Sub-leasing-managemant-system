@@ -50,6 +50,7 @@ app:
       - "*"
     exposed-headers:
       - Authorization
+      - Date
     allow-credentials: true
     max-age-seconds: 3600
   qr:
@@ -137,6 +138,9 @@ billing:
   reminder-days-before: 3
   late-fee-percent: 2
   overdue-renotify-days: 7
+  # Legacy tên: KHÔNG còn nhắc/quá hạn/chấm dứt kỳ đầu (QR onboard đã thu FIRST).
+  # Vẫn dùng khi phát REGULAR mà mốc hạn đã qua (catch-up) → dueDate = today + N.
+  # Không nhầm với graceDays admin (BillingRulesCard).
   first-cycle-grace-days: 3
   rent:
     due-day: 5
