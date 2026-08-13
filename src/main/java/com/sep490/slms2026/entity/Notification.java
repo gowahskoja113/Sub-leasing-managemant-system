@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@EntityListeners(NotificationListener.class)
 public class Notification implements Serializable {
 
     @Id
