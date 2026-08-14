@@ -1,6 +1,7 @@
 package com.sep490.slms2026.enums;
 
-public enum EvnBillStatus {
+public enum UtilityBillStatus {
     PUBLISHED,
     REVOKED
 }
+

@@ -1,8 +1,8 @@
 package com.sep490.slms2026.controller;
 
-import com.sep490.slms2026.dto.response.EvnBillResponse;
+import com.sep490.slms2026.dto.response.UtilityBillResponse;
 import com.sep490.slms2026.enums.UtilityType;
-import com.sep490.slms2026.service.EvnBillService;
+import com.sep490.slms2026.service.UtilityBillService;
 import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,15 +17,16 @@ import java.util.List;
 @PreAuthorize("hasRole('MANAGER')")
 public class ManagerUtilityBillController {
 
-    private final EvnBillService evnBillService;
+    private final UtilityBillService utilityBillService;
 
     @GetMapping
-    public ResponseEntity<List<EvnBillResponse>> list(
+    public ResponseEntity<List<UtilityBillResponse>> list(
             @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) Integer year,
             @RequestParam(required = false) String type) {
         UtilityType utilityType = type == null || type.isBlank() ? null : UtilityTypeMapper.fromApi(type);
-        return ResponseEntity.ok(evnBillService.getUtilityBills(propertyId, month, year, utilityType, true));
+        return ResponseEntity.ok(utilityBillService.getUtilityBills(propertyId, month, year, utilityType, true));
     }
 }
+

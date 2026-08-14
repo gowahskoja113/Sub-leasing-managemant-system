@@ -2,7 +2,7 @@ package com.sep490.slms2026.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sep490.slms2026.dto.response.OcrEvnBillResponse;
+import com.sep490.slms2026.dto.response.OcrUtilityBillResponse;
 import com.sep490.slms2026.dto.response.OcrMeterResponse;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.service.OcrService;
@@ -122,11 +122,11 @@ public class OcrServiceImpl implements OcrService {
     }
 
     @Override
-    public OcrEvnBillResponse readEvnBill(String imageUrl) {
+    public OcrUtilityBillResponse readUtilityBill(String imageUrl) {
         String text = fetchOcrText(imageUrl);
         List<String> numbers = extractNumbers(text);
 
-        BigDecimal totalKwh = findLabeledNumber(text, numbers,
+        BigDecimal totalQuantity = findLabeledNumber(text, numbers,
                 "kwh", "điện năng", "tiêu thụ", "sản lượng");
         BigDecimal totalAmount = findLabeledNumber(text, numbers,
                 "tổng tiền", "thanh toán", "số tiền", "phải thu");
@@ -137,8 +137,8 @@ public class OcrServiceImpl implements OcrService {
             billingPeriod = periodMatcher.group(1).trim();
         }
 
-        return OcrEvnBillResponse.builder()
-                .totalKwh(totalKwh)
+        return OcrUtilityBillResponse.builder()
+                .totalQuantity(totalQuantity)
                 .totalAmount(totalAmount)
                 .billingPeriod(billingPeriod)
                 .rawText(text)
@@ -298,3 +298,4 @@ public class OcrServiceImpl implements OcrService {
         return URLEncoder.encode(v == null ? "" : v, StandardCharsets.UTF_8);
     }
 }
+

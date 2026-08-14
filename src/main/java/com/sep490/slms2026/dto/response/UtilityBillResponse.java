@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Data
 @Builder
-public class EvnBillResponse {
+public class UtilityBillResponse {
     private Long id;
     private Long propertyId;
     private String propertyName;
@@ -19,8 +19,6 @@ public class EvnBillResponse {
     private Integer year;
     /** kWh hoặc m³ — field chính cho FE utility-bills. */
     private Integer totalQuantity;
-    /** Alias EVN cũ = totalQuantity (điện). */
-    private Integer totalKwh;
     private BigDecimal totalAmount;
     /** Đơn giá chưa làm tròn (scale 8). */
     private BigDecimal unitPrice;
@@ -31,3 +29,4 @@ public class EvnBillResponse {
     private String createdBy;
     private LocalDateTime createdAt;
 }
+
