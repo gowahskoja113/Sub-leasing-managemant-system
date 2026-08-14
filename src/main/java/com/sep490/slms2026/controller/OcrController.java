@@ -1,7 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.OcrMeterRequest;
-import com.sep490.slms2026.dto.response.OcrEvnBillResponse;
+import com.sep490.slms2026.dto.response.OcrUtilityBillResponse;
 import com.sep490.slms2026.dto.response.OcrMeterResponse;
 import com.sep490.slms2026.service.OcrService;
 import jakarta.validation.Valid;
@@ -34,7 +34,8 @@ public class OcrController {
      */
     @PostMapping("/evn-bill")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<OcrEvnBillResponse> readEvnBill(@Valid @RequestBody OcrMeterRequest request) {
-        return ResponseEntity.ok(ocrService.readEvnBill(request.getImageUrl()));
+    public ResponseEntity<OcrUtilityBillResponse> readUtilityBill(@Valid @RequestBody OcrMeterRequest request) {
+        return ResponseEntity.ok(ocrService.readUtilityBill(request.getImageUrl()));
     }
 }
+

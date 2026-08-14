@@ -5,6 +5,7 @@ import com.sep490.slms2026.enums.ContractStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -14,10 +15,19 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import com.sep490.slms2026.entity.User;
 import java.util.UUID;
 
 @Repository
 public interface TenantContractRepository extends JpaRepository<TenantContract, Long> {
+
+    @Modifying
+    @Query("UPDATE TenantContract c SET c.assignedManager = :manager WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")
+    int updateAssignedManagerByZoneId(@Param("manager") User manager, @Param("zoneId") UUID zoneId);
+
+    @Modifying
+    @Query("UPDATE TenantContract c SET c.assignedManager = null WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")
+    int removeAssignedManagerByZoneId(@Param("zoneId") UUID zoneId);
 
     // Quy tắc 1-HĐ-active theo ĐƠN VỊ CHO THUÊ (phòng / nguyên căn) — không giới hạn theo SĐT/tenant
     boolean existsByRoomIdAndStatus(Long roomId, ContractStatus status);

@@ -1,24 +1,24 @@
 package com.sep490.slms2026.service.impl;
 
-import com.sep490.slms2026.dto.request.CreateEvnBillRequest;
 import com.sep490.slms2026.dto.request.CreateUtilityBillRequest;
-import com.sep490.slms2026.dto.response.EvnBillResponse;
-import com.sep490.slms2026.entity.EvnBill;
+import com.sep490.slms2026.dto.request.CreateUtilityBillRequest;
+import com.sep490.slms2026.dto.response.UtilityBillResponse;
+import com.sep490.slms2026.entity.UtilityBill;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.UtilityInvoice;
-import com.sep490.slms2026.enums.EvnBillStatus;
+import com.sep490.slms2026.enums.UtilityBillStatus;
 import com.sep490.slms2026.enums.UtilityType;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
-import com.sep490.slms2026.repository.EvnBillRepository;
+import com.sep490.slms2026.repository.UtilityBillRepository;
 import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
-import com.sep490.slms2026.service.EvnBillService;
+import com.sep490.slms2026.service.UtilityBillService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
@@ -40,36 +40,23 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class EvnBillServiceImpl implements EvnBillService {
+public class UtilityBillServiceImpl implements UtilityBillService {
 
     /** Đủ chữ số để consumption × unitPrice khớp totalAmount, không làm tròn về VND nguyên. */
     static final int UNIT_PRICE_SCALE = 8;
 
-    private final EvnBillRepository evnBillRepository;
+    private final UtilityBillRepository utilityBillRepository;
     private final PropertyRepository propertyRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
     private final UserPushTokenService userPushTokenService;
 
-    @Override
-    @Transactional
-    public EvnBillResponse createEvnBill(CreateEvnBillRequest request) {
-        return createPublishedBill(
-                request.getPropertyId(),
-                UtilityType.ELECTRIC,
-                request.getBillingPeriod(),
-                request.getMonth(),
-                request.getYear(),
-                request.getTotalKwh(),
-                request.getTotalAmount(),
-                request.getImageUrl(),
-                true);
-    }
+
 
     @Override
     @Transactional
-    public EvnBillResponse createUtilityBill(CreateUtilityBillRequest request) {
+    public UtilityBillResponse createUtilityBill(CreateUtilityBillRequest request) {
         return createPublishedBill(
                 request.getPropertyId(),
                 UtilityTypeMapper.fromApi(request.getType()),
@@ -82,7 +69,7 @@ public class EvnBillServiceImpl implements EvnBillService {
                 false);
     }
 
-    private EvnBillResponse createPublishedBill(
+    private UtilityBillResponse createPublishedBill(
             Long propertyId,
             UtilityType type,
             String billingPeriod,
@@ -97,8 +84,8 @@ public class EvnBillServiceImpl implements EvnBillService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy toà nhà ID: " + propertyId));
 
-        Optional<EvnBill> existing = evnBillRepository.findByPropertyIdAndMonthAndYearAndTypeAndStatus(
-                propertyId, month, year, type, EvnBillStatus.PUBLISHED);
+        Optional<UtilityBill> existing = utilityBillRepository.findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+                propertyId, month, year, type, UtilityBillStatus.PUBLISHED);
         if (existing.isPresent()) {
             if (evnLegacyCodes) {
                 throw new BusinessException("EVN_BILL_ALREADY_EXISTS",
@@ -112,7 +99,7 @@ public class EvnBillServiceImpl implements EvnBillService {
         BigDecimal unitPrice = totalAmount.divide(
                 new BigDecimal(totalQuantity), UNIT_PRICE_SCALE, RoundingMode.HALF_UP);
 
-        EvnBill bill = EvnBill.builder()
+        UtilityBill bill = UtilityBill.builder()
                 .property(property)
                 .type(type)
                 .billingPeriod(billingPeriod)
@@ -122,22 +109,18 @@ public class EvnBillServiceImpl implements EvnBillService {
                 .totalAmount(totalAmount)
                 .unitPrice(unitPrice)
                 .imageUrl(imageUrl)
-                .status(EvnBillStatus.PUBLISHED)
+                .status(UtilityBillStatus.PUBLISHED)
                 .createdBy(user.getId())
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        evnBillRepository.save(bill);
+        utilityBillRepository.save(bill);
         notifyManagerBillPublished(property, bill);
 
         return toResponse(bill, user.getUsername());
     }
 
-    @Override
-    @Transactional
-    public void revokeEvnBill(Long id) {
-        revoke(id, true);
-    }
+
 
     @Override
     @Transactional
@@ -146,11 +129,11 @@ public class EvnBillServiceImpl implements EvnBillService {
     }
 
     private void revoke(Long id, boolean evnLegacyCodes) {
-        EvnBill bill = evnBillRepository.findById(id)
+        UtilityBill bill = utilityBillRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         evnLegacyCodes ? "Không tìm thấy hoá đơn EVN." : "Không tìm thấy hoá đơn tiện ích."));
 
-        if (bill.getStatus() == EvnBillStatus.REVOKED) {
+        if (bill.getStatus() == UtilityBillStatus.REVOKED) {
             return;
         }
 
@@ -168,22 +151,18 @@ public class EvnBillServiceImpl implements EvnBillService {
                     "Không thể thu hồi vì đã có hoá đơn " + label + " được gửi cho khách trong kỳ này.");
         }
 
-        bill.setStatus(EvnBillStatus.REVOKED);
-        evnBillRepository.save(bill);
+        bill.setStatus(UtilityBillStatus.REVOKED);
+        utilityBillRepository.save(bill);
     }
+
+
 
     @Override
     @Transactional(readOnly = true)
-    public List<EvnBillResponse> getEvnBills(Long propertyId, Integer month, Integer year, boolean isManager) {
-        return getUtilityBills(propertyId, month, year, UtilityType.ELECTRIC, isManager);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<EvnBillResponse> getUtilityBills(
+    public List<UtilityBillResponse> getUtilityBills(
             Long propertyId, Integer month, Integer year, UtilityType type, boolean isManager) {
-        EvnBillStatus statusFilter = isManager ? EvnBillStatus.PUBLISHED : null;
-        List<EvnBill> bills;
+        UtilityBillStatus statusFilter = isManager ? UtilityBillStatus.PUBLISHED : null;
+        List<UtilityBill> bills;
 
         if (isManager) {
             CustomUserDetails user = SecurityUtils.requireCurrentUser();
@@ -191,18 +170,18 @@ public class EvnBillServiceImpl implements EvnBillService {
                 if (!propertyRepository.findIdsByOperationManagerId(user.getId()).contains(propertyId)) {
                     throw new AccessDeniedException("Bạn không có quyền quản lý nhà này");
                 }
-                bills = evnBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
+                bills = utilityBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
             } else {
                 List<Long> managerPropIds = propertyRepository.findIdsByOperationManagerId(user.getId());
                 if (managerPropIds.isEmpty()) {
                     return List.of();
                 }
                 bills = managerPropIds.stream()
-                        .flatMap(pid -> evnBillRepository.findByFilters(pid, month, year, type, statusFilter).stream())
+                        .flatMap(pid -> utilityBillRepository.findByFilters(pid, month, year, type, statusFilter).stream())
                         .collect(Collectors.toList());
             }
         } else {
-            bills = evnBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
+            bills = utilityBillRepository.findByFilters(propertyId, month, year, type, statusFilter);
         }
 
         return bills.stream().map(bill -> {
@@ -215,7 +194,7 @@ public class EvnBillServiceImpl implements EvnBillService {
         }).collect(Collectors.toList());
     }
 
-    private void notifyManagerBillPublished(Property property, EvnBill bill) {
+    private void notifyManagerBillPublished(Property property, UtilityBill bill) {
         UUID managerId = property.getOperationManagerId();
         if (managerId == null) {
             managerId = property.getManagedBy();
@@ -267,10 +246,10 @@ public class EvnBillServiceImpl implements EvnBillService {
         return String.format("%,.2f", rounded.doubleValue()).replace(',', '@').replace('.', ',').replace('@', '.');
     }
 
-    private EvnBillResponse toResponse(EvnBill bill, String username) {
+    private UtilityBillResponse toResponse(UtilityBill bill, String username) {
         UtilityType type = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
         Integer qty = bill.getTotalQuantity();
-        return EvnBillResponse.builder()
+        return UtilityBillResponse.builder()
                 .id(bill.getId())
                 .propertyId(bill.getProperty().getId())
                 .propertyName(bill.getProperty().getPropertyName())
@@ -279,7 +258,6 @@ public class EvnBillServiceImpl implements EvnBillService {
                 .month(bill.getMonth())
                 .year(bill.getYear())
                 .totalQuantity(qty)
-                .totalKwh(type == UtilityType.ELECTRIC ? qty : null)
                 .totalAmount(bill.getTotalAmount())
                 .unitPrice(bill.getUnitPrice())
                 .unitPriceExact(bill.getUnitPrice())
@@ -290,3 +268,4 @@ public class EvnBillServiceImpl implements EvnBillService {
                 .build();
     }
 }
+

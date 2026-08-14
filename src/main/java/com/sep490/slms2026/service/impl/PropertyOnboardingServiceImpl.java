@@ -58,6 +58,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
     private final TenantOnboardingService tenantOnboardingService;
+    private final ZoneManagerRepository zoneManagerRepository;
 
     @Override
     @Transactional
@@ -533,7 +534,14 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         property.setHostContingencyPercent(request.getContingencyPercent());
-        property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+
+        ZoneManager zoneManager = zoneManagerRepository.findById(property.getZone().getId()).orElse(null);
+        if (zoneManager != null) {
+            property.setOperationManagerId(zoneManager.getManagerId());
+            property.setStatus(PropertyStatus.ACTIVE);
+        } else {
+            property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+        }
 
         PropertyActivationResponse response;
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
