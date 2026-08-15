@@ -74,7 +74,8 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     private final UserPushTokenService userPushTokenService;
     private final RoomMapper roomMapper;
     private final PropertyService propertyService;
-    private final ObjectMapper objectMapper;
+    /** Spring Boot 4 không expose ObjectMapper Jackson 2 thành bean. */
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     @Transactional
