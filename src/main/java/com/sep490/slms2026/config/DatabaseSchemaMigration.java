@@ -110,7 +110,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         // Multi-device Expo push tokens (1 account → nhiều máy)
         ensureUserPushTokensTable();
         ensureBillingConfigTable();
-        ensureEvnBillsUtilityTypeColumn();
+        ensureUtilityBillsUtilityTypeColumn();
+        ensureZoneManagerTables();
     }
 
     /**
@@ -1012,33 +1013,82 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     /**
-     * Gộp hoá đơn điện/nước admin-chốt trên bảng evn_bills (không tạo bảng mới).
+     * Gộp hoá đơn điện/nước admin-chốt trên bảng utility_bills (không tạo bảng mới).
      * Dòng cũ = ELECTRIC. unit_price nới scale để trả đơn giá chưa làm tròn.
      */
-    private void ensureEvnBillsUtilityTypeColumn() {
-        Boolean tableExists = jdbcTemplate.queryForObject(
+    private void ensureUtilityBillsUtilityTypeColumn() {
+        Boolean tableUtilityExists = jdbcTemplate.queryForObject(
                 """
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.tables
                     WHERE table_schema = 'public'
-                      AND table_name = 'evn_bills'
+                      AND table_name = 'utility_bills'
                 )
                 """,
                 Boolean.class);
-        if (!Boolean.TRUE.equals(tableExists)) {
-            return;
+        
+        if (!Boolean.TRUE.equals(tableUtilityExists)) {
+            // Check if evn_bills exists, then rename it
+            Boolean tableEvnExists = jdbcTemplate.queryForObject(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = 'evn_bills'
+                    )
+                    """,
+                    Boolean.class);
+            if (Boolean.TRUE.equals(tableEvnExists)) {
+                jdbcTemplate.execute("ALTER TABLE evn_bills RENAME TO utility_bills");
+                log.info("Renamed table evn_bills to utility_bills");
+            } else {
+                return; // Let Hibernate create it
+            }
         }
-        addColumnIfNotExists("evn_bills", "type", "VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC'");
+        
+        // Also rename column total_kwh to total_quantity
         try {
-            jdbcTemplate.update("UPDATE evn_bills SET type = 'ELECTRIC' WHERE type IS NULL OR TRIM(type) = ''");
+            jdbcTemplate.execute("ALTER TABLE utility_bills RENAME COLUMN total_kwh TO total_quantity");
+            log.info("Renamed column total_kwh to total_quantity in utility_bills");
         } catch (Exception e) {
-            log.warn("Could not backfill evn_bills.type: {}", e.getMessage());
+            // Ignore if column already renamed or doesn't exist
+        }
+        addColumnIfNotExists("utility_bills", "type", "VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC'");
+        try {
+            jdbcTemplate.update("UPDATE utility_bills SET type = 'ELECTRIC' WHERE type IS NULL OR TRIM(type) = ''");
+        } catch (Exception e) {
+            log.warn("Could not backfill utility_bills.type: {}", e.getMessage());
         }
         try {
-            jdbcTemplate.execute("ALTER TABLE evn_bills ALTER COLUMN unit_price TYPE NUMERIC(19, 8)");
-            log.info("Widened evn_bills.unit_price to NUMERIC(19,8)");
+            jdbcTemplate.execute("ALTER TABLE utility_bills ALTER COLUMN unit_price TYPE NUMERIC(19, 8)");
+            log.info("Widened utility_bills.unit_price to NUMERIC(19,8)");
         } catch (Exception e) {
-            log.warn("Could not alter evn_bills.unit_price scale: {}", e.getMessage());
+            log.warn("Could not alter utility_bills.unit_price scale: {}", e.getMessage());
         }
     }
+    private void ensureZoneManagerTables() {
+        createTableIfNotExists(
+                "zone_managers",
+                """
+                zone_id UUID PRIMARY KEY,
+                manager_id UUID NOT NULL REFERENCES "User"(id),
+                assigned_by UUID,
+                assigned_at TIMESTAMP
+                """
+        );
+        createTableIfNotExists(
+                "zone_manager_handovers",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                zone_id UUID NOT NULL,
+                from_manager_id UUID,
+                to_manager_id UUID,
+                changed_by UUID NOT NULL,
+                changed_at TIMESTAMP NOT NULL,
+                affected_properties INTEGER,
+                affected_contracts INTEGER
+                """
+        );
+    }
 }
+

@@ -9,9 +9,10 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class OcrEvnBillResponse {
-    private BigDecimal totalKwh;
+public class OcrUtilityBillResponse {
+    private BigDecimal totalQuantity;
     private BigDecimal totalAmount;
     private String billingPeriod;
     private String rawText;
 }
+

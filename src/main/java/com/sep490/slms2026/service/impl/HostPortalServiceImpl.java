@@ -301,6 +301,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
                 .toList();
 
+
         BigDecimal totalHeld = items.stream()
                 .filter(i -> "HELD".equals(i.getStatus()))
                 .map(HostDepositsResponse.DepositItem::getAmount)

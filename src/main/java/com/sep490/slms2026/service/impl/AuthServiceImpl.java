@@ -43,18 +43,10 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Số điện thoại này đã được đăng ký!");
         }
 
-        // Xác định Role đăng ký công khai (mặc định cho Khách/Tenant/Owner tùy bạn thiết kế public)
-        Role userRole;
-        try {
-            userRole = Role.valueOf(request.getRole().toUpperCase());
-        } catch (Exception e) {
-            userRole = Role.ROLE_TENANT;
+        Role userRole = Role.ROLE_TENANT;
+        if (request.getRole() != null && !request.getRole().equalsIgnoreCase("ROLE_TENANT")) {
+            throw new RuntimeException("Chỉ được phép đăng ký tài khoản khách thuê (ROLE_TENANT) qua cổng này!");
         }
-
-        // CHẶN: Không cho phép tự đăng ký tài khoản nội bộ qua cổng public này
-//        if (userRole == Role.ROLE_ADMIN || userRole == Role.ROLE_MANAGER) {
-//            throw new RuntimeException("Không có quyền tự đăng ký tài khoản cấp quản trị viên/quản lý!");
-//        }
 
         User user = new User();
         user.setUsername(request.getUsername());

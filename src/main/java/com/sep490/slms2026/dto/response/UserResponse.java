@@ -18,6 +18,9 @@ public class UserResponse {
     private String phoneNumber;
     private String fullName;
     private Role role;
+    private String avatarUrl;
+    private Boolean isFirstLogin;
+    private String cccd;
     private UserStatus status;
     private LocalDateTime createAt;
 }

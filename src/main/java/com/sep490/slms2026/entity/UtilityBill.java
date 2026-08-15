@@ -1,6 +1,6 @@
 package com.sep490.slms2026.entity;
 
-import com.sep490.slms2026.enums.EvnBillStatus;
+import com.sep490.slms2026.enums.UtilityBillStatus;
 import com.sep490.slms2026.enums.UtilityType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -11,13 +11,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "evn_bills")
+@Table(name = "utility_bills")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class EvnBill implements Serializable {
+public class UtilityBill implements Serializable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -42,8 +42,8 @@ public class EvnBill implements Serializable {
     @Column(name = "year", nullable = false)
     private Integer year;
 
-    /** kWh (điện) hoặc m³ (nước). Cột DB giữ tên total_kwh để khỏi rename dữ liệu cũ. */
-    @Column(name = "total_kwh", nullable = false)
+    /** kWh (điện) hoặc m³ (nước). Cột DB giữ tên total_quantity để khỏi rename dữ liệu cũ. */
+    @Column(name = "total_quantity", nullable = false)
     private Integer totalQuantity;
 
     @Column(name = "total_amount", nullable = false)
@@ -57,7 +57,7 @@ public class EvnBill implements Serializable {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private EvnBillStatus status;
+    private UtilityBillStatus status;
 
     @Column(name = "created_by")
     private UUID createdBy;
@@ -65,3 +65,4 @@ public class EvnBill implements Serializable {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 }
+
