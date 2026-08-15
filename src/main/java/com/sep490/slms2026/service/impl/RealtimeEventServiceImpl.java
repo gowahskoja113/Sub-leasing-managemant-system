@@ -1,6 +1,8 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.response.BillingRealtimeEvent;
+import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.Role;
@@ -11,7 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -29,42 +32,68 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
             return;
         }
 
+        TenantContract contract = invoice.getTenantContract();
+        Property property = contract != null ? contract.getProperty() : null;
+
         BillingRealtimeEvent event = BillingRealtimeEvent.builder()
                 .event("INVOICE_PAID")
                 .invoiceId(invoice.getId())
                 .invoiceCode(invoice.getCode())
                 .invoiceType(invoice.getInvoiceType() != null ? invoice.getInvoiceType().name() : null)
+                .cycleType(invoice.getCycleType() != null ? invoice.getCycleType().name() : null)
                 .status(invoice.getStatus() != null ? invoice.getStatus().name() : null)
+                .propertyId(property != null ? property.getId() : null)
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
+                .contractId(contract != null ? contract.getId() : null)
+                .tenantUserId(invoice.getTenantUserId())
                 .tenantName(resolveTenantName(invoice))
+                .billingMonth(invoice.getBillingMonth())
+                .billingYear(invoice.getBillingYear())
+                .billingPeriod(invoice.getBillingPeriod())
+                .utilityInvoiceId(invoice.getUtilityInvoiceId())
                 .paymentMethod(invoice.getPaymentMethod())
                 .transactionId(invoice.getTransactionId())
                 .paidAt(invoice.getPaidAt())
                 .build();
 
-        sendToAdmins(event);
-        sendToManager(invoice, event);
+        Set<UUID> sent = new HashSet<>();
+        sendToRole(Role.ROLE_ADMIN, event, sent);
+        sendToRole(Role.ROLE_OWNER, event, sent);
+        sendByUserId(property != null ? property.getOperationManagerId() : null, event, sent);
+        sendByUserId(property != null ? property.getManagedBy() : null, event, sent);
+        if (contract != null && contract.getAssignedManager() != null) {
+            sendToUser(contract.getAssignedManager(), event, sent);
+        }
+        sendByUserId(invoice.getTenantUserId(), event, sent);
+        if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            sendToUser(contract.getTenant().getUser(), event, sent);
+        }
     }
 
-    private void sendToAdmins(BillingRealtimeEvent event) {
-        List<User> admins = userRepository.findByRoleAndStatus(Role.ROLE_ADMIN, UserStatus.ACTIVE);
-        admins.forEach(admin -> messagingTemplate.convertAndSendToUser(
-                admin.getUsername(), BILLING_USER_DESTINATION, event));
+    private void sendToRole(Role role, BillingRealtimeEvent event, Set<UUID> sent) {
+        userRepository.findByRoleAndStatus(role, UserStatus.ACTIVE)
+                .forEach(user -> sendToUser(user, event, sent));
     }
 
-    private void sendToManager(TenantInvoice invoice, BillingRealtimeEvent event) {
-        UUID managerId = invoice.getTenantContract() != null
-                && invoice.getTenantContract().getProperty() != null
-                ? invoice.getTenantContract().getProperty().getOperationManagerId()
-                : null;
-        if (managerId == null) {
+    private void sendByUserId(UUID userId, BillingRealtimeEvent event, Set<UUID> sent) {
+        if (userId == null || sent.contains(userId)) {
             return;
         }
+        userRepository.findById(userId).ifPresent(user -> sendToUser(user, event, sent));
+    }
 
-        userRepository.findById(managerId).ifPresent(manager ->
-                messagingTemplate.convertAndSendToUser(
-                        manager.getUsername(), BILLING_USER_DESTINATION, event));
+    private void sendToUser(User user, BillingRealtimeEvent event, Set<UUID> sent) {
+        if (user == null || user.getUsername() == null || user.getUsername().isBlank()) {
+            return;
+        }
+        if (user.getStatus() != null && user.getStatus() != UserStatus.ACTIVE) {
+            return;
+        }
+        if (user.getId() != null && !sent.add(user.getId())) {
+            return;
+        }
+        messagingTemplate.convertAndSendToUser(user.getUsername(), BILLING_USER_DESTINATION, event);
     }
 
     private String resolveTenantName(TenantInvoice invoice) {

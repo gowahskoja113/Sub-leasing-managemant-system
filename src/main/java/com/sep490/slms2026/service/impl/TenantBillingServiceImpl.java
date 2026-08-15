@@ -680,6 +680,13 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .build());
+
+        if (invoice.getUtilityInvoiceId() != null) {
+            utilityInvoiceRepository.findById(invoice.getUtilityInvoiceId()).ifPresent(utilityInvoice -> {
+                utilityInvoice.setStatus(UtilityInvoiceStatus.PAID);
+                utilityInvoiceRepository.save(utilityInvoice);
+            });
+        }
     }
 
     private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice) {
