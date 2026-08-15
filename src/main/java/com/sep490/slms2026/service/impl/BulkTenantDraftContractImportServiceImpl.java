@@ -21,6 +21,8 @@ import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.RentEscalationSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +53,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
     private final TenantOnboardingService tenantOnboardingService;
+    private final UnitPriceService unitPriceService;
 
     @Override
     @Transactional
@@ -78,14 +81,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
 
         if (dryRun) {
             List<BulkImportContractResultResponse> dryResults = resolved.stream()
-                    .map(r -> BulkImportContractResultResponse.builder()
-                            .importStatus(IMPORT_STATUS_IMPORTED)
-                            .contractCode("(dry-run)")
-                            .propertyId(r.property().getId())
-                            .propertyName(r.property().getPropertyName())
-                            .finalStatus(ContractStatus.DRAFT.name())
-                            .message(buildPreviewMessage(r))
-                            .build())
+                    .map(r -> toImportResult(r, IMPORT_STATUS_IMPORTED, "(dry-run)",
+                            ContractStatus.DRAFT.name(), buildPreviewMessage(r)))
                     .toList();
             return BulkImportResponse.builder()
                     .dryRun(true)
@@ -104,15 +101,10 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             Long roomId = r.room() != null ? r.room().getId() : null;
             TenantContractResponse created = tenantOnboardingService.onboardTenant(
                     r.property().getId(), roomId, request);
-            results.add(BulkImportContractResultResponse.builder()
-                    .importStatus(IMPORT_STATUS_IMPORTED)
-                    .contractCode(created.getContractCode())
-                    .propertyId(created.getPropertyId())
-                    .propertyName(r.property().getPropertyName())
-                    .finalStatus(created.getStatus() != null ? created.getStatus().name() : ContractStatus.DRAFT.name())
-                    .message("Đã tạo HĐ nháp cho " + created.getTenantFullName()
-                            + (created.getRoomNumber() != null ? " — phòng " + created.getRoomNumber() : " — nguyên căn"))
-                    .build());
+            results.add(toImportResult(r, IMPORT_STATUS_IMPORTED, created.getContractCode(),
+                    created.getStatus() != null ? created.getStatus().name() : ContractStatus.DRAFT.name(),
+                    "Đã tạo HĐ nháp cho " + created.getTenantFullName()
+                            + (created.getRoomNumber() != null ? " — phòng " + created.getRoomNumber() : " — nguyên căn")));
         }
 
         return BulkImportResponse.builder()
@@ -319,7 +311,35 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         request.setDepositMonths(row.getDepositMonths());
         request.setExpectedReceptionDate(row.getExpectedReceptionDate());
         request.setRequireDepositPayment(true);
+        request.setRentEscalationType(row.getRentEscalationTypeRaw());
+        request.setRentEscalationPercent(row.getRentEscalationPercent());
+        if (row.getRentScheduleRaw() != null && !row.getRentScheduleRaw().isBlank()) {
+            request.setRentSchedule(RentEscalationSupport.parseScheduleRaw(row.getRentScheduleRaw()));
+        }
         return request;
+    }
+
+    private BulkImportContractResultResponse toImportResult(ResolvedDraftRow r,
+                                                            String importStatus,
+                                                            String contractCode,
+                                                            String finalStatus,
+                                                            String message) {
+        BigDecimal listed = r.room() != null ? r.room().getPrice() : r.property().getPrice();
+        BigDecimal rent = r.row().getRentAmount();
+        return BulkImportContractResultResponse.builder()
+                .importStatus(importStatus)
+                .contractCode(contractCode)
+                .propertyId(r.property().getId())
+                .propertyName(r.property().getPropertyName())
+                .finalStatus(finalStatus)
+                .message(message)
+                .roomId(r.room() != null ? r.room().getId() : null)
+                .roomNumber(r.room() != null ? r.room().getRoomNumber() : null)
+                .tenantName(r.row().getFullName())
+                .listedPrice(listed)
+                .rentAmount(rent)
+                .deltaPercent(unitPriceService.deltaPercent(listed, rent))
+                .build();
     }
 
     private static String buildPreviewMessage(ResolvedDraftRow r) {

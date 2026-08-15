@@ -63,6 +63,10 @@ public class TenantContractResponse {
 
     private String contractCode;
     private BigDecimal rentAmount;
+    private BigDecimal listedPrice;
+    private String rentEscalationType;
+    private BigDecimal rentEscalationPercent;
+    private String rentScheduleJson;
     private BigDecimal deposit;
     /**
      * Tổng phải thanh toán lúc onboard: tiền cọc + tiền nhà chu kỳ đầu (một QR).

@@ -2,6 +2,7 @@ package com.sep490.slms2026.entity;
 
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PaymentStatus;
+import com.sep490.slms2026.enums.RentEscalationType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -49,6 +50,25 @@ public class TenantContract implements Serializable {
 
     @Column(name = "rent_amount", nullable = false)
     private BigDecimal rentAmount;
+
+    /** Giá gốc lúc ký — dùng tính tăng %/năm, không hồi tố hoá đơn đã phát. */
+    @Column(name = "base_rent_amount", precision = 19, scale = 2)
+    private BigDecimal baseRentAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rent_escalation_type", length = 20)
+    @Builder.Default
+    private RentEscalationType rentEscalationType = RentEscalationType.NONE;
+
+    @Column(name = "rent_escalation_percent", precision = 19, scale = 4)
+    private BigDecimal rentEscalationPercent;
+
+    /** JSON: [{ "fromMonth": 13, "amount": 11000000 }] */
+    @Column(name = "rent_schedule_json", columnDefinition = "TEXT")
+    private String rentScheduleJson;
+
+    @Column(name = "rent_escalation_last_from_month")
+    private Integer rentEscalationLastFromMonth;
 
     // Tiền cọc theo dõi riêng theo quy tắc nghiệp vụ
     @Column(name = "deposit", nullable = false)

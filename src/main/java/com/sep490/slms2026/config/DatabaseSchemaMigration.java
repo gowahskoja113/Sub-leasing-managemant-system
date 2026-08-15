@@ -112,6 +112,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureBillingConfigTable();
         ensureUtilityBillsUtilityTypeColumn();
         ensureZoneManagerTables();
+        ensureRentalPriceModel();
     }
 
     /**
@@ -1089,6 +1090,55 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 affected_contracts INTEGER
                 """
         );
+    }
+
+    private void ensureRentalPriceModel() {
+        addColumnIfNotExists("rooms", "applied_price", "NUMERIC(19, 2)");
+        addColumnIfNotExists("properties", "applied_price", "NUMERIC(19, 2)");
+        addColumnIfNotExists("tenant_contracts", "base_rent_amount", "NUMERIC(19, 2)");
+        addColumnIfNotExists("tenant_contracts", "rent_escalation_type", "VARCHAR(20) DEFAULT 'NONE'");
+        addColumnIfNotExists("tenant_contracts", "rent_escalation_percent", "NUMERIC(19, 4)");
+        addColumnIfNotExists("tenant_contracts", "rent_schedule_json", "TEXT");
+        addColumnIfNotExists("tenant_contracts", "rent_escalation_last_from_month", "INTEGER");
+        try {
+            jdbcTemplate.update("UPDATE rooms SET applied_price = price WHERE applied_price IS NULL AND price IS NOT NULL");
+            jdbcTemplate.update("UPDATE properties SET applied_price = price WHERE applied_price IS NULL AND price IS NOT NULL");
+            jdbcTemplate.update("UPDATE tenant_contracts SET base_rent_amount = rent_amount WHERE base_rent_amount IS NULL");
+            jdbcTemplate.update("UPDATE tenant_contracts SET rent_escalation_type = 'NONE' WHERE rent_escalation_type IS NULL");
+            jdbcTemplate.update("""
+                    UPDATE rooms r SET applied_price = c.rent_amount
+                    FROM tenant_contracts c
+                    WHERE c.room_id = r.id AND c.status IN ('ACTIVE', 'EXPIRED')
+                    """);
+            jdbcTemplate.update("""
+                    UPDATE properties p SET applied_price = c.rent_amount
+                    FROM tenant_contracts c
+                    WHERE c.property_id = p.id AND c.room_id IS NULL AND c.status IN ('ACTIVE', 'EXPIRED')
+                    """);
+        } catch (Exception e) {
+            log.warn("Could not backfill listed/applied prices: {}", e.getMessage());
+        }
+        createTableIfNotExists(
+                "room_price_history",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                property_id BIGINT NOT NULL,
+                room_id BIGINT,
+                change_type VARCHAR(30) NOT NULL,
+                old_price NUMERIC(19, 2),
+                new_price NUMERIC(19, 2) NOT NULL,
+                contract_id BIGINT,
+                reason TEXT,
+                changed_by UUID,
+                changed_by_name VARCHAR(255),
+                changed_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        try {
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_room_price_history_property ON room_price_history(property_id, changed_at DESC)");
+        } catch (Exception e) {
+            log.warn("Could not create room_price_history index: {}", e.getMessage());
+        }
     }
 }
 

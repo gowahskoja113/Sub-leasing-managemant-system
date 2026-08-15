@@ -26,6 +26,9 @@ public class PropertyResponse {
     private Integer totalRooms;
     private String status;
     private BigDecimal price;
+    private BigDecimal listedPrice;
+    private BigDecimal appliedPrice;
+    private Boolean priceLocked;
     private Long createdBy;
     private UUID operationManagerId;
     /** Tên đầy đủ của Operation Manager — null nếu chưa gán */

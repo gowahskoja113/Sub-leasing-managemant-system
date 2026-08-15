@@ -31,8 +31,13 @@ public class Room implements Serializable {
     @Column(name = "floor")
     private Integer floor;
 
+    /** Giá niêm yết (listedPrice). */
     @Column(nullable = true)
     private BigDecimal price;
+
+    /** Giá đang áp dụng (hợp đồng hiện hành). Phòng trống = listedPrice. */
+    @Column(name = "applied_price")
+    private BigDecimal appliedPrice;
 
     @Column(nullable = true)
     private BigDecimal deposit;

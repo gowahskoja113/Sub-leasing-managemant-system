@@ -5,6 +5,7 @@ import com.sep490.slms2026.dto.request.UpdateRoomRequest;
 import com.sep490.slms2026.dto.request.UpdateRoomStatusRequest;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.service.RoomService;
+import com.sep490.slms2026.service.UnitPriceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +21,7 @@ import java.util.List;
 public class RoomController {
 
     private final RoomService roomService;
+    private final UnitPriceService unitPriceService;
 
     /**
      * POST /api/v1/properties/{propertyId}/rooms
@@ -68,6 +70,19 @@ public class RoomController {
             @PathVariable Long roomId,
             @Valid @RequestBody UpdateRoomStatusRequest request) {
         return ResponseEntity.ok(roomService.updateRoomStatus(propertyId, roomId, request));
+    }
+
+    /**
+     * PATCH /api/v1/properties/{propertyId}/rooms/{roomId}/price
+     * Đổi giá niêm yết khi phòng trống (kể cả nhà ACTIVE).
+     */
+    @PatchMapping("/{roomId}/price")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ResponseEntity<RoomResponse> updateRoomPrice(
+            @PathVariable Long propertyId,
+            @PathVariable Long roomId,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.UpdateUnitPriceRequest request) {
+        return ResponseEntity.ok(unitPriceService.updateRoomListedPrice(propertyId, roomId, request));
     }
 
     /**

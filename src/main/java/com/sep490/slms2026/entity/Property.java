@@ -80,8 +80,13 @@ public class Property implements Serializable {
     @Column(name = "descriptions", nullable = false)
     private String descriptions;
 
+    /** Giá niêm yết nhà nguyên căn (listedPrice). */
     @Column
     private BigDecimal price;
+
+    /** Giá đang áp dụng. Nhà trống = listedPrice. */
+    @Column(name = "applied_price")
+    private BigDecimal appliedPrice;
 
     @Column
     private Double latitude;

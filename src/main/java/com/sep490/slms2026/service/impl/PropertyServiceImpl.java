@@ -239,6 +239,15 @@ public class PropertyServiceImpl implements PropertyService {
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());
+        response.setListedPrice(property.getPrice());
+        response.setAppliedPrice(property.getAppliedPrice() != null
+                ? property.getAppliedPrice() : property.getPrice());
+        response.setPriceLocked(
+                Boolean.TRUE.equals(property.getWholeHouse())
+                        && (tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(
+                                property.getId(), ContractStatus.ACTIVE)
+                        || tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(
+                                property.getId(), ContractStatus.EXPIRED)));
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
         response.setOperationManagerName(resolveOperationManagerName(property.getOperationManagerId()));

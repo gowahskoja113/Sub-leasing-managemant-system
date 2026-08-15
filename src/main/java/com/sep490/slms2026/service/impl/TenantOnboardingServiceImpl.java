@@ -45,6 +45,8 @@ import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.RentEscalationSupport;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.PhoneUtils;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
@@ -97,6 +99,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final RealtimeEventService realtimeEventService;
+    private final UnitPriceService unitPriceService;
 
     @Override
     @Transactional
@@ -210,6 +213,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .draftTenantAddress(request.isDraft() ? request.getPermanentAddress() : null)
                 .build();
 
+        RentEscalationSupport.apply(contract,
+                request.getRentEscalationType(),
+                request.getRentEscalationPercent(),
+                request.getRentSchedule(),
+                null);
+        contract.setBaseRentAmount(request.getRentAmount());
+
         // Thành viên ở cùng (bỏ qua dòng trống)
         if (request.getHouseholdMembers() != null) {
             for (HouseholdMemberRequest m : request.getHouseholdMembers()) {
@@ -278,6 +288,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             contractEquipmentService.disableDeclinedForActiveContract(saved);
             tenantBillingService.generateProratedRentForNewContract(saved);
         }
+
+        unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
+                "HĐ " + saved.getContractCode()
+                        + (saved.getDraftTenantName() != null ? " · " + saved.getDraftTenantName() : ""));
 
         return toResponse(saved);
     }
@@ -397,6 +411,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         backfillOnboardingInvoiceTenant(saved);
         tenantBillingService.generateProratedRentForNewContract(saved);
         notifyContractActivated(saved);
+        unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
+                "Kích hoạt HĐ " + saved.getContractCode());
 
         return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
     }
@@ -795,6 +811,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setStatus(ContractStatus.TERMINATED);
         contract.setTerminatedAt(LocalDateTime.now());
         tenantContractRepository.save(contract);
+        unitPriceService.revertToListedPrice(contract);
 
         if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
             disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
@@ -816,6 +833,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
         tenantPaymentClaimRepository.deleteByTenantContractId(contractId);
         tenantInvoiceRepository.deleteByTenantContractId(contractId);
+        unitPriceService.revertToListedPrice(contract);
         tenantContractRepository.delete(contract);
     }
 
@@ -863,6 +881,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (saved.getTenant() != null && saved.getTenant().getUser() != null) {
             disableTenantAccountIfNoActiveContracts(saved.getTenant().getUser());
         }
+        unitPriceService.revertToListedPrice(saved);
 
         return toResponse(saved);
     }
@@ -920,7 +939,23 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             throw new BusinessException("Chỉ có thể cập nhật hợp đồng ở trạng thái nháp");
         }
         
-        if (request.getRentAmount() != null) contract.setRentAmount(request.getRentAmount());
+        if (request.getRentAmount() != null) {
+            if (request.getRentAmount().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                throw new BusinessException("Giá thuê phải lớn hơn 0");
+            }
+            contract.setRentAmount(request.getRentAmount());
+        }
+        if (request.getRentEscalationType() != null || request.getRentEscalationPercent() != null
+                || request.getRentSchedule() != null) {
+            RentEscalationSupport.apply(contract,
+                    request.getRentEscalationType() != null
+                            ? request.getRentEscalationType()
+                            : (contract.getRentEscalationType() != null
+                                    ? contract.getRentEscalationType().name() : "NONE"),
+                    request.getRentEscalationPercent(),
+                    request.getRentSchedule(),
+                    null);
+        }
         if (request.getDeposit() != null) contract.setDeposit(request.getDeposit());
         if (request.getDepositMonths() != null) contract.setDepositMonths(request.getDepositMonths());
         if (request.getMoveInDate() != null) {
@@ -993,6 +1028,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         TenantContract saved = tenantContractRepository.save(contract);
+        unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
+                "Sửa HĐ nháp " + saved.getContractCode());
         return toResponse(saved);
     }
 
@@ -1375,6 +1412,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
                 .rentAmount(isManager ? null : c.getRentAmount())
+                .listedPrice(isManager ? null : unitPriceService.resolveListedPrice(c))
+                .rentEscalationType(c.getRentEscalationType() != null ? c.getRentEscalationType().name() : null)
+                .rentEscalationPercent(c.getRentEscalationPercent())
+                .rentScheduleJson(c.getRentScheduleJson())
                 .deposit(isManager ? null : c.getDeposit())
                 .initialPaymentAmount(isManager ? null : TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
                 .depositPaymentBreakdown(isManager ? null : PaymentBreakdownBuilder.forDepositOnboard(c))

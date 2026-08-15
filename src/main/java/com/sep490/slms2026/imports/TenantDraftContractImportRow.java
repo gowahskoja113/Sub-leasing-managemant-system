@@ -41,4 +41,7 @@ public class TenantDraftContractImportRow {
     private Integer depositMonths;
     private BigDecimal deposit;
     private LocalDate expectedReceptionDate;
+    private String rentEscalationTypeRaw;
+    private BigDecimal rentEscalationPercent;
+    private String rentScheduleRaw;
 }

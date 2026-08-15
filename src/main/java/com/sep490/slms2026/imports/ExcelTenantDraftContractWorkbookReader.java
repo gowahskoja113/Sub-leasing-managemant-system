@@ -84,6 +84,9 @@ public class ExcelTenantDraftContractWorkbookReader {
                     .depositMonths(depositMonths)
                     .deposit(deposit)
                     .expectedReceptionDate(readDate(row, headers.get("Ngày đón khách dự kiến"), formatter, evaluator))
+                    .rentEscalationTypeRaw(readOptionalString(row, headers.get("Loại tăng giá"), formatter, evaluator))
+                    .rentEscalationPercent(readDecimal(row, headers.get("% tăng/năm"), formatter, evaluator))
+                    .rentScheduleRaw(readOptionalString(row, headers.get("Lịch tăng giá"), formatter, evaluator))
                     .build());
         }
         return rows;

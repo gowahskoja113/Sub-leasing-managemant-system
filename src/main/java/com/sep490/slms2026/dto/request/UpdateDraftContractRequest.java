@@ -76,4 +76,8 @@ public class UpdateDraftContractRequest {
 
     /** Hộ khẩu thường trú (HKTT). */
     private String permanentAddress;
+
+    private String rentEscalationType;
+    private BigDecimal rentEscalationPercent;
+    private List<com.sep490.slms2026.dto.request.RentScheduleItemRequest> rentSchedule;
 }

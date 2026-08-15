@@ -20,6 +20,7 @@ import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.BillingCronService;
+import com.sep490.slms2026.service.UnitPriceService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
@@ -57,6 +58,7 @@ public class BillingCronServiceImpl implements BillingCronService {
     private final UserRepository userRepository;
     private final BillingConfigService billingConfigService;
     private final MeterReadingRepository meterReadingRepository;
+    private final UnitPriceService unitPriceService;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -112,6 +114,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         BillingConfig billingConfig = billingConfigService.current();
         int rentReminderLeadDays = billingConfig.getReminderLeadDays();
 
+        int escalated = unitPriceService.applyDueEscalations();
         int issued = generateDueRentInvoices(today);
         int meterReminded = remindPendingMeterReadings(today, billingConfig);
 
@@ -266,6 +269,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         stats.put("overdueMarked", overdueMarked);
         stats.put("renotified", renotified);
         stats.put("rentIssued", issued);
+        stats.put("rentEscalated", escalated);
         stats.put("meterReminded", meterReminded);
         return stats;
     }

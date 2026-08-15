@@ -776,6 +776,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 request.getContingencyPercent());
 
         property.setPrice(finalPrice);
+        property.setAppliedPrice(finalPrice);
         propertyRepository.save(property);
 
         return PropertyActivationResponse.builder()
@@ -820,6 +821,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     request.getContingencyPercent());
 
             room.setPrice(finalPrice);
+            room.setAppliedPrice(finalPrice);
 
             activatedRooms.add(PropertyActivationResponse.ActivatedRoom.builder()
                     .roomId(room.getId())

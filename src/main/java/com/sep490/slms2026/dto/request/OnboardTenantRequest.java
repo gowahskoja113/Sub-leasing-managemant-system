@@ -1,5 +1,9 @@
 package com.sep490.slms2026.dto.request;
 
+import com.sep490.slms2026.dto.request.ContractAddedEquipmentRequest;
+import com.sep490.slms2026.dto.request.ContractEvidencePhotoRequest;
+import com.sep490.slms2026.dto.request.HouseholdMemberRequest;
+import com.sep490.slms2026.dto.request.RentScheduleItemRequest;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -114,4 +118,9 @@ public class OnboardTenantRequest {
 
     /** Hộ khẩu thường trú / HKTT (DRAFT lưu tạm; HĐ chính thức lưu vào Tenant). */
     private String permanentAddress;
+
+    /** NONE | PERCENT | SCHEDULE — mặc định NONE nếu trống. */
+    private String rentEscalationType;
+    private java.math.BigDecimal rentEscalationPercent;
+    private java.util.List<RentScheduleItemRequest> rentSchedule;
 }
