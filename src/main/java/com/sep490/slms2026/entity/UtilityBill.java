@@ -30,7 +30,7 @@ public class UtilityBill implements Serializable {
 
     /** ELECTRIC | WATER — hoá đơn nhà nước admin chốt. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "type", nullable = false, columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC'")
+    @Column(name = "type", nullable = false, length = 20)
     @Builder.Default
     private UtilityType type = UtilityType.ELECTRIC;
 
