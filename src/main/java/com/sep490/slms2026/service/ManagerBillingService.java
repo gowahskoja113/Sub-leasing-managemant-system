@@ -1,9 +1,11 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.response.ManagerInvoiceResponse;
+import com.sep490.slms2026.dto.response.ManagerPaymentHistoryResponse;
 import com.sep490.slms2026.dto.response.ManagerPaymentResponse;
 import com.sep490.slms2026.dto.response.RentInvoiceSummaryResponse;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,6 +24,12 @@ public interface ManagerBillingService {
     ManagerInvoiceResponse getInvoice(UUID managerUserId, boolean isAdmin, Long invoiceId);
 
     List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin, String status);
+
+    /** Lịch sử thu thật từ {@code tenant_payments} — khác hàng chờ đối soát {@link #listPayments}. */
+    Page<ManagerPaymentHistoryResponse> listPaymentHistory(UUID managerUserId, boolean isAdmin,
+                                                           Long propertyId, Long contractId,
+                                                           LocalDate from, LocalDate to,
+                                                           Pageable pageable);
 
     ManagerPaymentResponse verifyPayment(UUID managerUserId, boolean isAdmin, Long claimId);
 

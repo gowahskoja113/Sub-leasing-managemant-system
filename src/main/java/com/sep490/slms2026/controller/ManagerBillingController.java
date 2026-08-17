@@ -4,6 +4,7 @@ import com.sep490.slms2026.dto.request.ManagerPaymentQrRequest;
 import com.sep490.slms2026.dto.request.RejectPaymentClaimRequest;
 import com.sep490.slms2026.dto.response.ManagerPaymentQrResponse;
 import com.sep490.slms2026.dto.response.ManagerInvoiceResponse;
+import com.sep490.slms2026.dto.response.ManagerPaymentHistoryResponse;
 import com.sep490.slms2026.dto.response.ManagerPaymentResponse;
 import com.sep490.slms2026.dto.response.RentInvoiceSummaryResponse;
 import com.sep490.slms2026.enums.Role;
@@ -17,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -69,6 +71,26 @@ public class ManagerBillingController {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         boolean isAdmin = isAdminOrOwner(user);
         return ResponseEntity.ok(managerBillingService.listPayments(user.getId(), isAdmin, status));
+    }
+
+    /**
+     * Lịch sử thu thật từ {@code tenant_payments}. Khác {@code GET /manager/payments}
+     * (hàng chờ đối soát claim).
+     */
+    @GetMapping("/api/v1/manager/payments/history")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
+    public ResponseEntity<Page<ManagerPaymentHistoryResponse>> listPaymentHistory(
+            @RequestParam(required = false) Long propertyId,
+            @RequestParam(required = false) Long contractId,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        boolean isAdmin = isAdminOrOwner(user);
+        return ResponseEntity.ok(managerBillingService.listPaymentHistory(
+                user.getId(), isAdmin, propertyId, contractId, from, to,
+                PageRequest.of(page, size)));
     }
 
     @PostMapping("/api/v1/manager/payments/{id}/verify")
