@@ -28,8 +28,10 @@ import java.util.stream.Collectors;
  *
  * <p>Mật khẩu mặc định: <b>123456</b>.</p>
  * <p>Tài khoản: admin01–02, owner01–06, manager01–05;
- * tenant login bằng <b>SĐT</b> ({@code 0904000001}…{@code 0904000036}), không còn {@code tenant01}…</p>
- * <p>Tenant chỉ có tài khoản — chưa gán hợp đồng / chưa thuê nhà.</p>
+ * tenant login bằng <b>SĐT</b> (50 số, vd {@code 0904123751}… — không còn {@code 09040000xx}),
+ * mật khẩu {@code 123456}. Không còn {@code tenant01} / {@code 09040000xx}.</p>
+ * <p>Tenant chỉ có tài khoản — chưa gán hợp đồng / chưa thuê nhà.
+ * File HĐ nháp gán 50 SĐT này ưu tiên thuê theo phòng.</p>
  *
  * <p>Chạy sau {@link MasterDataSeeder} (@Order 1) và {@link ZoneDataSeeder} (@Order 2).
  * Idempotent: có {@code manager01} thì bỏ qua full seed; thiếu tenant cuối (SĐT) thì bổ sung tenant.</p>
@@ -41,8 +43,8 @@ import java.util.stream.Collectors;
 public class SampleDataSeeder implements ApplicationRunner {
 
     private static final String DEFAULT_PASSWORD = "123456";
-    /** 25–40 tenant sẵn tài khoản, chưa thuê. Cần ≥36 cho file draft (25 gốc + 11 MTX#40..#50). */
-    private static final int TENANT_COUNT = 36;
+    /** 50 tenant sẵn tài khoản, chưa thuê — khớp file HĐ nháp (ưu tiên THEO_PHONG). */
+    private static final int TENANT_COUNT = 50;
 
     private final UserRepository userRepository;
     private final ZoneRepository zoneRepository;
@@ -59,7 +61,7 @@ public class SampleDataSeeder implements ApplicationRunner {
             return;
         }
 
-        // DB cũ: bảo đảm đủ tenant (username = SĐT 0904xxxxxx), không seed BĐS/HĐ
+        // DB cũ: bảo đảm đủ 50 tenant (username = SĐT), không seed BĐS/HĐ
         if (!userRepository.existsByUsername(tenantPhone(TENANT_COUNT))) {
             try {
                 List<Zone> districts = loadDistrictZones();
@@ -167,7 +169,7 @@ public class SampleDataSeeder implements ApplicationRunner {
     private List<User> seedTenants(int n) {
         List<User> tenants = new ArrayList<>();
         for (int i = 1; i <= n; i++) {
-            // Login tenant = số điện thoại (0904000001 …)
+            // Login tenant = số điện thoại (vd 0904123751 …) — đồng bộ scripts/demo-tenants.mjs
             String phone = tenantPhone(i);
             String username = phone;
             if (userRepository.existsByUsername(username) || userRepository.existsByPhoneNumber(phone)) {
@@ -179,7 +181,7 @@ public class SampleDataSeeder implements ApplicationRunner {
             User u = newUser(username, phone, fullNameByIndex(i + 9), Role.ROLE_TENANT);
             Tenant profile = new Tenant();
             profile.setUser(u);
-            profile.setCccd(String.format("079%09d", i));
+            profile.setCccd(String.format("079%09d", 85_001_000 + i));
             u.setTenantProfile(profile);
             User saved = saveQuietly(u, username);
             if (saved != null) tenants.add(saved);
@@ -187,9 +189,21 @@ public class SampleDataSeeder implements ApplicationRunner {
         return tenants;
     }
 
-    /** SĐT demo tenant i (1-based): 0904000001, 0904000002, … — đồng thời là username. */
+    /**
+     * SĐT demo tenant i (1-based), 10 số, đồng thời là username.
+     * Công thức khớp {@code scripts/demo-tenants.mjs} — tránh dãy 09040000xx.
+     */
+    private static final String[] TENANT_PHONE_PREFIXES = {
+            "090", "091", "093", "094", "096", "097", "098",
+            "032", "033", "035", "036", "037", "038", "039",
+            "070", "076", "077", "078", "079", "081",
+            "082", "083", "084", "085"
+    };
+
     private static String tenantPhone(int index) {
-        return String.format("0904%06d", index);
+        String prefix = TENANT_PHONE_PREFIXES[(index - 1) % TENANT_PHONE_PREFIXES.length];
+        int body = Math.floorMod(4_123_751 + (index - 1) * 1379, 10_000_000);
+        return prefix + String.format("%07d", body);
     }
 
     private User saveQuietly(User u, String username) {

@@ -1,7 +1,14 @@
 /**
- * Sinh bộ Excel ma trận onboarding + cải tạo bổ sung.
- * Base: 10 TH ma trận hợp lệ + vài căn nội thất đầy đủ (NGUYEN_CAN / THEO_PHONG).
- * THEO_PHONG full: mỗi phòng 1 Quạt + 1 Giường.
+ * Sinh bộ Excel ma trận onboarding 50 căn + cải tạo bổ sung.
+ *
+ * 40 NGUYEN_CAN + 10 THEO_PHONG (≥3 phòng/căn).
+ * NT khai thác chỉ tính thiết bị MUA MỚI đợt 2 (THEM_MOI):
+ *   FULL  — nguyên căn: ĐH, quạt, giường, tủ lạnh, máy giặt, nóng lạnh, bàn ăn, tủ quần áo, bếp từ
+ *           theo phòng: mỗi phòng giường + quạt + ĐH + nóng lạnh (+ tủ lạnh/máy giặt khu vực chung)
+ *   BASIC — nguyên căn / theo phòng: giường + quạt
+ *   NONE  — không dòng TB mua mới (đồ chủ bàn giao nếu có thì không tính)
+ * TB bàn giao đợt 1 chỉ ghi nhận đồ chủ gốc, không dùng làm NT khai thác.
+ *
  * Chạy: node scripts/generate-import-excel-matrix.mjs
  */
 import XLSX from 'xlsx';
@@ -31,415 +38,81 @@ const equipmentCatalog = [
   ['Điều hòa', 'Máy lạnh / điều hòa không khí'],
   ['Tủ lạnh', 'Tủ lạnh các loại'],
   ['Máy giặt', 'Máy giặt cửa trước / cửa trên'],
+  ['Bàn ăn', 'Bàn ăn và ghế'],
   ['Giường', 'Giường ngủ các loại'],
+  ['Tủ quần áo', 'Tủ đựng quần áo'],
+  ['Bếp từ', 'Bếp từ / bếp gas'],
   ['Nóng lạnh', 'Máy nước nóng'],
   ['Quạt', 'Quạt điện / quạt trần'],
+  ['Khác', 'Thiết bị khác'],
 ];
 
 const houseAreas = [
   ['Mã khu vực', 'Mô tả'],
   ['LIVING_ROOM', 'Phòng khách'],
+  ['BEDROOM', 'Phòng ngủ'],
   ['KITCHEN', 'Nhà bếp'],
   ['BATHROOM', 'Phòng tắm / WC'],
   ['BALCONY', 'Ban công'],
+  ['GARAGE', 'Gara / sân'],
+  ['OTHER', 'Khu vực khác'],
 ];
 
-/**
- * Onboarding hợp lệ:
- * 2 NORENO + 8 RENO (ma trận) + vài căn nội thất đầy đủ (NGUYEN_CAN / THEO_PHONG).
- */
-const scenarios = [
-  {
-    matrixId: 1,
-    code: 'HD-MTX-01-NORENO-NOFURN',
-    name: 'MTX#01 NORENO trống',
-    address: '1 Ma Trận Quận 1',
-    district: 'Quận 1',
-    province: 'TP. Hồ Chí Minh',
-    area: 50,
-    floors: 1,
-    physicalRooms: 1,
-    owner: 'Nguyễn Văn A',
-    rent: 150_000_000,
-    start: '2026-03-01',
-    end: '2027-02-28',
-    desc: 'Ma trận #1 — NORENO, không TB bàn giao, gửi Host sau đợt 1.',
-    phase2: false,
-    handover: [],
-    matrixNote: '#1 NORENO | TB bàn giao: Không | Đợt 2: —',
-  },
-  {
-    matrixId: 2,
-    code: 'HD-MTX-02-NORENO-FURN',
-    name: 'MTX#02 NORENO có TB',
-    address: '2 Ma Trận Quận 1',
-    district: 'Quận 1',
-    province: 'TP. Hồ Chí Minh',
-    area: 65,
-    floors: 1,
-    physicalRooms: 2,
-    owner: 'Trần Thị B',
-    rent: 180_000_000,
-    start: '2026-03-01',
-    end: '2027-02-28',
-    desc: 'Ma trận #2 — NORENO, có TB bàn giao, gửi Host sau đợt 1.',
-    phase2: false,
-    handover: [
-      ['Điều hòa', 'Máy 1.5HP', 'Phòng khách', 'GOOD', 1, ''],
-      ['Giường', 'Giường gỗ', 'Phòng ngủ', 'GOOD', 1, ''],
-    ],
-    matrixNote: '#2 NORENO | TB bàn giao: Có | Đợt 2: —',
-  },
-  {
-    matrixId: 3,
-    code: 'HD-MTX-03-RENO-WH-NOFURN',
-    name: 'MTX#03 NGUYEN_CAN cải tạo',
-    address: '3 Ma Trận Quận 3',
-    district: 'Quận 3',
-    province: 'TP. Hồ Chí Minh',
-    area: 80,
-    floors: 2,
-    physicalRooms: 3,
-    owner: 'Lê Văn C',
-    rent: 220_000_000,
-    start: '2026-04-01',
-    end: '2028-03-31',
-    desc: 'Ma trận #3 — RENO NGUYEN_CAN, không TB bàn giao, có cải tạo, không mua TB.',
-    phase2: true,
-    exploitation: 'NGUYEN_CAN',
-    exploitRooms: null,
-    handover: [],
-    renovations: [['PAINTING', 'Sơn sửa', 8_000_000, 'Sơn lại toàn bộ']],
-    purchasedWholeHouse: [],
-    matrixNote: '#3 RENO | NGUYEN_CAN | TB bàn giao: Không | Cải tạo: Có | TB mua: Không',
-  },
-  {
-    matrixId: 4,
-    code: 'HD-MTX-04-RENO-WH-EQUIP',
-    name: 'MTX#04 NGUYEN_CAN mua TB',
-    address: '4 Ma Trận Quận 3',
-    district: 'Quận 3',
-    province: 'TP. Hồ Chí Minh',
-    area: 70,
-    floors: 1,
-    physicalRooms: 2,
-    owner: 'Phạm Thị D',
-    rent: 200_000_000,
-    start: '2026-04-01',
-    end: '2028-03-31',
-    desc: 'Ma trận #4 — RENO NGUYEN_CAN, không TB bàn giao, cải tạo + mua TB.',
-    phase2: true,
-    exploitation: 'NGUYEN_CAN',
-    exploitRooms: null,
-    handover: [],
-    renovations: [['EQUIPMENT', 'Thiết bị', 2_000_000, 'Hoàn thiện lắp đặt TB']],
-    purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 11_000_000, 24, '2026-05-01', '2028-04-30', 3_300_000, ''],
-      ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THEM_MOI', 1, 7_500_000, 24, '2026-05-01', '2028-04-30', 2_250_000, ''],
-    ],
-    supplement: {
-      purchased: [
-        ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 900_000, 12, '2027-01-01', '2027-12-31', 270_000, 'SUPP#2 chỉ TB THEM_MOI'],
-      ],
-    },
-    matrixNote: '#4 RENO | NGUYEN_CAN | TB bàn giao: Không | Cải tạo: Có | TB mua: Có',
-  },
-  {
-    matrixId: 5,
-    code: 'HD-MTX-05-RENO-WH-HO-NOFURN',
-    name: 'MTX#05 NGUYEN_CAN TB chủ',
-    address: '5 Ma Trận Bình Thạnh',
-    district: 'Bình Thạnh',
-    province: 'TP. Hồ Chí Minh',
-    area: 90,
-    floors: 2,
-    physicalRooms: 3,
-    owner: 'Hoàng Văn E',
-    rent: 240_000_000,
-    start: '2026-05-01',
-    end: '2028-04-30',
-    desc: 'Ma trận #5 — RENO NGUYEN_CAN, có TB bàn giao, chỉ cải tạo.',
-    phase2: true,
-    exploitation: 'NGUYEN_CAN',
-    exploitRooms: null,
-    handover: [['Máy giặt', 'Máy cũ', 'Sân sau', 'GOOD', 1, 'TB chủ']],
-    renovations: [['PLUMBING', 'Điện nước', 12_000_000, 'Sửa điện nước']],
-    purchasedWholeHouse: [],
-    matrixNote: '#5 RENO | NGUYEN_CAN | TB bàn giao: Có | Cải tạo: Có | TB mua: Không',
-  },
-  {
-    matrixId: 6,
-    code: 'HD-MTX-06-RENO-WH-HO-EQUIP',
-    name: 'MTX#06 NGUYEN_CAN đủ',
-    address: '6 Ma Trận Bình Thạnh',
-    district: 'Bình Thạnh',
-    province: 'TP. Hồ Chí Minh',
-    area: 100,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Võ Thị F',
-    rent: 260_000_000,
-    start: '2026-05-01',
-    end: '2028-04-30',
-    desc: 'Ma trận #6 — RENO NGUYEN_CAN đầy đủ: TB chủ + cải tạo + mua TB.',
-    phase2: true,
-    exploitation: 'NGUYEN_CAN',
-    exploitRooms: null,
-    handover: [
-      ['Quạt', 'Quạt trần', 'Phòng khách', 'GOOD', 2, ''],
-      ['Tủ lạnh', 'Tủ 180L', 'Bếp', 'DAMAGED', 1, ''],
-    ],
-    renovations: [
-      ['PAINTING', 'Sơn sửa', 10_000_000, ''],
-      ['FLOORING', 'Sàn nhà', 15_000_000, ''],
-    ],
-    purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 13_000_000, 36, '2026-06-01', '2029-05-31', 3_900_000, ''],
-      ['', 'BATHROOM', 'Nóng lạnh', 'NEW', 'THEM_MOI', 1, 2_800_000, 12, '2026-06-01', '2027-05-31', 840_000, ''],
-    ],
-    supplement: {
-      renovations: [['OTHER', 'Khác', 3_000_000, 'SUPP#1 chỉ cải tạo']],
-      purchased: [
-        ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THAY_THE', 1, 15_500_000, 36, '2027-02-01', '2030-01-31', 4_650_000, 'SUPP#3 THAY_THE'],
-      ],
-    },
-    matrixNote: '#6 RENO | NGUYEN_CAN | TB bàn giao: Có | Cải tạo: Có | TB mua: Có',
-  },
-  {
-    matrixId: 7,
-    code: 'HD-MTX-07-RENO-RM-NOFURN',
-    name: 'MTX#07 THEO_PHONG cải tạo',
-    address: '7 Ma Trận Gò Vấp',
-    district: 'Gò Vấp',
-    province: 'TP. Hồ Chí Minh',
-    area: 75,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Đặng Văn G',
-    rent: 210_000_000,
-    start: '2026-06-01',
-    end: '2028-05-31',
-    desc: 'Ma trận #7 — RENO THEO_PHONG 3 phòng, không TB bàn giao, chỉ cải tạo.',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 3,
-    handover: [],
-    renovations: [['PAINTING', 'Sơn sửa', 9_000_000, 'Sơn 3 phòng']],
-    purchasedPerRoom: false,
-    matrixNote: '#7 RENO | THEO_PHONG (3) | TB bàn giao: Không | Cải tạo: Có | TB mua: Không',
-  },
-  {
-    matrixId: 8,
-    code: 'HD-MTX-08-RENO-RM-EQUIP',
-    name: 'MTX#08 THEO_PHONG mua TB',
-    address: '8 Ma Trận Gò Vấp',
-    district: 'Gò Vấp',
-    province: 'TP. Hồ Chí Minh',
-    area: 78,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Bùi Thị H',
-    rent: 215_000_000,
-    start: '2026-06-01',
-    end: '2028-05-31',
-    desc: 'Ma trận #8 — RENO THEO_PHONG 3 phòng, không TB chủ, cải tạo + mua TB.',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 3,
-    handover: [],
-    renovations: [['PLUMBING', 'Điện nước', 7_500_000, 'Sửa WC từng phòng']],
-    purchasedPerRoom: true,
-    matrixNote: '#8 RENO | THEO_PHONG (3) | TB bàn giao: Không | Cải tạo: Có | TB mua: Có',
-  },
-  {
-    matrixId: 9,
-    code: 'HD-MTX-09-RENO-RM-HO-NOFURN',
-    name: 'MTX#09 THEO_PHONG TB chủ',
-    address: '9 Ma Trận Phú Nhuận',
-    district: 'Phú Nhuận',
-    province: 'TP. Hồ Chí Minh',
-    area: 72,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Ngô Văn I',
-    rent: 205_000_000,
-    start: '2026-07-01',
-    end: '2028-06-30',
-    desc: 'Ma trận #9 — RENO THEO_PHONG 3 phòng, có TB chủ, chỉ cải tạo.',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 3,
-    handover: [['Giường', 'Giường sắt cũ', 'Tầng 2', 'GOOD', 2, '']],
-    renovations: [['FLOORING', 'Sàn nhà', 11_000_000, 'Lát gạch 3 phòng']],
-    purchasedPerRoom: false,
-    matrixNote: '#9 RENO | THEO_PHONG (3) | TB bàn giao: Có | Cải tạo: Có | TB mua: Không',
-  },
-  {
-    matrixId: 10,
-    code: 'HD-MTX-10-RENO-RM-HO-EQUIP',
-    name: 'MTX#10 THEO_PHONG đủ',
-    address: '10 Ma Trận Phú Nhuận',
-    district: 'Phú Nhuận',
-    province: 'TP. Hồ Chí Minh',
-    area: 84,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Dương Thị K',
-    rent: 230_000_000,
-    start: '2026-07-01',
-    end: '2028-06-30',
-    desc: 'Ma trận #10 — RENO THEO_PHONG 3 phòng đầy đủ.',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 3,
-    handover: [['Nóng lạnh', 'Máy cũ', 'WC chung', 'DAMAGED', 1, '']],
-    renovations: [
-      ['PAINTING', 'Sơn sửa', 8_500_000, ''],
-      ['PLUMBING', 'Điện nước', 6_000_000, ''],
-    ],
-    purchasedPerRoom: true,
-    supplement: {
-      renovations: [['PAINTING', 'Sơn sửa', 4_000_000, 'SUPP#4 cải tạo + TB']],
-      purchased: [
-        ['102', '', 'Điều hòa', 'NEW', 'THAY_THE', 1, 9_800_000, 24, '2027-03-01', '2029-02-28', 2_940_000, 'SUPP#4 THAY_THE phòng 102'],
-      ],
-    },
-    matrixNote: '#10 RENO | THEO_PHONG (3) | TB bàn giao: Có | Cải tạo: Có | TB mua: Có',
-  },
-  // ── Căn nội thất đầy đủ (bổ sung demo) ──
-  {
-    matrixId: 11,
-    code: 'HD-MTX-11-NORENO-FULL',
-    name: 'MTX#11 NORENO full NT',
-    address: '11 Ma Trận Tân Bình',
-    district: 'Tân Bình',
-    province: 'TP. Hồ Chí Minh',
-    area: 95,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Lý Văn L',
-    rent: 250_000_000,
-    start: '2026-08-01',
-    end: '2028-07-31',
-    desc: 'Ma trận #11 — NORENO nguyên căn, nội thất đầy đủ từ chủ (bàn giao).',
-    phase2: false,
-    handover: [
-      ['Điều hòa', '1.5HP Inverter', 'Phòng khách', 'GOOD', 1, ''],
-      ['Điều hòa', '1HP', 'Phòng ngủ 1', 'GOOD', 1, ''],
-      ['Tủ lạnh', 'Inverter 200L', 'Bếp', 'GOOD', 1, ''],
-      ['Máy giặt', 'Cửa trước 8kg', 'Sân sau', 'GOOD', 1, ''],
-      ['Nóng lạnh', '15L', 'WC tầng 1', 'GOOD', 1, ''],
-      ['Giường', 'Giường gỗ 1m6', 'Phòng ngủ 1', 'GOOD', 1, ''],
-      ['Giường', 'Giường gỗ 1m6', 'Phòng ngủ 2', 'GOOD', 1, ''],
-      ['Giường', 'Giường gỗ 1m2', 'Phòng ngủ 3', 'GOOD', 1, ''],
-      ['Quạt', 'Quạt trần', 'Phòng khách', 'GOOD', 1, ''],
-      ['Quạt', 'Quạt đứng', 'Phòng ngủ 1', 'GOOD', 1, ''],
-      ['Quạt', 'Quạt đứng', 'Phòng ngủ 2', 'GOOD', 1, ''],
-      ['Quạt', 'Quạt đứng', 'Phòng ngủ 3', 'GOOD', 1, ''],
-    ],
-    matrixNote: '#11 NORENO | Nguyên căn full NT bàn giao | Đợt 2: —',
-  },
-  {
-    matrixId: 12,
-    code: 'HD-MTX-12-RENO-WH-FULL',
-    name: 'MTX#12 NGUYEN_CAN full NT',
-    address: '12 Ma Trận Tân Bình',
-    district: 'Tân Bình',
-    province: 'TP. Hồ Chí Minh',
-    area: 110,
-    floors: 2,
-    physicalRooms: 4,
-    owner: 'Mai Thị M',
-    rent: 280_000_000,
-    start: '2026-08-01',
-    end: '2028-07-31',
-    desc: 'Ma trận #12 — RENO NGUYEN_CAN nội thất đầy đủ: TB chủ + cải tạo + mua TB khu vực chung.',
-    phase2: true,
-    exploitation: 'NGUYEN_CAN',
-    exploitRooms: null,
-    handover: [
-      ['Giường', 'Giường gỗ cũ', 'Phòng ngủ chính', 'GOOD', 2, 'TB chủ giữ lại'],
-      ['Quạt', 'Quạt trần cũ', 'Phòng khách', 'GOOD', 1, ''],
-      ['Tủ lạnh', 'Tủ 150L cũ', 'Bếp', 'DAMAGED', 1, 'Sắp thay'],
-    ],
-    renovations: [
-      ['PAINTING', 'Sơn sửa', 12_000_000, 'Sơn lại toàn bộ'],
-      ['FURNITURE', 'Nội thất', 5_000_000, 'Lắp đặt NT mới'],
-      ['FLOORING', 'Sàn nhà', 18_000_000, 'Lát gạch tầng trệt'],
-    ],
-    purchasedWholeHouse: [
-      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THEM_MOI', 1, 14_000_000, 36, '2026-09-01', '2029-08-31', 4_200_000, ''],
-      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 1_200_000, 12, '2026-09-01', '2027-08-31', 360_000, 'Quạt trần phòng khách'],
-      ['', 'LIVING_ROOM', 'Giường', 'NEW', 'THEM_MOI', 1, 5_500_000, 12, '2026-09-01', '2027-08-31', 1_650_000, 'Giường phòng ngủ chính'],
-      ['', 'LIVING_ROOM', 'Giường', 'NEW', 'THEM_MOI', 1, 4_800_000, 12, '2026-09-01', '2027-08-31', 1_440_000, 'Giường phòng ngủ 2'],
-      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 750_000, 12, '2026-09-01', '2027-08-31', 225_000, 'Quạt phòng ngủ 1'],
-      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 750_000, 12, '2026-09-01', '2027-08-31', 225_000, 'Quạt phòng ngủ 2'],
-      ['', 'KITCHEN', 'Tủ lạnh', 'NEW', 'THEM_MOI', 1, 8_500_000, 24, '2026-09-01', '2028-08-31', 2_550_000, 'Mua tủ lạnh mới (bổ sung tủ bàn giao)'],
-      ['', 'KITCHEN', 'Máy giặt', 'NEW', 'THEM_MOI', 1, 9_500_000, 24, '2026-09-01', '2028-08-31', 2_850_000, ''],
-      ['', 'BATHROOM', 'Nóng lạnh', 'NEW', 'THEM_MOI', 1, 3_200_000, 12, '2026-09-01', '2027-08-31', 960_000, ''],
-      ['', 'BALCONY', 'Quạt', 'NEW', 'THEM_MOI', 1, 650_000, 12, '2026-09-01', '2027-08-31', 195_000, ''],
-    ],
-    matrixNote: '#12 RENO | NGUYEN_CAN full NT | TB bàn giao + cải tạo + TB mua khu vực chung',
-  },
-  {
-    matrixId: 13,
-    code: 'HD-MTX-13-RENO-RM-FULL',
-    name: 'MTX#13 THEO_PHONG full NT',
-    address: '13 Ma Trận Thủ Đức',
-    district: 'Thủ Đức',
-    province: 'TP. Hồ Chí Minh',
-    area: 120,
-    floors: 3,
-    physicalRooms: 6,
-    owner: 'Phan Văn N',
-    rent: 320_000_000,
-    start: '2026-09-01',
-    end: '2028-08-31',
-    desc: 'Ma trận #13 — RENO THEO_PHONG 4 phòng, mỗi phòng mua 1 Quạt + 1 Giường (+ ĐH/nóng lạnh).',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 4,
-    handover: [
-      ['Máy giặt', 'Máy cũ chung', 'Sân phơi', 'GOOD', 1, 'TB dùng chung'],
-      ['Tủ lạnh', 'Tủ cũ tầng 1', 'Bếp chung', 'GOOD', 1, ''],
-    ],
-    renovations: [
-      ['PAINTING', 'Sơn sửa', 14_000_000, 'Sơn 4 phòng'],
-      ['PLUMBING', 'Điện nước', 10_000_000, 'WC từng phòng'],
-      ['STRUCTURAL', 'Kết cấu', 20_000_000, 'Ngăn phòng'],
-    ],
-    purchasedPerRoom: true,
-    purchasedPerRoomFull: true,
-    matrixNote: '#13 RENO | THEO_PHONG (4) full NT | mỗi phòng 1 Quạt + 1 Giường (+ ĐH, nóng lạnh)',
-  },
-  {
-    matrixId: 14,
-    code: 'HD-MTX-14-RENO-RM-BEDFAN',
-    name: 'MTX#14 THEO_PHONG giường+quạt',
-    address: '14 Ma Trận Thủ Đức',
-    district: 'Thủ Đức',
-    province: 'TP. Hồ Chí Minh',
-    area: 90,
-    floors: 2,
-    physicalRooms: 5,
-    owner: 'Trịnh Thị O',
-    rent: 240_000_000,
-    start: '2026-09-01',
-    end: '2028-08-31',
-    desc: 'Ma trận #14 — RENO THEO_PHONG 5 phòng, mỗi phòng đúng 1 Quạt + 1 Giường.',
-    phase2: true,
-    exploitation: 'THEO_PHONG',
-    exploitRooms: 5,
-    handover: [],
-    renovations: [
-      ['PAINTING', 'Sơn sửa', 11_000_000, 'Sơn 5 phòng'],
-      ['FURNITURE', 'Nội thất', 4_000_000, 'Lắp giường quạt từng phòng'],
-    ],
-    purchasedPerRoom: true,
-    purchasedPerRoomBedFanOnly: true,
-    matrixNote: '#14 RENO | THEO_PHONG (5) | mỗi phòng đúng 1 Quạt + 1 Giường',
-  },
+/** Chỉ dùng quận đã seed trong ZoneDataSeeder — import đợt 1 sẽ fail nếu lệch. */
+const DISTRICTS = [
+  { district: 'Quận 1', streets: ['Nguyễn Huệ', 'Lê Lợi', 'Đồng Khởi', 'Pasteur', 'Nguyễn Du'] },
+  { district: 'Quận 3', streets: ['Võ Văn Tần', 'Nam Kỳ Khởi Nghĩa', 'Lý Chính Thắng', 'Cách Mạng Tháng 8'] },
+  { district: 'Bình Thạnh', streets: ['Phan Văn Trị', 'Xô Viết Nghệ Tĩnh', 'Điện Biên Phủ', 'Nơ Trang Long'] },
+  { district: 'Gò Vấp', streets: ['Quang Trung', 'Phạm Văn Chiêu', 'Nguyễn Oanh', 'Lê Đức Thọ'] },
+  { district: 'Phú Nhuận', streets: ['Hoàng Văn Thụ', 'Phan Xích Long', 'Nguyễn Văn Trỗi', 'Trường Sa'] },
 ];
+
+const OWNERS = [
+  'Nguyễn Văn An', 'Trần Thị Bình', 'Lê Văn Cường', 'Phạm Thị Dung', 'Hoàng Văn Em',
+  'Võ Thị Phương', 'Đặng Văn Giang', 'Bùi Thị Hoa', 'Ngô Văn Ích', 'Dương Thị Kim',
+  'Lý Văn Long', 'Mai Thị My', 'Phan Văn Nam', 'Trịnh Thị Oanh', 'Vũ Văn Phát',
+  'Cao Thị Quyên', 'Lương Văn Rạng', 'Tô Thị Sen', 'Huỳnh Văn Tâm', 'Đỗ Thị Uyên',
+  'Hồ Văn Vinh', 'Đinh Thị Xuân', 'Lại Văn Yên', 'Tạ Thị Ánh', 'Châu Văn Bảo',
+  'Kiều Thị Chi', 'Ông Văn Đạt', 'Thái Thị Hạnh', 'Từ Văn Khải', 'Lâm Thị Lan',
+  'Quách Văn Minh', 'Hà Thị Nga', 'Trương Văn Phong', 'Đoàn Thị Quế', 'La Văn Sơn',
+  'Ung Thị Trang', 'Vi Văn Út', 'Mạc Thị Vân', 'Chu Văn Xuân', 'Triệu Thị Yến',
+  'Ông Thị Hòa', 'Bạch Văn Khoa', 'Nhan Thị Linh', 'Tống Văn Mạnh', 'Lục Thị Nhung',
+  'Nghiêm Văn Phúc', 'Âu Thị Quyên', 'Giang Văn Sỹ', 'Thạch Thị Tuyết', 'Lữ Văn Vũ',
+];
+
+const PRICES = {
+  'Điều hòa': [12_500_000, 24],
+  'Tủ lạnh': [8_200_000, 24],
+  'Máy giặt': [7_800_000, 24],
+  'Bàn ăn': [4_600_000, 12],
+  'Giường': [4_400_000, 12],
+  'Tủ quần áo': [3_600_000, 12],
+  'Bếp từ': [5_400_000, 24],
+  'Nóng lạnh': [2_700_000, 12],
+  'Quạt': [780_000, 12],
+};
+
+const FURNISH_LABEL = {
+  FULL: 'full NT',
+  BASIC: 'NT cơ bản',
+  NONE: 'không NT',
+};
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function addMonths(iso, months) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + months, d));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+function endOfMonth(iso) {
+  const [y, m] = iso.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${iso.slice(0, 7)}-${pad2(last)}`;
+}
 
 function inferDimensions(area) {
   const length = Math.round(Math.sqrt(area * 1.4) * 10) / 10;
@@ -473,6 +146,181 @@ function inferFloor(roomNumber, totalFloors) {
   return 1;
 }
 
+function warrantyEnd(start, months) {
+  const endYear = parseInt(start.slice(0, 4), 10) + Math.floor(months / 12);
+  return `${endYear}-${start.slice(5, 7)}-28`;
+}
+
+function samplePenaltyFee(price) {
+  return Math.round(price * 0.3);
+}
+
+function varyPrice(base, id) {
+  return Math.round(base * (1 + ((id % 7) - 3) * 0.02) / 1000) * 1000;
+}
+
+function loc(id) {
+  const d = DISTRICTS[(id - 1) % DISTRICTS.length];
+  const street = d.streets[(id - 1) % d.streets.length];
+  return {
+    district: d.district,
+    province: 'TP. Hồ Chí Minh',
+    address: `${10 + id} ${street}`,
+  };
+}
+
+function sampleHandover(id) {
+  // ~2/3 căn có đồ chủ gốc — chỉ ghi nhận, không tính NT khai thác
+  if (id % 3 === 0) return [];
+  const items = [
+    ['Quạt', 'Quạt trần cũ của chủ', 'Phòng khách', 'GOOD', 1, 'Đồ chủ gốc — không tính NT khai thác'],
+  ];
+  if (id % 2 === 0) {
+    items.push(['Tủ lạnh', 'Tủ 150L cũ', 'Bếp', 'DAMAGED', 1, 'Đồ chủ gốc hỏng — đợt 2 mua mới nếu có NT']);
+  }
+  if (id % 5 === 1) {
+    items.push(['Giường', 'Giường sắt cũ', 'Phòng ngủ', 'GOOD', 1, 'Đồ chủ gốc — không tính NT khai thác']);
+  }
+  return items;
+}
+
+function renovationsFor(furnish, exploitation, rooms) {
+  const paint = exploitation === 'THEO_PHONG'
+    ? ['PAINTING', 'Sơn sửa', 6_000_000 + rooms * 1_500_000, `Sơn ${rooms} phòng khai thác`]
+    : ['PAINTING', 'Sơn sửa', 8_000_000, 'Sơn lại toàn bộ'];
+  if (furnish === 'NONE') {
+    return [paint];
+  }
+  const furniture = ['FURNITURE', 'Nội thất', furnish === 'FULL' ? 6_000_000 : 3_000_000, 'Lắp đặt NT mua mới'];
+  if (furnish === 'FULL') {
+    return [
+      paint,
+      ['PLUMBING', 'Điện nước', 7_500_000, 'Sửa điện nước trước lắp TB'],
+      furniture,
+    ];
+  }
+  return [paint, furniture];
+}
+
+function makeScenario({ id, exploitation, furnish, exploitRooms }) {
+  const { district, province, address } = loc(id);
+  const isRoom = exploitation === 'THEO_PHONG';
+  const rooms = isRoom ? exploitRooms : null;
+  const physicalRooms = isRoom ? rooms + 1 : furnish === 'FULL' ? 3 + (id % 2) : 2 + (id % 2);
+  const floors = isRoom ? (rooms >= 5 ? 3 : 2) : physicalRooms >= 4 ? 2 : 1;
+  const area = isRoom ? 24 * rooms + 18 : 55 + physicalRooms * 12 + (id % 5) * 3;
+  const start = addMonths('2026-03-01', (id - 1) % 10);
+  const end = endOfMonth(addMonths(start, 24));
+  const codeTag = isRoom ? 'RM' : 'WH';
+  const code = `HD-MTX-${pad2(id)}-RENO-${codeTag}-${furnish}`;
+  const name = `MTX#${pad2(id)} ${isRoom ? 'THEO_PHONG' : 'NGUYEN_CAN'} ${FURNISH_LABEL[furnish]}`;
+  const rent = (isRoom ? 180_000_000 : 160_000_000)
+    + id * 2_500_000
+    + (furnish === 'FULL' ? 25_000_000 : furnish === 'BASIC' ? 10_000_000 : 0);
+  const roomNote = isRoom ? `THEO_PHONG (${rooms} phòng)` : 'NGUYEN_CAN';
+  const desc = [
+    `${name} — RENO.`,
+    `NT khai thác = TB mua mới đợt 2 (${furnish}).`,
+    'Đồ chủ bàn giao (nếu có) chỉ ghi nhận, không tính NT.',
+  ].join(' ');
+
+  const scenario = {
+    matrixId: id,
+    code,
+    name,
+    address,
+    district,
+    province,
+    area,
+    floors,
+    physicalRooms,
+    owner: OWNERS[id - 1],
+    rent,
+    start,
+    end,
+    desc,
+    phase2: true,
+    exploitation,
+    exploitRooms: rooms,
+    furnish,
+    handover: sampleHandover(id),
+    renovations: renovationsFor(furnish, exploitation, rooms ?? physicalRooms),
+    matrixNote: `#${id} RENO | ${roomNote} | NT mua mới: ${furnish} | TB bàn giao: không tính NT`,
+  };
+
+  return scenario;
+}
+
+/**
+ * 50 căn:
+ *  #1–#14  NGUYEN_CAN FULL
+ *  #15–#27 NGUYEN_CAN BASIC
+ *  #28–#40 NGUYEN_CAN NONE
+ *  #41–#44 THEO_PHONG FULL  (3/4/5/3 phòng)
+ *  #45–#48 THEO_PHONG BASIC (3/4/5/6 phòng)
+ *  #49–#50 THEO_PHONG NONE  (3/4 phòng)
+ */
+function buildScenarios() {
+  const scenarios = [];
+  let id = 1;
+  for (let i = 0; i < 14; i++) scenarios.push(makeScenario({ id: id++, exploitation: 'NGUYEN_CAN', furnish: 'FULL' }));
+  for (let i = 0; i < 13; i++) scenarios.push(makeScenario({ id: id++, exploitation: 'NGUYEN_CAN', furnish: 'BASIC' }));
+  for (let i = 0; i < 13; i++) scenarios.push(makeScenario({ id: id++, exploitation: 'NGUYEN_CAN', furnish: 'NONE' }));
+
+  const roomPlan = [
+    { furnish: 'FULL', rooms: 3 },
+    { furnish: 'FULL', rooms: 4 },
+    { furnish: 'FULL', rooms: 5 },
+    { furnish: 'FULL', rooms: 3 },
+    { furnish: 'BASIC', rooms: 3 },
+    { furnish: 'BASIC', rooms: 4 },
+    { furnish: 'BASIC', rooms: 5 },
+    { furnish: 'BASIC', rooms: 6 },
+    { furnish: 'NONE', rooms: 3 },
+    { furnish: 'NONE', rooms: 4 },
+  ];
+  for (const p of roomPlan) {
+    scenarios.push(makeScenario({
+      id: id++,
+      exploitation: 'THEO_PHONG',
+      furnish: p.furnish,
+      exploitRooms: p.rooms,
+    }));
+  }
+
+  attachSupplements(scenarios);
+  return scenarios;
+}
+
+function attachSupplements(scenarios) {
+  const byId = (n) => scenarios.find((s) => s.matrixId === n);
+  // SUPP#1: chỉ cải tạo — nhà FULL nguyên căn đã ACTIVE
+  byId(1).supplement = {
+    renovations: [['OTHER', 'Khác', 3_000_000, 'SUPP#1 chỉ cải tạo — sau khi nhà ACTIVE']],
+  };
+  // SUPP#2: chỉ thêm TB THEM_MOI
+  byId(15).supplement = {
+    purchased: [
+      ['', 'LIVING_ROOM', 'Quạt', 'NEW', 'THEM_MOI', 1, 900_000, 12, '2027-01-01', '2027-12-31', 270_000, 'SUPP#2 chỉ TB THEM_MOI'],
+    ],
+  };
+  // SUPP#3: THAY_THE ĐH đã mua đợt 2 (nhà #2 FULL có ĐH LIVING_ROOM)
+  byId(2).supplement = {
+    purchased: [
+      ['', 'LIVING_ROOM', 'Điều hòa', 'NEW', 'THAY_THE', 1, 15_500_000, 36, '2027-02-01', '2030-01-31', 4_650_000, 'SUPP#3 THAY_THE ĐH phòng khách'],
+    ],
+  };
+  // SUPP#4: cải tạo + THAY_THE ĐH phòng 102 nhà THEO_PHONG FULL #41 (3 phòng: 101–103)
+  byId(41).supplement = {
+    renovations: [['PAINTING', 'Sơn sửa', 4_000_000, 'SUPP#4 cải tạo + TB']],
+    purchased: [
+      ['102', '', 'Điều hòa', 'NEW', 'THAY_THE', 1, 9_800_000, 24, '2027-03-01', '2029-02-28', 2_940_000, 'SUPP#4 THAY_THE phòng 102'],
+    ],
+  };
+}
+
+const scenarios = buildScenarios();
+
 function buildRoomListRows(scenario) {
   const n = scenario.exploitRooms;
   const perRoomArea = Math.round((scenario.area / n) * 10) / 10;
@@ -490,21 +338,11 @@ function buildRoomListRows(scenario) {
   });
 }
 
-function warrantyEnd(start, months) {
-  const endYear = parseInt(start.slice(0, 4), 10) + Math.floor(months / 12);
-  return `${endYear}-${start.slice(5, 7)}-28`;
-}
-
-/** Giá phạt mẫu khi hết BH (~30% đơn giá) — khách làm hỏng thiết bị. */
-function samplePenaltyFee(price) {
-  return Math.round(price * 0.3);
-}
-
-function purchasedRow(contractCode, roomNumber, catalog, price, months, warrantyStart, note) {
+function purchasedRow(contractCode, roomNumber, houseArea, catalog, price, months, warrantyStart, note) {
   return [
     contractCode,
     roomNumber,
-    '',
+    houseArea,
     catalog,
     'NEW',
     'THEM_MOI',
@@ -518,66 +356,85 @@ function purchasedRow(contractCode, roomNumber, catalog, price, months, warranty
   ];
 }
 
-/** Mỗi phòng 1 loại TB xoay vòng (ma trận cũ #8, #10). */
-function buildPurchasedRowsForRooms(contractCode, totalRooms, warrantyStart) {
-  const items = [
-    ['Giường', 4_000_000, 12],
-    ['Điều hòa', 8_500_000, 24],
-    ['Nóng lạnh', 2_400_000, 12],
-  ];
-  return buildRoomNumbers(totalRooms).map((roomNumber, i) => {
-    const [catalog, price, months] = items[i % items.length];
-    return purchasedRow(
-      contractCode,
-      roomNumber,
-      catalog,
-      price,
-      months,
-      warrantyStart,
-      `TB mới phòng ${roomNumber}`,
-    );
-  });
+function itemRow(contractCode, id, roomNumber, houseArea, catalog, warrantyStart, note) {
+  const [base, months] = PRICES[catalog];
+  return purchasedRow(
+    contractCode,
+    roomNumber,
+    houseArea,
+    catalog,
+    varyPrice(base, id),
+    months,
+    warrantyStart,
+    note,
+  );
 }
 
-/** Mỗi phòng đúng 1 Quạt + 1 Giường. */
-function buildBedFanRowsForRooms(contractCode, totalRooms, warrantyStart) {
+function buildBasicWholeHouse(s, warrantyStart) {
+  const beds = Math.max(1, s.physicalRooms - 1);
   const rows = [];
-  for (const roomNumber of buildRoomNumbers(totalRooms)) {
-    rows.push(
-      purchasedRow(contractCode, roomNumber, 'Giường', 4_200_000, 12, warrantyStart, `1 giường phòng ${roomNumber}`),
-    );
-    rows.push(
-      purchasedRow(contractCode, roomNumber, 'Quạt', 750_000, 12, warrantyStart, `1 quạt phòng ${roomNumber}`),
-    );
+  for (let i = 0; i < beds; i++) {
+    rows.push(itemRow(s.code, s.matrixId, '', 'BEDROOM', 'Giường', warrantyStart, `Giường mua mới #${i + 1}`));
+  }
+  rows.push(itemRow(s.code, s.matrixId, '', 'LIVING_ROOM', 'Quạt', warrantyStart, 'Quạt phòng khách mua mới'));
+  if (beds >= 2) {
+    rows.push(itemRow(s.code, s.matrixId, '', 'BEDROOM', 'Quạt', warrantyStart, 'Quạt phòng ngủ mua mới'));
   }
   return rows;
 }
 
-/** Full NT theo phòng: Giường + Quạt + Điều hòa + Nóng lạnh mỗi phòng. */
-function buildFullFurnishRowsForRooms(contractCode, totalRooms, warrantyStart) {
-  const items = [
-    ['Giường', 4_500_000, 12],
-    ['Quạt', 800_000, 12],
-    ['Điều hòa', 9_200_000, 24],
-    ['Nóng lạnh', 2_600_000, 12],
+function buildFullWholeHouse(s, warrantyStart) {
+  const beds = Math.max(2, s.physicalRooms - 1);
+  const rows = [
+    itemRow(s.code, s.matrixId, '', 'LIVING_ROOM', 'Điều hòa', warrantyStart, 'ĐH phòng khách mua mới'),
+    itemRow(s.code, s.matrixId, '', 'LIVING_ROOM', 'Quạt', warrantyStart, 'Quạt trần phòng khách'),
+    itemRow(s.code, s.matrixId, '', 'LIVING_ROOM', 'Bàn ăn', warrantyStart, 'Bàn ăn mua mới'),
+    itemRow(s.code, s.matrixId, '', 'KITCHEN', 'Tủ lạnh', warrantyStart, 'Tủ lạnh mua mới'),
+    itemRow(s.code, s.matrixId, '', 'KITCHEN', 'Bếp từ', warrantyStart, 'Bếp từ mua mới'),
+    itemRow(s.code, s.matrixId, '', 'BALCONY', 'Máy giặt', warrantyStart, 'Máy giặt mua mới'),
+    itemRow(s.code, s.matrixId, '', 'BATHROOM', 'Nóng lạnh', warrantyStart, 'Nóng lạnh mua mới'),
+    itemRow(s.code, s.matrixId, '', 'BEDROOM', 'Tủ quần áo', warrantyStart, 'Tủ quần áo mua mới'),
   ];
+  for (let i = 0; i < beds; i++) {
+    rows.push(itemRow(s.code, s.matrixId, '', 'BEDROOM', 'Giường', warrantyStart, `Giường phòng ngủ #${i + 1}`));
+    rows.push(itemRow(s.code, s.matrixId, '', 'BEDROOM', 'Quạt', warrantyStart, `Quạt phòng ngủ #${i + 1}`));
+  }
+  return rows;
+}
+
+function buildBedFanRowsForRooms(s, warrantyStart) {
   const rows = [];
-  for (const roomNumber of buildRoomNumbers(totalRooms)) {
-    for (const [catalog, price, months] of items) {
-      rows.push(
-        purchasedRow(
-          contractCode,
-          roomNumber,
-          catalog,
-          price,
-          months,
-          warrantyStart,
-          `${catalog} phòng ${roomNumber}`,
-        ),
-      );
+  for (const roomNumber of buildRoomNumbers(s.exploitRooms)) {
+    rows.push(itemRow(s.code, s.matrixId, roomNumber, '', 'Giường', warrantyStart, `1 giường phòng ${roomNumber}`));
+    rows.push(itemRow(s.code, s.matrixId, roomNumber, '', 'Quạt', warrantyStart, `1 quạt phòng ${roomNumber}`));
+  }
+  return rows;
+}
+
+function buildFullFurnishRowsForRooms(s, warrantyStart) {
+  const perRoom = ['Giường', 'Quạt', 'Điều hòa', 'Nóng lạnh'];
+  const rows = [];
+  for (const roomNumber of buildRoomNumbers(s.exploitRooms)) {
+    for (const catalog of perRoom) {
+      rows.push(itemRow(s.code, s.matrixId, roomNumber, '', catalog, warrantyStart, `${catalog} phòng ${roomNumber}`));
     }
   }
+  rows.push(itemRow(s.code, s.matrixId, '', 'KITCHEN', 'Tủ lạnh', warrantyStart, 'Tủ lạnh khu vực chung mua mới'));
+  rows.push(itemRow(s.code, s.matrixId, '', 'BALCONY', 'Máy giặt', warrantyStart, 'Máy giặt khu vực chung mua mới'));
   return rows;
+}
+
+function buildPurchasedRows(s) {
+  if (s.furnish === 'NONE') return [];
+  const warrantyStart = `${s.start.slice(0, 8)}15`;
+  if (s.exploitation === 'THEO_PHONG') {
+    return s.furnish === 'FULL'
+      ? buildFullFurnishRowsForRooms(s, warrantyStart)
+      : buildBedFanRowsForRooms(s, warrantyStart);
+  }
+  return s.furnish === 'FULL'
+    ? buildFullWholeHouse(s, warrantyStart)
+    : buildBasicWholeHouse(s, warrantyStart);
 }
 
 function buildOnboardingMatrix() {
@@ -586,8 +443,9 @@ function buildOnboardingMatrix() {
       'STT',
       'Mã hợp đồng',
       'RENO/NORENO',
-      'TB bàn giao đ1',
       'Hình thức đ2',
+      'NT khai thác (mua mới)',
+      'TB bàn giao đ1',
       'Cải tạo đ2',
       'TB mua đ2',
       'File đợt 2',
@@ -596,44 +454,34 @@ function buildOnboardingMatrix() {
     ...scenarios.map((s) => [
       s.matrixId,
       s.code,
-      s.phase2 ? 'RENO' : 'NORENO',
-      (s.handover?.length ?? 0) > 0 ? 'Có' : 'Không',
-      s.phase2
-        ? s.exploitation === 'THEO_PHONG'
-          ? `THEO_PHONG (${s.exploitRooms})`
-          : 'NGUYEN_CAN'
-        : '—',
-      s.phase2 ? 'Có (≥1 dòng)' : '—',
-      s.phase2
-        ? (s.purchasedWholeHouse?.length ?? 0) > 0 || s.purchasedPerRoom
-          ? 'Có'
-          : 'Không'
-        : '—',
-      s.phase2 ? 'Có' : 'Không',
+      'RENO',
+      s.exploitation === 'THEO_PHONG' ? `THEO_PHONG (${s.exploitRooms})` : 'NGUYEN_CAN',
+      s.furnish,
+      (s.handover?.length ?? 0) > 0 ? 'Có (không tính NT)' : 'Không',
+      'Có (≥1 dòng)',
+      s.furnish === 'NONE' ? 'Không' : 'Có (khớp NT)',
+      'Có',
       s.matrixNote,
     ]),
     [''],
-    [`Tổng: ${scenarios.length} HĐ onboarding (#1–#10 ma trận + #11–#14 nội thất đầy đủ).`],
-    ['NORENO: import đợt 1 xong → tự gửi Host. RENO: cần import đợt 2.'],
-    ['RENO bắt buộc ≥1 hạng mục cải tạo ở sheet 3 trước khi gửi Host.'],
-    ['#11–#14: demo full NT — nguyên căn / theo phòng (mỗi phòng ≥ 1 Quạt + 1 Giường).'],
+    ['Tổng: 50 HĐ — 40 NGUYEN_CAN (#1–#40) + 10 THEO_PHONG (#41–#50, mỗi căn ≥3 phòng).'],
+    ['#1–#14 FULL | #15–#27 BASIC | #28–#40 NONE — nguyên căn.'],
+    ['#41–#44 FULL | #45–#48 BASIC | #49–#50 NONE — theo phòng.'],
+    ['NT khai thác CHỈ tính TB mua mới đợt 2. Đồ chủ bàn giao đợt 1 không tính.'],
+    ['FULL nguyên căn: ĐH + quạt + giường + tủ lạnh + máy giặt + nóng lạnh + bàn ăn + tủ quần áo + bếp từ.'],
+    ['FULL theo phòng: mỗi phòng giường + quạt + ĐH + nóng lạnh; thêm tủ lạnh + máy giặt khu vực chung.'],
+    ['BASIC: giường + quạt (nguyên căn theo khu vực / theo phòng từng phòng).'],
+    ['NONE: không dòng TB mua mới. Tất cả 50 căn đều RENO — import đợt 2 sau đợt 1.'],
   ];
 }
 
 function buildSupplementMatrix() {
   return [
     ['STT', 'Mã HĐ', 'Cải tạo bổ sung', 'TB mua bổ sung', 'Hành động TB', 'Ghi chú'],
-    ['1', 'HD-MTX-06-RENO-WH-HO-EQUIP', 'Có', 'Không', '—', 'SUPP chỉ cải tạo — sau khi nhà ACTIVE'],
-    ['2', 'HD-MTX-04-RENO-WH-EQUIP', 'Không', 'Có', 'THEM_MOI', 'SUPP chỉ thêm TB mới'],
-    ['3', 'HD-MTX-06-RENO-WH-HO-EQUIP', 'Không', 'Có', 'THAY_THE', 'SUPP thay TB đã mua đợt 2'],
-    [
-      '4',
-      'HD-MTX-10-RENO-RM-HO-EQUIP',
-      'Có',
-      'Có',
-      'THAY_THE',
-      'SUPP cải tạo + thay TB phòng 102',
-    ],
+    ['1', 'HD-MTX-01-RENO-WH-FULL', 'Có', 'Không', '—', 'SUPP chỉ cải tạo — sau khi nhà ACTIVE'],
+    ['2', 'HD-MTX-15-RENO-WH-BASIC', 'Không', 'Có', 'THEM_MOI', 'SUPP chỉ thêm quạt mới'],
+    ['3', 'HD-MTX-02-RENO-WH-FULL', 'Không', 'Có', 'THAY_THE', 'SUPP thay ĐH đã mua đợt 2'],
+    ['4', 'HD-MTX-41-RENO-RM-FULL', 'Có', 'Có', 'THAY_THE', 'SUPP cải tạo + thay ĐH phòng 102'],
     [''],
     ['Tiên quyết: nhà ACTIVE → POST /properties/{id}/start-renovation → import file bổ sung.'],
   ];
@@ -739,25 +587,7 @@ const renovationRows = phase2Scenarios.flatMap((s) =>
   (s.renovations ?? []).map((r) => [s.code, ...r]),
 );
 
-const purchasedRows = phase2Scenarios.flatMap((s) => {
-  const warrantyStart = `${s.start.slice(0, 8)}15`;
-  const rows = [];
-  if (s.purchasedWholeHouse?.length) {
-    for (const p of s.purchasedWholeHouse) {
-      rows.push([s.code, ...p]);
-    }
-  }
-  if (s.purchasedPerRoom) {
-    if (s.purchasedPerRoomBedFanOnly) {
-      rows.push(...buildBedFanRowsForRooms(s.code, s.exploitRooms, warrantyStart));
-    } else if (s.purchasedPerRoomFull) {
-      rows.push(...buildFullFurnishRowsForRooms(s.code, s.exploitRooms, warrantyStart));
-    } else {
-      rows.push(...buildPurchasedRowsForRooms(s.code, s.exploitRooms, warrantyStart));
-    }
-  }
-  return rows;
-});
+const purchasedRows = phase2Scenarios.flatMap((s) => buildPurchasedRows(s));
 
 const supplementRenovationRows = [];
 const supplementPurchasedRows = [];
@@ -775,30 +605,36 @@ const onboardingMatrix = buildOnboardingMatrix();
 const supplementMatrix = buildSupplementMatrix();
 
 const huongDanDot1 = [
-  ['Hướng dẫn — Ma trận onboarding + căn full NT (đợt 1)'],
+  ['Hướng dẫn — 50 căn onboarding (đợt 1)'],
   [''],
-  ['File cover #1–#10 ma trận hợp lệ + #11–#14 nội thất đầy đủ.'],
-  ['Sheet "0. Ma_Tran_Onboarding": tra cứu STT.'],
+  ['40 NGUYEN_CAN (#1–#40) + 10 THEO_PHONG (#41–#50, mỗi căn ≥3 phòng).'],
+  ['NT khai thác CHỈ tính TB mua mới ở file đợt 2 — đồ chủ bàn giao không tính.'],
+  ['Sheet "0. Ma_Tran_Onboarding": tra cứu STT / mức NT (FULL, BASIC, NONE).'],
   ['API: POST /api/v1/import/lease-excel?dryRun='],
   [''],
-  ['#1–#2, #11 NORENO: sau đợt 1 tự gửi Host — KHÔNG import file đợt 2.'],
-  ['#3–#10, #12–#14 RENO: sau đợt 1 ở UNDER_RENOVATION — cần file đợt 2.'],
-  ['#13–#14 THEO_PHONG: mỗi phòng có 1 Quạt + 1 Giường (sheet TB mua đợt 2).'],
+  ['Tất cả 50 căn là RENO: sau đợt 1 ở UNDER_RENOVATION — bắt buộc import đợt 2.'],
+  ['Quận/Huyện chỉ gồm: Quận 1, Quận 3, Bình Thạnh, Gò Vấp, Phú Nhuận (Zone seeder).'],
 ];
 
 const huongDanDot2 = [
-  ['Hướng dẫn — Ma trận RENO + căn full NT (đợt 2)'],
+  ['Hướng dẫn — 50 căn RENO (đợt 2)'],
   [''],
-  ['Chỉ import sau khi đã import đợt 1 (các HĐ RENO).'],
+  ['Chỉ import sau khi đã import đợt 1. Mã HĐ phải khớp 1-1 với đợt 1.'],
   ['API: POST /api/v1/import/renovation-excel?dryRun='],
-  ['Sheet "0. Ma_Tran_Onboarding": đối chiếu từng HĐ.'],
-  ['#12 NGUYEN_CAN full NT khu vực chung | #13–#14 mỗi phòng Quạt+Giường.'],
+  ['Sheet "4. Thiet_Bi_Mua_Moi" quyết định mức NT: FULL / BASIC / NONE.'],
+  [''],
+  ['FULL NGUYEN_CAN (#1–#14): đủ catalog NT khu vực chung (kể cả BEDROOM).'],
+  ['BASIC NGUYEN_CAN (#15–#27): chỉ Giường + Quạt.'],
+  ['NONE NGUYEN_CAN (#28–#40): không dòng TB mua.'],
+  ['FULL THEO_PHONG (#41–#44): mỗi phòng Giường+Quạt+ĐH+Nóng lạnh + tủ lạnh/máy giặt chung.'],
+  ['BASIC THEO_PHONG (#45–#48): mỗi phòng đúng 1 Giường + 1 Quạt.'],
+  ['NONE THEO_PHONG (#49–#50): có danh sách phòng, không TB mua.'],
 ];
 
 const huongDanSupplement = [
   ['Hướng dẫn — Ma trận 4 TH cải tạo bổ sung'],
   [''],
-  ['Dùng SAU KHI nhà #4, #6, #10 đã ACTIVE (host xác nhận + gán OM).'],
+  ['Dùng SAU KHI nhà #1, #2, #15, #41 đã ACTIVE (host xác nhận + gán OM).'],
   ['1. POST /properties/{id}/start-renovation'],
   ['2. POST /api/v1/import/renovation-supplement-excel?dryRun='],
   ['Sheet "0. Ma_Tran_Bo_Sung": 4 profile SUPP#1–#4.'],
@@ -820,6 +656,70 @@ function buildWorkbook(sheets) {
   }
   return wb;
 }
+
+function assertDataset() {
+  const wh = scenarios.filter((s) => s.exploitation === 'NGUYEN_CAN');
+  const rm = scenarios.filter((s) => s.exploitation === 'THEO_PHONG');
+  if (scenarios.length !== 50) throw new Error(`Expected 50 houses, got ${scenarios.length}`);
+  if (wh.length !== 40) throw new Error(`Expected 40 NGUYEN_CAN, got ${wh.length}`);
+  if (rm.length !== 10) throw new Error(`Expected 10 THEO_PHONG, got ${rm.length}`);
+  for (const s of rm) {
+    if (!s.exploitRooms || s.exploitRooms < 3) {
+      throw new Error(`${s.code} THEO_PHONG must have ≥3 rooms`);
+    }
+  }
+  const purchasedByCode = new Map();
+  for (const row of purchasedRows) {
+    const code = row[0];
+    if (!purchasedByCode.has(code)) purchasedByCode.set(code, []);
+    purchasedByCode.get(code).push(row);
+  }
+  const codes1 = new Set(leaseRows.map((r) => r[0]));
+  const codes2 = new Set(configRows.map((r) => r[0]));
+  if (codes1.size !== codes2.size) {
+    throw new Error('Đợt 1 / đợt 2 lệch số mã HĐ');
+  }
+  for (const code of codes1) {
+    if (!codes2.has(code)) throw new Error(`Thiếu cấu hình đợt 2 cho ${code}`);
+  }
+  for (const s of scenarios) {
+    const rows = purchasedByCode.get(s.code) ?? [];
+    const catalogs = rows.map((r) => r[3]);
+    if (s.furnish === 'NONE' && rows.length > 0) {
+      throw new Error(`${s.code} NONE nhưng có TB mua`);
+    }
+    if (s.furnish !== 'NONE' && rows.length === 0) {
+      throw new Error(`${s.code} ${s.furnish} nhưng không có TB mua`);
+    }
+    if (s.furnish === 'BASIC') {
+      const unexpected = catalogs.filter((c) => c !== 'Giường' && c !== 'Quạt');
+      if (unexpected.length) throw new Error(`${s.code} BASIC có TB không phải giường/quạt: ${unexpected}`);
+    }
+    if (s.furnish === 'FULL') {
+      for (const need of ['Giường', 'Quạt', 'Điều hòa', 'Nóng lạnh']) {
+        if (!catalogs.includes(need)) throw new Error(`${s.code} FULL thiếu ${need}`);
+      }
+      if (s.exploitation === 'NGUYEN_CAN') {
+        for (const need of ['Tủ lạnh', 'Máy giặt', 'Bàn ăn', 'Tủ quần áo', 'Bếp từ']) {
+          if (!catalogs.includes(need)) throw new Error(`${s.code} FULL nguyên căn thiếu ${need}`);
+        }
+      }
+      if (s.exploitation === 'THEO_PHONG') {
+        const perRoom = buildRoomNumbers(s.exploitRooms);
+        for (const room of perRoom) {
+          const roomCats = rows.filter((r) => r[1] === room).map((r) => r[3]);
+          for (const need of ['Giường', 'Quạt', 'Điều hòa', 'Nóng lạnh']) {
+            if (!roomCats.includes(need)) {
+              throw new Error(`${s.code} phòng ${room} FULL thiếu ${need}`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+assertDataset();
 
 const wb1 = buildWorkbook([
   { name: '0. Huong_Dan', data: huongDanDot1 },
@@ -857,14 +757,25 @@ XLSX.writeFile(wb1, OUT_DOT1);
 XLSX.writeFile(wb2, OUT_DOT2);
 XLSX.writeFile(wbSupplement, OUT_SUPPLEMENT);
 
-console.log('Đã tạo bộ ma trận onboarding:');
+const countFurnish = (ex, f) => scenarios.filter((s) => s.exploitation === ex && s.furnish === f).length;
+const purchasedByFurnish = { FULL: 0, BASIC: 0, NONE: 0 };
+for (const s of scenarios) {
+  const n = purchasedRows.filter((r) => r[0] === s.code).length;
+  purchasedByFurnish[s.furnish] += n;
+}
+
+console.log('Đã tạo bộ 50 căn (NT = TB mua mới đợt 2):');
 console.log('  Đợt 1:', OUT_DOT1);
-console.log(`    - ${leaseRows.length} HĐ (#1–#${scenarios.length})`);
-console.log(`    - ${handoverRows.length} dòng TB bàn giao`);
+console.log(`    - ${leaseRows.length} HĐ`);
+console.log(`    - ${handoverRows.length} dòng TB bàn giao (đồ chủ gốc, không tính NT)`);
 console.log('  Đợt 2:', OUT_DOT2);
 console.log(`    - ${configRows.length} cấu hình RENO`);
 console.log(`    - ${roomListRows.length} phòng THEO_PHONG`);
 console.log(`    - ${renovationRows.length} dòng cải tạo`);
-console.log(`    - ${purchasedRows.length} dòng TB mua`);
+console.log(`    - ${purchasedRows.length} dòng TB mua mới`);
+console.log('  Phân bổ:');
+console.log(`    NGUYEN_CAN FULL/BASIC/NONE = ${countFurnish('NGUYEN_CAN', 'FULL')}/${countFurnish('NGUYEN_CAN', 'BASIC')}/${countFurnish('NGUYEN_CAN', 'NONE')}`);
+console.log(`    THEO_PHONG FULL/BASIC/NONE = ${countFurnish('THEO_PHONG', 'FULL')}/${countFurnish('THEO_PHONG', 'BASIC')}/${countFurnish('THEO_PHONG', 'NONE')}`);
+console.log(`    Dòng TB mua theo mức NT: FULL=${purchasedByFurnish.FULL} BASIC=${purchasedByFurnish.BASIC} NONE=${purchasedByFurnish.NONE}`);
 console.log('  Bổ sung:', OUT_SUPPLEMENT);
 console.log(`    - ${supplementRenovationRows.length} cải tạo, ${supplementPurchasedRows.length} TB (4 TH)`);
