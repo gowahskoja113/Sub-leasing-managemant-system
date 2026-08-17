@@ -7,6 +7,7 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.HostPortalService;
+import com.sep490.slms2026.util.DepositLedgerStatusResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,6 +34,8 @@ public class HostPortalServiceImpl implements HostPortalService {
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
     private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final CheckoutRequestRepository checkoutRequestRepository;
+    private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final InboundContractRepository inboundContractRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
@@ -279,6 +282,9 @@ public class HostPortalServiceImpl implements HostPortalService {
     @Transactional(readOnly = true)
     public HostDepositsResponse getDeposits(String status) {
         List<TenantContract> contracts = tenantContractRepository.findAll();
+        Map<Long, CheckoutSettlementContext> checkoutByContract = loadCheckoutContext(
+                contracts.stream().map(TenantContract::getId).toList());
+
         List<HostDepositsResponse.DepositItem> items = contracts.stream()
                 .filter(c -> c.getDeposit() != null && c.getDeposit().compareTo(BigDecimal.ZERO) > 0)
                 .map(c -> {
@@ -286,6 +292,14 @@ public class HostPortalServiceImpl implements HostPortalService {
                     if (c.getTenant() != null && c.getTenant().getUser() != null) {
                         tenantName = c.getTenant().getUser().getFullName();
                     }
+                    CheckoutSettlementContext ctx = checkoutByContract.get(c.getId());
+                    DepositStatus depositStatus = DepositLedgerStatusResolver.resolve(
+                            c,
+                            ctx != null ? ctx.settlement() : null,
+                            ctx != null ? ctx.checkoutStatus() : null);
+                    LocalDate heldSince = c.getDepositPaidAt() != null
+                            ? c.getDepositPaidAt().toLocalDate()
+                            : (c.getPaidAt() != null ? c.getPaidAt().toLocalDate() : c.getStartDate());
                     return HostDepositsResponse.DepositItem.builder()
                             .contractId(c.getId())
                             .contractCode(c.getContractCode())
@@ -294,20 +308,60 @@ public class HostPortalServiceImpl implements HostPortalService {
                             .propertyName(c.getProperty().getPropertyName())
                             .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : "NGUYEN_CAN")
                             .amount(c.getDeposit())
-                            .heldSince(c.getStartDate())
-                            .status(mapDepositStatus(c.getStatus()))
+                            .heldSince(heldSince)
+                            .status(depositStatus.name())
                             .build();
                 })
                 .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
                 .toList();
 
-
         BigDecimal totalHeld = items.stream()
-                .filter(i -> "HELD".equals(i.getStatus()))
+                .filter(i -> DepositStatus.HELD.name().equals(i.getStatus()))
                 .map(HostDepositsResponse.DepositItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return HostDepositsResponse.builder().totalHeld(totalHeld).items(items).build();
+    }
+
+    private Map<Long, CheckoutSettlementContext> loadCheckoutContext(List<Long> contractIds) {
+        if (contractIds.isEmpty()) {
+            return Map.of();
+        }
+        List<CheckoutRequest> requests = checkoutRequestRepository.findByTenantContractIdIn(contractIds);
+        List<CheckoutSettlement> settlements = checkoutSettlementRepository.findAllByTenantContractIdIn(contractIds);
+        Map<Long, CheckoutSettlement> settlementByRequestId = settlements.stream()
+                .collect(Collectors.toMap(s -> s.getCheckoutRequest().getId(), s -> s, (a, b) -> a));
+
+        Map<Long, CheckoutSettlementContext> result = new HashMap<>();
+        for (CheckoutRequest request : requests) {
+            Long contractId = request.getTenantContract().getId();
+            CheckoutSettlement settlement = settlementByRequestId.get(request.getId());
+            CheckoutSettlementContext candidate = new CheckoutSettlementContext(settlement, request.getStatus());
+            result.merge(contractId, candidate, this::preferCheckoutContext);
+        }
+        return result;
+    }
+
+    private CheckoutSettlementContext preferCheckoutContext(CheckoutSettlementContext a,
+                                                            CheckoutSettlementContext b) {
+        if (a.checkoutStatus() == CheckoutRequestStatus.COMPLETED
+                && b.checkoutStatus() != CheckoutRequestStatus.COMPLETED) {
+            return a;
+        }
+        if (b.checkoutStatus() == CheckoutRequestStatus.COMPLETED
+                && a.checkoutStatus() != CheckoutRequestStatus.COMPLETED) {
+            return b;
+        }
+        if (a.settlement() != null && b.settlement() == null) {
+            return a;
+        }
+        if (b.settlement() != null && a.settlement() == null) {
+            return b;
+        }
+        return b;
+    }
+
+    private record CheckoutSettlementContext(CheckoutSettlement settlement, CheckoutRequestStatus checkoutStatus) {
     }
 
     @Override
@@ -870,10 +924,6 @@ public class HostPortalServiceImpl implements HostPortalService {
             case "EXPIRED", "EXPIRING", "ACTIVE" -> ContractStatus.ACTIVE;
             default -> ContractStatus.valueOf(status.toUpperCase());
         };
-    }
-
-    private String mapDepositStatus(ContractStatus status) {
-        return status == ContractStatus.TERMINATED ? "REFUNDED" : "HELD";
     }
 
     private HostExpenseCategory parseExpenseCategoryRequired(String raw) {

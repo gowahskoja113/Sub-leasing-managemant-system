@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Cron vòng đời hợp đồng thuê.
- * Hiện tại: tự động hủy HĐ nháp/chờ (DRAFT/PENDING) khi khách không đến nhận nhà quá hạn (no-show).
+ * Nhắc đón khách 07:15 — trước auto-cancel no-show 08:05.
  */
 @Slf4j
 @Component
@@ -16,6 +16,14 @@ import org.springframework.stereotype.Component;
 public class ContractLifecycleCron {
 
     private final TenantOnboardingService tenantOnboardingService;
+
+    @Scheduled(cron = "0 15 7 * * *", zone = "Asia/Ho_Chi_Minh")
+    public void remindUpcomingReception() {
+        int reminded = tenantOnboardingService.remindUpcomingReception();
+        if (reminded > 0) {
+            log.info("ContractLifecycleCron: đã nhắc đón khách {} hợp đồng", reminded);
+        }
+    }
 
     /** Chạy mỗi ngày 08:05 (sau billing sweep 08:00). */
     @Scheduled(cron = "0 5 8 * * *", zone = "Asia/Ho_Chi_Minh")

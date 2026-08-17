@@ -74,6 +74,21 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     List<TenantContract> findByStatusInAndMoveInDateBefore(
             java.util.Collection<ContractStatus> statuses, LocalDate moveInDate);
 
+    /** Cron nhắc đón khách: DRAFT/PENDING có ngày đón (expectedReceptionDate ?? moveInDate) trùng mốc. */
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH c.assignedManager
+            WHERE c.status IN :statuses
+              AND COALESCE(c.expectedReceptionDate, c.moveInDate) IN :dates
+            """)
+    List<TenantContract> findPendingReceptionOnDates(
+            @Param("statuses") java.util.Collection<ContractStatus> statuses,
+            @Param("dates") java.util.Collection<LocalDate> dates);
+
     /** Backfill: HĐ chưa kết thúc còn thiếu assignedManager */
     @Query("""
             SELECT c FROM TenantContract c

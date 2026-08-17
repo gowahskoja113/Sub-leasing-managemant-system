@@ -46,6 +46,7 @@ class TenantOnboardingTerminateContractTest {
   @Mock private com.sep490.slms2026.service.OtpService otpService;
   @Mock private ContractEquipmentService contractEquipmentService;
   @Mock private com.sep490.slms2026.repository.NotificationRepository notificationRepository;
+  @Mock private com.sep490.slms2026.repository.HostNotificationRepository hostNotificationRepository;
   @Mock private com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
   @Mock private com.sep490.slms2026.service.MeterOverrideService meterOverrideService;
 

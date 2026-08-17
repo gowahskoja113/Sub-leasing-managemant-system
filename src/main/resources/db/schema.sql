@@ -955,9 +955,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     type        VARCHAR(50),
     screen      VARCHAR(255),
     params_json TEXT,
+    dedupe_key  VARCHAR(255),
     is_read     BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_user_dedupe
+    ON notifications (user_id, dedupe_key)
+    WHERE dedupe_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS host_notifications (
     id         BIGSERIAL PRIMARY KEY,

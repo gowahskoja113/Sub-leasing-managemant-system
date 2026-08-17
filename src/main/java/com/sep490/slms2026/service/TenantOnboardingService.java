@@ -80,4 +80,10 @@ public interface TenantOnboardingService {
      * giải phóng phòng/căn + notify quản lý. Trả về số HĐ đã hủy.
      */
     int autoCancelNoShowContracts();
+
+    /**
+     * Cron 07:15: nhắc quản lý đón khách (mai / hôm nay / quá hạn 1-3-7 ngày).
+     * Quá hạn gửi thêm admin + host. Trả về số HĐ đã bắn nhắc.
+     */
+    int remindUpcomingReception();
 }

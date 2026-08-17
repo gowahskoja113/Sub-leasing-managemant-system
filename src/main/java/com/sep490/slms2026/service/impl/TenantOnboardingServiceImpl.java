@@ -64,9 +64,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -94,6 +97,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final OtpService otpService;
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
+    private final com.sep490.slms2026.repository.HostNotificationRepository hostNotificationRepository;
     private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
     private final MeterOverrideService meterOverrideService;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
@@ -1110,6 +1114,161 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     contract.getId(), contract.getContractCode(), noShowGraceDays, contract.getMoveInDate());
         }
         return count;
+    }
+
+    @Override
+    @Transactional
+    public int remindUpcomingReception() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        List<LocalDate> dates = List.of(
+                today.plusDays(1),
+                today,
+                today.minusDays(1),
+                today.minusDays(3),
+                today.minusDays(7));
+        List<TenantContract> contracts = tenantContractRepository.findPendingReceptionOnDates(
+                List.of(ContractStatus.DRAFT, ContractStatus.PENDING), dates);
+        int count = 0;
+        for (TenantContract contract : contracts) {
+            LocalDate receptionDate = contract.getExpectedReceptionDate() != null
+                    ? contract.getExpectedReceptionDate()
+                    : contract.getMoveInDate();
+            if (receptionDate == null) {
+                continue;
+            }
+            long daysUntil = ChronoUnit.DAYS.between(today, receptionDate);
+            if (daysUntil == 1) {
+                String title = "🗓 Mai đón khách: " + receptionHeadline(contract);
+                if (notifyReceptionMilestone(contract, "RECEPTION_REMINDER_TOMORROW",
+                        "reception-remind:" + contract.getId() + ":tomorrow",
+                        title, title, false)) {
+                    count++;
+                }
+            } else if (daysUntil == 0) {
+                String title = "🔔 Hôm nay đón khách: " + receptionHeadline(contract);
+                if (notifyReceptionMilestone(contract, "RECEPTION_DUE_TODAY",
+                        "reception-remind:" + contract.getId() + ":today",
+                        title, title, false)) {
+                    count++;
+                }
+            } else if (daysUntil < 0) {
+                int daysLate = (int) -daysUntil;
+                if (!Set.of(1, 3, 7).contains(daysLate) || daysLate >= noShowGraceDays) {
+                    continue;
+                }
+                int daysUntilCancel = noShowGraceDays - daysLate;
+                String title = "⚠️ Quá hạn đón " + daysLate + " ngày — còn "
+                        + daysUntilCancel + " ngày nữa hợp đồng tự huỷ";
+                String content = title + " · " + receptionHeadline(contract);
+                if (notifyReceptionMilestone(contract, "RECEPTION_OVERDUE",
+                        "reception-remind:" + contract.getId() + ":overdue-" + daysLate,
+                        title, content, true)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private boolean notifyReceptionMilestone(TenantContract contract, String type, String dedupeKey,
+                                             String title, String content, boolean notifyAdminAndHost) {
+        String paramsJson = "{\"contractId\":" + contract.getId() + "}";
+        boolean sent = false;
+
+        UUID managerId = resolveReceptionManagerId(contract);
+        if (notifyAppUser(managerId, type, title, content, "ResumeContract", paramsJson, dedupeKey, contract.getId())) {
+            sent = true;
+        }
+
+        if (!notifyAdminAndHost) {
+            return sent;
+        }
+
+        for (User admin : userRepository.findByRoleAndStatus(Role.ROLE_ADMIN, UserStatus.ACTIVE)) {
+            if (notifyAppUser(admin.getId(), type, title, content, "ResumeContract",
+                    paramsJson, dedupeKey, contract.getId())) {
+                sent = true;
+            }
+        }
+        for (User host : userRepository.findByRoleAndStatus(Role.ROLE_OWNER, UserStatus.ACTIVE)) {
+            try {
+                if (hostNotificationRepository.existsByUserIdAndDedupeKey(host.getId(), dedupeKey)) {
+                    continue;
+                }
+                hostNotificationRepository.insertIfAbsent(
+                        host.getId(),
+                        dedupeKey,
+                        type,
+                        title,
+                        content,
+                        "HIGH");
+                sent = true;
+            } catch (Exception e) {
+                log.error("Failed to insert host reception reminder contractId={}", contract.getId(), e);
+            }
+        }
+        return sent;
+    }
+
+    private boolean notifyAppUser(UUID userId, String type, String title, String content,
+                                  String screen, String paramsJson, String dedupeKey, Long contractId) {
+        if (userId == null) {
+            return false;
+        }
+        if (notificationRepository.existsByUserIdAndDedupeKey(userId, dedupeKey)) {
+            return false;
+        }
+        try {
+            notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                    .userId(userId)
+                    .title(title)
+                    .content(content)
+                    .type(type)
+                    .screen(screen)
+                    .paramsJson(paramsJson)
+                    .dedupeKey(dedupeKey)
+                    .read(false)
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            return false;
+        }
+        userPushTokenService.sendToUser(userId, title, content, Map.of(
+                "screen", screen,
+                "type", type,
+                "contractId", contractId));
+        return true;
+    }
+
+    private static UUID resolveReceptionManagerId(TenantContract contract) {
+        if (contract.getProperty() != null) {
+            if (contract.getProperty().getOperationManagerId() != null) {
+                return contract.getProperty().getOperationManagerId();
+            }
+            if (contract.getProperty().getManagedBy() != null) {
+                return contract.getProperty().getManagedBy();
+            }
+        }
+        if (contract.getAssignedManager() != null) {
+            return contract.getAssignedManager().getId();
+        }
+        return null;
+    }
+
+    private static String receptionHeadline(TenantContract contract) {
+        String tenantName = contract.getDraftTenantName();
+        if ((tenantName == null || tenantName.isBlank()) && contract.getTenant() != null
+                && contract.getTenant().getUser() != null) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        }
+        if (tenantName == null || tenantName.isBlank()) {
+            tenantName = "khách";
+        }
+        String roomLabel = contract.getRoom() != null && contract.getRoom().getRoomNumber() != null
+                ? contract.getRoom().getRoomNumber() : "nguyên căn";
+        String code = contract.getContractCode() != null && !contract.getContractCode().isBlank()
+                ? contract.getContractCode()
+                : "#" + contract.getId();
+        return tenantName + " · Phòng " + roomLabel + " · " + code;
     }
 
     private void notifyContractAutoCancelled(TenantContract contract) {

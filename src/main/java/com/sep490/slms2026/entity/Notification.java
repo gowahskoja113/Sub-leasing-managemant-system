@@ -35,6 +35,10 @@ public class Notification implements Serializable {
     @Column(name = "params_json", columnDefinition = "TEXT")
     private String paramsJson;
 
+    /** Chống nhắc trùng cron — null với thông báo cũ / one-shot. */
+    @Column(name = "dedupe_key", length = 255)
+    private String dedupeKey;
+
     @Column(name = "is_read", nullable = false)
     private boolean read = false;
 

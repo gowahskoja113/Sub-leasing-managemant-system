@@ -114,6 +114,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureZoneManagerTables();
         ensureRentalPriceModel();
         ensureCashCollectAndProxyPayTables();
+        ensureNotificationDedupeKey();
     }
 
     /**
@@ -421,6 +422,21 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 is_read BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
                 """);
+    }
+
+    private void ensureNotificationDedupeKey() {
+        addColumnIfNotExists("notifications", "screen", "VARCHAR(255)");
+        addColumnIfNotExists("notifications", "params_json", "TEXT");
+        addColumnIfNotExists("notifications", "dedupe_key", "VARCHAR(255)");
+        try {
+            jdbcTemplate.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_user_dedupe
+                    ON notifications (user_id, dedupe_key)
+                    WHERE dedupe_key IS NOT NULL
+                    """);
+        } catch (Exception e) {
+            log.warn("Could not create uq_notifications_user_dedupe: {}", e.getMessage());
+        }
     }
 
     /**
