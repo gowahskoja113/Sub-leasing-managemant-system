@@ -518,6 +518,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
     @Override
     @Transactional
+    public OnboardingSummaryResponse submitToHost(Long propertyId, String realtimeSource) {
+        return submitToHost(propertyId);
+    }
+
+    @Override
+    @Transactional
     public PropertyActivationResponse hostConfirm(Long propertyId, HostConfirmRequest request) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
