@@ -1,6 +1,8 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.CreateRentInvoiceRequest;
+import com.sep490.slms2026.dto.request.ManagerPaymentQrRequest;
+import com.sep490.slms2026.dto.response.ManagerPaymentQrResponse;
 import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
 import com.sep490.slms2026.entity.TenantContract;
@@ -43,4 +45,7 @@ public interface TenantBillingService {
      */
     void recordPaidFirstRentFromOnboard(TenantContract contract, Long payosOrderCode, String method,
                                         LocalDateTime paidAt);
+
+    ManagerPaymentQrResponse createManagerPaymentQr(UUID managerUserId, Long invoiceId,
+                                                    ManagerPaymentQrRequest request);
 }

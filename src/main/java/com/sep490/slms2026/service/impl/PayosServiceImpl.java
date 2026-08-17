@@ -18,6 +18,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -61,7 +63,7 @@ public class PayosServiceImpl implements PayosService {
     }
 
     @Override
-    public PaymentLink createPaymentLink(long orderCode, long amount, String description) {
+    public PaymentLink createPaymentLink(long orderCode, long amount, String description, LocalDateTime expiredAt) {
         if (!isConfigured()) {
             throw new BusinessException("Chưa cấu hình PayOS (PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY).");
         }
@@ -70,12 +72,18 @@ public class PayosServiceImpl implements PayosService {
         String desc = description.length() > 25 ? description.substring(0, 25) : description;
 
         // Chữ ký theo PayOS: các field sắp theo alphabet
-        String dataToSign = "amount=" + chargeAmount
-                + "&cancelUrl=" + cancelUrl
-                + "&description=" + desc
-                + "&orderCode=" + orderCode
-                + "&returnUrl=" + returnUrl;
-        String signature = hmacSha256(dataToSign, checksumKey);
+        StringBuilder dataToSignBuilder = new StringBuilder();
+        dataToSignBuilder.append("amount=").append(chargeAmount)
+                .append("&cancelUrl=").append(cancelUrl)
+                .append("&description=").append(desc)
+                .append("&orderCode=").append(orderCode)
+                .append("&returnUrl=").append(returnUrl);
+        Integer expiredAtEpoch = null;
+        if (expiredAt != null) {
+            expiredAtEpoch = (int) expiredAt.atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toEpochSecond();
+            dataToSignBuilder.append("&expiredAt=").append(expiredAtEpoch);
+        }
+        String signature = hmacSha256(dataToSignBuilder.toString(), checksumKey);
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("orderCode", orderCode);
@@ -83,6 +91,9 @@ public class PayosServiceImpl implements PayosService {
         body.put("description", desc);
         body.put("cancelUrl", cancelUrl);
         body.put("returnUrl", returnUrl);
+        if (expiredAtEpoch != null) {
+            body.put("expiredAt", expiredAtEpoch);
+        }
         body.put("signature", signature);
 
         try {

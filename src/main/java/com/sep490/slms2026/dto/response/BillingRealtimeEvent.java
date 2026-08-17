@@ -28,4 +28,8 @@ public class BillingRealtimeEvent {
     String paymentMethod;
     String transactionId;
     LocalDateTime paidAt;
+    String collectionMode;
+    String remittedByName;
+    String payerName;
+    String unlockedByAdminName;
 }

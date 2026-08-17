@@ -17,7 +17,9 @@ import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.util.InvoiceItemBuilder;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.ManagerInvoiceMask;
 import com.sep490.slms2026.util.PaymentMethods;
+import com.sep490.slms2026.util.PhoneUtils;
 import com.sep490.slms2026.dto.response.PaymentBreakdownResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -154,9 +156,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                             .propertyName(contract.getProperty() != null ? contract.getProperty().getPropertyName() : null)
                             .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
                             .tenantName(contract.getTenant() != null && contract.getTenant().getUser() != null ? contract.getTenant().getUser().getFullName() : null)
-                            .tenantPhone(tenantPhone)
-                            .depositMonths(contract.getDepositMonths())
-                            .deposit(contract.getDeposit())
+                            .tenantPhone(PhoneUtils.maskForManager(tenantPhone))
                             .paymentStatus(contract.getPaymentStatus() != null ? contract.getPaymentStatus().name() : null)
                             .depositMethod(contract.getPayosOrderCode() != null ? "PAYOS" : (contract.getDepositCashManagerConfirmedAt() != null || contract.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
                             .depositPaidAt(contract.getPaidAt() != null ? contract.getPaidAt() : contract.getDepositCashManagerConfirmedAt())
@@ -239,8 +239,8 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
             response.setPaymentBreakdown(breakdown);
         }
 
-        // Manager không xem số tiền hóa đơn thuê phòng; admin vẫn xem đầy đủ.
-        if (!isAdmin && invoice.getInvoiceType() == TenantInvoiceType.RENT) {
+        // Manager không xem số tiền hoá đơn tiền nhà / onboard; admin vẫn xem đầy đủ.
+        if (!isAdmin && ManagerInvoiceMask.shouldMaskAmount(invoice)) {
             response.setAmount(null);
             response.setTotalAmount(null);
             response.setLateFee(null);

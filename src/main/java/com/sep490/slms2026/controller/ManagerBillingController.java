@@ -1,6 +1,8 @@
 package com.sep490.slms2026.controller;
 
+import com.sep490.slms2026.dto.request.ManagerPaymentQrRequest;
 import com.sep490.slms2026.dto.request.RejectPaymentClaimRequest;
+import com.sep490.slms2026.dto.response.ManagerPaymentQrResponse;
 import com.sep490.slms2026.dto.response.ManagerInvoiceResponse;
 import com.sep490.slms2026.dto.response.ManagerPaymentResponse;
 import com.sep490.slms2026.dto.response.RentInvoiceSummaryResponse;
@@ -8,6 +10,8 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.ManagerBillingService;
+import com.sep490.slms2026.service.TenantBillingService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +29,7 @@ import org.springframework.data.domain.PageRequest;
 public class ManagerBillingController {
 
     private final ManagerBillingService managerBillingService;
+    private final TenantBillingService tenantBillingService;
 
     @GetMapping("/api/v1/properties/{propertyId}/rent-invoices")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
@@ -93,6 +98,15 @@ public class ManagerBillingController {
             @RequestParam(defaultValue = "20") int size) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         return ResponseEntity.ok(managerBillingService.getManagerDeposits(user.getId(), status, PageRequest.of(page, size)));
+    }
+
+    @PostMapping("/api/v1/manager/invoices/{id}/payment-qr")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<ManagerPaymentQrResponse> createPaymentQr(
+            @PathVariable Long id,
+            @RequestBody @Valid ManagerPaymentQrRequest request) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        return ResponseEntity.ok(tenantBillingService.createManagerPaymentQr(user.getId(), id, request));
     }
 
     private static boolean isAdmin(CustomUserDetails user) {

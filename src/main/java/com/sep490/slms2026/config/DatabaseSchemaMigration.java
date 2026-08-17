@@ -113,6 +113,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureUtilityBillsUtilityTypeColumn();
         ensureZoneManagerTables();
         ensureRentalPriceModel();
+        ensureCashCollectAndProxyPayTables();
     }
 
     /**
@@ -1138,6 +1139,116 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     "CREATE INDEX IF NOT EXISTS idx_room_price_history_property ON room_price_history(property_id, changed_at DESC)");
         } catch (Exception e) {
             log.warn("Could not create room_price_history index: {}", e.getMessage());
+        }
+    }
+
+    private void ensureCashCollectAndProxyPayTables() {
+        createTableIfNotExists(
+                "tenant_invoice_payos_orders",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                invoice_id BIGINT NOT NULL REFERENCES tenant_invoices(id),
+                order_code BIGINT NOT NULL UNIQUE,
+                checkout_url VARCHAR(1024),
+                qr_code TEXT,
+                amount NUMERIC(19, 2) NOT NULL,
+                created_by UUID,
+                purpose VARCHAR(30),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                expired_at TIMESTAMP,
+                status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+                payer_name VARCHAR(255),
+                payer_phone VARCHAR(20),
+                unlocked_by_admin UUID
+                """);
+        try {
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_payos_orders_invoice ON tenant_invoice_payos_orders(invoice_id)");
+        } catch (Exception e) {
+            log.debug("idx_payos_orders_invoice: {}", e.getMessage());
+        }
+        backfillPayosOrdersFromInvoices();
+
+        createTableIfNotExists(
+                "invoice_unlock_passcodes",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                code VARCHAR(16) NOT NULL,
+                invoice_id BIGINT NOT NULL REFERENCES tenant_invoices(id),
+                purpose VARCHAR(30) NOT NULL,
+                created_by UUID NOT NULL,
+                note TEXT,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                used_by UUID,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "invoice_unlock_tokens",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                token UUID NOT NULL UNIQUE,
+                manager_id UUID NOT NULL,
+                invoice_id BIGINT NOT NULL REFERENCES tenant_invoices(id),
+                purpose VARCHAR(30) NOT NULL,
+                passcode_id BIGINT NOT NULL,
+                unlocked_by_admin UUID NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "invoice_unlock_fail_counters",
+                """
+                manager_id UUID NOT NULL,
+                invoice_id BIGINT NOT NULL,
+                fail_count INT NOT NULL DEFAULT 0,
+                locked_until TIMESTAMP,
+                PRIMARY KEY (manager_id, invoice_id)
+                """);
+        createTableIfNotExists(
+                "invoice_unlock_logs",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                manager_id UUID NOT NULL,
+                invoice_id BIGINT NOT NULL,
+                purpose VARCHAR(30) NOT NULL,
+                unlocked_by_admin UUID NOT NULL,
+                passcode_id BIGINT,
+                success BOOLEAN NOT NULL DEFAULT TRUE,
+                payment_result VARCHAR(50),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+
+        addColumnIfNotExists("tenant_payments", "collection_mode", "VARCHAR(30)");
+        addColumnIfNotExists("tenant_payments", "remitted_by", "UUID");
+        addColumnIfNotExists("tenant_payments", "remit_method", "VARCHAR(50)");
+        addColumnIfNotExists("tenant_payments", "payer_name", "VARCHAR(255)");
+        addColumnIfNotExists("tenant_payments", "payer_phone", "VARCHAR(20)");
+        addColumnIfNotExists("tenant_payments", "facilitated_by", "UUID");
+        addColumnIfNotExists("tenant_payments", "unlocked_by_admin", "UUID");
+        addColumnIfNotExists("tenant_payments", "payment_note", "TEXT");
+    }
+
+    private void backfillPayosOrdersFromInvoices() {
+        try {
+            int n = jdbcTemplate.update("""
+                    INSERT INTO tenant_invoice_payos_orders
+                        (invoice_id, order_code, checkout_url, qr_code, amount, purpose, created_at, status)
+                    SELECT i.id, i.payos_order_code, i.payos_checkout_url, i.payos_qr_code,
+                           i.grand_total, 'SELF', COALESCE(i.created_at, NOW()), 'ACTIVE'
+                    FROM tenant_invoices i
+                    WHERE i.payos_order_code IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM tenant_invoice_payos_orders o
+                          WHERE o.order_code = i.payos_order_code
+                      )
+                    """);
+            if (n > 0) {
+                log.info("Backfilled {} payos orders from tenant_invoices", n);
+            }
+        } catch (Exception e) {
+            log.warn("Could not backfill tenant_invoice_payos_orders: {}", e.getMessage());
         }
     }
 }

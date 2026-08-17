@@ -1,10 +1,12 @@
 package com.sep490.slms2026.service.impl;
 
+import com.sep490.slms2026.dto.billing.InvoicePaymentContext;
 import com.sep490.slms2026.dto.response.BillingRealtimeEvent;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.entity.User;
+import com.sep490.slms2026.enums.PaymentCollectionMode;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.repository.UserRepository;
@@ -28,12 +30,22 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
 
     @Override
     public void publishInvoicePaid(TenantInvoice invoice) {
+        publishInvoicePaid(invoice, InvoicePaymentContext.selfQr());
+    }
+
+    @Override
+    public void publishInvoicePaid(TenantInvoice invoice, InvoicePaymentContext context) {
         if (invoice == null) {
             return;
         }
+        InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
 
         TenantContract contract = invoice.getTenantContract();
         Property property = contract != null ? contract.getProperty() : null;
+
+        String remittedByName = resolveUserName(ctx.remittedBy());
+        String payerName = ctx.payerName();
+        String unlockedByAdminName = resolveUserName(ctx.unlockedByAdmin());
 
         BillingRealtimeEvent event = BillingRealtimeEvent.builder()
                 .event("INVOICE_PAID")
@@ -55,6 +67,10 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                 .paymentMethod(invoice.getPaymentMethod())
                 .transactionId(invoice.getTransactionId())
                 .paidAt(invoice.getPaidAt())
+                .collectionMode(ctx.collectionMode() != null ? ctx.collectionMode().name() : PaymentCollectionMode.SELF.name())
+                .remittedByName(remittedByName)
+                .payerName(payerName)
+                .unlockedByAdminName(unlockedByAdminName)
                 .build();
 
         Set<UUID> sent = new HashSet<>();
@@ -69,6 +85,15 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {
             sendToUser(contract.getTenant().getUser(), event, sent);
         }
+    }
+
+    private String resolveUserName(UUID userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userRepository.findById(userId)
+                .map(User::getFullName)
+                .orElse(null);
     }
 
     private void sendToRole(Role role, BillingRealtimeEvent event, Set<UUID> sent) {

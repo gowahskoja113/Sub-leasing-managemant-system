@@ -56,4 +56,28 @@ public class TenantPayment implements Serializable {
 
     @Column(name = "room_number")
     private String roomNumber;
+
+    @Column(name = "collection_mode", length = 30)
+    private String collectionMode;
+
+    @Column(name = "remitted_by")
+    private UUID remittedBy;
+
+    @Column(name = "remit_method", length = 50)
+    private String remitMethod;
+
+    @Column(name = "payer_name")
+    private String payerName;
+
+    @Column(name = "payer_phone", length = 20)
+    private String payerPhone;
+
+    @Column(name = "facilitated_by")
+    private UUID facilitatedBy;
+
+    @Column(name = "unlocked_by_admin")
+    private UUID unlockedByAdmin;
+
+    @Column(name = "payment_note", columnDefinition = "TEXT")
+    private String paymentNote;
 }
