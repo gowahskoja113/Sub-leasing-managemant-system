@@ -31,6 +31,8 @@ public class BulkImportController {
     /**
      * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao). Luôn nguyên căn.
      * dryRun=true: chỉ parse + validate, không ghi DB.
+     * HĐ NORENO sau import được gửi Host (PENDING_HOST_REVIEW) và bắn STOMP
+     * {@code /user/queue/onboarding} event {@code PROPERTY_SUBMITTED_TO_HOST}.
      */
     @PostMapping(value = "/lease-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")

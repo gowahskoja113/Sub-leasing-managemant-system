@@ -132,17 +132,31 @@ public class InvoiceUnlockServiceImpl implements InvoiceUnlockService {
         String raw = request.getPasscode() != null ? request.getPasscode().trim() : "";
         InvoiceUnlockPasscode passcode = passcodeRepository.findUsableByCode(raw, now).orElse(null);
 
-        if (passcode == null || !passcode.getInvoiceId().equals(invoice.getId())) {
-            counter.setFailCount(counter.getFailCount() + 1);
-            if (counter.getFailCount() >= MAX_FAILS) {
-                counter.setLockedUntil(now.plusMinutes(LOCK_MINUTES));
-                counter.setFailCount(0);
-            }
-            failCounterRepository.save(counter);
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Mã không đúng hoặc đã hết hạn. Liên hệ admin để lấy mã mới.");
+        if (passcode != null && passcode.getInvoiceId().equals(invoice.getId())) {
+            return consumePasscodeAndIssueToken(managerId, invoice, passcode, counter, now);
         }
 
+        InvoiceUnlockVerifyResponse reused = tryReuseUnlockToken(managerId, invoice.getId(), raw, now);
+        if (reused != null) {
+            return reused;
+        }
+
+        counter.setFailCount(counter.getFailCount() + 1);
+        if (counter.getFailCount() >= MAX_FAILS) {
+            counter.setLockedUntil(now.plusMinutes(LOCK_MINUTES));
+            counter.setFailCount(0);
+        }
+        failCounterRepository.save(counter);
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Mã không đúng hoặc đã hết hạn. Liên hệ admin để lấy mã mới.");
+    }
+
+    private InvoiceUnlockVerifyResponse consumePasscodeAndIssueToken(
+            UUID managerId,
+            TenantInvoice invoice,
+            InvoiceUnlockPasscode passcode,
+            InvoiceUnlockFailCounter counter,
+            LocalDateTime now) {
         passcode.setUsedAt(now);
         passcode.setUsedBy(managerId);
         passcodeRepository.save(passcode);
@@ -181,6 +195,30 @@ public class InvoiceUnlockServiceImpl implements InvoiceUnlockService {
                 .expiresAt(tokenExpires)
                 .message("OK")
                 .build();
+    }
+
+    /**
+     * Passcode đã verify nhưng bước tạo QR sau đó thất bại: trả lại unlock token còn hạn, chưa dùng.
+     */
+    private InvoiceUnlockVerifyResponse tryReuseUnlockToken(
+            UUID managerId, Long invoiceId, String code, LocalDateTime now) {
+        InvoiceUnlockPasscode passcode = passcodeRepository
+                .findFirstByCodeAndInvoiceIdOrderByCreatedAtDesc(code, invoiceId)
+                .orElse(null);
+        if (passcode == null || !managerId.equals(passcode.getUsedBy())) {
+            return null;
+        }
+        return tokenRepository.findReusable(
+                        managerId, invoiceId, passcode.getPurpose(), passcode.getId(), now)
+                .stream()
+                .findFirst()
+                .map(token -> InvoiceUnlockVerifyResponse.builder()
+                        .valid(true)
+                        .unlockToken(token.getToken())
+                        .expiresAt(token.getExpiresAt())
+                        .message("OK")
+                        .build())
+                .orElse(null);
     }
 
     @Override

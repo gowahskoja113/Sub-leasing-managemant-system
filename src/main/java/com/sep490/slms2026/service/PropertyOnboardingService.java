@@ -37,6 +37,8 @@ public interface PropertyOnboardingService {
 
     OnboardingSummaryResponse submitToHost(Long propertyId);
 
+    OnboardingSummaryResponse submitToHost(Long propertyId, String realtimeSource);
+
     PropertyActivationResponse hostConfirm(Long propertyId, HostConfirmRequest request);
 
     PropertyActivationResponse assignOperationManager(Long propertyId, AssignOperationManagerRequest request);

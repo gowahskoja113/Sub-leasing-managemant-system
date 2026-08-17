@@ -19,6 +19,8 @@ public interface InvoiceUnlockPasscodeRepository extends JpaRepository<InvoiceUn
 
     boolean existsByCodeAndUsedAtIsNullAndExpiresAtAfter(String code, LocalDateTime now);
 
+    Optional<InvoiceUnlockPasscode> findFirstByCodeAndInvoiceIdOrderByCreatedAtDesc(String code, Long invoiceId);
+
     @Query("""
             SELECT p FROM InvoiceUnlockPasscode p
             WHERE p.usedAt IS NULL AND p.expiresAt > :now

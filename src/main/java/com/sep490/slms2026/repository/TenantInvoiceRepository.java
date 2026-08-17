@@ -18,6 +18,18 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
 
     Optional<TenantInvoice> findByIdAndTenantUserId(Long id, UUID tenantUserId);
 
+    @Query("""
+            SELECT i FROM TenantInvoice i
+            JOIN FETCH i.tenantContract tc
+            JOIN FETCH tc.property p
+            LEFT JOIN FETCH tc.tenant t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH tc.assignedManager
+            LEFT JOIN FETCH tc.room
+            WHERE i.id = :id
+            """)
+    Optional<TenantInvoice> findByIdForRealtime(@Param("id") Long id);
+
     Optional<TenantInvoice> findByUtilityInvoiceId(Long utilityInvoiceId);
 
     Optional<TenantInvoice> findByPayosOrderCode(Long payosOrderCode);

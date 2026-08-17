@@ -43,7 +43,7 @@ import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
-import com.sep490.slms2026.service.RealtimeEventService;
+import com.sep490.slms2026.event.InvoicePaidEvent;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.UnitPriceService;
 import com.sep490.slms2026.util.RentEscalationSupport;
@@ -55,6 +55,7 @@ import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -102,7 +103,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final MeterOverrideService meterOverrideService;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
-    private final RealtimeEventService realtimeEventService;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final UnitPriceService unitPriceService;
 
     @Override
@@ -565,7 +566,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .roomNumber(roomNumber)
                 .build());
 
-        realtimeEventService.publishInvoicePaid(invoice);
+        applicationEventPublisher.publishEvent(InvoicePaidEvent.realtimeOnly(invoice.getId()));
         tenantBillingService.recordPaidFirstRentFromOnboard(contract, payosOrderCode, method, paidAt);
         return true;
     }

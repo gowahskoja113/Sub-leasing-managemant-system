@@ -8,6 +8,7 @@ import com.sep490.slms2026.dto.response.TenantInvoiceResponse;
 import com.sep490.slms2026.dto.response.TenantPaymentResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.*;
+import com.sep490.slms2026.event.InvoicePaidEvent;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
@@ -24,8 +25,10 @@ import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -63,6 +66,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final InvoiceUnlockLogRepository invoiceUnlockLogRepository;
     private final HostNotificationRepository hostNotificationRepository;
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -145,9 +149,6 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             }
         }
 
-        unlockToken.setUsedAt(now);
-        invoiceUnlockTokenRepository.save(unlockToken);
-
         PayosOrderPurpose purpose = request.getPurpose() == InvoiceUnlockPurpose.CASH_COLLECT
                 ? PayosOrderPurpose.CASH_COLLECT
                 : PayosOrderPurpose.PROXY_PAY;
@@ -160,6 +161,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 request.getPayerName(),
                 request.getPayerPhone(),
                 unlockToken.getUnlockedByAdmin());
+
+        unlockToken.setUsedAt(LocalDateTime.now());
+        invoiceUnlockTokenRepository.save(unlockToken);
 
         invoiceUnlockLogRepository.save(InvoiceUnlockLog.builder()
                 .managerId(managerUserId)
@@ -808,9 +812,28 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice, InvoicePaymentContext context) {
         TenantInvoice savedInvoice = tenantInvoiceRepository.save(invoice);
         InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
-        realtimeEventService.publishInvoicePaid(savedInvoice, ctx);
-        notifyPaymentReceived(savedInvoice, ctx);
+        applicationEventPublisher.publishEvent(InvoicePaidEvent.of(savedInvoice.getId(), ctx));
         return savedInvoice;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context,
+                                             boolean sendPaymentNotification) {
+        TenantInvoice invoice = tenantInvoiceRepository.findByIdForRealtime(invoiceId).orElse(null);
+        if (invoice == null) {
+            log.warn("Skip invoice-paid realtime: invoice {} not found after commit", invoiceId);
+            return;
+        }
+        InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
+        realtimeEventService.publishInvoicePaid(invoice, ctx);
+        if (sendPaymentNotification) {
+            try {
+                notifyPaymentReceived(invoice, ctx);
+            } catch (Exception e) {
+                log.error("Failed to write payment notifications for invoice {}", invoiceId, e);
+            }
+        }
     }
 
     private TenantInvoicePayosOrder createPayosOrder(

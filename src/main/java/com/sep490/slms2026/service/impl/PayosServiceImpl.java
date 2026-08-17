@@ -71,19 +71,18 @@ public class PayosServiceImpl implements PayosService {
         // mô tả tối đa 25 ký tự theo giới hạn PayOS
         String desc = description.length() > 25 ? description.substring(0, 25) : description;
 
-        // Chữ ký theo PayOS: các field sắp theo alphabet
-        StringBuilder dataToSignBuilder = new StringBuilder();
-        dataToSignBuilder.append("amount=").append(chargeAmount)
-                .append("&cancelUrl=").append(cancelUrl)
-                .append("&description=").append(desc)
-                .append("&orderCode=").append(orderCode)
-                .append("&returnUrl=").append(returnUrl);
+        // PayOS v2 create-payment-link: chữ ký chỉ gồm 5 field (alphabet).
+        // expiredAt được gửi trong body nhưng không nằm trong chuỗi ký.
+        String dataToSign = "amount=" + chargeAmount
+                + "&cancelUrl=" + cancelUrl
+                + "&description=" + desc
+                + "&orderCode=" + orderCode
+                + "&returnUrl=" + returnUrl;
         Integer expiredAtEpoch = null;
         if (expiredAt != null) {
             expiredAtEpoch = (int) expiredAt.atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toEpochSecond();
-            dataToSignBuilder.append("&expiredAt=").append(expiredAtEpoch);
         }
-        String signature = hmacSha256(dataToSignBuilder.toString(), checksumKey);
+        String signature = hmacSha256(dataToSign, checksumKey);
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("orderCode", orderCode);

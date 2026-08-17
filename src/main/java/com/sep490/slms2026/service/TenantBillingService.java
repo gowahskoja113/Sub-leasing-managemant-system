@@ -1,5 +1,6 @@
 package com.sep490.slms2026.service;
 
+import com.sep490.slms2026.dto.billing.InvoicePaymentContext;
 import com.sep490.slms2026.dto.request.CreateRentInvoiceRequest;
 import com.sep490.slms2026.dto.request.ManagerPaymentQrRequest;
 import com.sep490.slms2026.dto.response.ManagerPaymentQrResponse;
@@ -48,4 +49,10 @@ public interface TenantBillingService {
 
     ManagerPaymentQrResponse createManagerPaymentQr(UUID managerUserId, Long invoiceId,
                                                     ManagerPaymentQrRequest request);
+
+    /**
+     * Gọi từ listener AFTER_COMMIT: WebSocket + (tuỳ chọn) thông báo thanh toán.
+     */
+    void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context,
+                                      boolean sendPaymentNotification);
 }

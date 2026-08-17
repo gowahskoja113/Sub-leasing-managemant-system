@@ -9,16 +9,21 @@ import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.PaymentCollectionMode;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.RealtimeEventService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimeEventServiceImpl implements RealtimeEventService {
@@ -27,6 +32,7 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
 
     @Override
     public void publishInvoicePaid(TenantInvoice invoice) {
@@ -35,10 +41,20 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
 
     @Override
     public void publishInvoicePaid(TenantInvoice invoice, InvoicePaymentContext context) {
-        if (invoice == null) {
+        if (invoice == null || invoice.getId() == null) {
             return;
         }
+        Long invoiceId = invoice.getId();
         InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
+        runAfterCommit(() -> doPublishInvoicePaid(invoiceId, ctx));
+    }
+
+    private void doPublishInvoicePaid(Long invoiceId, InvoicePaymentContext ctx) {
+        TenantInvoice invoice = tenantInvoiceRepository.findByIdForRealtime(invoiceId).orElse(null);
+        if (invoice == null) {
+            log.warn("Skip INVOICE_PAID websocket: invoice {} not found", invoiceId);
+            return;
+        }
 
         TenantContract contract = invoice.getTenantContract();
         Property property = contract != null ? contract.getProperty() : null;
@@ -85,6 +101,24 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {
             sendToUser(contract.getTenant().getUser(), event, sent);
         }
+    }
+
+    private void runAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        action.run();
+                    } catch (Exception e) {
+                        log.error("Failed to publish INVOICE_PAID websocket after commit", e);
+                    }
+                }
+            });
+            return;
+        }
+        action.run();
     }
 
     private String resolveUserName(UUID userId) {
