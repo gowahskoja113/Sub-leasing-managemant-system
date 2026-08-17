@@ -36,4 +36,10 @@ public class CreateUtilityBillRequest {
     private BigDecimal totalAmount;
 
     private String imageUrl;
+
+    /** Chỉ số cũ in trên giấy EVN/nước — bắt buộc với nhà nguyên căn. */
+    private BigDecimal prevReading;
+
+    /** Chỉ số mới in trên giấy EVN/nước — bắt buộc với nhà nguyên căn. */
+    private BigDecimal newReading;
 }

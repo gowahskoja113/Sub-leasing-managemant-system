@@ -7,6 +7,7 @@ import com.sep490.slms2026.entity.MeterReading;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
+import com.sep490.slms2026.entity.UtilityBill;
 import com.sep490.slms2026.entity.UtilityInvoice;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -78,7 +79,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .orElse(null);
         validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType, contract);
 
-        return createAndSend(property, room, contract, utilityType, request);
+        return createAndSend(property, room, contract, utilityType, request, true);
     }
 
     @Override
@@ -97,7 +98,35 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .orElse(null);
         validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType, contract);
 
-        return createAndSend(property, null, contract, utilityType, request);
+        return createAndSend(property, null, contract, utilityType, request, true);
+    }
+
+    @Override
+    @Transactional
+    public UtilityInvoiceResponse createFromWholeHouseBill(UtilityBill bill, BigDecimal prevReading, BigDecimal newReading) {
+        Property property = bill.getProperty();
+        if (!Boolean.TRUE.equals(property.getWholeHouse())) {
+            throw new BusinessException("WHOLE_HOUSE_ONLY",
+                    "Chỉ phát hành tự động cho nhà nguyên căn.");
+        }
+        TenantContract contract = tenantContractRepository
+                .findByPropertyIdAndRoomIsNullAndStatus(property.getId(), ContractStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException("NO_ACTIVE_CONTRACT",
+                        "Nhà nguyên căn chưa có hợp đồng ACTIVE — không phát hành được hoá đơn cho khách."));
+
+        CreateUtilityInvoiceRequest request = CreateUtilityInvoiceRequest.builder()
+                .type(UtilityTypeMapper.toApi(bill.getType()))
+                .billingPeriod(bill.getBillingPeriod())
+                .prevReading(prevReading)
+                .newReading(newReading)
+                .consumption(BigDecimal.valueOf(bill.getTotalQuantity()))
+                .unitPrice(bill.getUnitPrice())
+                .amount(bill.getTotalAmount())
+                .meterImageUrl(bill.getImageUrl())
+                .build();
+        validateInvoiceAmounts(request);
+        validateBillingPeriodLock(property.getId(), null, request.getBillingPeriod(), bill.getType(), contract);
+        return createAndSend(property, null, contract, bill.getType(), request, false);
     }
 
     @Override
@@ -137,11 +166,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             Room room,
             TenantContract contract,
             UtilityType utilityType,
-            CreateUtilityInvoiceRequest request) {
+            CreateUtilityInvoiceRequest request,
+            boolean requireMeterPhoto) {
 
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         LocalDateTime now = LocalDateTime.now();
-        ensureMeterPhotoOrOverride(property, room, contract, utilityType, request, user);
+        if (requireMeterPhoto) {
+            ensureMeterPhotoOrOverride(property, room, contract, utilityType, request, user);
+        }
 
         UtilityInvoice invoice = utilityInvoiceRepository.save(UtilityInvoice.builder()
                 .property(property)
@@ -179,8 +211,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 java.util.UUID tenantId = contract.getTenant().getUser().getId();
                 String typeStr = utilityType == UtilityType.ELECTRIC ? "Điện" : "Nước";
                 String title = "Hoá đơn " + typeStr + " mới";
-                String content = String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                        typeStr, request.getBillingPeriod(), request.getAmount().longValue());
+                boolean adminIssued = Boolean.TRUE.equals(property.getWholeHouse()) && room == null;
+                String content = adminIssued
+                        ? String.format("Admin vừa phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                                typeStr, request.getBillingPeriod(), request.getAmount().longValue())
+                        : String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                                typeStr, request.getBillingPeriod(), request.getAmount().longValue());
                 
                 Notification notification = Notification.builder()
                         .userId(tenantId)

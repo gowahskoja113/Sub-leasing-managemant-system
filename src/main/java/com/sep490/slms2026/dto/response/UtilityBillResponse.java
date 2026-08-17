@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -28,5 +29,14 @@ public class UtilityBillResponse {
     private String status;
     private String createdBy;
     private LocalDateTime createdAt;
+
+    /** Số phòng có HĐ ACTIVE cần ghi chỉ số. Nhà nguyên căn = 0. */
+    private Integer roomsTotal;
+    /** Số phòng đã có UtilityInvoice kỳ này. */
+    private Integer roomsDone;
+    /** Hạn chụp trong ngày — null với nhà nguyên căn. */
+    private LocalDate readingDeadline;
+    /** Quá hạn mà chưa ghi đủ phòng. */
+    private Boolean overdue;
 }
 

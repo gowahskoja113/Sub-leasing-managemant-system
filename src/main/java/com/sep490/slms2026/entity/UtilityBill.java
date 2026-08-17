@@ -7,6 +7,7 @@ import lombok.*;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -64,5 +65,9 @@ public class UtilityBill implements Serializable {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /** Nhà chia phòng: hạn chụp đồng hồ = ngày phát hành hoá đơn tổng. */
+    @Column(name = "reading_deadline")
+    private LocalDate readingDeadline;
 }
 

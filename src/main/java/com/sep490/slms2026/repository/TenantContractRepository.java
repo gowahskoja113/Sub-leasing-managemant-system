@@ -198,6 +198,15 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             WHERE c.property.id = :propertyId
               AND c.room IS NOT NULL
               AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+            """)
+    long countActiveRoomContracts(@Param("propertyId") Long propertyId);
+
+    @Query("""
+            SELECT COUNT(DISTINCT c.room.id)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NOT NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
               AND c.moveInDate <= :asOf
               AND (c.endDate IS NULL OR c.endDate >= :asOf)
             """)

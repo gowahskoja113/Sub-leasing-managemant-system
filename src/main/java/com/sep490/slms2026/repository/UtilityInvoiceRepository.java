@@ -42,4 +42,17 @@ public interface UtilityInvoiceRepository extends JpaRepository<UtilityInvoice, 
             ORDER BY ui.createdAt DESC
             """)
     List<UtilityInvoice> findByTenantUserId(@Param("tenantUserId") java.util.UUID tenantUserId);
+
+    @Query("""
+            SELECT COUNT(DISTINCT i.room.id)
+            FROM UtilityInvoice i
+            WHERE i.property.id = :propertyId
+              AND i.billingPeriod = :billingPeriod
+              AND i.utilityType = :utilityType
+              AND i.room IS NOT NULL
+            """)
+    long countDistinctRoomsInvoiced(
+            @Param("propertyId") Long propertyId,
+            @Param("billingPeriod") String billingPeriod,
+            @Param("utilityType") UtilityType utilityType);
 }

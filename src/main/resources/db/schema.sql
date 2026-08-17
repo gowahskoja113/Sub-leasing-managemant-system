@@ -610,7 +610,8 @@ CREATE TABLE IF NOT EXISTS utility_bills (
     image_url       VARCHAR(255),
     status          VARCHAR(50) NOT NULL,
     created_by      UUID,
-    created_at      TIMESTAMP
+    created_at      TIMESTAMP,
+    reading_deadline DATE
 );
 
 CREATE TABLE IF NOT EXISTS utility_invoices (

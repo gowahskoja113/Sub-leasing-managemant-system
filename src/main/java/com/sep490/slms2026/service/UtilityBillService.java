@@ -10,5 +10,8 @@ public interface UtilityBillService {
     UtilityBillResponse createUtilityBill(CreateUtilityBillRequest request);
     void revokeUtilityBill(Long id);
     List<UtilityBillResponse> getUtilityBills(Long propertyId, Integer month, Integer year, UtilityType type, boolean isManager);
+
+    /** Cron nhắc quản lý chụp đồng hồ nhà chia phòng — 15:00, 20:00, sáng hôm sau. */
+    int remindUtilityMeterReading();
 }
 

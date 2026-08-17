@@ -111,6 +111,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureUserPushTokensTable();
         ensureBillingConfigTable();
         ensureUtilityBillsUtilityTypeColumn();
+        addColumnIfNotExists("utility_bills", "reading_deadline", "DATE");
         ensureZoneManagerTables();
         ensureRentalPriceModel();
         ensureCashCollectAndProxyPayTables();
