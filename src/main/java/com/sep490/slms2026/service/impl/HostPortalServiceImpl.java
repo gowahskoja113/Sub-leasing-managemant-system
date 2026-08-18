@@ -216,7 +216,7 @@ public class HostPortalServiceImpl implements HostPortalService {
     public HostReceivablesAgingResponse getReceivablesAging(String month) {
         YearMonth ym = month != null && !month.isBlank() ? parseMonth(month, YearMonth.now()) : YearMonth.now();
         List<TenantInvoice> dbInvoices = tenantInvoiceRepository.findForManager(
-                null, null, com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue());
+                null, null, null, com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue());
 
         LocalDate today = LocalDate.now();
 

@@ -84,6 +84,7 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
             LEFT JOIN FETCH t.user
             LEFT JOIN FETCH tc.room
             WHERE (:managerId IS NULL OR p.operationManagerId = :managerId)
+              AND (:propertyId IS NULL OR p.id = :propertyId)
               AND (:status IS NULL OR i.status = :status)
               AND (:type IS NULL OR i.invoiceType = :type)
               AND (:year IS NULL OR i.billingYear = :year)
@@ -92,6 +93,7 @@ public interface TenantInvoiceRepository extends JpaRepository<TenantInvoice, Lo
             """)
     List<TenantInvoice> findForManager(
             @Param("managerId") UUID managerId,
+            @Param("propertyId") Long propertyId,
             @Param("status") TenantInvoiceStatus status,
             @Param("type") TenantInvoiceType type,
             @Param("year") Integer year,

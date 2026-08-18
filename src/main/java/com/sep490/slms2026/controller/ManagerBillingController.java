@@ -44,13 +44,14 @@ public class ManagerBillingController {
     @GetMapping("/api/v1/manager/invoices")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<List<ManagerInvoiceResponse>> listInvoices(
+            @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) String period,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String type) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         boolean isAdmin = isAdminOrOwner(user);
         return ResponseEntity.ok(managerBillingService.listInvoices(
-                user.getId(), isAdmin, period, status, type));
+                user.getId(), isAdmin, propertyId, period, status, type));
     }
 
     /**
@@ -67,10 +68,11 @@ public class ManagerBillingController {
     @GetMapping("/api/v1/manager/payments")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<List<ManagerPaymentResponse>> listPayments(
+            @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) String status) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         boolean isAdmin = isAdminOrOwner(user);
-        return ResponseEntity.ok(managerBillingService.listPayments(user.getId(), isAdmin, status));
+        return ResponseEntity.ok(managerBillingService.listPayments(user.getId(), isAdmin, propertyId, status));
     }
 
     /**

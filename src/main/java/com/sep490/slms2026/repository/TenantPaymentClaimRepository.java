@@ -27,11 +27,13 @@ public interface TenantPaymentClaimRepository extends JpaRepository<TenantPaymen
             LEFT JOIN FETCH t.user
             LEFT JOIN FETCH tc.room
             WHERE (:managerUserId IS NULL OR p.operationManagerId = :managerUserId)
+              AND (:propertyId IS NULL OR p.id = :propertyId)
               AND (:status IS NULL OR c.status = :status)
             ORDER BY c.createdAt DESC
             """)
     List<TenantPaymentClaim> findForManager(
             @Param("managerUserId") UUID managerUserId,
+            @Param("propertyId") Long propertyId,
             @Param("status") PaymentClaimStatus status);
 
     @Modifying

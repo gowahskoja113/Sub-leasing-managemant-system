@@ -50,9 +50,9 @@ public interface TenantBillingService {
     ManagerPaymentQrResponse createManagerPaymentQr(UUID managerUserId, Long invoiceId,
                                                     ManagerPaymentQrRequest request);
 
-    /**
-     * Gọi từ listener AFTER_COMMIT: WebSocket + (tuỳ chọn) thông báo thanh toán.
-     */
-    void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context,
-                                      boolean sendPaymentNotification);
+    /** Gọi từ listener AFTER_COMMIT: WebSocket (dữ liệu đã commit, FE nạp lại khớp ngay). */
+    void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context);
+
+    /** Ghi notification + push sau commit — TX riêng, gọi từ listener. */
+    void sendPaymentNotificationsAfterCommit(Long invoiceId, InvoicePaymentContext context);
 }

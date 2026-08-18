@@ -18,12 +18,13 @@ public interface ManagerBillingService {
     List<RentInvoiceSummaryResponse> listRentInvoices(Long propertyId, String month);
 
     List<ManagerInvoiceResponse> listInvoices(UUID managerUserId, boolean isAdmin,
-                                              String period, String status, String type);
+                                              Long propertyId, String period, String status, String type);
 
     /** Chi tiết 1 hoá đơn kèm {@code items[]} (onboard: tiền nhà + cọc). */
     ManagerInvoiceResponse getInvoice(UUID managerUserId, boolean isAdmin, Long invoiceId);
 
-    List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin, String status);
+    List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin,
+                                              Long propertyId, String status);
 
     /** Lịch sử thu thật từ {@code tenant_payments} — khác hàng chờ đối soát {@link #listPayments}. */
     Page<ManagerPaymentHistoryResponse> listPaymentHistory(UUID managerUserId, boolean isAdmin,

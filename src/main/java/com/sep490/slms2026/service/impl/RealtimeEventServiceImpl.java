@@ -16,8 +16,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -39,14 +37,16 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         publishInvoicePaid(invoice, InvoicePaymentContext.selfQr());
     }
 
+    /**
+     * Chỉ gọi sau khi transaction ghi PAID đã commit (từ {@link InvoicePaidEventListener}).
+     * Reload từ DB để payload WS khớp dữ liệu FE nạp lại ngay sau event.
+     */
     @Override
     public void publishInvoicePaid(TenantInvoice invoice, InvoicePaymentContext context) {
         if (invoice == null || invoice.getId() == null) {
             return;
         }
-        Long invoiceId = invoice.getId();
-        InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
-        runAfterCommit(() -> doPublishInvoicePaid(invoiceId, ctx));
+        doPublishInvoicePaid(invoice.getId(), context != null ? context : InvoicePaymentContext.selfQr());
     }
 
     private void doPublishInvoicePaid(Long invoiceId, InvoicePaymentContext ctx) {
@@ -101,24 +101,6 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {
             sendToUser(contract.getTenant().getUser(), event, sent);
         }
-    }
-
-    private void runAfterCommit(Runnable action) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()
-                && TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    try {
-                        action.run();
-                    } catch (Exception e) {
-                        log.error("Failed to publish INVOICE_PAID websocket after commit", e);
-                    }
-                }
-            });
-            return;
-        }
-        action.run();
     }
 
     private String resolveUserName(UUID userId) {

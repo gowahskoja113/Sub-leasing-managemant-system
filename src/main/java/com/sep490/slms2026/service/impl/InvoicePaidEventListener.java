@@ -27,8 +27,11 @@ public class InvoicePaidEventListener {
             return;
         }
         try {
-            tenantBillingService.handleInvoicePaidAfterCommit(
-                    event.invoiceId(), event.context(), event.sendPaymentNotification());
+            tenantBillingService.handleInvoicePaidAfterCommit(event.invoiceId(), event.context());
+            if (event.sendPaymentNotification()) {
+                tenantBillingService.sendPaymentNotificationsAfterCommit(
+                        event.invoiceId(), event.context());
+            }
         } catch (Exception e) {
             log.error("Failed to publish invoice-paid after commit id={}", event.invoiceId(), e);
         }

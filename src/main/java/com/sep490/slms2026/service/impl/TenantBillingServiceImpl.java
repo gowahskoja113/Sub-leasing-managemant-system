@@ -817,9 +817,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
 
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context,
-                                             boolean sendPaymentNotification) {
+    public void handleInvoicePaidAfterCommit(Long invoiceId, InvoicePaymentContext context) {
         TenantInvoice invoice = tenantInvoiceRepository.findByIdForRealtime(invoiceId).orElse(null);
         if (invoice == null) {
             log.warn("Skip invoice-paid realtime: invoice {} not found after commit", invoiceId);
@@ -827,12 +825,21 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         }
         InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
         realtimeEventService.publishInvoicePaid(invoice, ctx);
-        if (sendPaymentNotification) {
-            try {
-                notifyPaymentReceived(invoice, ctx);
-            } catch (Exception e) {
-                log.error("Failed to write payment notifications for invoice {}", invoiceId, e);
-            }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void sendPaymentNotificationsAfterCommit(Long invoiceId, InvoicePaymentContext context) {
+        TenantInvoice invoice = tenantInvoiceRepository.findByIdForRealtime(invoiceId).orElse(null);
+        if (invoice == null) {
+            log.warn("Skip payment notifications: invoice {} not found after commit", invoiceId);
+            return;
+        }
+        InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
+        try {
+            notifyPaymentReceived(invoice, ctx);
+        } catch (Exception e) {
+            log.error("Failed to write payment notifications for invoice {}", invoiceId, e);
         }
     }
 

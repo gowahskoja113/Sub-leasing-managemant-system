@@ -73,12 +73,16 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
     @Override
     @Transactional(readOnly = true)
     public List<ManagerInvoiceResponse> listInvoices(UUID managerUserId, boolean isAdmin,
-                                                     String period, String status, String type) {
+                                                     Long propertyId, String period, String status, String type) {
+        if (propertyId != null && !isAdmin) {
+            propertyAccessService.assertCanManageProperty(propertyId);
+        }
         UUID managerFilter = isAdmin ? null : managerUserId;
         YearMonth ym = parsePeriod(period);
 
         return tenantInvoiceRepository.findForManager(
                         managerFilter,
+                        propertyId,
                         parseInvoiceStatus(status),
                         parseInvoiceType(type),
                         ym != null ? ym.getYear() : null,
@@ -104,11 +108,15 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin, String status) {
+    public List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin,
+                                                     Long propertyId, String status) {
+        if (propertyId != null && !isAdmin) {
+            propertyAccessService.assertCanManageProperty(propertyId);
+        }
         UUID managerFilter = isAdmin ? null : managerUserId;
         PaymentClaimStatus claimStatus = parseClaimStatus(status);
 
-        return tenantPaymentClaimRepository.findForManager(managerFilter, claimStatus)
+        return tenantPaymentClaimRepository.findForManager(managerFilter, propertyId, claimStatus)
                 .stream()
                 .map(this::toManagerPayment)
                 .toList();
