@@ -5,17 +5,23 @@ import com.sep490.slms2026.dto.request.CheckoutInspectionRequest;
 import com.sep490.slms2026.dto.request.CheckoutRefundRequest;
 import com.sep490.slms2026.dto.response.CheckoutInspectionResponse;
 import com.sep490.slms2026.dto.response.CheckoutSettlementResponse;
+import com.sep490.slms2026.dto.response.DepositRefundResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.CheckoutRequestStatus;
+import com.sep490.slms2026.enums.DepositStatus;
 import com.sep490.slms2026.enums.InvoiceStatus;
+import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.repository.CheckoutInspectionRepository;
 import com.sep490.slms2026.repository.CheckoutRequestRepository;
 import com.sep490.slms2026.repository.CheckoutSettlementRepository;
 import com.sep490.slms2026.repository.InvoiceRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.security.CustomUserDetails;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.CheckoutProcessService;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.exception.BusinessException;
+import org.springframework.security.access.AccessDeniedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,16 +53,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final PushNotificationService pushNotificationService;
     private final UserRepository userRepository;
 
+    private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
+            CheckoutRequestStatus.APPROVED,
+            CheckoutRequestStatus.INSPECTING,
+            CheckoutRequestStatus.DISPUTED);
+
+    /** Hoàn cọc chạy song song với thanh lý — ghi nhận được khi đang quyết toán hoặc đã đóng hồ sơ. */
+    private static final List<CheckoutRequestStatus> REFUND_ALLOWED_STATUSES = List.of(
+            CheckoutRequestStatus.SETTLING,
+            CheckoutRequestStatus.COMPLETED);
+
     @Override
     @Transactional
     public void saveInspection(Long checkoutRequestId, CheckoutInspectionRequest request) {
         CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Checkout request not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu trả phòng ID=" + checkoutRequestId));
 
-        if (checkoutRequest.getStatus() != CheckoutRequestStatus.APPROVED && 
-            checkoutRequest.getStatus() != CheckoutRequestStatus.INSPECTING) {
-            throw new RuntimeException("Invalid status for inspection");
-        }
+        requireInspectionEditable(checkoutRequest);
+        CheckoutRequestStatus previousStatus = checkoutRequest.getStatus();
 
         CheckoutInspection inspection = checkoutInspectionRepository.findByCheckoutRequestId(checkoutRequestId)
                 .orElse(new CheckoutInspection());
@@ -90,21 +104,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         }
 
         checkoutInspectionRepository.save(inspection);
-        
+
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.INSPECTING) {
             checkoutRequest.setStatus(CheckoutRequestStatus.INSPECTING);
             checkoutRequestRepository.save(checkoutRequest);
         }
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("screen", "CheckoutDetail");
-        Map<String, Object> params = new HashMap<>();
-        params.put("requestId", checkoutRequest.getId());
-        data.put("params", params);
-        
-        String title = "Biên bản kiểm tra phòng";
-        String content = "Quản lý đã lưu biên bản kiểm tra phòng của bạn.";
-        sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_INSPECTED", title, content, data);
+        // DISPUTED: manager đang sửa lại; khách chỉ nhận bảng mới khi submit settlement.
+        if (previousStatus != CheckoutRequestStatus.DISPUTED) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("screen", "CheckoutDetail");
+            Map<String, Object> params = new HashMap<>();
+            params.put("requestId", checkoutRequest.getId());
+            data.put("params", params);
+
+            String title = "Biên bản kiểm tra phòng";
+            String content = "Quản lý đã lưu biên bản kiểm tra phòng của bạn.";
+            sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_INSPECTED", title, content, data);
+        }
     }
 
     @Override
@@ -440,20 +457,53 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
     @Override
     @Transactional
-    public void refund(Long checkoutRequestId, CheckoutRefundRequest request) {
-        CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
-                .orElseThrow(() -> new ResourceNotFoundException("Checkout request not found"));
+    public DepositRefundResponse refundByContractId(Long contractId, CheckoutRefundRequest request) {
+        List<CheckoutRequest> requests = checkoutRequestRepository.findByTenantContractIdOrderByCreatedAtDesc(contractId);
+        if (requests.isEmpty()) {
+            throw new ResourceNotFoundException("Không tìm thấy hồ sơ trả phòng cho hợp đồng ID=" + contractId);
+        }
+        CheckoutRequest chosen = pickRefundableCheckout(requests);
+        return refund(chosen.getId(), request);
+    }
 
-        if (checkoutRequest.getStatus() != CheckoutRequestStatus.SETTLING) {
-            throw new BusinessException("REFUND_NOT_ALLOWED", "Hồ sơ chưa ở bước quyết toán nên chưa ghi nhận hoàn cọc được.");
+    @Override
+    @Transactional
+    public DepositRefundResponse refund(Long checkoutRequestId, CheckoutRefundRequest request) {
+        CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu trả phòng ID=" + checkoutRequestId));
+
+        assertCanRecordDepositRefund(checkoutRequest);
+
+        if (!REFUND_ALLOWED_STATUSES.contains(checkoutRequest.getStatus())) {
+            throw new BusinessException(
+                    "REFUND_NOT_ALLOWED",
+                    "Chỉ ghi nhận hoàn cọc khi hồ sơ đang quyết toán hoặc đã thanh lý. Trạng thái hiện tại: "
+                            + checkoutRequest.getStatus() + ".");
         }
 
         CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Settlement not found"));
+                .orElseGet(() -> createRefundSettlement(checkoutRequest, request));
 
+        if (settlement.getRefundPaidAt() != null) {
+            throw new BusinessException("REFUND_ALREADY_RECORDED", "Đã ghi nhận hoàn cọc trước đó.");
+        }
+
+        BigDecimal remaining = nz(settlement.getRefundAmount());
+        if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(
+                    "REFUND_NOT_ALLOWED",
+                    "Quyết toán không còn số tiền hoàn cọc (cọc đã trừ hết hoặc khách còn phải trả thêm).");
+        }
+
+        if (request.getPaidAt() == null) {
+            throw new BusinessException("REFUND_INVALID", "Ngày chuyển hoàn cọc không được để trống");
+        }
+        if (request.getAmount() != null) {
+            settlement.setRefundAmount(request.getAmount());
+        }
         settlement.setRefundMethod(request.getMethod());
         settlement.setRefundProofUrl(request.getProofUrl());
-        settlement.setRefundPaidAt(request.getPaidAt() != null ? request.getPaidAt().atStartOfDay() : null);
+        settlement.setRefundPaidAt(request.getPaidAt().atStartOfDay());
         settlement.setRefundNote(request.getNote());
 
         checkoutSettlementRepository.save(settlement);
@@ -463,10 +513,21 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         Map<String, Object> params = new HashMap<>();
         params.put("requestId", checkoutRequest.getId());
         data.put("params", params);
-        
+
         String title = "Xác nhận hoàn cọc";
-        String content = "Quản lý đã ghi nhận hoàn tiền cọc cho bạn.";
+        String content = "Đã ghi nhận hoàn tiền cọc cho bạn.";
         sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_REFUNDED", title, content, data);
+
+        TenantContract contract = checkoutRequest.getTenantContract();
+        return DepositRefundResponse.builder()
+                .contractId(contract != null ? contract.getId() : null)
+                .checkoutRequestId(checkoutRequest.getId())
+                .status(DepositStatus.REFUNDED.name())
+                .amount(settlement.getRefundAmount())
+                .refundedAt(settlement.getRefundPaidAt().toLocalDate())
+                .method(settlement.getRefundMethod())
+                .proofUrl(settlement.getRefundProofUrl())
+                .build();
     }
 
     private void sendNotification(UUID targetUserId, String type, String title, String content, Map<String, Object> data) {
@@ -498,6 +559,79 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 pushNotificationService.sendPushNotification(u.getPushToken(), title, content, data);
             }
         });
+    }
+
+    private void requireInspectionEditable(CheckoutRequest checkoutRequest) {
+        if (INSPECTION_EDITABLE_STATUSES.contains(checkoutRequest.getStatus())) {
+            return;
+        }
+        List<String> allowed = INSPECTION_EDITABLE_STATUSES.stream().map(Enum::name).toList();
+        Map<String, Object> details = new HashMap<>();
+        details.put("currentStatus", checkoutRequest.getStatus().name());
+        details.put("allowedStatuses", allowed);
+        throw new BusinessException(
+                "CHECKOUT_INVALID_STATUS",
+                "Không thể lưu biên bản kiểm tra khi hồ sơ đang ở trạng thái "
+                        + checkoutRequest.getStatus()
+                        + ". Chỉ cho phép khi: " + String.join(", ", allowed) + ".",
+                details);
+    }
+
+    private CheckoutRequest pickRefundableCheckout(List<CheckoutRequest> requests) {
+        return requests.stream()
+                .filter(r -> r.getStatus() == CheckoutRequestStatus.COMPLETED)
+                .findFirst()
+                .or(() -> requests.stream()
+                        .filter(r -> r.getStatus() == CheckoutRequestStatus.SETTLING)
+                        .findFirst())
+                .orElseThrow(() -> new BusinessException(
+                        "REFUND_NOT_ALLOWED",
+                        "Hợp đồng chưa ở bước quyết toán hoặc thanh lý nên chưa ghi nhận hoàn cọc được."));
+    }
+
+    private CheckoutSettlement createRefundSettlement(CheckoutRequest checkoutRequest, CheckoutRefundRequest request) {
+        TenantContract contract = checkoutRequest.getTenantContract();
+        BigDecimal deposit = contract != null && contract.getDeposit() != null
+                ? contract.getDeposit()
+                : BigDecimal.ZERO;
+        BigDecimal refundAmount = request.getAmount() != null ? request.getAmount() : deposit;
+        return CheckoutSettlement.builder()
+                .checkoutRequest(checkoutRequest)
+                .depositAmount(deposit)
+                .unpaidTotal(BigDecimal.ZERO)
+                .damageTotal(BigDecimal.ZERO)
+                .adjustmentTotal(BigDecimal.ZERO)
+                .refundAmount(refundAmount)
+                .extraChargeAmount(BigDecimal.ZERO)
+                .settlementInvoices(new ArrayList<>())
+                .settlementAdjustments(new ArrayList<>())
+                .build();
+    }
+
+    private void assertCanRecordDepositRefund(CheckoutRequest checkoutRequest) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        boolean admin = hasRole(user, Role.ROLE_ADMIN);
+        boolean owner = hasRole(user, Role.ROLE_OWNER);
+        if (!admin && !owner) {
+            throw new AccessDeniedException("Chỉ chủ nhà hoặc admin được ghi nhận hoàn cọc");
+        }
+        if (admin) {
+            return;
+        }
+        TenantContract contract = checkoutRequest.getTenantContract();
+        if (contract == null || contract.getProperty() == null) {
+            throw new ResourceNotFoundException("Hồ sơ trả phòng không gắn tài sản");
+        }
+        // Host portal hiện xem toàn bộ sổ cọc (chưa có FK owner→property).
+        // Giữ chỗ này để sau này lọc theo tài sản host sở hữu cùng gốc host-403.
+    }
+
+    private static boolean hasRole(CustomUserDetails user, Role role) {
+        return user.getAuthorities().stream().anyMatch(a -> role.name().equals(a.getAuthority()));
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 
     private UUID getManagerId(TenantContract contract) {

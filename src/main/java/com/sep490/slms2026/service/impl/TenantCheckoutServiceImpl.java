@@ -44,8 +44,6 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final TenantContractRepository tenantContractRepository;
     private final UserRepository userRepository;
     private final TenantOnboardingService tenantOnboardingService;
-    private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
-    private final com.sep490.slms2026.repository.InvoiceRepository invoiceRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
@@ -308,26 +306,6 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         CheckoutRequest checkoutRequest = loadById(requestId);
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.APPROVED && checkoutRequest.getStatus() != CheckoutRequestStatus.SETTLING) {
             throw new BusinessException("Chỉ hoàn tất được yêu cầu ở trạng thái APPROVED hoặc SETTLING");
-        }
-
-        if (checkoutRequest.getStatus() == CheckoutRequestStatus.SETTLING) {
-            com.sep490.slms2026.entity.CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(requestId).orElse(null);
-            if (settlement != null) {
-                boolean isRefunded = settlement.getRefundPaidAt() != null;
-                boolean isZero = settlement.getRefundAmount().compareTo(java.math.BigDecimal.ZERO) == 0 && settlement.getExtraChargeAmount().compareTo(java.math.BigDecimal.ZERO) == 0;
-                
-                boolean isExtraChargePaid = false;
-                if (settlement.getExtraChargeInvoiceId() != null) {
-                    com.sep490.slms2026.entity.Invoice inv = invoiceRepository.findById(settlement.getExtraChargeInvoiceId()).orElse(null);
-                    if (inv != null && inv.getStatus() == com.sep490.slms2026.enums.InvoiceStatus.PAID) {
-                        isExtraChargePaid = true;
-                    }
-                }
-                
-                if (!isRefunded && !isZero && !isExtraChargePaid) {
-                    throw new BusinessException("Chưa hoàn tất thanh toán quyết toán (chưa hoàn cọc hoặc chưa thu thêm).");
-                }
-            }
         }
 
         TenantContract contract = checkoutRequest.getTenantContract();

@@ -293,9 +293,10 @@ public class HostPortalServiceImpl implements HostPortalService {
                         tenantName = c.getTenant().getUser().getFullName();
                     }
                     CheckoutSettlementContext ctx = checkoutByContract.get(c.getId());
+                    CheckoutSettlement settlement = ctx != null ? ctx.settlement() : null;
                     DepositStatus depositStatus = DepositLedgerStatusResolver.resolve(
                             c,
-                            ctx != null ? ctx.settlement() : null,
+                            settlement,
                             ctx != null ? ctx.checkoutStatus() : null);
                     LocalDate heldSince = c.getDepositPaidAt() != null
                             ? c.getDepositPaidAt().toLocalDate()
@@ -310,6 +311,11 @@ public class HostPortalServiceImpl implements HostPortalService {
                             .amount(c.getDeposit())
                             .heldSince(heldSince)
                             .status(depositStatus.name())
+                            .checkoutRequestId(ctx != null ? ctx.checkoutRequestId() : null)
+                            .refundAmount(settlement != null ? settlement.getRefundAmount() : null)
+                            .refundedAt(settlement != null && settlement.getRefundPaidAt() != null
+                                    ? settlement.getRefundPaidAt().toLocalDate()
+                                    : null)
                             .build();
                 })
                 .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
@@ -336,7 +342,8 @@ public class HostPortalServiceImpl implements HostPortalService {
         for (CheckoutRequest request : requests) {
             Long contractId = request.getTenantContract().getId();
             CheckoutSettlement settlement = settlementByRequestId.get(request.getId());
-            CheckoutSettlementContext candidate = new CheckoutSettlementContext(settlement, request.getStatus());
+            CheckoutSettlementContext candidate = new CheckoutSettlementContext(
+                    settlement, request.getStatus(), request.getId());
             result.merge(contractId, candidate, this::preferCheckoutContext);
         }
         return result;
@@ -361,7 +368,10 @@ public class HostPortalServiceImpl implements HostPortalService {
         return b;
     }
 
-    private record CheckoutSettlementContext(CheckoutSettlement settlement, CheckoutRequestStatus checkoutStatus) {
+    private record CheckoutSettlementContext(
+            CheckoutSettlement settlement,
+            CheckoutRequestStatus checkoutStatus,
+            Long checkoutRequestId) {
     }
 
     @Override

@@ -4,9 +4,12 @@ import com.sep490.slms2026.dto.request.CheckoutInspectionRequest;
 import com.sep490.slms2026.dto.request.CheckoutRefundRequest;
 import com.sep490.slms2026.dto.response.CheckoutInspectionResponse;
 import com.sep490.slms2026.dto.response.CheckoutSettlementResponse;
+import com.sep490.slms2026.dto.response.DepositRefundResponse;
 import com.sep490.slms2026.service.CheckoutProcessService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -38,9 +41,14 @@ public class CheckoutProcessController {
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * Ghi nhận hoàn cọc — tài chính / chủ nhà. Quản lý không được gọi (không thấy tiền cọc).
+     */
     @PostMapping("/refund")
-    public ResponseEntity<Void> refund(@PathVariable Long id, @RequestBody CheckoutRefundRequest request) {
-        checkoutProcessService.refund(id, request);
-        return ResponseEntity.ok().build();
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ResponseEntity<DepositRefundResponse> refund(
+            @PathVariable Long id,
+            @Valid @RequestBody CheckoutRefundRequest request) {
+        return ResponseEntity.ok(checkoutProcessService.refund(id, request));
     }
 }

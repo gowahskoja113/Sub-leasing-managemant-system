@@ -1,8 +1,11 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.host.*;
+import com.sep490.slms2026.dto.request.CheckoutRefundRequest;
+import com.sep490.slms2026.dto.response.DepositRefundResponse;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.CheckoutProcessService;
 import com.sep490.slms2026.service.HostPortalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class HostController {
 
     private final HostPortalService hostPortalService;
+    private final CheckoutProcessService checkoutProcessService;
 
     @GetMapping("/notifications")
     public ResponseEntity<Page<HostNotificationDto>> listNotifications(
@@ -83,6 +87,17 @@ public class HostController {
     @GetMapping("/finance/deposits")
     public ResponseEntity<HostDepositsResponse> deposits(@RequestParam(required = false) String status) {
         return ResponseEntity.ok(hostPortalService.getDeposits(status));
+    }
+
+    /**
+     * Chủ nhà đánh dấu đã chuyển hoàn cọc (ngày chuyển + biên lai).
+     * Body giống {@code POST /checkout-requests/{id}/refund}: amount, method, proofUrl, paidAt.
+     */
+    @PostMapping("/finance/deposits/{contractId}/refund")
+    public ResponseEntity<DepositRefundResponse> refundDeposit(
+            @PathVariable Long contractId,
+            @Valid @RequestBody CheckoutRefundRequest request) {
+        return ResponseEntity.ok(checkoutProcessService.refundByContractId(contractId, request));
     }
 
     @GetMapping("/invoices")

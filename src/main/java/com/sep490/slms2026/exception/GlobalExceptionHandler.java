@@ -125,6 +125,7 @@ public class GlobalExceptionHandler {
                         .error(ex.getMessage())
                         .code(ex.getCode())
                         .message(ex.getMessage())
+                        .details(ex.getDetails())
                         .build());
     }
 

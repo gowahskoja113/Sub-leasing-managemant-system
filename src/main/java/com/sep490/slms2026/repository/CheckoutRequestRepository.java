@@ -16,6 +16,8 @@ public interface CheckoutRequestRepository extends JpaRepository<CheckoutRequest
 
     List<CheckoutRequest> findByTenantUserIdOrderByCreatedAtDesc(UUID tenantUserId);
 
+    List<CheckoutRequest> findByTenantContractIdOrderByCreatedAtDesc(Long tenantContractId);
+
     Optional<CheckoutRequest> findByIdAndTenantUserId(Long id, UUID tenantUserId);
 
     List<CheckoutRequest> findByStatusOrderByCreatedAtDesc(CheckoutRequestStatus status);

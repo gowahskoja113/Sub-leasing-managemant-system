@@ -15,4 +15,6 @@ public class ErrorResponse {
     private String code;
     private String message;
     private Map<String, String> fieldErrors; // chỉ có khi validation fail
+    /** Payload phụ (vd. currentStatus / allowedStatuses cho checkout). */
+    private Map<String, Object> details;
 }

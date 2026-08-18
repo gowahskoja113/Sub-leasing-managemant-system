@@ -5,6 +5,7 @@ import com.sep490.slms2026.dto.request.CheckoutInspectionRequest;
 import com.sep490.slms2026.dto.request.CheckoutRefundRequest;
 import com.sep490.slms2026.dto.response.CheckoutInspectionResponse;
 import com.sep490.slms2026.dto.response.CheckoutSettlementResponse;
+import com.sep490.slms2026.dto.response.DepositRefundResponse;
 
 import java.util.UUID;
 
@@ -15,5 +16,6 @@ public interface CheckoutProcessService {
     void submitSettlement(Long checkoutRequestId);
     void acceptSettlement(Long checkoutRequestId, UUID tenantId);
     void disputeSettlement(Long checkoutRequestId, UUID tenantId, CheckoutDisputeRequest request);
-    void refund(Long checkoutRequestId, CheckoutRefundRequest request);
+    DepositRefundResponse refund(Long checkoutRequestId, CheckoutRefundRequest request);
+    DepositRefundResponse refundByContractId(Long contractId, CheckoutRefundRequest request);
 }

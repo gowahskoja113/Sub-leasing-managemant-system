@@ -116,6 +116,18 @@ class TenantCheckoutServiceImplTest {
   }
 
   @Test
+  void completeRequest_settlingWithoutRefund_stillCompletes() {
+    checkoutRequest.setStatus(CheckoutRequestStatus.SETTLING);
+    CompleteCheckoutRequest body = new CompleteCheckoutRequest();
+    body.setActualMoveOutDate(LocalDate.of(2026, 7, 15));
+
+    var response = service.completeRequest(5L, managerId, body);
+
+    verify(tenantOnboardingService).terminateActiveContract(eq(10L), any());
+    assertEquals(CheckoutRequestStatus.COMPLETED.name(), response.getStatus());
+  }
+
+  @Test
   void rejectRequest_requiresPending() {
     checkoutRequest.setStatus(CheckoutRequestStatus.APPROVED);
     RejectCheckoutRequest body = new RejectCheckoutRequest();

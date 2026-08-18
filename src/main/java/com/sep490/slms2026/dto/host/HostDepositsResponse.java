@@ -21,5 +21,9 @@ public record HostDepositsResponse(BigDecimal totalHeld, List<DepositItem> items
         private BigDecimal amount;
         private LocalDate heldSince;
         private String status;
+        private Long checkoutRequestId;
+        /** Số còn lại cần chuyển cho khách (từ quyết toán). Null nếu chưa có bảng quyết toán. */
+        private BigDecimal refundAmount;
+        private LocalDate refundedAt;
     }
 }
