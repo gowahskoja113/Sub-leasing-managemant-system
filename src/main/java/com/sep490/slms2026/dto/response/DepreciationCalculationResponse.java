@@ -36,6 +36,17 @@ public class DepreciationCalculationResponse {
     private Double totalWeight;
     private Integer roomCount;
 
+    /** Thời hạn HĐ chủ nhà (ngày kết thúc tính trọn ngày). */
+    private Integer leaseMonths;
+    /** Ngày nhà bắt đầu cho thuê được (sau cải tạo / hôm nay). */
+    private java.time.LocalDate rentableFrom;
+    /** Số tháng còn lại tới hạn HĐ, trước khi trừ buffer bàn giao. */
+    private Integer rentableMonths;
+    /** Cửa sổ bàn giao đang áp (0 nếu HĐ ngắn). */
+    private Integer handoverBufferMonths;
+    /** Mẫu số chia vốn = rentableMonths − handoverBufferMonths. */
+    private Integer revenueMonths;
+
     private DepreciationResultResponse wholeHouseResult;
     private List<DepreciationResultResponse> roomResults;
 }

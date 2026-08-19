@@ -10,6 +10,7 @@ import com.sep490.slms2026.dto.response.ContractEvidencePhotoResponse;
 import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.entity.ContractEvidencePhoto;
 import com.sep490.slms2026.entity.HouseholdMember;
+import com.sep490.slms2026.entity.InboundContract;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.Tenant;
@@ -28,6 +29,7 @@ import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
+import com.sep490.slms2026.repository.InboundContractRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
@@ -46,6 +48,7 @@ import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.event.InvoicePaidEvent;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.InboundLeaseRules;
 import com.sep490.slms2026.util.RentEscalationSupport;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
 import com.sep490.slms2026.util.PhoneUtils;
@@ -105,6 +108,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final UnitPriceService unitPriceService;
+    private final InboundContractRepository inboundContractRepository;
 
     @Override
     @Transactional
@@ -135,6 +139,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (request.getEndDate().isAfter(today.plusYears(5))) {
             throw new BusinessException("Thời hạn thuê tối đa 5 năm");
         }
+
+        InboundContract inboundLease = requireInboundLease(property.getId());
+        InboundLeaseRules.assertOccupancyWindow(request.getMoveInDate(), request.getEndDate(), inboundLease);
 
         Room room = null;
         if (roomId != null) {
@@ -298,7 +305,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 "HĐ " + saved.getContractCode()
                         + (saved.getDraftTenantName() != null ? " · " + saved.getDraftTenantName() : ""));
 
-        return toResponse(saved);
+        return withLeaseHandoverWarning(toResponse(saved), inboundLease);
     }
 
     @Override
@@ -369,10 +376,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
         otpService.verifyOrThrow(OtpDeliveryOverride.PHONE, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
 
+        LocalDate today = LocalDate.now();
+        InboundContract lease = requireInboundLease(contract.getProperty().getId());
+        InboundLeaseRules.assertCanReceiveTenant(today, lease);
+
         // Nhận nhà SỚM: khách đến trước ngày vào ở dự kiến.
         // Cho phép tối đa maxEarlyMoveInDays ngày — ghi nhận ngày vào ở thực tế = hôm nay,
-        // GIỮ NGUYÊN endDate (khách được ở free mấy ngày sớm, không dời hạn/không tính thêm tiền).
-        LocalDate today = LocalDate.now();
+        // GIỮ NGUYÊN endDate. Không được ghi đè xuống dưới mốc hợp đồng chủ nhà.
         LocalDate plannedMoveIn = contract.getMoveInDate();
         if (plannedMoveIn != null && today.isBefore(plannedMoveIn)) {
             long daysEarly = java.time.temporal.ChronoUnit.DAYS.between(today, plannedMoveIn);
@@ -381,9 +391,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                         + " ngày so với ngày vào ở dự kiến (" + plannedMoveIn
                         + "). Vui lòng cập nhật lại ngày vào ở hoặc nhận đúng lịch.");
             }
-            contract.setMoveInDate(today);
-            contract.setStartDate(today);
+            LocalDate effectiveMoveIn = InboundLeaseRules.clampMoveInToLease(today, lease);
+            contract.setMoveInDate(effectiveMoveIn);
+            contract.setStartDate(effectiveMoveIn);
         }
+        InboundLeaseRules.assertOccupancyWindow(contract.getMoveInDate(), contract.getEndDate(), lease);
 
         boolean accountCreated = false;
         boolean rolePromoted = false;
@@ -1032,10 +1044,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             }
         }
 
+        InboundContract lease = requireInboundLease(contract.getProperty().getId());
+        InboundLeaseRules.assertOccupancyWindow(contract.getMoveInDate(), contract.getEndDate(), lease);
+
         TenantContract saved = tenantContractRepository.save(contract);
         unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
                 "Sửa HĐ nháp " + saved.getContractCode());
-        return toResponse(saved);
+        return withLeaseHandoverWarning(toResponse(saved), lease);
     }
 
     @Override
@@ -1748,5 +1763,24 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                         .capturedAt(p.getCapturedAt())
                         .build())
                 .toList();
+    }
+
+    private InboundContract requireInboundLease(Long propertyId) {
+        return inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
+                .orElseThrow(() -> new BusinessException("Nhà chưa có hợp đồng với chủ nhà — không thể cho thuê"));
+    }
+
+    private TenantContractResponse withLeaseHandoverWarning(TenantContractResponse response, InboundContract lease) {
+        if (response == null) {
+            return null;
+        }
+        String message = InboundLeaseRules.handoverWindowMessage(response.getEndDate(), lease);
+        response.setLeaseHandoverWindowWarning(message != null);
+        response.setLeaseHandoverWindowMessage(message);
+        if (lease != null) {
+            response.setLeaseStartDate(lease.getStartDate());
+            response.setLeaseEndDate(lease.getEndDate());
+        }
+        return response;
     }
 }

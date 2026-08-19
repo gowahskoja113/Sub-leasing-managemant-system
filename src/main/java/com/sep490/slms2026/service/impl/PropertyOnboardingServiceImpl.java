@@ -22,6 +22,7 @@ import com.sep490.slms2026.service.DepreciationService;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.util.InboundLeaseRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -539,6 +540,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chưa có kết quả tính giá — admin phải gửi host trước");
         }
 
+        InboundContract inboundLease = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
+                .orElse(null);
+        LocalDate today = LocalDate.now();
+        InboundLeaseRules.assertLeaseNotExpired(today, inboundLease);
+
         property.setHostContingencyPercent(request.getContingencyPercent());
 
         ZoneManager zoneManager = zoneManagerRepository.findById(property.getZone().getId()).orElse(null);
@@ -555,7 +561,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         } else {
             response = confirmPerRoom(property, propertyId, request);
         }
-
+        applyInboundLeaseWarnings(response, inboundLease, today);
         return response;
     }
 
@@ -1215,7 +1221,24 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
+            response.setLeaseStartDate(lease.getStartDate());
+            response.setLeaseEndDate(lease.getEndDate());
+        });
         return response;
+    }
+
+    private void applyInboundLeaseWarnings(PropertyActivationResponse response,
+                                           InboundContract lease,
+                                           LocalDate today) {
+        if (response == null || lease == null) {
+            return;
+        }
+        response.setLeaseStartDate(lease.getStartDate());
+        response.setLeaseEndDate(lease.getEndDate());
+        response.setLeaseNotStartedWarning(
+                lease.getStartDate() != null && lease.getStartDate().isAfter(today));
+        response.setShortExploitationWarning(InboundLeaseRules.isShortExploitation(today, lease));
     }
 
     private String resolveOperationManagerName(UUID operationManagerId) {

@@ -1,24 +1,37 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.AssignZoneManagerRequest;
+import com.sep490.slms2026.dto.request.ManagerTransferRequest;
+import com.sep490.slms2026.dto.response.IdleManagerResponse;
 import com.sep490.slms2026.dto.response.ZoneAssignmentHistoryResponse;
 import com.sep490.slms2026.dto.response.ZoneAssignmentResponse;
 import com.sep490.slms2026.dto.response.ZoneHandoverResponse;
 import com.sep490.slms2026.entity.*;
+import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
+import com.sep490.slms2026.enums.Role;
+import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.service.ZoneAssignmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -34,6 +47,9 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
     private final PropertyRepository propertyRepository;
     private final TenantContractRepository tenantContractRepository;
     private final NotificationRepository notificationRepository;
+    private final UserPushTokenService userPushTokenService;
+
+    private static final DateTimeFormatter DATE_VN = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     @Override
     public List<ZoneAssignmentResponse> getAllAssignments() {
@@ -93,6 +109,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
         int affectedProperties = propertyRepository.updateOperationManagerByZoneId(request.getManagerId(), zoneId, validStatuses);
 
         // Update contracts
+        List<TenantContract> affected = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
         int affectedContracts = tenantContractRepository.updateAssignedManagerByZoneId(manager, zoneId);
 
         // Create handover history
@@ -108,7 +125,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
         zoneManagerHandoverRepository.save(handover);
 
         // Send notifications
-        sendHandoffNotifications(zone, fromManagerId, request.getManagerId(), affectedProperties, affectedContracts);
+        sendHandoffNotifications(zone, fromManagerId, request.getManagerId(), affectedProperties, affectedContracts, affected);
 
         return toHandoverResponse(handover);
     }
@@ -121,7 +138,9 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Zone manager assignment not found for zone: " + zoneId));
 
         UUID fromManagerId = existingZm.getManagerId();
-        
+        Zone zone = zoneRepository.findById(zoneId)
+                .orElseThrow(() -> new ResourceNotFoundException("Zone not found: " + zoneId));
+
         zoneManagerRepository.delete(existingZm);
 
         List<PropertyStatus> validStatuses = List.of(
@@ -132,6 +151,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
                 PropertyStatus.INACTIVE
         );
         int affectedProperties = propertyRepository.removeOperationManagerByZoneId(zoneId, validStatuses);
+        List<TenantContract> affected = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
         int affectedContracts = tenantContractRepository.removeAssignedManagerByZoneId(zoneId);
 
         ZoneManagerHandover handover = ZoneManagerHandover.builder()
@@ -144,6 +164,49 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
                 .affectedContracts(affectedContracts)
                 .build();
         zoneManagerHandoverRepository.save(handover);
+
+        sendHandoffNotifications(zone, fromManagerId, null, affectedProperties, affectedContracts, affected);
+    }
+
+    @Override
+    @Transactional
+    public ZoneHandoverResponse transferManager(ManagerTransferRequest request) {
+        AssignZoneManagerRequest assign = new AssignZoneManagerRequest();
+        assign.setManagerId(request.getManagerId());
+        ZoneHandoverResponse assigned = assignManager(request.getToZoneId(), assign);
+
+        if (request.getReleaseZoneIds() != null) {
+            for (UUID releaseZoneId : request.getReleaseZoneIds()) {
+                if (releaseZoneId == null || releaseZoneId.equals(request.getToZoneId())) {
+                    continue;
+                }
+                ZoneManager zm = zoneManagerRepository.findById(releaseZoneId).orElse(null);
+                if (zm == null || !request.getManagerId().equals(zm.getManagerId())) {
+                    continue;
+                }
+                removeManager(releaseZoneId);
+            }
+        }
+        return assigned;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<IdleManagerResponse> listIdleManagers() {
+        Set<UUID> busy = zoneManagerRepository.findAll().stream()
+                .map(ZoneManager::getManagerId)
+                .collect(Collectors.toCollection(HashSet::new));
+        return userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE).stream()
+                .filter(u -> !busy.contains(u.getId()))
+                .map(u -> IdleManagerResponse.builder()
+                        .id(u.getId())
+                        .username(u.getUsername())
+                        .fullName(u.getFullName())
+                        .phoneNumber(u.getPhoneNumber())
+                        .status(u.getStatus())
+                        .zoneCount(0)
+                        .build())
+                .toList();
     }
 
     @Override
@@ -210,28 +273,99 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
                 .build();
     }
 
-    private void sendHandoffNotifications(Zone zone, UUID fromManagerId, UUID toManagerId, int properties, int contracts) {
-        // Basic notification logic according to requirements
+    private void sendHandoffNotifications(Zone zone, UUID fromManagerId, UUID toManagerId,
+                                          int properties, int contracts, List<TenantContract> affected) {
+        User newManager = toManagerId != null ? userRepository.findById(toManagerId).orElse(null) : null;
+
         if (fromManagerId != null) {
-            notificationRepository.save(Notification.builder()
-                    .userId(fromManagerId)
-                    .title("Bàn giao khu vực " + zone.getName())
-                    .content("Đã bàn giao khu vực " + zone.getName() + " cho quản lý mới. Số nhà: " + properties + ", Số HĐ: " + contracts)
-                    .type("ZONE_REVOKED")
-                    .read(false)
-                    .build());
+            long remaining = zoneManagerRepository.countByManagerId(fromManagerId);
+            String content = "Đã bàn giao khu vực " + zone.getName()
+                    + " cho quản lý mới. Số nhà: " + properties + ", Số HĐ: " + contracts
+                    + ". Sau bàn giao, bạn còn phụ trách " + remaining + " khu vực.";
+            notifyUser(fromManagerId, "Bàn giao khu vực " + zone.getName(), content, "ZONE_REVOKED", null, null);
         }
 
         if (toManagerId != null) {
-            notificationRepository.save(Notification.builder()
-                    .userId(toManagerId)
-                    .title("Tiếp nhận khu vực " + zone.getName())
-                    .content("Bạn tiếp nhận khu vực " + zone.getName() + ". Vui lòng kiểm tra danh sách nhà và hợp đồng.")
-                    .type("ZONE_ASSIGNED")
-                    .read(false)
-                    .build());
+            long pendingOnboards = affected.stream()
+                    .filter(c -> c.getStatus() == ContractStatus.DRAFT || c.getStatus() == ContractStatus.PENDING)
+                    .count();
+            LocalDate nearest = affected.stream()
+                    .filter(c -> c.getExpectedReceptionDate() != null)
+                    .map(TenantContract::getExpectedReceptionDate)
+                    .min(Comparator.naturalOrder())
+                    .orElse(null);
+            StringBuilder content = new StringBuilder();
+            content.append("Bạn tiếp nhận khu vực ").append(zone.getName())
+                    .append(": ").append(properties).append(" nhà · ").append(contracts).append(" hợp đồng.");
+            if (pendingOnboards > 0) {
+                content.append(" ⚠ ").append(pendingOnboards).append(" hợp đồng chờ đón khách");
+                if (nearest != null) {
+                    content.append(", sớm nhất ngày ").append(nearest.format(DATE_VN));
+                }
+                content.append(".");
+            }
+            notifyUser(toManagerId, "Tiếp nhận khu vực " + zone.getName(),
+                    content.toString(), "ZONE_ASSIGNED", null, null);
         }
 
-        // Ideally, we would also notify host and tenants, but keeping it simple for now as it meets core requirements.
+        notifyTenants(affected, newManager);
+    }
+
+    private void notifyTenants(List<TenantContract> affected, User newManager) {
+        for (TenantContract c : affected) {
+            User tenantUser = c.getTenant() != null ? c.getTenant().getUser() : null;
+            if (tenantUser == null) {
+                continue;
+            }
+            String content;
+            if (newManager != null) {
+                String phone = newManager.getPhoneNumber() != null && !newManager.getPhoneNumber().isBlank()
+                        ? newManager.getPhoneNumber()
+                        : "chưa có SĐT";
+                content = String.format(
+                        "Từ hôm nay, %s do %s phụ trách. Liên hệ: %s. "
+                                + "Mọi yêu cầu sửa chữa, hoá đơn, trả phòng vui lòng liên hệ số này.",
+                        unitLabel(c), newManager.getFullName(), phone);
+            } else {
+                content = String.format(
+                        "Từ hôm nay, %s tạm thời chưa có quản lý phụ trách. "
+                                + "Khu vực đang chờ phân công quản lý mới, mọi yêu cầu vui lòng liên hệ tổng đài/chủ nhà.",
+                        unitLabel(c));
+            }
+            String paramsJson = "{\"contractId\":" + c.getId() + "}";
+            notifyUser(tenantUser.getId(), "Thay đổi người phụ trách", content,
+                    "MANAGER_CHANGED", "ContractDetail", paramsJson);
+        }
+    }
+
+    private String unitLabel(TenantContract c) {
+        String propertyName = c.getProperty() != null ? c.getProperty().getPropertyName() : "nhà";
+        if (c.getRoom() != null && c.getRoom().getRoomNumber() != null
+                && !c.getRoom().getRoomNumber().isBlank()) {
+            return "phòng " + c.getRoom().getRoomNumber() + " (" + propertyName + ")";
+        }
+        return propertyName + " (nguyên căn)";
+    }
+
+    private void notifyUser(UUID userId, String title, String content, String type,
+                            String screen, String paramsJson) {
+        notificationRepository.save(Notification.builder()
+                .userId(userId)
+                .title(title)
+                .content(content)
+                .type(type)
+                .screen(screen)
+                .paramsJson(paramsJson)
+                .read(false)
+                .build());
+        Map<String, Object> data = new HashMap<>();
+        data.put("type", type);
+        if (screen != null) {
+            data.put("screen", screen);
+        }
+        if (paramsJson != null) {
+            data.put("params", paramsJson);
+        }
+        userPushTokenService.sendToUser(userId, title, content, data);
     }
 }

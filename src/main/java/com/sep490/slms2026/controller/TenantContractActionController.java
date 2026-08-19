@@ -29,32 +29,40 @@ public class TenantContractActionController {
     private final TenantOnboardingService tenantOnboardingService;
     private final TenantContractDocumentService tenantContractDocumentService;
 
+    private boolean hasRole(CustomUserDetails user, com.sep490.slms2026.enums.Role role) {
+        return user.getAuthorities().stream().anyMatch(a -> role.name().equals(a.getAuthority()));
+    }
+
     private String getHighestRole(CustomUserDetails user) {
-        boolean isAdmin = user.getAuthorities().stream().anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_ADMIN.name().equals(a.getAuthority()));
-        if (isAdmin) return com.sep490.slms2026.enums.Role.ROLE_ADMIN.name();
-        boolean isManager = user.getAuthorities().stream().anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_MANAGER.name().equals(a.getAuthority()));
-        if (isManager) return com.sep490.slms2026.enums.Role.ROLE_MANAGER.name();
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_ADMIN)) {
+            return com.sep490.slms2026.enums.Role.ROLE_ADMIN.name();
+        }
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_OWNER)) {
+            return com.sep490.slms2026.enums.Role.ROLE_OWNER.name();
+        }
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_MANAGER)) {
+            return com.sep490.slms2026.enums.Role.ROLE_MANAGER.name();
+        }
         return com.sep490.slms2026.enums.Role.ROLE_TENANT.name();
     }
 
-    /** GET / — danh sách HĐ (vd list DRAFT). */
+    /** GET / — danh sách HĐ (vd list DRAFT). Admin và Host thấy toàn bộ; manager chỉ HĐ phụ trách. */
     @GetMapping
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
             @RequestParam(required = false) String status) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        boolean isAdmin = user.getAuthorities().stream()
-                .anyMatch(a -> com.sep490.slms2026.enums.Role.ROLE_ADMIN.name().equals(a.getAuthority()));
-        if (isAdmin) {
+        boolean isAdmin = hasRole(user, com.sep490.slms2026.enums.Role.ROLE_ADMIN);
+        boolean isOwner = hasRole(user, com.sep490.slms2026.enums.Role.ROLE_OWNER);
+        if (isAdmin || isOwner) {
             return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
-        } else {
-            return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
         }
+        return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
     }
 
-    /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
+    /** GET /{id} — xem chi tiết HĐ (admin, host, manager phụ trách, hoặc khách thuê của HĐ đó). */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<TenantContractResponse> get(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         String role = getHighestRole(user);
@@ -104,7 +112,7 @@ public class TenantContractActionController {
 
     /** GET /{id}/document — lấy URL file HĐ (ưu tiên draftContractFileUrl trên Cloudinary). */
     @GetMapping("/{id}/document")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         String role = getHighestRole(user);
@@ -116,7 +124,7 @@ public class TenantContractActionController {
      * FE: fetch → blob → mở tab mới / PDF viewer.
      */
     @GetMapping("/{id}/document/download")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         String role = getHighestRole(user);

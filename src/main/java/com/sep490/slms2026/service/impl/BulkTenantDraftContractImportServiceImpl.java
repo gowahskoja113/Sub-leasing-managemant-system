@@ -22,6 +22,7 @@ import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.InboundLeaseRules;
 import com.sep490.slms2026.util.RentEscalationSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -165,6 +166,19 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
                     "BĐS '" + property.getPropertyName() + "' chưa ACTIVE (status="
                             + property.getStatus() + ") — chưa cho thuê được"));
+        }
+
+        InboundContract lease = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId())
+                .orElse(null);
+        if (lease == null) {
+            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
+                    "Nhà chưa có hợp đồng với chủ nhà — không thể cho thuê"));
+        } else {
+            String occupancyError = InboundLeaseRules.occupancyErrorOrNull(
+                    row.getMoveInDate(), row.getEndDate(), lease);
+            if (occupancyError != null) {
+                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Ngày vào ở", occupancyError));
+            }
         }
 
         boolean byRoom = isRoomRental(row, property);

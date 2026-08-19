@@ -25,15 +25,17 @@ import com.sep490.slms2026.service.pricing.PricingCalculator;
 import com.sep490.slms2026.service.pricing.PricingCalculator.PropertyResult;
 import com.sep490.slms2026.service.pricing.PricingCalculator.RoomInput;
 import com.sep490.slms2026.service.pricing.PricingCalculator.RoomResult;
+import com.sep490.slms2026.util.InboundLeaseRules;
+import com.sep490.slms2026.util.InboundLeaseRules.RevenueWindow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,15 +62,16 @@ public class DepreciationServiceImpl implements DepreciationService {
 
         BigDecimal totalRenovationCost = renovationLineRepository.sumCostByPropertyId(propertyId);
         BigDecimal totalEquipmentCost = equipmentRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
-        int contractMonths = resolveContractMonths(contract);
+        RevenueWindow window = InboundLeaseRules.resolveRevenueWindow(contract, property, LocalDate.now());
+        int contractMonths = window.revenueMonths();
         BigDecimal totalRentAmount = contract.getTotalRentAmount();
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
             return calculateWholeHouse(property, contract, totalRentAmount, totalRenovationCost,
-                    totalEquipmentCost, contractMonths, params);
+                    totalEquipmentCost, contractMonths, params, window);
         }
         return calculatePerRoom(property, contract, totalRentAmount, totalRenovationCost,
-                totalEquipmentCost, contractMonths, params);
+                totalEquipmentCost, contractMonths, params, window);
     }
 
     @Override
@@ -83,7 +86,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Chưa có kết quả tính giá cho nhà nguyên căn ID: " + propertyId));
             DepreciationResultResponse row = toResponse(result, PricingScope.WHOLE_HOUSE);
-            return DepreciationCalculationResponse.builder()
+            return applyRevenueWindow(DepreciationCalculationResponse.builder()
                     .propertyId(propertyId)
                     .pricingScope(PricingScope.WHOLE_HOUSE)
                     .capex(result.getTotalInvestment())
@@ -91,7 +94,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                     .monthlyRecovery(result.getMonthlyDepreciation())
                     .revenueTarget(result.getSuggestedPriceWithProfit())
                     .wholeHouseResult(row)
-                    .build();
+                    .build(), property);
         }
 
         List<DepreciationResult> persisted = depreciationResultRepository.findAllRoomLevelByPropertyId(propertyId);
@@ -115,7 +118,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .map(DepreciationResultResponse::getSuggestedPriceWithProfit)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        return DepreciationCalculationResponse.builder()
+        return applyRevenueWindow(DepreciationCalculationResponse.builder()
                 .propertyId(propertyId)
                 .pricingScope(PricingScope.ROOM)
                 .capex(capex)
@@ -124,7 +127,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .revenueTarget(revenueTarget)
                 .roomCount(roomResults.size())
                 .roomResults(roomResults)
-                .build();
+                .build(), property);
     }
 
     @Override
@@ -209,7 +212,8 @@ public class DepreciationServiceImpl implements DepreciationService {
             BigDecimal totalRenovationCost,
             BigDecimal totalEquipmentCost,
             int contractMonths,
-            CalculateDepreciationRequest params) {
+            CalculateDepreciationRequest params,
+            RevenueWindow window) {
 
         PropertyResult result = PricingCalculator.calculateWholeHouse(
                 totalRentAmount,
@@ -227,7 +231,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                 buildResult(contract, null, room, result, contractMonths));
 
         return buildPropertyResponse(property.getId(), PricingScope.WHOLE_HOUSE, result,
-                List.of(toResponse(saved, PricingScope.WHOLE_HOUSE)), null);
+                List.of(toResponse(saved, PricingScope.WHOLE_HOUSE)), null, window);
     }
 
     private DepreciationCalculationResponse calculatePerRoom(
@@ -237,7 +241,8 @@ public class DepreciationServiceImpl implements DepreciationService {
             BigDecimal totalRenovationCost,
             BigDecimal totalEquipmentCost,
             int contractMonths,
-            CalculateDepreciationRequest params) {
+            CalculateDepreciationRequest params,
+            RevenueWindow window) {
 
         List<Room> rooms = roomRepository.findByPropertyIdAndDeletedIsFalse(property.getId());
         List<RoomInput> inputs = rooms.stream()
@@ -270,7 +275,7 @@ public class DepreciationServiceImpl implements DepreciationService {
             roomResults.add(toResponse(saved, PricingScope.ROOM));
         }
 
-        return buildPropertyResponse(property.getId(), PricingScope.ROOM, result, roomResults, null);
+        return buildPropertyResponse(property.getId(), PricingScope.ROOM, result, roomResults, null, window);
     }
 
     private DepreciationCalculationResponse buildPropertyResponse(
@@ -278,7 +283,8 @@ public class DepreciationServiceImpl implements DepreciationService {
             PricingScope scope,
             PropertyResult result,
             List<DepreciationResultResponse> roomResults,
-            DepreciationResultResponse wholeHouseResult) {
+            DepreciationResultResponse wholeHouseResult,
+            RevenueWindow window) {
 
         DepreciationCalculationResponse.DepreciationCalculationResponseBuilder builder =
                 DepreciationCalculationResponse.builder()
@@ -307,7 +313,35 @@ public class DepreciationServiceImpl implements DepreciationService {
         } else {
             builder.roomResults(roomResults);
         }
-        return builder.build();
+        return applyRevenueWindow(builder.build(), window);
+    }
+
+    private DepreciationCalculationResponse applyRevenueWindow(
+            DepreciationCalculationResponse response, Property property) {
+        InboundContract contract = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId())
+                .orElse(null);
+        if (contract == null) {
+            return response;
+        }
+        try {
+            return applyRevenueWindow(response,
+                    InboundLeaseRules.resolveRevenueWindow(contract, property, LocalDate.now()));
+        } catch (BusinessException ignored) {
+            return response;
+        }
+    }
+
+    private DepreciationCalculationResponse applyRevenueWindow(
+            DepreciationCalculationResponse response, RevenueWindow window) {
+        if (response == null || window == null) {
+            return response;
+        }
+        response.setLeaseMonths(window.leaseMonths());
+        response.setRentableFrom(window.rentableFrom());
+        response.setRentableMonths(window.rentableMonths());
+        response.setHandoverBufferMonths(window.handoverBufferMonths());
+        response.setRevenueMonths(window.revenueMonths());
+        return response;
     }
 
     private DepreciationResult buildResult(
@@ -374,14 +408,6 @@ public class DepreciationServiceImpl implements DepreciationService {
         return inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                 .orElseThrow(() -> new BusinessException(
                         "Phải ký hợp đồng inbound trước khi tính giá"));
-    }
-
-    private int resolveContractMonths(InboundContract contract) {
-        long months = ChronoUnit.MONTHS.between(contract.getStartDate(), contract.getEndDate());
-        if (months <= 0) {
-            throw new BusinessException("Thời hạn hợp đồng phải ít nhất 1 tháng");
-        }
-        return (int) months;
     }
 
     private DepreciationResultResponse toResponse(DepreciationResult result, PricingScope scope) {

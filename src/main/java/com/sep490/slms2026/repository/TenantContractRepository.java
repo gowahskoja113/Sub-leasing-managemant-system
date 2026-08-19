@@ -29,6 +29,18 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     @Query("UPDATE TenantContract c SET c.assignedManager = null WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")
     int removeAssignedManagerByZoneId(@Param("zoneId") UUID zoneId);
 
+    /** HĐ chưa chấm dứt trong khu vực — dùng khi đổi/gỡ quản lý để thông báo khách. */
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE p.zone.id = :zoneId
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+            """)
+    List<TenantContract> findActiveAndPendingByZoneId(@Param("zoneId") UUID zoneId);
+
     // Quy tắc 1-HĐ-active theo ĐƠN VỊ CHO THUÊ (phòng / nguyên căn) — không giới hạn theo SĐT/tenant
     boolean existsByRoomIdAndStatus(Long roomId, ContractStatus status);
 

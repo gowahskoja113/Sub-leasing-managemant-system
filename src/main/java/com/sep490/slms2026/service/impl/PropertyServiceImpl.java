@@ -6,6 +6,7 @@ import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.repository.HandoverEquipmentRepository;
+import com.sep490.slms2026.repository.InboundContractRepository;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -42,6 +43,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
     private final UserRepository userRepository;
+    private final InboundContractRepository inboundContractRepository;
 
     @Override
     @Transactional
@@ -255,6 +257,10 @@ public class PropertyServiceImpl implements PropertyService {
         response.setImageUrls(property.getImageUrls());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
+            response.setLeaseStartDate(lease.getStartDate());
+            response.setLeaseEndDate(lease.getEndDate());
+        });
         return response;
     }
 

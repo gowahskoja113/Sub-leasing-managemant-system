@@ -140,6 +140,12 @@ public class TenantContractResponse {
     private String assignedManagerName;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
+
+    /** Cảnh báo: HĐ khách kết thúc trong 1 tháng cuối HĐ chủ nhà. */
+    private Boolean leaseHandoverWindowWarning;
+    private String leaseHandoverWindowMessage;
+    private LocalDate leaseStartDate;
+    private LocalDate leaseEndDate;
     
     private List<HouseholdMemberResponse> householdMembers;
 

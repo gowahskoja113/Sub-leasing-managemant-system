@@ -641,6 +641,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .totalRentAmount(request.getMonthlyRent().multiply(BigDecimal.valueOf(months)))
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
+                .contractScanUrl(request.getContractScanUrl())
                 .status(ContractStatus.ACTIVE)
                 .build();
         return toMasterLeaseDto(inboundContractRepository.save(contract));
@@ -664,6 +665,10 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
         if (patch.containsKey("endDate")) {
             contract.setEndDate(LocalDate.parse(patch.get("endDate").toString()));
+        }
+        if (patch.containsKey("contractScanUrl")) {
+            Object url = patch.get("contractScanUrl");
+            contract.setContractScanUrl(url == null ? null : url.toString());
         }
         return toMasterLeaseDto(inboundContractRepository.save(contract));
     }
@@ -862,11 +867,13 @@ public class HostPortalServiceImpl implements HostPortalService {
     }
 
     private HostContractDto toContractDto(TenantContract c) {
-        String lesseeName = null;
-        String tenantPhone = null;
-        String tenantCccd = null;
+        String lesseeName = c.getDraftTenantName();
+        String tenantPhone = c.getDraftTenantPhone();
+        String tenantCccd = c.getDraftTenantCccd();
         if (c.getTenant() != null) {
-            tenantCccd = c.getTenant().getCccd();
+            if (c.getTenant().getCccd() != null) {
+                tenantCccd = c.getTenant().getCccd();
+            }
             if (c.getTenant().getUser() != null) {
                 lesseeName = c.getTenant().getUser().getFullName();
                 tenantPhone = c.getTenant().getUser().getPhoneNumber();
@@ -881,7 +888,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .tenantCccd(tenantCccd)
                 .propertyName(c.getProperty().getPropertyName())
                 .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : null)
-                .lessorName(c.getProperty().getPropertyName())
+                .lessorName(null)
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
                 .moveInDate(c.getMoveInDate())
@@ -900,13 +907,12 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .id(String.valueOf(c.getId()))
                 .propertyId(String.valueOf(c.getProperty().getId()))
                 .ownerName(c.getOwnerName())
-                .ownerPhone(null)
+                .contractCode(c.getContractCode())
+                .contractScanUrl(c.getContractScanUrl())
                 .monthlyRent(monthly)
-                .deposit(BigDecimal.ZERO)
-                .paymentDay(1)
+                .totalRentAmount(c.getTotalRentAmount())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
-                .escalationPct(null)
                 .status(resolveMasterLeaseStatus(c))
                 .build();
     }

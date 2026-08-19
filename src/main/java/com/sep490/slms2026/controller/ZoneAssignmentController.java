@@ -1,6 +1,8 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.AssignZoneManagerRequest;
+import com.sep490.slms2026.dto.request.ManagerTransferRequest;
+import com.sep490.slms2026.dto.response.IdleManagerResponse;
 import com.sep490.slms2026.dto.response.ZoneAssignmentHistoryResponse;
 import com.sep490.slms2026.dto.response.ZoneAssignmentResponse;
 import com.sep490.slms2026.dto.response.ZoneHandoverResponse;
@@ -35,8 +37,21 @@ public class ZoneAssignmentController {
         return ResponseEntity.ok(zoneAssignmentService.assignManager(zoneId, request));
     }
 
+    @PostMapping("/zones/manager-transfer")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<ZoneHandoverResponse> transferManager(
+            @RequestBody @Valid ManagerTransferRequest request) {
+        return ResponseEntity.ok(zoneAssignmentService.transferManager(request));
+    }
+
+    @GetMapping("/managers/idle")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<List<IdleManagerResponse>> listIdleManagers() {
+        return ResponseEntity.ok(zoneAssignmentService.listIdleManagers());
+    }
+
     @DeleteMapping("/zones/{zoneId}/manager")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     public ResponseEntity<Void> removeManager(@PathVariable UUID zoneId) {
         zoneAssignmentService.removeManager(zoneId);
         return ResponseEntity.noContent().build();

@@ -156,6 +156,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         if (role == Role.ROLE_ADMIN) {
             return;
         }
+        if (role == Role.ROLE_OWNER) {
+            return;
+        }
         if (role == Role.ROLE_MANAGER) {
             UUID opManagerId = contract.getProperty() != null
                     ? contract.getProperty().getOperationManagerId() : null;

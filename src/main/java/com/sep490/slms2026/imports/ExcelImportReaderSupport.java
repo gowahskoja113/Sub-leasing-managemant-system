@@ -12,6 +12,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class ExcelImportReaderSupport {
@@ -19,6 +20,11 @@ public final class ExcelImportReaderSupport {
     static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
 
     private ExcelImportReaderSupport() {
+    }
+
+    /** Formatter cố định en-US — không phụ thuộc locale JVM (vi-VN format 29.6 thành "29,6"). */
+    public static DataFormatter usFormatter() {
+        return new DataFormatter(Locale.US);
     }
 
     public static void validateExcelFile(MultipartFile file) {
@@ -120,41 +126,92 @@ public final class ExcelImportReaderSupport {
 
     public static Integer readInteger(Row row, Integer columnIndex,
                                       DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
+        Double value = readDouble(row, columnIndex, formatter, evaluator);
+        if (value == null) {
             return null;
         }
-        try {
-            return (int) Math.round(Double.parseDouble(raw.replace(",", "")));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return (int) Math.round(value);
     }
 
     public static Double readDouble(Row row, Integer columnIndex,
                                     DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
+        if (columnIndex == null || row == null) {
             return null;
         }
+        Cell cell = row.getCell(columnIndex);
+        if (cell == null) {
+            return null;
+        }
+
+        CellType type = resolveCellType(cell, evaluator);
+        if (type == CellType.BLANK) {
+            return null;
+        }
+        if (type == CellType.NUMERIC) {
+            return cell.getNumericCellValue();
+        }
+        if (type == CellType.BOOLEAN) {
+            return cell.getBooleanCellValue() ? 1.0 : 0.0;
+        }
+
+        String raw = type == CellType.STRING
+                ? cell.getStringCellValue()
+                : readString(row, columnIndex, formatter, evaluator);
+        return parseFlexibleNumber(raw);
+    }
+
+    public static BigDecimal readDecimal(Row row, Integer columnIndex,
+                                         DataFormatter formatter, FormulaEvaluator evaluator) {
+        Double value = readDouble(row, columnIndex, formatter, evaluator);
+        if (value == null) {
+            return null;
+        }
+        return BigDecimal.valueOf(value);
+    }
+
+    /**
+     * Chấp nhận "1.234,5" (vi) lẫn "1,234.5" (en): dấu xuất hiện sau cùng là dấu thập phân
+     * khi cả hai cùng có. Ô numeric không đi qua hàm này.
+     */
+    public static Double parseFlexibleNumber(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String s = raw.trim()
+                .replace("\u00A0", "")
+                .replace(" ", "");
+        int lastDot = s.lastIndexOf('.');
+        int lastComma = s.lastIndexOf(',');
+        if (lastDot >= 0 && lastComma >= 0) {
+            s = lastComma > lastDot
+                    ? s.replace(".", "").replace(',', '.')
+                    : s.replace(",", "");
+        } else if (lastComma >= 0) {
+            int digitsAfter = s.length() - lastComma - 1;
+            s = digitsAfter <= 2 ? s.replace(',', '.') : s.replace(",", "");
+        } else if (lastDot >= 0 && s.indexOf('.') != lastDot) {
+            int digitsAfter = s.length() - lastDot - 1;
+            if (digitsAfter == 3) {
+                s = s.replace(".", "");
+            } else {
+                s = s.substring(0, lastDot).replace(".", "") + "." + s.substring(lastDot + 1);
+            }
+        }
         try {
-            return Double.parseDouble(raw.replace(",", ""));
+            return Double.parseDouble(s);
         } catch (NumberFormatException ex) {
             return null;
         }
     }
 
-    public static BigDecimal readDecimal(Row row, Integer columnIndex,
-                                         DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
-            return null;
+    private static CellType resolveCellType(Cell cell, FormulaEvaluator evaluator) {
+        if (cell.getCellType() != CellType.FORMULA) {
+            return cell.getCellType();
         }
-        try {
-            return new BigDecimal(raw.replace(",", ""));
-        } catch (NumberFormatException ex) {
-            return null;
+        if (evaluator != null) {
+            return evaluator.evaluateFormulaCell(cell);
         }
+        return cell.getCachedFormulaResultType();
     }
 
     public static LocalDate readDate(Row row, Integer columnIndex,

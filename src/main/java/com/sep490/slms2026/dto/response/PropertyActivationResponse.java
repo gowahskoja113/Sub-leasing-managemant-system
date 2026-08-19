@@ -27,6 +27,13 @@ public class PropertyActivationResponse {
     private String operationManagerName;
     private List<ActivatedRoom> rooms;
 
+    /** HĐ chủ nhà chưa tới ngày bắt đầu — vẫn ACTIVE, FE cảnh báo. */
+    private Boolean leaseNotStartedWarning;
+    /** Số tháng còn khai thác < 6. */
+    private Boolean shortExploitationWarning;
+    private java.time.LocalDate leaseStartDate;
+    private java.time.LocalDate leaseEndDate;
+
     @Getter
     @Setter
     @NoArgsConstructor

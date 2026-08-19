@@ -49,4 +49,8 @@ public class PropertyResponse {
 
     private BigDecimal electricityUnitPrice;
     private BigDecimal waterUnitPrice;
+
+    /** Ngày HĐ với chủ nhà (InboundContract) — để FE chặn nhập ngày vào ở. */
+    private java.time.LocalDate leaseStartDate;
+    private java.time.LocalDate leaseEndDate;
 }
