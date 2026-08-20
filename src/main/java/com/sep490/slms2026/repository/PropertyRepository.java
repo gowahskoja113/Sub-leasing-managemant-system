@@ -81,10 +81,10 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     Page<Property> findByStatusInAndOperationManagerIdIsNotNull(List<PropertyStatus> statuses, Pageable pageable);
 
     @Modifying
-    @Query("UPDATE Property p SET p.operationManagerId = :managerId, p.status = CASE WHEN p.status = 'PENDING_OPERATION_MANAGER' THEN 'ACTIVE' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
+    @Query("UPDATE Property p SET p.operationManagerId = :managerId, p.managedBy = :managerId, p.status = CASE WHEN p.status = 'PENDING_OPERATION_MANAGER' THEN 'ACTIVE' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
     int updateOperationManagerByZoneId(@Param("managerId") UUID managerId, @Param("zoneId") UUID zoneId, @Param("validStatuses") List<PropertyStatus> validStatuses);
 
     @Modifying
-    @Query("UPDATE Property p SET p.operationManagerId = null, p.status = CASE WHEN p.status = 'ACTIVE' THEN 'PENDING_OPERATION_MANAGER' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
+    @Query("UPDATE Property p SET p.operationManagerId = null, p.managedBy = null, p.status = CASE WHEN p.status = 'ACTIVE' THEN 'PENDING_OPERATION_MANAGER' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
     int removeOperationManagerByZoneId(@Param("zoneId") UUID zoneId, @Param("validStatuses") List<PropertyStatus> validStatuses);
 }

@@ -54,6 +54,8 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final UserRepository userRepository;
+    private final com.sep490.slms2026.repository.MeterReadingRepository meterReadingRepository;
+    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
 
     private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
             CheckoutRequestStatus.APPROVED,
@@ -181,19 +183,11 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         TenantContract contract = checkoutRequest.getTenantContract();
 
-        List<com.sep490.slms2026.entity.TenantInvoice> unpaidRentInvoices = tenantInvoiceRepository
+        List<com.sep490.slms2026.entity.TenantInvoice> unpaidInvoices = tenantInvoiceRepository
                 .findByTenantContractIdAndStatusNotIn(contract.getId(), List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
-        BigDecimal unpaidRent = unpaidRentInvoices.stream()
+        BigDecimal unpaidTotal = unpaidInvoices.stream()
                 .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        List<com.sep490.slms2026.entity.UtilityInvoice> unpaidUtilityInvoices = utilityInvoiceRepository
-                .findByTenantContractIdAndStatusNot(contract.getId(), com.sep490.slms2026.enums.UtilityInvoiceStatus.PAID);
-        BigDecimal unpaidUtility = unpaidUtilityInvoices.stream()
-                .map(com.sep490.slms2026.entity.UtilityInvoice::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal unpaidTotal = unpaidRent.add(unpaidUtility);
 
         BigDecimal damageTotal = inspection.getDamages().stream()
                 .map(CheckoutDamageItem::getAmount)
@@ -309,20 +303,12 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         }
 
         List<CheckoutSettlementResponse.InvoiceResponse> unpaidInvoiceResponses = new ArrayList<>();
-        for (var inv : unpaidRentInvoices) {
+        for (var inv : unpaidInvoices) {
             unpaidInvoiceResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
                     .id(inv.getId())
                     .code(inv.getCode() != null ? inv.getCode() : "RENT")
                     .type(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : "RENT")
                     .amount(inv.getGrandTotal())
-                    .build());
-        }
-        for (var inv : unpaidUtilityInvoices) {
-            unpaidInvoiceResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
-                    .id(inv.getId())
-                    .code(inv.getBillingPeriod())
-                    .type(inv.getUtilityType() != null ? inv.getUtilityType().name() : "UTILITY")
-                    .amount(inv.getAmount())
                     .build());
         }
 
@@ -696,28 +682,71 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                     "Chỉ số cuối nhỏ hơn chỉ số kỳ trước — kiểm tra lại số đọc.");
         }
 
-        return utilityInvoiceRepository.save(com.sep490.slms2026.entity.UtilityInvoice.builder()
+        String billingPeriod = finalPeriodLabel(moveOutDate);
+        
+        com.sep490.slms2026.entity.UtilityInvoice invoice = utilityInvoiceRepository
+                .findByTenantContractIdAndUtilityTypeAndBillingPeriod(
+                        contract.getId(), type, billingPeriod)
+                .orElseGet(com.sep490.slms2026.entity.UtilityInvoice::new);
+
+        invoice.setProperty(contract.getProperty());
+        invoice.setRoom(contract.getRoom());
+        invoice.setTenantContract(contract);
+        invoice.setUtilityType(type);
+        invoice.setBillingPeriod(billingPeriod);
+        invoice.setPrevReading(prev);
+        invoice.setNewReading(finalReading);
+        invoice.setConsumption(consumption);
+        invoice.setUnitPrice(unitPrice);
+        invoice.setAmount(consumption.multiply(unitPrice));
+        invoice.setMeterImageUrl(meterImageUrl);
+        invoice.setStatus(com.sep490.slms2026.enums.UtilityInvoiceStatus.SENT);
+        if (invoice.getId() == null) {
+            invoice.setCreatedAt(LocalDateTime.now());
+            invoice.setCreatedBy(SecurityUtils.requireCurrentUser().getId());
+        }
+        invoice.setSentAt(LocalDateTime.now());
+
+        invoice = utilityInvoiceRepository.save(invoice);
+
+        meterReadingRepository.save(MeterReading.builder()
                 .property(contract.getProperty())
                 .room(contract.getRoom())
-                .tenantContract(contract)
                 .utilityType(type)
-                .billingPeriod(finalPeriodLabel(moveOutDate))
-                .prevReading(prev)
-                .newReading(finalReading)
-                .consumption(consumption)
-                .unitPrice(unitPrice)
-                .amount(consumption.multiply(unitPrice))
-                .meterImageUrl(meterImageUrl)
-                .status(com.sep490.slms2026.enums.UtilityInvoiceStatus.SENT)
+                .period(billingPeriod)
+                .reading(finalReading)
+                .imageUrl(meterImageUrl)
+                .recordedAt(LocalDateTime.now())
+                .recordedBy(SecurityUtils.requireCurrentUser().getId())
                 .build());
+
+        com.sep490.slms2026.entity.TenantInvoice tenantInvoice = tenantBillingService.createFromUtilityInvoice(invoice, contract);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "InvoiceList");
+        data.put("type", "UTILITY_INVOICE_CREATED");
+        Map<String, Object> params = new HashMap<>();
+        params.put("invoiceId", tenantInvoice.getId());
+        data.put("params", params);
+
+        String typeStr = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC ? "Điện" : "Nước";
+        String title = "Hoá đơn " + typeStr + " chốt trả phòng";
+        String content = String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                typeStr, billingPeriod, invoice.getAmount().longValue());
+
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            sendNotification(contract.getTenant().getUser().getId(), "UTILITY_INVOICE_CREATED", title, content, data);
+        }
+
+        return invoice;
     }
 
     private BigDecimal resolvePrevReading(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
         Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
-                ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
-                        contract.getProperty().getId(), contract.getRoom().getId(), type)
-                : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
-                        contract.getProperty().getId(), type);
+                ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
+                : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), type, "%chốt trả phòng%");
 
         if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())) {
             return last.get().getNewReading();
@@ -737,10 +766,10 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private BigDecimal resolveFinalUnitPrice(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
         if (Boolean.TRUE.equals(contract.getProperty().getWholeHouse())) {
             Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
-                    ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
-                            contract.getProperty().getId(), contract.getRoom().getId(), type)
-                    : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
-                            contract.getProperty().getId(), type);
+                    ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                            contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
+                    : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                            contract.getProperty().getId(), type, "%chốt trả phòng%");
             if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())) {
                 return last.get().getUnitPrice();
             }

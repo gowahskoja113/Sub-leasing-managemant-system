@@ -87,8 +87,11 @@ public class TenantDashboardService {
 
         String managerName = null;
         String managerPhone = null;
-        if (property.getManagedBy() != null) {
-            User manager = userRepository.findById(property.getManagedBy()).orElse(null);
+        java.util.UUID managerId = property.getOperationManagerId() != null 
+                ? property.getOperationManagerId() 
+                : property.getManagedBy();
+        if (managerId != null) {
+            User manager = userRepository.findById(managerId).orElse(null);
             if (manager != null) {
                 managerName = manager.getFullName();
                 managerPhone = manager.getPhoneNumber();
