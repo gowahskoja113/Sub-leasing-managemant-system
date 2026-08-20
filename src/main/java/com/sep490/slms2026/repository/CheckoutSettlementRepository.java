@@ -22,4 +22,6 @@ public interface CheckoutSettlementRepository extends JpaRepository<CheckoutSett
             WHERE cr.tenantContract.id IN :contractIds
             """)
     List<CheckoutSettlement> findAllByTenantContractIdIn(@Param("contractIds") Collection<Long> contractIds);
+
+    boolean existsByRefundProofHash(String hash);
 }

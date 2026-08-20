@@ -30,6 +30,10 @@ public class CustomUserDetails implements UserDetails {
         return user.getPhoneNumber();
     }
 
+    public com.sep490.slms2026.enums.Role getRole() {
+        return user.getRole();
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Giữ nguyên logic thêm Role của bồ, nhớ thêm "ROLE_" nếu cấu hình HasRole ở Controller yêu cầu nhé

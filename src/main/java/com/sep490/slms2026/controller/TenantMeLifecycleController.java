@@ -59,6 +59,14 @@ public class TenantMeLifecycleController {
         return ResponseEntity.ok(tenantCheckoutService.confirmRefund(id, currentUserId()));
     }
 
+    @PostMapping("/checkout-requests/{id}/dispute-refund")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<CheckoutRequestResponse> disputeRefund(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.DisputeRefundRequest request) {
+        return ResponseEntity.ok(tenantCheckoutService.disputeRefund(id, currentUserId(), request));
+    }
+
     @GetMapping("/handover")
     @PreAuthorize("hasRole('TENANT')")
     public ResponseEntity<TenantHandoverResponse> getHandover(

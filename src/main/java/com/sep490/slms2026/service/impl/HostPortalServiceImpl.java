@@ -319,7 +319,10 @@ public class HostPortalServiceImpl implements HostPortalService {
                             .refundBankName(ctx != null && ctx.request() != null ? ctx.request().getRefundBankName() : null)
                             .refundBankAccount(ctx != null && ctx.request() != null ? ctx.request().getRefundBankAccount() : null)
                             .refundAccountHolder(ctx != null && ctx.request() != null ? ctx.request().getRefundAccountHolder() : null)
-                            .checkoutNote(ctx != null && ctx.request() != null ? ctx.request().getNote() : null);
+                            .checkoutNote(ctx != null && ctx.request() != null ? ctx.request().getNote() : null)
+                            .refundConfirmedAt(settlement != null && settlement.getRefundConfirmedAt() != null ? settlement.getRefundConfirmedAt().toLocalDate() : null)
+                            .refundDisputedAt(settlement != null && settlement.getRefundDisputedAt() != null ? settlement.getRefundDisputedAt().toLocalDate() : null)
+                            .refundDisputeReason(settlement != null ? settlement.getRefundDisputeReason() : null);
 
                     List<TenantInvoice> unpaid = tenantInvoiceRepository
                             .findByTenantContractIdAndStatusNotIn(c.getId(),

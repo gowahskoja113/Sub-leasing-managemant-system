@@ -163,4 +163,7 @@ public class TenantContractResponse {
     public String getRoomCode() {
         return this.roomNumber;
     }
+
+    /** Thời điểm khách xác nhận đã nhận hoàn cọc (nếu đã kết thúc). */
+    private LocalDate refundConfirmedAt;
 }
