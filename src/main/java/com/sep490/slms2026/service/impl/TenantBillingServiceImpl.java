@@ -1089,9 +1089,6 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             return null;
         }
         UUID managerId = contract.getProperty().getOperationManagerId();
-        if (managerId == null) {
-            managerId = contract.getProperty().getOperationManagerId();
-        }
         if (managerId == null && contract.getAssignedManager() != null) {
             managerId = contract.getAssignedManager().getId();
         }

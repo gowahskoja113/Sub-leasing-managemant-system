@@ -38,7 +38,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropColumnIfExists("properties", "rooms_per_floor");
         dropNotNullIfExists("properties", "created_by");
         alterColumnToUuidIfBigint("properties", "operation_manager_id");
-        alterColumnToUuidIfBigint("properties", "managed_by");
+        dropColumnIfExists("properties", "managed_by");
         migrateRenovationSessions();
         ensureEquipmentCatalogSchema();
         ensureRoomsSoftDeleteColumn();

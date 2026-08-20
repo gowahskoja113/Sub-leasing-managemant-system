@@ -101,9 +101,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             if ("ROLE_TENANT".equals(role)) {
                 predicates.add(cb.equal(root.join("tenant").join("user").get("id"), user.getId()));
             } else if ("ROLE_MANAGER".equals(role)) {
-                Predicate managedBy = cb.equal(root.join("property").get("managedBy"), user.getId());
-                Predicate opManager = cb.equal(root.join("property").get("operationManagerId"), user.getId());
-                predicates.add(cb.or(managedBy, opManager));
+                predicates.add(cb.equal(root.join("property").get("operationManagerId"), user.getId()));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -131,9 +129,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
 
             if ("ROLE_MANAGER".equals(role)) {
-                Predicate managedBy = cb.equal(root.join("property").get("managedBy"), user.getId());
-                Predicate opManager = cb.equal(root.join("property").get("operationManagerId"), user.getId());
-                predicates.add(cb.or(managedBy, opManager));
+                predicates.add(cb.equal(root.join("property").get("operationManagerId"), user.getId()));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -839,9 +835,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new AccessDeniedException("Chỉ quản lý vận hành mới được thao tác trên yêu cầu sửa chữa này");
         }
         UUID userId = user.getId();
-        UUID managedBy = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
         UUID opManager = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
-        if (!userId.equals(managedBy) && !userId.equals(opManager)) {
+        if (!userId.equals(opManager)) {
             throw new AccessDeniedException("Bạn không quản lý tòa nhà của yêu cầu sửa chữa này");
         }
     }
