@@ -67,6 +67,8 @@ public class CheckoutRequestResponse {
         private LocalDateTime refundConfirmedAt;
         private LocalDateTime refundDisputedAt;
         private String refundDisputeReason;
+        private LocalDateTime refundDisputeResolvedAt;
+        private String refundDisputeOutcome;
     }
 
     @Getter

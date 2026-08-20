@@ -34,5 +34,7 @@ public record HostDepositsResponse(BigDecimal totalHeld, List<DepositItem> items
         private LocalDate refundConfirmedAt;
         private LocalDate refundDisputedAt;
         private String refundDisputeReason;
+        private LocalDate refundDisputeResolvedAt;
+        private String refundDisputeOutcome;
     }
 }
