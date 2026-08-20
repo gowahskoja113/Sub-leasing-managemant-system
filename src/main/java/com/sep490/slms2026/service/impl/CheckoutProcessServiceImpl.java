@@ -703,21 +703,16 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             return;
         }
 
-        com.sep490.slms2026.entity.TenantInvoice invoice = existingOpt.orElseGet(com.sep490.slms2026.entity.TenantInvoice::new);
-        boolean isNew = invoice.getId() == null;
-
-        if (isNew) {
-            invoice.setCode("CMP-" + System.currentTimeMillis());
-            invoice.setTenantContract(contract);
-            invoice.setInvoiceType(com.sep490.slms2026.enums.TenantInvoiceType.COMPENSATION);
-            invoice.setBillingPeriod(finalPeriodLabel(moveOutDate));
-            invoice.setBillingMonth(moveOutDate.getMonthValue());
-            invoice.setBillingYear(moveOutDate.getYear());
-            invoice.setCreatedAt(LocalDateTime.now());
-            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-                invoice.setTenantUserId(contract.getTenant().getUser().getId());
-            }
-        }
+        com.sep490.slms2026.entity.TenantInvoice invoice = existingOpt.orElseGet(() -> {
+            com.sep490.slms2026.entity.TenantInvoice newInvoice = com.sep490.slms2026.entity.TenantInvoice.createInvoice(
+                    contract,
+                    com.sep490.slms2026.enums.TenantInvoiceType.COMPENSATION,
+                    finalPeriodLabel(moveOutDate));
+            newInvoice.setCode("CMP-" + System.currentTimeMillis());
+            newInvoice.setBillingMonth(moveOutDate.getMonthValue());
+            newInvoice.setBillingYear(moveOutDate.getYear());
+            return newInvoice;
+        });
         
         invoice.setTotalAmount(totalDamage);
         invoice.setGrandTotal(totalDamage);

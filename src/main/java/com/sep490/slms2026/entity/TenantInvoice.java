@@ -121,4 +121,29 @@ public class TenantInvoice implements Serializable {
 
     @Column(name = "auto_issued")
     private Boolean autoIssued;
+
+    public static TenantInvoice createInvoice(TenantContract contract, TenantInvoiceType invoiceType, String billingPeriod) {
+        TenantInvoice invoice = new TenantInvoice();
+        invoice.setTenantContract(contract);
+        invoice.setInvoiceType(invoiceType);
+        invoice.setBillingPeriod(billingPeriod);
+        if (contract != null) {
+            if (contract.getProperty() != null) {
+                invoice.setPropertyName(contract.getProperty().getPropertyName());
+            } else {
+                invoice.setPropertyName("Unknown");
+            }
+            if (contract.getRoom() != null) {
+                invoice.setRoomNumber(contract.getRoom().getRoomNumber());
+            }
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                invoice.setTenantUserId(contract.getTenant().getUser().getId());
+            }
+        }
+        invoice.setCreatedAt(LocalDateTime.now());
+        invoice.setStatus(TenantInvoiceStatus.PENDING);
+        invoice.setTotalAmount(BigDecimal.ZERO);
+        invoice.setGrandTotal(BigDecimal.ZERO);
+        return invoice;
+    }
 }
