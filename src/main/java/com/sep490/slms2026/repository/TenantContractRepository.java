@@ -250,6 +250,8 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
+    Optional<TenantContract> findTopByPropertyIdAndRoomIsNullOrderByEndDateDesc(Long propertyId);
+
     @Query("""
             SELECT c FROM TenantContract c
             WHERE (:propertyId IS NULL OR c.property.id = :propertyId)

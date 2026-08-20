@@ -29,4 +29,8 @@ public class CheckoutRefundRequest {
     private LocalDate paidAt;
 
     private String note;
+    
+    private String refundBankName;
+    private String refundBankAccount;
+    private String refundAccountHolder;
 }

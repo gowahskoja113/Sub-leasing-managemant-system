@@ -18,5 +18,7 @@ public class CheckoutInspectionRequest {
     private String electricMeterImageUrl;
     private Integer waterFinalReading;
     private String waterMeterImageUrl;
+    private java.math.BigDecimal electricityUnitPrice;
+    private java.math.BigDecimal waterUnitPrice;
     private List<CheckoutDamageItemRequest> damages;
 }

@@ -76,4 +76,13 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "disputed_at")
     private LocalDateTime disputedAt;
+
+    @Column(name = "refund_bank_name")
+    private String refundBankName;
+
+    @Column(name = "refund_bank_account")
+    private String refundBankAccount;
+
+    @Column(name = "refund_account_holder")
+    private String refundAccountHolder;
 }

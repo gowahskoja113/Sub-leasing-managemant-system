@@ -117,6 +117,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 .status(UtilityBillStatus.PUBLISHED)
                 .createdBy(user.getId())
                 .createdAt(LocalDateTime.now())
+                // Ghi chú: readingDeadline = null với nguyên căn chỉ áp dụng cho HÓA ĐƠN HẰNG THÁNG
+                // (vì admin nhập trực tiếp từ hoá đơn EVN). Đối với trả phòng, quản lý VẪN PHẢI chụp đồng hồ.
                 .readingDeadline(wholeHouse ? null : today)
                 .build();
 

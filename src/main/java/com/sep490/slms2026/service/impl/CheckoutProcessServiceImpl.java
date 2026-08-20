@@ -118,13 +118,14 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             if (request.getElectricityFinalReading() != null) {
                 createFinalUtilityInvoice(contract, com.sep490.slms2026.enums.UtilityType.ELECTRIC, 
                         BigDecimal.valueOf(request.getElectricityFinalReading()), 
-                        request.getElectricMeterImageUrl(), moveOutDate);
+                        request.getElectricMeterImageUrl(), moveOutDate, request.getElectricityUnitPrice());
             }
             if (request.getWaterFinalReading() != null) {
                 createFinalUtilityInvoice(contract, com.sep490.slms2026.enums.UtilityType.WATER, 
                         BigDecimal.valueOf(request.getWaterFinalReading()), 
-                        request.getWaterMeterImageUrl(), moveOutDate);
+                        request.getWaterMeterImageUrl(), moveOutDate, request.getWaterUnitPrice());
             }
+            syncCompensationInvoice(contract, moveOutDate, inspection.getDamages(), checkoutRequest.getCreatedAt());
         }
 
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.INSPECTING) {
@@ -183,11 +184,31 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         TenantContract contract = checkoutRequest.getTenantContract();
 
-        List<com.sep490.slms2026.entity.TenantInvoice> unpaidInvoices = tenantInvoiceRepository
-                .findByTenantContractIdAndStatusNotIn(contract.getId(), List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
-        BigDecimal unpaidTotal = unpaidInvoices.stream()
+        List<com.sep490.slms2026.entity.TenantInvoice> allContractInvoices = tenantInvoiceRepository.findByTenantContractId(contract.getId());
+        List<com.sep490.slms2026.entity.TenantInvoice> relevantInvoices = allContractInvoices.stream()
+                .filter(inv -> {
+                    if (inv.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID && inv.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
+                        return true;
+                    }
+                    if (inv.getInvoiceType() == com.sep490.slms2026.enums.TenantInvoiceType.COMPENSATION) {
+                        return inv.getCreatedAt() != null && !inv.getCreatedAt().isBefore(checkoutRequest.getCreatedAt());
+                    }
+                    if (inv.getBillingPeriod() != null && inv.getBillingPeriod().contains("chốt trả phòng")) {
+                        return true;
+                    }
+                    return false;
+                }).collect(Collectors.toList());
+
+        BigDecimal chargesTotal = relevantInvoices.stream()
                 .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal chargesPaid = relevantInvoices.stream()
+                .filter(inv -> inv.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.PAID)
+                .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        boolean chargesSettled = chargesTotal.compareTo(BigDecimal.ZERO) <= 0 || chargesPaid.compareTo(chargesTotal) >= 0;
 
         BigDecimal damageTotal = inspection.getDamages().stream()
                 .map(CheckoutDamageItem::getAmount)
@@ -253,78 +274,48 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             }
         }
 
-        BigDecimal finalAmount = deposit.subtract(unpaidTotal).subtract(damageTotal).add(adjustmentTotal);
-
-        BigDecimal refundAmount = BigDecimal.ZERO;
-        BigDecimal extraChargeAmount = BigDecimal.ZERO;
-
-        if (finalAmount.compareTo(BigDecimal.ZERO) > 0) {
-            refundAmount = finalAmount;
-        } else if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
-            extraChargeAmount = finalAmount.abs();
-        }
-
         Optional<CheckoutSettlement> savedOpt = checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId);
         if (savedOpt.isPresent()) {
             CheckoutSettlement saved = savedOpt.get();
-            boolean extraChargePaid = false;
-            if (saved.getExtraChargeInvoiceId() != null) {
-                Invoice inv = invoiceRepository.findById(saved.getExtraChargeInvoiceId()).orElse(null);
-                if (inv != null && inv.getStatus() == InvoiceStatus.PAID) {
-                    extraChargePaid = true;
-                }
-            }
             return CheckoutSettlementResponse.builder()
                     .depositAmount(saved.getDepositAmount())
-                    .unpaidInvoices(saved.getSettlementInvoices().stream().map(inv -> CheckoutSettlementResponse.InvoiceResponse.builder()
+                    .finalCharges(saved.getSettlementInvoices().stream().map(inv -> CheckoutSettlementResponse.InvoiceResponse.builder()
                             .id(inv.getInvoiceId())
                             .code(inv.getInvoiceCode())
                             .type(inv.getInvoiceType())
                             .amount(inv.getAmount())
                             .build()).collect(Collectors.toList()))
-                    .unpaidTotal(saved.getUnpaidTotal())
-                    .damages(inspection.getDamages().stream().map(d -> CheckoutSettlementResponse.DamageResponse.builder()
-                            .label(d.getLabel())
-                            .amount(d.getAmount())
-                            .build()).collect(Collectors.toList()))
-                    .damageTotal(saved.getDamageTotal())
+                    .chargesTotal(chargesTotal)
+                    .chargesPaid(chargesPaid)
+                    .chargesSettled(chargesSettled)
                     .adjustments(saved.getSettlementAdjustments().stream().map(adj -> CheckoutSettlementResponse.AdjustmentResponse.builder()
                             .label(adj.getLabel())
                             .amount(adj.getAmount())
                             .build()).collect(Collectors.toList()))
                     .adjustmentTotal(saved.getAdjustmentTotal())
-                    .refundAmount(saved.getRefundAmount())
-                    .extraChargeAmount(saved.getExtraChargeAmount())
-                    .extraChargeInvoiceId(saved.getExtraChargeInvoiceId())
                     .refundProofUrl(saved.getRefundProofUrl())
                     .refundedAt(saved.getRefundPaidAt() != null ? saved.getRefundPaidAt().toLocalDate() : null)
-                    .extraChargePaid(extraChargePaid)
                     .build();
         }
 
-        List<CheckoutSettlementResponse.InvoiceResponse> unpaidInvoiceResponses = new ArrayList<>();
-        for (var inv : unpaidInvoices) {
-            unpaidInvoiceResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
+        List<CheckoutSettlementResponse.InvoiceResponse> finalChargeResponses = new ArrayList<>();
+        for (var inv : relevantInvoices) {
+            finalChargeResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
                     .id(inv.getId())
-                    .code(inv.getCode() != null ? inv.getCode() : "RENT")
-                    .type(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : "RENT")
+                    .code(inv.getCode() != null ? inv.getCode() : "INVOICE")
+                    .type(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : "OTHER")
                     .amount(inv.getGrandTotal())
                     .build());
         }
 
         return CheckoutSettlementResponse.builder()
                 .depositAmount(deposit)
-                .unpaidInvoices(unpaidInvoiceResponses)
-                .unpaidTotal(unpaidTotal)
-                .damages(inspection.getDamages().stream().map(d -> CheckoutSettlementResponse.DamageResponse.builder()
-                        .label(d.getLabel())
-                        .amount(d.getAmount())
-                        .build()).collect(Collectors.toList()))
-                .damageTotal(damageTotal)
+                .finalCharges(finalChargeResponses)
+                .chargesTotal(chargesTotal)
+                .chargesPaid(chargesPaid)
+                .chargesSettled(chargesSettled)
                 .adjustments(adjustments)
                 .adjustmentTotal(adjustmentTotal)
-                .refundAmount(refundAmount)
-                .extraChargeAmount(extraChargeAmount)
                 .build();
     }
 
@@ -348,11 +339,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         settlement.setCheckoutRequest(checkoutRequest);
         settlement.setDepositAmount(settlementData.getDepositAmount());
-        settlement.setUnpaidTotal(settlementData.getUnpaidTotal());
-        settlement.setDamageTotal(settlementData.getDamageTotal());
+        
+        BigDecimal unpaidTotal = settlementData.getFinalCharges().stream().filter(inv -> !"COMPENSATION".equals(inv.getType())).map(CheckoutSettlementResponse.InvoiceResponse::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal damageTotal = settlementData.getFinalCharges().stream().filter(inv -> "COMPENSATION".equals(inv.getType())).map(CheckoutSettlementResponse.InvoiceResponse::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        
+        BigDecimal finalAmount = settlementData.getDepositAmount().subtract(settlementData.getChargesTotal()).add(settlementData.getAdjustmentTotal());
+        BigDecimal refundAmount = BigDecimal.ZERO;
+        BigDecimal extraChargeAmount = BigDecimal.ZERO;
+        if (finalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            refundAmount = finalAmount;
+        } else if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            extraChargeAmount = finalAmount.abs();
+        }
+
+        settlement.setUnpaidTotal(unpaidTotal);
+        settlement.setDamageTotal(damageTotal);
         settlement.setAdjustmentTotal(settlementData.getAdjustmentTotal());
-        settlement.setRefundAmount(settlementData.getRefundAmount());
-        settlement.setExtraChargeAmount(settlementData.getExtraChargeAmount());
+        settlement.setRefundAmount(refundAmount);
+        settlement.setExtraChargeAmount(extraChargeAmount);
 
         if (settlement.getSettlementInvoices() != null) {
             settlement.getSettlementInvoices().clear();
@@ -360,8 +364,8 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             settlement.setSettlementInvoices(new ArrayList<>());
         }
 
-        if (settlementData.getUnpaidInvoices() != null) {
-            for (var inv : settlementData.getUnpaidInvoices()) {
+        if (settlementData.getFinalCharges() != null) {
+            for (var inv : settlementData.getFinalCharges()) {
                 settlement.getSettlementInvoices().add(CheckoutSettlementInvoice.builder()
                         .checkoutSettlement(settlement)
                         .invoiceId(inv.getId())
@@ -669,12 +673,55 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         return null;
     }
 
+    private void syncCompensationInvoice(TenantContract contract, LocalDate moveOutDate, List<CheckoutDamageItem> damages, LocalDateTime checkoutCreatedAt) {
+        BigDecimal totalDamage = damages == null ? BigDecimal.ZERO : damages.stream().map(CheckoutDamageItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        
+        Optional<com.sep490.slms2026.entity.TenantInvoice> existingOpt = tenantInvoiceRepository.findByTenantContractId(contract.getId()).stream()
+                .filter(inv -> inv.getInvoiceType() == com.sep490.slms2026.enums.TenantInvoiceType.COMPENSATION
+                        && inv.getCreatedAt() != null && !inv.getCreatedAt().isBefore(checkoutCreatedAt))
+                .findFirst();
+
+        if (totalDamage.compareTo(BigDecimal.ZERO) <= 0) {
+            existingOpt.ifPresent(inv -> {
+                if (inv.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                    inv.setStatus(com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED);
+                    tenantInvoiceRepository.save(inv);
+                }
+            });
+            return;
+        }
+
+        com.sep490.slms2026.entity.TenantInvoice invoice = existingOpt.orElseGet(com.sep490.slms2026.entity.TenantInvoice::new);
+        boolean isNew = invoice.getId() == null;
+
+        if (isNew) {
+            invoice.setCode("CMP-" + System.currentTimeMillis());
+            invoice.setTenantContract(contract);
+            invoice.setInvoiceType(com.sep490.slms2026.enums.TenantInvoiceType.COMPENSATION);
+            invoice.setBillingPeriod(finalPeriodLabel(moveOutDate));
+            invoice.setBillingMonth(moveOutDate.getMonthValue());
+            invoice.setBillingYear(moveOutDate.getYear());
+            invoice.setCreatedAt(LocalDateTime.now());
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                invoice.setTenantUserId(contract.getTenant().getUser().getId());
+            }
+        }
+        
+        invoice.setTotalAmount(totalDamage);
+        invoice.setGrandTotal(totalDamage);
+        if (invoice.getStatus() == null || invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED) {
+            invoice.setStatus(com.sep490.slms2026.enums.TenantInvoiceStatus.PENDING);
+        }
+        
+        tenantInvoiceRepository.save(invoice);
+    }
+
     private com.sep490.slms2026.entity.UtilityInvoice createFinalUtilityInvoice(
             TenantContract contract, com.sep490.slms2026.enums.UtilityType type,
-            BigDecimal finalReading, String meterImageUrl, LocalDate moveOutDate) {
+            BigDecimal finalReading, String meterImageUrl, LocalDate moveOutDate, BigDecimal fromRequest) {
 
-        BigDecimal prev = resolvePrevReading(contract, type);
-        BigDecimal unitPrice = resolveFinalUnitPrice(contract, type);
+        BigDecimal prev = resolvePrevReadingForCheckout(contract, type);
+        BigDecimal unitPrice = resolveFinalUnitPrice(contract, type, fromRequest);
 
         BigDecimal consumption = finalReading.subtract(prev);
         if (consumption.signum() < 0) {
@@ -761,7 +808,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         return invoice;
     }
 
-    private BigDecimal resolvePrevReading(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
+    private BigDecimal resolvePrevReadingForCheckout(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
         Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
                 ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
                         contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
@@ -783,7 +830,21 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         return moveIn;
     }
 
-    private BigDecimal resolveFinalUnitPrice(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
+    private BigDecimal resolveFinalUnitPrice(TenantContract contract, com.sep490.slms2026.enums.UtilityType type, BigDecimal fromRequest) {
+        if (fromRequest != null && fromRequest.signum() > 0) {
+            BigDecimal registered = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
+                    ? contract.getProperty().getElectricityUnitPrice()
+                    : contract.getProperty().getWaterUnitPrice();
+            if (registered == null || registered.signum() <= 0) {
+                if (type == com.sep490.slms2026.enums.UtilityType.ELECTRIC) {
+                    contract.getProperty().setElectricityUnitPrice(fromRequest);
+                } else {
+                    contract.getProperty().setWaterUnitPrice(fromRequest);
+                }
+            }
+            return fromRequest;
+        }
+
         Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
                 ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
                         contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
@@ -798,7 +859,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         BigDecimal registered = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
                 ? contract.getProperty().getElectricityUnitPrice()
                 : contract.getProperty().getWaterUnitPrice();
-        if (registered != null) {
+        if (registered != null && registered.signum() > 0) {
             return registered;
         }
 

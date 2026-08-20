@@ -25,5 +25,10 @@ public record HostDepositsResponse(BigDecimal totalHeld, List<DepositItem> items
         /** Số còn lại cần chuyển cho khách (từ quyết toán). Null nếu chưa có bảng quyết toán. */
         private BigDecimal refundAmount;
         private LocalDate refundedAt;
+        private String refundBankName;
+        private String refundBankAccount;
+        private String refundAccountHolder;
+        private Boolean chargesSettled;
+        private BigDecimal outstandingAmount;
     }
 }

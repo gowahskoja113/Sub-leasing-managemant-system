@@ -47,6 +47,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
+    private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
 
     @Override
     @Transactional
@@ -355,6 +356,38 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         sendNotification(saved.getTenantUserId(), "CHECKOUT_COMPLETED", title, content, data);
 
         return toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public CheckoutRequestResponse confirmRefund(Long requestId, UUID tenantUserId) {
+        CheckoutRequest checkoutRequest = loadOwned(requestId, tenantUserId);
+
+        com.sep490.slms2026.entity.CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(requestId)
+                .orElseThrow(() -> new BusinessException("Chưa có quyết toán cho yêu cầu này"));
+
+        if (settlement.getRefundPaidAt() == null) {
+            throw new BusinessException("Quản lý chưa hoàn cọc, không thể xác nhận");
+        }
+
+        settlement.setRefundConfirmedAt(LocalDateTime.now());
+        checkoutSettlementRepository.save(settlement);
+
+        UUID managerId = getManagerId(checkoutRequest.getTenantContract());
+        if (managerId != null) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("screen", "CheckoutDetail");
+            Map<String, Object> params = new HashMap<>();
+            params.put("requestId", checkoutRequest.getId());
+            data.put("params", params);
+
+            String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+            String title = "Khách đã nhận hoàn cọc";
+            String content = "Khách thuê phòng " + roomStr + " đã xác nhận nhận được tiền hoàn cọc.";
+            sendNotification(managerId, "CHECKOUT_REFUND_CONFIRMED", title, content, data);
+        }
+
+        return toResponse(checkoutRequest);
     }
 
     private CheckoutRequest loadOwned(Long requestId, UUID tenantUserId) {

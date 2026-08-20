@@ -6,5 +6,6 @@ public enum TenantInvoiceType {
     WATER,
     SERVICE,
     MAINTENANCE,
+    COMPENSATION,
     OTHER
 }
