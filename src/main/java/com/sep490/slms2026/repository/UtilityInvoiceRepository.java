@@ -43,6 +43,8 @@ public interface UtilityInvoiceRepository extends JpaRepository<UtilityInvoice, 
             """)
     List<UtilityInvoice> findByTenantUserId(@Param("tenantUserId") java.util.UUID tenantUserId);
 
+    List<UtilityInvoice> findByTenantContractIdAndStatusNot(Long tenantContractId, com.sep490.slms2026.enums.UtilityInvoiceStatus status);
+
     @Query("""
             SELECT COUNT(DISTINCT i.room.id)
             FROM UtilityInvoice i
