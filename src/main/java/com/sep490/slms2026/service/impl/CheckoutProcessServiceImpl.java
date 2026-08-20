@@ -700,6 +700,12 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         invoice.setPrevReading(prev);
         invoice.setNewReading(finalReading);
         invoice.setConsumption(consumption);
+        if (unitPrice == null || unitPrice.signum() <= 0) {
+            throw new BusinessException("NO_UTILITY_UNIT_PRICE",
+                    "Nhà " + contract.getProperty().getPropertyName() + " chưa có đơn giá "
+                    + (type == com.sep490.slms2026.enums.UtilityType.ELECTRIC ? "điện" : "nước")
+                    + ". Nhập đơn giá cho nhà rồi mới chốt được biên bản trả phòng.");
+        }
         invoice.setUnitPrice(unitPrice);
         invoice.setAmount(consumption.multiply(unitPrice));
         invoice.setMeterImageUrl(meterImageUrl);
@@ -778,19 +784,28 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     }
 
     private BigDecimal resolveFinalUnitPrice(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
-        if (Boolean.TRUE.equals(contract.getProperty().getWholeHouse())) {
-            Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
-                    ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
-                            contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
-                    : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
-                            contract.getProperty().getId(), type, "%chốt trả phòng%");
-            if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())) {
-                return last.get().getUnitPrice();
-            }
+        Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
+                ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), contract.getRoom().getId(), type, "%chốt trả phòng%")
+                : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), type, "%chốt trả phòng%");
+
+        if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())
+                && last.get().getUnitPrice() != null) {
+            return last.get().getUnitPrice();
         }
-        return type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
+
+        BigDecimal registered = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
                 ? contract.getProperty().getElectricityUnitPrice()
                 : contract.getProperty().getWaterUnitPrice();
+        if (registered != null) {
+            return registered;
+        }
+
+        throw new BusinessException("NO_UTILITY_UNIT_PRICE",
+                "Nhà " + contract.getProperty().getPropertyName() + " chưa có đơn giá "
+                + (type == com.sep490.slms2026.enums.UtilityType.ELECTRIC ? "điện" : "nước")
+                + ". Nhập đơn giá cho nhà rồi mới chốt được biên bản trả phòng.");
     }
 
     private String finalPeriodLabel(LocalDate moveOutDate) {
