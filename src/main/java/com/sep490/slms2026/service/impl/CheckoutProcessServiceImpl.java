@@ -968,8 +968,8 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 return hexString.toString();
             }
         } catch (Exception e) {
-            // Fallback to string hash
-            return hashString(fileUrl);
+            org.slf4j.LoggerFactory.getLogger(CheckoutProcessServiceImpl.class).warn("Failed to hash file content: " + fileUrl, e);
+            return null;
         }
     }
 }

@@ -437,19 +437,22 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .build());
 
         // Notify Host and Admin
-        UUID managerId = getManagerId(checkoutRequest.getTenantContract());
-        if (managerId != null) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("screen", "CheckoutDetail");
-            Map<String, Object> params = new HashMap<>();
-            params.put("requestId", checkoutRequest.getId());
-            data.put("params", params);
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", checkoutRequest.getId());
+        data.put("params", params);
 
-            String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
-            String title = "Khách khiếu nại chưa nhận được cọc";
-            String content = "Khách thuê phòng " + roomStr + " báo chưa nhận được tiền hoàn cọc.";
-            sendNotification(managerId, "CHECKOUT_REFUND_DISPUTED", title, content, data);
-        }
+        String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+        String title = "Khách khiếu nại chưa nhận được cọc";
+        String content = "Khách thuê phòng " + roomStr + " báo chưa nhận được tiền hoàn cọc.";
+        
+        userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+            sendNotification(owner.getId(), "CHECKOUT_REFUND_DISPUTED", title, content, data);
+        });
+        userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_ADMIN).forEach(admin -> {
+            sendNotification(admin.getId(), "CHECKOUT_REFUND_DISPUTED", title, content, data);
+        });
 
         return toResponse(checkoutRequest);
     }
