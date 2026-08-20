@@ -39,7 +39,8 @@ public class DepreciationResultResponse {
     private BigDecimal monthlyBreakEven;
     /** Giá sàn: hoàn vốn + OPEX + buffer trống phòng. */
     private BigDecimal roomFloor;
-    private BigDecimal suggestedMinPrice;
+    /** Phần OPEX phân bổ cho phòng. */
+    private BigDecimal opexShare;
     /** Giá gợi ý sau lợi nhuận / ROI (Room_Price_i). */
     private BigDecimal suggestedPriceWithProfit;
 
