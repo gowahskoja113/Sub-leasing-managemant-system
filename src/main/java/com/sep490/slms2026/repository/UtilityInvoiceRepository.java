@@ -42,6 +42,12 @@ public interface UtilityInvoiceRepository extends JpaRepository<UtilityInvoice, 
     Optional<UtilityInvoice> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
             Long propertyId, UtilityType utilityType, String billingPeriodNotLike);
 
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType, String billingPeriodLike);
+
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+            Long propertyId, UtilityType utilityType, String billingPeriodLike);
+
     Optional<UtilityInvoice> findByTenantContractIdAndUtilityTypeAndBillingPeriod(
             Long tenantContractId, UtilityType utilityType, String billingPeriod);
 

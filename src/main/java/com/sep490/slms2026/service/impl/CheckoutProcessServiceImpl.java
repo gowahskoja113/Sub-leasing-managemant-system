@@ -505,6 +505,18 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         assertCanRecordDepositRefund(checkoutRequest);
 
+        TenantContract contract = checkoutRequest.getTenantContract();
+        List<TenantInvoice> unpaid = tenantInvoiceRepository
+                .findByTenantContractIdAndStatusNotIn(contract.getId(),
+                        List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
+        if (!unpaid.isEmpty()) {
+            BigDecimal owed = unpaid.stream().map(TenantInvoice::getGrandTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            throw new BusinessException("CHARGES_NOT_SETTLED",
+                    "Khách còn " + unpaid.size() + " khoản chưa thanh toán ("
+                    + owed.toBigInteger() + "đ). Thu đủ rồi mới hoàn cọc được.");
+        }
+
         if (!REFUND_ALLOWED_STATUSES.contains(checkoutRequest.getStatus())) {
             throw new BusinessException(
                     "REFUND_NOT_ALLOWED",
@@ -523,7 +535,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(
                     "REFUND_NOT_ALLOWED",
-                    "Quyết toán không còn số tiền hoàn cọc (cọc đã trừ hết hoặc khách còn phải trả thêm).");
+                    "Không xác định được số tiền cọc của hợp đồng này.");
         }
 
         if (request.getPaidAt() == null) {
@@ -549,7 +561,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         String content = "Đã ghi nhận hoàn tiền cọc cho bạn.";
         sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_REFUNDED", title, content, data);
 
-        TenantContract contract = checkoutRequest.getTenantContract();
+        contract = checkoutRequest.getTenantContract();
         return DepositRefundResponse.builder()
                 .contractId(contract != null ? contract.getId() : null)
                 .checkoutRequestId(checkoutRequest.getId())
