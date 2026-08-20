@@ -148,7 +148,7 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             LEFT JOIN FETCH c.room
             LEFT JOIN FETCH c.tenant t
             LEFT JOIN FETCH t.user
-            WHERE (p.operationManagerId = :managerUserId OR p.managedBy = :managerUserId)
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND (c.priceApprovalStatus IN :statuses 
                    OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
             """)
@@ -162,7 +162,7 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             LEFT JOIN FETCH c.room
             LEFT JOIN FETCH c.tenant t
             LEFT JOIN FETCH t.user
-            WHERE (p.operationManagerId = :managerUserId OR p.managedBy = :managerUserId)
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND c.priceApprovalStatus = :status
             """)
     List<TenantContract> findManagedContractsByApprovalStatus(
@@ -175,7 +175,7 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             LEFT JOIN FETCH c.room
             LEFT JOIN FETCH c.tenant t
             LEFT JOIN FETCH t.user
-            WHERE (p.operationManagerId = :managerUserId OR p.managedBy = :managerUserId)
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND c.status = :status
             """)
     List<TenantContract> findManagedContractsByStatus(
@@ -281,3 +281,4 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     Optional<TenantContract> findFirstByContractCodeStartingWithOrderByContractCodeDesc(String prefix);
 }
+

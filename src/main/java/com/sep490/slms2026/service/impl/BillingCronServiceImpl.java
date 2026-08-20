@@ -381,8 +381,8 @@ public class BillingCronServiceImpl implements BillingCronService {
 
     private void notifyManagerAndHostsOverdue(TenantInvoice invoice, String period, String formattedAmount, long overdueDays) {
         UUID managerId = null;
-        if (invoice.getTenantContract().getProperty().getManagedBy() != null) {
-            managerId = invoice.getTenantContract().getProperty().getManagedBy();
+        if (invoice.getTenantContract().getProperty().getOperationManagerId() != null) {
+            managerId = invoice.getTenantContract().getProperty().getOperationManagerId();
         } else if (invoice.getTenantContract().getProperty().getOperationManagerId() != null) {
             managerId = invoice.getTenantContract().getProperty().getOperationManagerId();
         }
@@ -558,7 +558,7 @@ public class BillingCronServiceImpl implements BillingCronService {
             }
             UUID managerId = contract.getProperty().getOperationManagerId();
             if (managerId == null) {
-                managerId = contract.getProperty().getManagedBy();
+                managerId = contract.getProperty().getOperationManagerId();
             }
             if (managerId == null || !notifiedManagers.add(managerId)) {
                 continue;
@@ -611,3 +611,4 @@ public class BillingCronServiceImpl implements BillingCronService {
         return reading.filter(r -> r.getImageUrl() != null && !r.getImageUrl().isBlank()).isPresent();
     }
 }
+

@@ -278,7 +278,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private void notifyManagerMeterPhotoBlocked(Property property, Room room, String period) {
         java.util.UUID managerId = property.getOperationManagerId();
         if (managerId == null) {
-            managerId = property.getManagedBy();
+            managerId = property.getOperationManagerId();
         }
         if (managerId == null) {
             return;
@@ -411,3 +411,4 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         return builder.build();
     }
 }
+

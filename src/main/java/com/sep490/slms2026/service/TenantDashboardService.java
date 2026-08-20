@@ -89,7 +89,7 @@ public class TenantDashboardService {
         String managerPhone = null;
         java.util.UUID managerId = property.getOperationManagerId() != null 
                 ? property.getOperationManagerId() 
-                : property.getManagedBy();
+                : property.getOperationManagerId();
         if (managerId != null) {
             User manager = userRepository.findById(managerId).orElse(null);
             if (manager != null) {
@@ -151,3 +151,4 @@ public class TenantDashboardService {
                 .build();
     }
 }
+

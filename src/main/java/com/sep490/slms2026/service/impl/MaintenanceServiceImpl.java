@@ -839,7 +839,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new AccessDeniedException("Chỉ quản lý vận hành mới được thao tác trên yêu cầu sửa chữa này");
         }
         UUID userId = user.getId();
-        UUID managedBy = req.getProperty() != null ? req.getProperty().getManagedBy() : null;
+        UUID managedBy = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
         UUID opManager = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
         if (!userId.equals(managedBy) && !userId.equals(opManager)) {
             throw new AccessDeniedException("Bạn không quản lý tòa nhà của yêu cầu sửa chữa này");
@@ -942,8 +942,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getProperty() != null) {
             if (req.getProperty().getOperationManagerId() != null) {
                 managerId = req.getProperty().getOperationManagerId();
-            } else if (req.getProperty().getManagedBy() != null) {
-                managerId = req.getProperty().getManagedBy();
+            } else if (req.getProperty().getOperationManagerId() != null) {
+                managerId = req.getProperty().getOperationManagerId();
             }
         }
         if (managerId == null) {
@@ -955,7 +955,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private void notifyPropertyHost(MaintenanceRequest req, String title, String body) {
         // Host Portal hiện coi mọi property là chung (findAll) — escalation broadcast
-        // tới toàn bộ ROLE_OWNER thay vì property.managedBy (đó là Manager, không phải Host).
+        // tới toàn bộ ROLE_OWNER thay vì property.operationManagerId (đó là Manager, không phải Host).
         String dedupeKey = "maintenance-reopen-escalation:" + req.getId() + ":" + (req.getReopenCount() != null
                 ? req.getReopenCount()
                 : 0);
@@ -1182,9 +1182,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getProperty() != null) {
             res.setPropertyId(req.getProperty().getId());
             res.setPropertyName(req.getProperty().getPropertyName());
-            if (req.getProperty().getManagedBy() != null) {
-                res.setAssignedManagerId(req.getProperty().getManagedBy());
-                userRepository.findById(req.getProperty().getManagedBy()).ifPresent(manager ->
+            if (req.getProperty().getOperationManagerId() != null) {
+                res.setAssignedManagerId(req.getProperty().getOperationManagerId());
+                userRepository.findById(req.getProperty().getOperationManagerId()).ifPresent(manager ->
                         res.setAssignedManagerName(manager.getFullName()));
             }
         }
@@ -1239,3 +1239,4 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return res;
     }
 }
+

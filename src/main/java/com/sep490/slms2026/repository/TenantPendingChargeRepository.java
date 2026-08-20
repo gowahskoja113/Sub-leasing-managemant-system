@@ -27,7 +27,7 @@ public interface TenantPendingChargeRepository extends JpaRepository<TenantPendi
            "JOIN tc.property p " +
            "WHERE (:propertyId IS NULL OR p.id = :propertyId) " +
            "  AND (:status IS NULL OR tpc.status = :status) " +
-           "  AND (:isAdmin = true OR p.managedBy = :managerId) " +
+           "  AND (:isAdmin = true OR p.operationManagerId = :managerId) " +
            "ORDER BY tpc.createdAt DESC")
     List<TenantPendingCharge> findForManager(
             @Param("managerId") UUID managerId,
@@ -35,3 +35,4 @@ public interface TenantPendingChargeRepository extends JpaRepository<TenantPendi
             @Param("propertyId") Long propertyId,
             @Param("status") String status);
 }
+

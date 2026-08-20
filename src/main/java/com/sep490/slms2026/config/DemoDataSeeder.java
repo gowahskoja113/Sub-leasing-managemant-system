@@ -373,7 +373,7 @@
 //                .imageUrls(new ArrayList<>(images))
 //                .status(PropertyStatus.ACTIVE)
 //                .operationManagerId(managerId)
-//                .managedBy(managerId)
+//                .operationManagerId(managerId)
 //                .descriptions(descriptions)
 //                .price(price)
 //                .renovationStartDate(LocalDate.now().minusMonths(2))
@@ -454,3 +454,4 @@
 //                .build());
 //    }
 //}
+

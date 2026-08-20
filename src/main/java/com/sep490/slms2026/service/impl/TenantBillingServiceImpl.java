@@ -299,15 +299,31 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         if (contract == null || contract.getTenant() == null) {
             return null;
         }
-        if (tenantInvoiceRepository.findByUtilityInvoiceId(utilityInvoice.getId()).isPresent()) {
-            return tenantInvoiceRepository.findByUtilityInvoiceId(utilityInvoice.getId()).orElse(null);
-        }
+        
+        TenantInvoice existing = tenantInvoiceRepository
+                .findByUtilityInvoiceId(utilityInvoice.getId()).orElse(null);
 
         TenantInvoiceType type = utilityInvoice.getUtilityType() == UtilityType.ELECTRIC
                 ? TenantInvoiceType.ELECTRICITY
                 : TenantInvoiceType.WATER;
         YearMonth ym = YearMonth.from(utilityInvoice.getCreatedAt());
         LocalDate dueDate = ym.atEndOfMonth().plusDays(20);
+
+        if (existing != null) {
+            if (existing.getStatus() == TenantInvoiceStatus.PAID) {
+                throw new com.sep490.slms2026.exception.BusinessException("INVOICE_ALREADY_PAID",
+                        "Hoá đơn kỳ này khách đã thanh toán — không sửa lại chỉ số được.");
+            }
+            existing.setTotalAmount(utilityInvoice.getAmount());
+            existing.setGrandTotal(utilityInvoice.getAmount().add(
+                    existing.getLateFee() != null ? existing.getLateFee() : BigDecimal.ZERO));
+            existing.setBillingPeriod(utilityInvoice.getBillingPeriod());
+            existing.setKwhUsed(type == TenantInvoiceType.ELECTRICITY ? utilityInvoice.getConsumption() : null);
+            existing.setElectricityRate(type == TenantInvoiceType.ELECTRICITY ? utilityInvoice.getUnitPrice() : null);
+            existing.setM3Used(type == TenantInvoiceType.WATER ? utilityInvoice.getConsumption() : null);
+            existing.setWaterRate(type == TenantInvoiceType.WATER ? utilityInvoice.getUnitPrice() : null);
+            return tenantInvoiceRepository.save(existing);
+        }
 
         TenantInvoice invoice = TenantInvoice.builder()
                 .code(buildCode(type, utilityInvoice.getId()))
@@ -1074,7 +1090,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         }
         UUID managerId = contract.getProperty().getOperationManagerId();
         if (managerId == null) {
-            managerId = contract.getProperty().getManagedBy();
+            managerId = contract.getProperty().getOperationManagerId();
         }
         if (managerId == null && contract.getAssignedManager() != null) {
             managerId = contract.getAssignedManager().getId();
@@ -1188,3 +1204,4 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .build();
     }
 }
+

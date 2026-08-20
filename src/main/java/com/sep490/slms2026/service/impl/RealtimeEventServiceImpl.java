@@ -93,7 +93,7 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         sendToRole(Role.ROLE_ADMIN, event, sent);
         sendToRole(Role.ROLE_OWNER, event, sent);
         sendByUserId(property != null ? property.getOperationManagerId() : null, event, sent);
-        sendByUserId(property != null ? property.getManagedBy() : null, event, sent);
+        sendByUserId(property != null ? property.getOperationManagerId() : null, event, sent);
         if (contract != null && contract.getAssignedManager() != null) {
             sendToUser(contract.getAssignedManager(), event, sent);
         }
@@ -148,3 +148,4 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         return invoice.getTenantContract().getDraftTenantName();
     }
 }
+
