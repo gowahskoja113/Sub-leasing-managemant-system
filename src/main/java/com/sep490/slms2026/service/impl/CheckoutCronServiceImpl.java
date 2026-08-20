@@ -91,13 +91,13 @@ public class CheckoutCronServiceImpl implements CheckoutCronService {
                         List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED)
             );
             if (!unpaid.isEmpty()) {
-                java.time.LocalDateTime oldestCreatedAt = unpaid.stream()
+                java.time.LocalDateTime latestCreatedAt = unpaid.stream()
                         .map(com.sep490.slms2026.entity.TenantInvoice::getCreatedAt)
                         .filter(java.util.Objects::nonNull)
-                        .min(java.time.LocalDateTime::compareTo)
+                        .max(java.time.LocalDateTime::compareTo)
                         .orElse(null);
-                if (oldestCreatedAt != null) {
-                    long daysSinceInvoice = java.time.temporal.ChronoUnit.DAYS.between(oldestCreatedAt.toLocalDate(), today);
+                if (latestCreatedAt != null) {
+                    long daysSinceInvoice = java.time.temporal.ChronoUnit.DAYS.between(latestCreatedAt.toLocalDate(), today);
                     long daysLeft = 30 - daysSinceInvoice;
                     if (daysLeft == 3 || daysLeft == 1) {
                         notifyTenantImpendingForceSettle(req, daysLeft);
@@ -128,6 +128,17 @@ public class CheckoutCronServiceImpl implements CheckoutCronService {
 
     private void notifyTenantImpendingForceSettle(CheckoutRequest req, long daysLeft) {
         String roomStr = req.getTenantContract().getRoom() != null ? req.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+        
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("requestId", req.getId());
+        data.put("params", params);
+        
+        String title = "Cảnh báo sắp cấn trừ cọc";
+        String content = "Bạn sắp bị cấn trừ cọc phòng " + roomStr + ". Còn " + daysLeft + " ngày để thanh toán các khoản nợ trước khi hệ thống tự động cấn trừ.";
+        sendNotification(req.getTenantUserId(), "CHECKOUT_FORCE_SETTLE_WARNING", title, content, data);
+
         String phone = req.getTenantUserId() != null && req.getTenantContract().getTenant() != null && req.getTenantContract().getTenant().getUser() != null ? req.getTenantContract().getTenant().getUser().getPhoneNumber() : null;
         if (phone != null && !phone.isBlank()) {
             String sms = "Ban sap bi can tru coc phong " + roomStr + ". Con " + daysLeft + " ngay de thanh toan cac khoan no truoc khi he thong tu dong can tru.";

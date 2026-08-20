@@ -24,6 +24,9 @@ public final class DepositLedgerStatusResolver {
         if (contract == null || contract.getPaymentStatus() != PaymentStatus.PAID) {
             return DepositStatus.NOT_COLLECTED;
         }
+        if (settlement != null && settlement.getRefundPaidAt() != null) {
+            return DepositStatus.REFUNDED;
+        }
         if (!isContractClosed(contract.getStatus())) {
             return DepositStatus.HELD;
         }
@@ -39,9 +42,7 @@ public final class DepositLedgerStatusResolver {
 
     private static DepositStatus resolveClosedContract(CheckoutSettlement settlement,
                                                        CheckoutRequestStatus checkoutStatus) {
-        if (settlement.getRefundPaidAt() != null) {
-            return DepositStatus.REFUNDED;
-        }
+
         if (checkoutStatus != CheckoutRequestStatus.COMPLETED) {
             return DepositStatus.HELD;
         }
