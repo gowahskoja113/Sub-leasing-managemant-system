@@ -426,6 +426,8 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         settlement.setRefundDisputedAt(LocalDateTime.now());
         String reason = request.getReason().trim();
         settlement.setRefundDisputeReason(reason);
+        settlement.setRefundDisputeResolvedAt(null);
+        settlement.setRefundDisputeOutcome(null);
         checkoutSettlementRepository.save(settlement);
 
         depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
@@ -720,6 +722,8 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                     .refundConfirmedAt(settlement.getRefundConfirmedAt())
                     .refundDisputedAt(settlement.getRefundDisputedAt())
                     .refundDisputeReason(settlement.getRefundDisputeReason())
+                    .refundDisputeResolvedAt(settlement.getRefundDisputeResolvedAt())
+                    .refundDisputeOutcome(settlement.getRefundDisputeOutcome())
                     .build();
         }
 
