@@ -56,6 +56,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final UserRepository userRepository;
     private final com.sep490.slms2026.repository.MeterReadingRepository meterReadingRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+    private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
 
     private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
             CheckoutRequestStatus.APPROVED,
@@ -541,6 +542,16 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         if (request.getPaidAt() == null) {
             throw new BusinessException("REFUND_INVALID", "Ngày chuyển hoàn cọc không được để trống");
         }
+        
+        // Hash check
+        if (request.getProofUrl() != null && !request.getProofUrl().isBlank()) {
+            String hash = hashString(request.getProofUrl());
+            if (hash != null && checkoutSettlementRepository.existsByRefundProofHash(hash)) {
+                throw new BusinessException("DUPLICATE_PROOF", "Bằng chứng hoàn cọc này đã được sử dụng ở một khoản cọc khác. Vui lòng kiểm tra lại (Lỗi 409).");
+            }
+            settlement.setRefundProofHash(hash);
+        }
+
         if (request.getAmount() != null) {
             settlement.setRefundAmount(request.getAmount());
         }
@@ -548,6 +559,32 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         settlement.setRefundProofUrl(request.getProofUrl());
         settlement.setRefundPaidAt(request.getPaidAt().atStartOfDay());
         settlement.setRefundNote(request.getNote());
+        
+        checkoutSettlementRepository.save(settlement);
+        
+        // Audit log
+        depositAuditLogRepository.save(DepositAuditLog.builder()
+                .contractId(contract.getId())
+                .action("REFUND_RECORDED")
+                .actorUserId(SecurityUtils.requireCurrentUser().getId())
+                .actorRole(SecurityUtils.requireCurrentUser().getRole().name())
+                .payloadJson(String.format("{\"amount\":%s, \"method\":\"%s\"}", settlement.getRefundAmount(), settlement.getRefundMethod()))
+                .build());
+        
+        // Notification
+        UUID tenantUserId = checkoutRequest.getTenantUserId();
+        if (tenantUserId != null) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("screen", "CheckoutDetail");
+            Map<String, Object> params = new HashMap<>();
+            params.put("requestId", checkoutRequest.getId());
+            data.put("params", params);
+
+            String roomStr = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "Nguyên căn";
+            String title = "Đã nhận tiền hoàn cọc";
+            String content = "Quản lý đã chuyển tiền hoàn cọc phòng " + roomStr + " cho bạn. Vui lòng xác nhận khi nhận được.";
+            sendNotification(tenantUserId, "CHECKOUT_REFUND_TRANSFERRED", title, content, data);
+        }
 
         checkoutSettlementRepository.save(settlement);
 
@@ -880,6 +917,25 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         return String.format("%02d/%d (01/%02d–%02d/%02d, chốt trả phòng)", 
                 moveOutDate.getMonthValue(), moveOutDate.getYear(),
                 moveOutDate.getMonthValue(), moveOutDate.getDayOfMonth(), moveOutDate.getMonthValue());
+    }
+
+    private String hashString(String input) {
+        if (input == null) return null;
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] encodedhash = digest.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder(2 * encodedhash.length);
+            for (int i = 0; i < encodedhash.length; i++) {
+                String hex = Integer.toHexString(0xff & encodedhash[i]);
+                if(hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
 

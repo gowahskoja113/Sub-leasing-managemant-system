@@ -81,6 +81,24 @@ public class CheckoutRequestController {
         return ResponseEntity.ok(tenantCheckoutService.completeRequest(id, currentUserId(), request));
     }
 
+    /** POST /{id}/force-settle — bắt buộc cấn trừ cọc (ADMIN). */
+    @PostMapping("/{id}/force-settle")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CheckoutRequestResponse> forceSettle(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ForceSettleRequest request) {
+        return ResponseEntity.ok(tenantCheckoutService.forceSettle(id, currentUserId(), request));
+    }
+
+    /** POST /{id}/resolve-refund-dispute — xử lý khiếu nại cọc (ADMIN). */
+    @PostMapping("/{id}/resolve-refund-dispute")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CheckoutRequestResponse> resolveRefundDispute(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ResolveRefundDisputeRequest request) {
+        return ResponseEntity.ok(tenantCheckoutService.resolveRefundDispute(id, currentUserId(), request));
+    }
+
     private static UUID currentUserId() {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         return user.getId();

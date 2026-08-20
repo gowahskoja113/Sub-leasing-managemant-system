@@ -85,4 +85,7 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "refund_account_holder")
     private String refundAccountHolder;
+
+    @Column(name = "refund_due_date")
+    private LocalDate refundDueDate;
 }

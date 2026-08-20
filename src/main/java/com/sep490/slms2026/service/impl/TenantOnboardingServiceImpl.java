@@ -41,6 +41,7 @@ import com.sep490.slms2026.repository.TenantPaymentClaimRepository;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import com.sep490.slms2026.repository.NotificationRepository;
+import com.sep490.slms2026.repository.CheckoutSettlementRepository;
 import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
@@ -101,6 +102,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final OtpService otpService;
     private final ContractEquipmentService contractEquipmentService;
     private final NotificationRepository notificationRepository;
+    private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final com.sep490.slms2026.repository.HostNotificationRepository hostNotificationRepository;
     private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
     private final MeterOverrideService meterOverrideService;
@@ -1648,6 +1650,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())
                 .equipmentList(contractEquipmentService.mapSelectedToItems(c))
+                .refundConfirmedAt(resolveRefundConfirmedAt(c))
                 .availableEquipmentList(contractEquipmentService.mapAvailableToItems(
                         c.getProperty().getId(), room != null ? room.getId() : null))
                 .selectedEquipmentIds(contractEquipmentService.getSelectedIds(c))
@@ -1791,6 +1794,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             response.setLeaseEndDate(lease.getEndDate());
         }
         return response;
+    }
+
+    private LocalDate resolveRefundConfirmedAt(TenantContract c) {
+        if (c.getStatus() == ContractStatus.TERMINATED || c.getStatus() == ContractStatus.EXPIRED) {
+            return checkoutSettlementRepository.findAllByTenantContractIdIn(List.of(c.getId()))
+                .stream()
+                .filter(s -> s.getRefundConfirmedAt() != null)
+                .map(s -> s.getRefundConfirmedAt().toLocalDate())
+                .findFirst()
+                .orElse(null);
+        }
+        return null;
     }
 }
 

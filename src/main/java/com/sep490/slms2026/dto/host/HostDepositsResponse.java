@@ -31,5 +31,8 @@ public record HostDepositsResponse(BigDecimal totalHeld, List<DepositItem> items
         private Boolean chargesSettled;
         private BigDecimal outstandingAmount;
         private String checkoutNote;
+        private LocalDate refundConfirmedAt;
+        private LocalDate refundDisputedAt;
+        private String refundDisputeReason;
     }
 }

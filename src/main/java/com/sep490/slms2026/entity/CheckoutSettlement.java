@@ -62,6 +62,27 @@ public class CheckoutSettlement implements Serializable {
     @Column(name = "refund_confirmed_at")
     private LocalDateTime refundConfirmedAt;
 
+    @Column(name = "refund_disputed_at")
+    private LocalDateTime refundDisputedAt;
+
+    @Column(name = "refund_dispute_reason", columnDefinition = "TEXT")
+    private String refundDisputeReason;
+
+    @Column(name = "refund_dispute_rejected_at")
+    private LocalDateTime refundDisputeRejectedAt;
+
+    @Column(name = "refund_proof_hash")
+    private String refundProofHash;
+
+    @Column(name = "force_settled_at")
+    private LocalDateTime forceSettledAt;
+
+    @Column(name = "force_settled_by")
+    private java.util.UUID forceSettledBy;
+
+    @Column(name = "force_settle_reason", columnDefinition = "TEXT")
+    private String forceSettleReason;
+
     @OneToMany(mappedBy = "checkoutSettlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<CheckoutSettlementInvoice> settlementInvoices = new ArrayList<>();

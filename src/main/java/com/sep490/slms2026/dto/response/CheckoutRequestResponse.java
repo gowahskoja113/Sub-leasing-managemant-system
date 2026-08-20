@@ -38,4 +38,11 @@ public class CheckoutRequestResponse {
     private String managerNote;
     private String rejectReason;
     private LocalDateTime completedAt;
+
+    private String refundBankName;
+    private String refundBankAccount;
+    private String refundAccountHolder;
+    
+    private LocalDateTime refundDisputedAt;
+    private String refundDisputeReason;
 }
