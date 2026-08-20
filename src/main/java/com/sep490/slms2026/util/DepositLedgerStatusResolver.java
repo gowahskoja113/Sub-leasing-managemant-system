@@ -51,13 +51,13 @@ public final class DepositLedgerStatusResolver {
         BigDecimal damage = nz(settlement.getDamageTotal());
         BigDecimal unpaid = nz(settlement.getUnpaidTotal());
 
+        if (settlement.getForceSettledAt() != null) {
+            if (refund.compareTo(BigDecimal.ZERO) <= 0) {
+                return DepositStatus.FORFEITED;
+            }
+        }
         if (refund.compareTo(BigDecimal.ZERO) > 0) {
             return DepositStatus.HELD;
-        }
-        if (extra.compareTo(BigDecimal.ZERO) > 0
-                || damage.compareTo(BigDecimal.ZERO) > 0
-                || unpaid.compareTo(BigDecimal.ZERO) > 0) {
-            return DepositStatus.FORFEITED;
         }
         return DepositStatus.REFUNDED;
     }

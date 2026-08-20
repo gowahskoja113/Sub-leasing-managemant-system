@@ -26,6 +26,11 @@ public class CheckoutSettlementResponse {
 
     private String refundProofUrl;
     private java.time.LocalDate refundedAt;
+    private java.time.LocalDate refundDueDate;
+    
+    private String refundBankName;
+    private String refundBankAccount;
+    private String refundAccountHolder;
 
     @Data
     @Builder

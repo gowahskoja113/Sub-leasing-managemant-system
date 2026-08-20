@@ -48,6 +48,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final PushNotificationService pushNotificationService;
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
     private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
+    private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
 
     @Override
     @Transactional
@@ -379,19 +380,30 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         settlement.setRefundConfirmedAt(LocalDateTime.now());
         checkoutSettlementRepository.save(settlement);
 
-        UUID managerId = getManagerId(checkoutRequest.getTenantContract());
-        if (managerId != null) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("screen", "CheckoutDetail");
-            Map<String, Object> params = new HashMap<>();
-            params.put("requestId", checkoutRequest.getId());
-            data.put("params", params);
+        depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
+                .contractId(checkoutRequest.getTenantContract().getId())
+                .action("REFUND_CONFIRMED")
+                .actorUserId(tenantUserId)
+                .actorRole("TENANT")
+                .payloadJson("{}")
+                .build());
 
-            String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
-            String title = "Khách đã nhận hoàn cọc";
-            String content = "Khách thuê phòng " + roomStr + " đã xác nhận nhận được tiền hoàn cọc.";
-            sendNotification(managerId, "CHECKOUT_REFUND_CONFIRMED", title, content, data);
-        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "CheckoutDetail");
+        Map<String, Object> params = new HashMap<>();
+        params.put("requestId", checkoutRequest.getId());
+        data.put("params", params);
+
+        String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+        String title = "Khách đã nhận hoàn cọc";
+        String content = "Khách thuê phòng " + roomStr + " đã xác nhận nhận được tiền hoàn cọc.";
+
+        userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+            sendNotification(owner.getId(), "CHECKOUT_REFUND_CONFIRMED", title, content, data);
+        });
+        userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_ADMIN).forEach(admin -> {
+            sendNotification(admin.getId(), "CHECKOUT_REFUND_CONFIRMED", title, content, data);
+        });
 
         return toResponse(checkoutRequest);
     }
@@ -412,8 +424,17 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         }
 
         settlement.setRefundDisputedAt(LocalDateTime.now());
-        settlement.setRefundDisputeReason(request.getReason().trim());
+        String reason = request.getReason().trim();
+        settlement.setRefundDisputeReason(reason);
         checkoutSettlementRepository.save(settlement);
+
+        depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
+                .contractId(checkoutRequest.getTenantContract().getId())
+                .action("REFUND_DISPUTED")
+                .actorUserId(tenantUserId)
+                .actorRole("TENANT")
+                .payloadJson(String.format("{\"reason\":\"%s\"}", reason))
+                .build());
 
         // Notify Host and Admin
         UUID managerId = getManagerId(checkoutRequest.getTenantContract());
@@ -448,14 +469,83 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         }
 
         // Logic to force settle
-        settlement.setForceSettledAt(LocalDateTime.now());
+        List<com.sep490.slms2026.entity.TenantInvoice> unpaidInvoices = tenantInvoiceRepository.findByTenantContractIdAndStatusNotIn(
+                checkoutRequest.getTenantContract().getId(),
+                List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED)
+        );
+
+        if (unpaidInvoices.isEmpty()) {
+            throw new BusinessException("Không có khoản nợ nào để cấn trừ cọc");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        // Check 30 days
+        LocalDateTime latestInvoiceDate = unpaidInvoices.stream()
+                .map(com.sep490.slms2026.entity.TenantInvoice::getCreatedAt)
+                .max(LocalDateTime::compareTo)
+                .orElse(now);
+                
+        if (now.isBefore(latestInvoiceDate.plusDays(30))) {
+            throw new BusinessException("Chưa đủ 30 ngày kể từ ngày phát hành hoá đơn cuối kỳ. Vui lòng chờ đến " + latestInvoiceDate.plusDays(30).toLocalDate());
+        }
+
+        java.math.BigDecimal totalDeducted = java.math.BigDecimal.ZERO;
+        for (com.sep490.slms2026.entity.TenantInvoice invoice : unpaidInvoices) {
+            invoice.setStatus(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID);
+            invoice.setPaidAt(now);
+            invoice.setPaymentMethod("Cấn trừ cọc");
+            tenantInvoiceRepository.save(invoice);
+            totalDeducted = totalDeducted.add(invoice.getGrandTotal());
+        }
+
+        settlement.setForceSettledAt(now);
         settlement.setForceSettledBy(adminUserId);
         settlement.setForceSettleReason(request.getReason());
         
-        // Cấn trừ tiền vào cọc (For now just save the status since actual invoice logic is complex)
-        // Mark all unpaid invoices related to this contract as paid? Or create a compensation?
-        // Let's assume we just update the settlement object and HostFinanceService handles the rest.
+        String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
+
+        if (settlement.getRefundDueDate() == null) {
+            java.time.LocalDate date = java.time.LocalDate.now();
+            int added = 0;
+            while (added < 3) {
+                date = date.plusDays(1);
+                if (date.getDayOfWeek() != java.time.DayOfWeek.SATURDAY && date.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
+                    added++;
+                }
+            }
+            settlement.setRefundDueDate(date);
+            
+            // Notify Host/Admin
+            java.util.Map<String, Object> data = new java.util.HashMap<>();
+            data.put("screen", "CheckoutDetail");
+            java.util.Map<String, Object> params = new java.util.HashMap<>();
+            params.put("requestId", checkoutRequest.getId());
+            data.put("params", params);
+            String title = "Đã đến hạn hoàn cọc";
+            String content = "Khách thuê phòng " + roomStr + " đã thanh toán hết nợ. Vui lòng hoàn cọc trước hạn " + date;
+            userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+                sendNotification(owner.getId(), "CHECKOUT_DEPOSIT_REFUND_DUE", title, content, data);
+            });
+            userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_ADMIN).forEach(admin -> {
+                sendNotification(admin.getId(), "CHECKOUT_DEPOSIT_REFUND_DUE", title, content, data);
+            });
+        }
+        
+        java.math.BigDecimal remainingRefund = settlement.getRefundAmount().subtract(totalDeducted);
+        if (remainingRefund.compareTo(java.math.BigDecimal.ZERO) < 0) {
+            remainingRefund = java.math.BigDecimal.ZERO;
+        }
+        settlement.setRefundAmount(remainingRefund);
+        
         checkoutSettlementRepository.save(settlement);
+
+        depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
+                .contractId(checkoutRequest.getTenantContract().getId())
+                .action("FORCE_SETTLE")
+                .actorUserId(adminUserId)
+                .actorRole("ADMIN")
+                .payloadJson(String.format("{\"reason\":\"%s\",\"deductedAmount\":%s}", request.getReason(), totalDeducted))
+                .build());
 
         // Update checkoutRequest status if needed (FE didn't specify changing status to FORFEITED yet)
         
@@ -466,7 +556,6 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         params.put("requestId", checkoutRequest.getId());
         data.put("params", params);
 
-        String roomStr = checkoutRequest.getTenantContract().getRoom() != null ? checkoutRequest.getTenantContract().getRoom().getRoomNumber() : "Nguyên căn";
         String title = "Cấn trừ cọc vào phí cuối kỳ";
         String content = "Quản lý đã thực hiện cấn trừ cọc của bạn vào các khoản phí chưa thanh toán.";
         sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_FORCE_SETTLED", title, content, data);
@@ -486,13 +575,16 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         }
 
         if ("RETRANSFERRED".equals(request.getOutcome())) {
-            settlement.setRefundDisputedAt(null);
+            settlement.setRefundDisputeResolvedAt(LocalDateTime.now());
+            settlement.setRefundDisputeOutcome("RETRANSFERRED");
             settlement.setRefundPaidAt(LocalDateTime.now()); // update to new time
             // Notify Tenant
             String title = "Đã chuyển lại tiền hoàn cọc";
             String content = "Quản lý đã chuyển lại tiền hoàn cọc cho bạn: " + request.getNote();
             sendNotification(checkoutRequest.getTenantUserId(), "CHECKOUT_REFUND_RETRANSFERRED", title, content, null);
         } else if ("REJECTED".equals(request.getOutcome())) {
+            settlement.setRefundDisputeResolvedAt(LocalDateTime.now());
+            settlement.setRefundDisputeOutcome("REJECTED");
             settlement.setRefundDisputeRejectedAt(LocalDateTime.now());
             // Notify Tenant
             String title = "Khiếu nại hoàn cọc bị từ chối";
@@ -503,6 +595,14 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         }
         
         checkoutSettlementRepository.save(settlement);
+
+        depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
+                .contractId(checkoutRequest.getTenantContract().getId())
+                .action("REFUND_DISPUTE_RESOLVED")
+                .actorUserId(adminUserId)
+                .actorRole("ADMIN")
+                .payloadJson(String.format("{\"outcome\":\"%s\",\"note\":\"%s\"}", request.getOutcome(), request.getNote()))
+                .build());
         return toResponse(checkoutRequest);
     }
 

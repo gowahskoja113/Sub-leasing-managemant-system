@@ -64,9 +64,12 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final TenantInvoicePayosOrderRepository payosOrderRepository;
     private final InvoiceUnlockTokenRepository invoiceUnlockTokenRepository;
     private final InvoiceUnlockLogRepository invoiceUnlockLogRepository;
+    private final CheckoutRequestRepository checkoutRequestRepository;
+    private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final HostNotificationRepository hostNotificationRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -823,6 +826,8 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 utilityInvoiceRepository.save(utilityInvoice);
             });
         }
+        
+        checkAndSetRefundDueDate(invoice);
     }
 
     private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice, InvoicePaymentContext context) {
@@ -1200,6 +1205,83 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .propertyName(payment.getPropertyName())
                 .roomNumber(payment.getRoomNumber())
                 .build();
+    }
+
+    private void checkAndSetRefundDueDate(TenantInvoice invoice) {
+        if (invoice.getTenantContract() == null) return;
+        List<CheckoutRequest> requests = checkoutRequestRepository.findByTenantContractIdOrderByCreatedAtDesc(invoice.getTenantContract().getId());
+        if (requests.isEmpty()) return;
+        
+        CheckoutRequest latest = requests.get(0);
+        if (latest.getStatus() == CheckoutRequestStatus.CANCELLED || latest.getStatus() == CheckoutRequestStatus.REJECTED) return;
+        
+        checkoutSettlementRepository.findByCheckoutRequestId(latest.getId()).ifPresent(settlement -> {
+            if (settlement.getRefundDueDate() == null) {
+                List<TenantInvoice> unpaid = tenantInvoiceRepository.findByTenantContractIdAndStatusNotIn(
+                        invoice.getTenantContract().getId(),
+                        List.of(TenantInvoiceStatus.PAID, TenantInvoiceStatus.CANCELLED)
+                );
+                if (unpaid.isEmpty()) {
+                    LocalDate date = LocalDate.now();
+                    int added = 0;
+                    while (added < 3) {
+                        date = date.plusDays(1);
+                        if (date.getDayOfWeek() != java.time.DayOfWeek.SATURDAY && date.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
+                            added++;
+                        }
+                    }
+                    settlement.setRefundDueDate(date);
+                    checkoutSettlementRepository.save(settlement);
+                    
+                    // Notify Host/Admin
+                    java.util.Map<String, Object> data = new java.util.HashMap<>();
+                    data.put("screen", "CheckoutDetail");
+                    java.util.Map<String, Object> params = new java.util.HashMap<>();
+                    params.put("requestId", latest.getId());
+                    data.put("params", params);
+                    String roomStr = invoice.getRoomNumber() != null ? invoice.getRoomNumber() : invoice.getPropertyName();
+                    String title = "Đã đến hạn hoàn cọc";
+                    String content = "Khách thuê phòng " + roomStr + " đã thanh toán hết nợ. Vui lòng hoàn cọc trước hạn " + date;
+                    userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+                        sendNotification(owner.getId(), "CHECKOUT_DEPOSIT_REFUND_DUE", title, content, data);
+                    });
+                    userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_ADMIN).forEach(admin -> {
+                        sendNotification(admin.getId(), "CHECKOUT_DEPOSIT_REFUND_DUE", title, content, data);
+                    });
+                }
+            }
+        });
+    }
+
+    private void sendNotification(java.util.UUID targetUserId, String type, String title, String content, java.util.Map<String, Object> data) {
+        if (targetUserId == null) return;
+        
+        String screen = data != null ? (String) data.get("screen") : null;
+        String paramsJson = null;
+        if (data != null && data.get("params") != null) {
+            try {
+                paramsJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(data.get("params"));
+            } catch (Exception e) {
+                // Ignore parse error
+            }
+        }
+        
+        com.sep490.slms2026.entity.Notification notification = com.sep490.slms2026.entity.Notification.builder()
+                .userId(targetUserId)
+                .title(title)
+                .content(content)
+                .type(type)
+                .screen(screen)
+                .paramsJson(paramsJson)
+                .read(false)
+                .build();
+        notificationRepository.save(notification);
+
+        userRepository.findById(targetUserId).ifPresent(u -> {
+            if (u.getPushToken() != null && !u.getPushToken().isBlank()) {
+                pushNotificationService.sendPushNotification(u.getPushToken(), title, content, data);
+            }
+        });
     }
 }
 

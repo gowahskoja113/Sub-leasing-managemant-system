@@ -62,11 +62,20 @@ public class CheckoutSettlement implements Serializable {
     @Column(name = "refund_confirmed_at")
     private LocalDateTime refundConfirmedAt;
 
+    @Column(name = "refund_due_date")
+    private java.time.LocalDate refundDueDate;
+
     @Column(name = "refund_disputed_at")
     private LocalDateTime refundDisputedAt;
 
     @Column(name = "refund_dispute_reason", columnDefinition = "TEXT")
     private String refundDisputeReason;
+    
+    @Column(name = "refund_dispute_resolved_at")
+    private LocalDateTime refundDisputeResolvedAt;
+    
+    @Column(name = "refund_dispute_outcome", columnDefinition = "TEXT")
+    private String refundDisputeOutcome;
 
     @Column(name = "refund_dispute_rejected_at")
     private LocalDateTime refundDisputeRejectedAt;

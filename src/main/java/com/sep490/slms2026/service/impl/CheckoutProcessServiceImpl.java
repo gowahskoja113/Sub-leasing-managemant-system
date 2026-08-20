@@ -57,6 +57,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final com.sep490.slms2026.repository.MeterReadingRepository meterReadingRepository;
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
+    private final com.sep490.slms2026.service.TwilioService twilioService;
 
     private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
             CheckoutRequestStatus.APPROVED,
@@ -545,7 +546,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         
         // Hash check
         if (request.getProofUrl() != null && !request.getProofUrl().isBlank()) {
-            String hash = hashString(request.getProofUrl());
+            String hash = hashFileContent(request.getProofUrl());
             if (hash != null && checkoutSettlementRepository.existsByRefundProofHash(hash)) {
                 throw new BusinessException("DUPLICATE_PROOF", "Bằng chứng hoàn cọc này đã được sử dụng ở một khoản cọc khác. Vui lòng kiểm tra lại (Lỗi 409).");
             }
@@ -584,6 +585,12 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             String title = "Đã nhận tiền hoàn cọc";
             String content = "Quản lý đã chuyển tiền hoàn cọc phòng " + roomStr + " cho bạn. Vui lòng xác nhận khi nhận được.";
             sendNotification(tenantUserId, "CHECKOUT_REFUND_TRANSFERRED", title, content, data);
+            
+            String tenantPhone = contract.getTenant() != null && contract.getTenant().getUser() != null ? contract.getTenant().getUser().getPhoneNumber() : null;
+            if (tenantPhone != null && !tenantPhone.isBlank()) {
+                String smsMessage = "Chu thue da chuyen tien hoan coc phong " + roomStr + ". Vui long vao app SLMS de xac nhan da nhan duoc tien.";
+                twilioService.sendSms(tenantPhone, smsMessage);
+            }
         }
 
         checkoutSettlementRepository.save(settlement);
@@ -935,6 +942,34 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             return hexString.toString();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private String hashFileContent(String fileUrl) {
+        if (fileUrl == null) return null;
+        try {
+            java.net.URL url = new java.net.URL(fileUrl);
+            try (java.io.InputStream is = url.openStream()) {
+                java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = is.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read);
+                }
+                byte[] encodedhash = digest.digest();
+                StringBuilder hexString = new StringBuilder(2 * encodedhash.length);
+                for (byte b : encodedhash) {
+                    String hex = Integer.toHexString(0xff & b);
+                    if (hex.length() == 1) {
+                        hexString.append('0');
+                    }
+                    hexString.append(hex);
+                }
+                return hexString.toString();
+            }
+        } catch (Exception e) {
+            // Fallback to string hash
+            return hashString(fileUrl);
         }
     }
 }
