@@ -795,7 +795,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         BigDecimal finalPrice = resolveFinalPrice(
                 request.getPropertyPrice(),
-                depreciation.getSuggestedMinPrice(),
+                depreciation.getRoomFloor(),
                 request.getContingencyPercent());
 
         property.setPrice(finalPrice);
@@ -815,7 +815,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .pricingScope(PricingScope.WHOLE_HOUSE)
                 .propertyStatus(property.getStatus())
                 .propertyPrice(finalPrice)
-                .adminSuggestedPrice(depreciation.getSuggestedMinPrice())
+                .adminSuggestedPrice(depreciation.getRoomFloor())
                 .hostContingencyPercent(request.getContingencyPercent())
                 .build();
     }
@@ -848,7 +848,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
             BigDecimal finalPrice = resolveFinalPrice(
                     priceConfirm.getPrice(),
-                    roomDepreciation.getSuggestedMinPrice(),
+                    roomDepreciation.getRoomFloor(),
                     request.getContingencyPercent());
 
             room.setPrice(finalPrice);
@@ -862,7 +862,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .roomId(room.getId())
                     .roomNumber(room.getRoomNumber())
                     .price(finalPrice)
-                    .adminSuggestedPrice(roomDepreciation.getSuggestedMinPrice())
+                    .adminSuggestedPrice(roomDepreciation.getRoomFloor())
                     .status(room.getStatus())
                     .build());
         }
@@ -888,7 +888,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .pricingScope(PricingScope.WHOLE_HOUSE)
                 .propertyStatus(property.getStatus())
                 .propertyPrice(property.getPrice())
-                .adminSuggestedPrice(depreciation.getSuggestedMinPrice())
+                .adminSuggestedPrice(depreciation.getRoomFloor())
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(property.getOperationManagerId())
                 .operationManagerName(resolveOperationManagerName(property.getOperationManagerId()))
@@ -899,7 +899,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
                 .map(room -> {
                     BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
-                            .map(DepreciationResult::getSuggestedMinPrice)
+                            .map(DepreciationResult::getRoomFloor)
                             .orElse(null);
                     return PropertyActivationResponse.ActivatedRoom.builder()
                             .roomId(room.getId())
@@ -941,7 +941,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .roomId(room.getId())
                     .roomNumber(room.getRoomNumber())
                     .price(room.getPrice())
-                    .adminSuggestedPrice(roomDepreciation.getSuggestedMinPrice())
+                    .adminSuggestedPrice(roomDepreciation.getRoomFloor())
                     .status(room.getStatus())
                     .build());
         }

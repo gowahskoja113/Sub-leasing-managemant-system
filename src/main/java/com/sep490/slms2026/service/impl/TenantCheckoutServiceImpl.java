@@ -405,6 +405,14 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
             sendNotification(admin.getId(), "CHECKOUT_REFUND_CONFIRMED", title, content, data);
         });
 
+        UUID managerId = getManagerId(checkoutRequest.getTenantContract());
+        if (managerId != null) {
+            sendNotification(managerId, "CHECKOUT_READY_TO_COMPLETE",
+                "Có thể thanh lý hợp đồng",
+                "Khách phòng " + roomStr + " đã hoàn tất thủ tục hoàn cọc. Vào hồ sơ trả phòng để thanh lý hợp đồng.",
+                data);
+        }
+
         return toResponse(checkoutRequest);
     }
 

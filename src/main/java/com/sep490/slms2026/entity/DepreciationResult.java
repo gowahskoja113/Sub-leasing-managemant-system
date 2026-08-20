@@ -49,8 +49,8 @@ public class DepreciationResult {
     private BigDecimal monthlyDepreciation;     // = totalInvestment / contractMonths (giá hoàn vốn/tháng)
 
     // ===== Gợi ý giá thuê =====
-    @Column(name = "suggested_min_price", nullable = false)
-    private BigDecimal suggestedMinPrice;       // = monthlyDepreciation (hoàn vốn, chưa lời)
+    @Column(name = "opex_share")
+    private BigDecimal opexShare;
 
     @Column(name = "suggested_price_with_profit", nullable = false)
     private BigDecimal suggestedPriceWithProfit;

@@ -280,7 +280,10 @@ public final class PricingCalculator {
     }
 
     private static BigDecimal applyVacancyBuffer(BigDecimal base, BigDecimal vRate) {
-        return money(base.multiply(BigDecimal.ONE.add(vRate)));
+        if (vRate.compareTo(BigDecimal.ONE) >= 0) {
+            throw new BusinessException("Biên dự phòng trống (vRate) phải nhỏ hơn 100%");
+        }
+        return money(base.divide(BigDecimal.ONE.subtract(vRate), MONEY_SCALE, RoundingMode.HALF_UP));
     }
 
     private static BigDecimal divideMoney(BigDecimal value, int divisor) {
