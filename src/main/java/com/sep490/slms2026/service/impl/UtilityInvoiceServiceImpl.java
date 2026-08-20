@@ -111,8 +111,15 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
         TenantContract contract = tenantContractRepository
                 .findByPropertyIdAndRoomIsNullAndStatus(property.getId(), ContractStatus.ACTIVE)
-                .orElseThrow(() -> new BusinessException("NO_ACTIVE_CONTRACT",
-                        "Nhà nguyên căn chưa có hợp đồng ACTIVE — không phát hành được hoá đơn cho khách."));
+                .orElseGet(() -> {
+                    java.util.Optional<TenantContract> lastTerminated = tenantContractRepository.findTopByPropertyIdAndRoomIsNullOrderByEndDateDesc(property.getId());
+                    if (lastTerminated.isPresent() && lastTerminated.get().getStatus() == ContractStatus.TERMINATED) {
+                        String msg = String.format("Căn này đã trả phòng ngày %s và đã chốt điện/nước theo chỉ số đồng hồ. Hoá đơn EVN kỳ này ghi nhận là chi phí công ty, không phát hành cho khách.", 
+                                lastTerminated.get().getEndDate() != null ? lastTerminated.get().getEndDate().toString() : "gần đây");
+                        throw new BusinessException("NO_ACTIVE_CONTRACT", msg);
+                    }
+                    throw new BusinessException("NO_ACTIVE_CONTRACT", "Nhà nguyên căn chưa có hợp đồng ACTIVE — không phát hành được hoá đơn cho khách.");
+                });
 
         CreateUtilityInvoiceRequest request = CreateUtilityInvoiceRequest.builder()
                 .type(UtilityTypeMapper.toApi(bill.getType()))

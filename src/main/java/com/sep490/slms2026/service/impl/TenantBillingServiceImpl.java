@@ -1113,6 +1113,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
             case WATER -> "tiền nước";
             case SERVICE -> "phí dịch vụ";
             case MAINTENANCE -> "phí bảo trì";
+            case COMPENSATION -> "bồi thường";
             case OTHER -> "hoá đơn onboard";
         };
     }

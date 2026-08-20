@@ -59,6 +59,9 @@ public class CheckoutSettlement implements Serializable {
     @Column(name = "refund_note", columnDefinition = "TEXT")
     private String refundNote;
 
+    @Column(name = "refund_confirmed_at")
+    private LocalDateTime refundConfirmedAt;
+
     @OneToMany(mappedBy = "checkoutSettlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<CheckoutSettlementInvoice> settlementInvoices = new ArrayList<>();

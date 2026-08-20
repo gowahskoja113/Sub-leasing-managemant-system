@@ -316,6 +316,10 @@ public class HostPortalServiceImpl implements HostPortalService {
                             .refundedAt(settlement != null && settlement.getRefundPaidAt() != null
                                     ? settlement.getRefundPaidAt().toLocalDate()
                                     : null)
+                            .refundBankName(ctx != null && ctx.request() != null ? ctx.request().getRefundBankName() : null)
+                            .refundBankAccount(ctx != null && ctx.request() != null ? ctx.request().getRefundBankAccount() : null)
+                            .refundAccountHolder(ctx != null && ctx.request() != null ? ctx.request().getRefundAccountHolder() : null)
+                            // Note: chargesSettled and outstandingAmount logic can be added if needed, or left as null if not directly available here.
                             .build();
                 })
                 .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
@@ -343,7 +347,7 @@ public class HostPortalServiceImpl implements HostPortalService {
             Long contractId = request.getTenantContract().getId();
             CheckoutSettlement settlement = settlementByRequestId.get(request.getId());
             CheckoutSettlementContext candidate = new CheckoutSettlementContext(
-                    settlement, request.getStatus(), request.getId());
+                    settlement, request.getStatus(), request.getId(), request);
             result.merge(contractId, candidate, this::preferCheckoutContext);
         }
         return result;
@@ -371,7 +375,8 @@ public class HostPortalServiceImpl implements HostPortalService {
     private record CheckoutSettlementContext(
             CheckoutSettlement settlement,
             CheckoutRequestStatus checkoutStatus,
-            Long checkoutRequestId) {
+            Long checkoutRequestId,
+            CheckoutRequest request) {
     }
 
     @Override

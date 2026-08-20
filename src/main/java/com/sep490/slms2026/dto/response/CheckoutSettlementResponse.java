@@ -13,19 +13,19 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CheckoutSettlementResponse {
+    // Khối A - Khách phải trả
+    private List<InvoiceResponse> finalCharges;
+    private BigDecimal chargesTotal;
+    private BigDecimal chargesPaid;
+    private Boolean chargesSettled;
+
+    // Khối B - Công ty phải hoàn
     private BigDecimal depositAmount;
-    private List<InvoiceResponse> unpaidInvoices;
-    private BigDecimal unpaidTotal;
-    private List<DamageResponse> damages;
-    private BigDecimal damageTotal;
     private List<AdjustmentResponse> adjustments;
     private BigDecimal adjustmentTotal;
-    private BigDecimal refundAmount;
-    private BigDecimal extraChargeAmount;
-    private Long extraChargeInvoiceId;
+
     private String refundProofUrl;
     private java.time.LocalDate refundedAt;
-    private Boolean extraChargePaid;
 
     @Data
     @Builder

@@ -30,4 +30,6 @@ public interface TenantCheckoutService {
     CheckoutRequestResponse rejectRequest(Long requestId, UUID managerUserId, RejectCheckoutRequest request);
 
     CheckoutRequestResponse completeRequest(Long requestId, UUID managerUserId, CompleteCheckoutRequest request);
+
+    CheckoutRequestResponse confirmRefund(Long requestId, UUID tenantUserId);
 }

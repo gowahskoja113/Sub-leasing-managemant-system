@@ -52,6 +52,13 @@ public class TenantMeLifecycleController {
         return ResponseEntity.ok(tenantCheckoutService.cancelRequest(currentUserId(), id));
     }
 
+    /** POST /checkout-requests/{id}/confirm-refund — tenant xác nhận đã nhận cọc. */
+    @PostMapping("/checkout-requests/{id}/confirm-refund")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<CheckoutRequestResponse> confirmRefund(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantCheckoutService.confirmRefund(id, currentUserId()));
+    }
+
     @GetMapping("/handover")
     @PreAuthorize("hasRole('TENANT')")
     public ResponseEntity<TenantHandoverResponse> getHandover(
