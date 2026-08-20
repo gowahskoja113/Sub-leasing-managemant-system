@@ -554,7 +554,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         ZoneManager zoneManager = zoneManagerRepository.findById(property.getZone().getId()).orElse(null);
         if (zoneManager != null) {
             property.setOperationManagerId(zoneManager.getManagerId());
-            property.setManagedBy(zoneManager.getManagerId());
+            property.setOperationManagerId(zoneManager.getManagerId());
             property.setStatus(PropertyStatus.ACTIVE);
             if (property.getManagerAcceptedAt() == null) {
                 property.setManagerAcceptedAt(LocalDateTime.now());
@@ -595,7 +595,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (property.getStatus() == PropertyStatus.ACTIVE || property.getStatus() == PropertyStatus.RENTED) {
             if (!managerId.equals(property.getOperationManagerId())) {
                 property.setOperationManagerId(managerId);
-                property.setManagedBy(managerId);
+                property.setOperationManagerId(managerId);
                 propertyRepository.save(property);
                 // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
                 tenantOnboardingService.reassignManagerForProperty(propertyId, managerId);
@@ -607,7 +607,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
+        property.setOperationManagerId(managerId);
         property.setStatus(PropertyStatus.ACTIVE);
         if (property.getManagerAcceptedAt() == null) {
             property.setManagerAcceptedAt(java.time.LocalDateTime.now());
@@ -645,7 +645,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
+        property.setOperationManagerId(managerId);
         upsertZoneManager(property, managerId);
         PropertyResponse response = mapPropertyResponse(
                 propertyRepository.save(property), extractShortAddress(property));
@@ -1338,3 +1338,4 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 "type", "PROPERTY_ASSIGNED"));
     }
 }
+

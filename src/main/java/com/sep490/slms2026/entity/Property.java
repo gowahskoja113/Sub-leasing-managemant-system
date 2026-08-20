@@ -74,8 +74,6 @@ public class Property implements Serializable {
     @Column(name = "operation_manager_id")
     private UUID operationManagerId;
 
-    @Column(name = "managed_by")
-    private UUID managedBy;
 
     @Column(name = "descriptions", nullable = false)
     private String descriptions;

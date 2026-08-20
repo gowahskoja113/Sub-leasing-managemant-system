@@ -408,7 +408,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
 
     private UUID getManagerId(TenantContract contract) {
         if (contract.getProperty() != null) {
-            if (contract.getProperty().getManagedBy() != null) return contract.getProperty().getManagedBy();
+            if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
             if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
         }
         return null;
@@ -449,3 +449,4 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .build();
     }
 }
+

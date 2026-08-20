@@ -421,7 +421,7 @@ public class UtilityBillServiceImpl implements UtilityBillService {
         if (property.getOperationManagerId() != null) {
             return property.getOperationManagerId();
         }
-        return property.getManagedBy();
+        return property.getOperationManagerId();
     }
 
     private static String propertyLabel(Property property) {
@@ -487,3 +487,4 @@ public class UtilityBillServiceImpl implements UtilityBillService {
 
     private record RoomProgress(int roomsTotal, int roomsDone) {}
 }
+

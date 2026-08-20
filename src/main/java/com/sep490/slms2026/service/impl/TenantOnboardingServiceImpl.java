@@ -1265,8 +1265,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             if (contract.getProperty().getOperationManagerId() != null) {
                 return contract.getProperty().getOperationManagerId();
             }
-            if (contract.getProperty().getManagedBy() != null) {
-                return contract.getProperty().getManagedBy();
+            if (contract.getProperty().getOperationManagerId() != null) {
+                return contract.getProperty().getOperationManagerId();
             }
         }
         if (contract.getAssignedManager() != null) {
@@ -1793,3 +1793,4 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         return response;
     }
 }
+

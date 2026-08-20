@@ -663,7 +663,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
     private UUID getManagerId(TenantContract contract) {
         if (contract.getProperty() != null) {
-            if (contract.getProperty().getManagedBy() != null) return contract.getProperty().getManagedBy();
+            if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
             if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
         }
         return null;
@@ -689,6 +689,9 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                         contract.getId(), type, billingPeriod)
                 .orElseGet(com.sep490.slms2026.entity.UtilityInvoice::new);
 
+        boolean isNew = invoice.getId() == null;
+        BigDecimal oldAmount = isNew ? null : invoice.getAmount();
+
         invoice.setProperty(contract.getProperty());
         invoice.setRoom(contract.getRoom());
         invoice.setTenantContract(contract);
@@ -701,7 +704,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         invoice.setAmount(consumption.multiply(unitPrice));
         invoice.setMeterImageUrl(meterImageUrl);
         invoice.setStatus(com.sep490.slms2026.enums.UtilityInvoiceStatus.SENT);
-        if (invoice.getId() == null) {
+        if (isNew) {
             invoice.setCreatedAt(LocalDateTime.now());
             invoice.setCreatedBy(SecurityUtils.requireCurrentUser().getId());
         }
@@ -709,16 +712,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         invoice = utilityInvoiceRepository.save(invoice);
 
-        meterReadingRepository.save(MeterReading.builder()
-                .property(contract.getProperty())
-                .room(contract.getRoom())
-                .utilityType(type)
-                .period(billingPeriod)
-                .reading(finalReading)
-                .imageUrl(meterImageUrl)
-                .recordedAt(LocalDateTime.now())
-                .recordedBy(SecurityUtils.requireCurrentUser().getId())
-                .build());
+        MeterReading existingReading;
+        if (contract.getRoom() != null) {
+            existingReading = meterReadingRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                    contract.getProperty().getId(), contract.getRoom().getId(), type, billingPeriod).orElseGet(MeterReading::new);
+        } else {
+            existingReading = meterReadingRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                    contract.getProperty().getId(), type, billingPeriod).orElseGet(MeterReading::new);
+        }
+
+        existingReading.setProperty(contract.getProperty());
+        existingReading.setRoom(contract.getRoom());
+        existingReading.setUtilityType(type);
+        existingReading.setPeriod(billingPeriod);
+        existingReading.setReading(finalReading);
+        existingReading.setImageUrl(meterImageUrl);
+        existingReading.setRecordedAt(LocalDateTime.now());
+        existingReading.setRecordedBy(SecurityUtils.requireCurrentUser().getId());
+        meterReadingRepository.save(existingReading);
 
         com.sep490.slms2026.entity.TenantInvoice tenantInvoice = tenantBillingService.createFromUtilityInvoice(invoice, contract);
 
@@ -734,8 +745,11 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         String content = String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
                 typeStr, billingPeriod, invoice.getAmount().longValue());
 
-        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-            sendNotification(contract.getTenant().getUser().getId(), "UTILITY_INVOICE_CREATED", title, content, data);
+        if (isNew || oldAmount == null || oldAmount.compareTo(invoice.getAmount()) != 0) {
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                String finalTitle = isNew ? title : "Cập nhật " + title.replace("Hoá đơn", "hoá đơn");
+                sendNotification(contract.getTenant().getUser().getId(), "UTILITY_INVOICE_CREATED", finalTitle, content, data);
+            }
         }
 
         return invoice;
@@ -785,3 +799,4 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 moveOutDate.getMonthValue(), moveOutDate.getDayOfMonth(), moveOutDate.getMonthValue());
     }
 }
+
