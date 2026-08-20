@@ -45,4 +45,39 @@ public class CheckoutRequestResponse {
     
     private LocalDateTime refundDisputedAt;
     private String refundDisputeReason;
+    
+    private SettlementDto settlement;
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SettlementDto {
+        private java.util.List<ChargeItem> finalCharges;
+        private java.math.BigDecimal chargesTotal;
+        private java.math.BigDecimal chargesPaid;
+        private Boolean chargesSettled;
+
+        private java.math.BigDecimal depositAmount;
+        private java.time.LocalDate refundDueDate;
+
+        private LocalDateTime refundPaidAt;
+        private String refundProofUrl;
+        private LocalDateTime refundConfirmedAt;
+        private LocalDateTime refundDisputedAt;
+        private String refundDisputeReason;
+    }
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChargeItem {
+        private Long id;
+        private String code;
+        private String type;
+        private java.math.BigDecimal amount;
+    }
 }
