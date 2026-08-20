@@ -16,6 +16,7 @@ import com.sep490.slms2026.repository.CheckoutRequestRepository;
 import com.sep490.slms2026.repository.CheckoutSettlementRepository;
 import com.sep490.slms2026.repository.InvoiceRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
+import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.CheckoutProcessService;
@@ -49,6 +50,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final InvoiceRepository invoiceRepository;
     private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final NotificationRepository notificationRepository;
     private final PushNotificationService pushNotificationService;
     private final UserRepository userRepository;
@@ -105,6 +107,24 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         checkoutInspectionRepository.save(inspection);
 
+        TenantContract contract = checkoutRequest.getTenantContract();
+        if (contract != null && checkoutRequest.getExpectedMoveOutDate() != null) {
+            LocalDate moveOutDate = checkoutRequest.getExpectedMoveOutDate();
+            if (checkoutRequest.getCompletedAt() != null) {
+                moveOutDate = checkoutRequest.getCompletedAt().toLocalDate();
+            }
+            if (request.getElectricityFinalReading() != null) {
+                createFinalUtilityInvoice(contract, com.sep490.slms2026.enums.UtilityType.ELECTRIC, 
+                        BigDecimal.valueOf(request.getElectricityFinalReading()), 
+                        request.getElectricMeterImageUrl(), moveOutDate);
+            }
+            if (request.getWaterFinalReading() != null) {
+                createFinalUtilityInvoice(contract, com.sep490.slms2026.enums.UtilityType.WATER, 
+                        BigDecimal.valueOf(request.getWaterFinalReading()), 
+                        request.getWaterMeterImageUrl(), moveOutDate);
+            }
+        }
+
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.INSPECTING) {
             checkoutRequest.setStatus(CheckoutRequestStatus.INSPECTING);
             checkoutRequestRepository.save(checkoutRequest);
@@ -159,12 +179,21 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         BigDecimal deposit = checkoutRequest.getTenantContract().getDeposit();
         if (deposit == null) deposit = BigDecimal.ZERO;
 
-        List<Invoice> unpaidInvoicesEntity = invoiceRepository.findByTenantIdAndStatusAndDeletedFalse(
-                checkoutRequest.getTenantUserId(), InvoiceStatus.UNPAID);
+        TenantContract contract = checkoutRequest.getTenantContract();
 
-        BigDecimal unpaidTotal = unpaidInvoicesEntity.stream()
-                .map(Invoice::getAmount)
+        List<com.sep490.slms2026.entity.TenantInvoice> unpaidRentInvoices = tenantInvoiceRepository
+                .findByTenantContractIdAndStatusNotIn(contract.getId(), List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
+        BigDecimal unpaidRent = unpaidRentInvoices.stream()
+                .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        List<com.sep490.slms2026.entity.UtilityInvoice> unpaidUtilityInvoices = utilityInvoiceRepository
+                .findByTenantContractIdAndStatusNot(contract.getId(), com.sep490.slms2026.enums.UtilityInvoiceStatus.PAID);
+        BigDecimal unpaidUtility = unpaidUtilityInvoices.stream()
+                .map(com.sep490.slms2026.entity.UtilityInvoice::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal unpaidTotal = unpaidRent.add(unpaidUtility);
 
         BigDecimal damageTotal = inspection.getDamages().stream()
                 .map(CheckoutDamageItem::getAmount)
@@ -173,7 +202,6 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         BigDecimal adjustmentTotal = BigDecimal.ZERO;
         List<CheckoutSettlementResponse.AdjustmentResponse> adjustments = new ArrayList<>();
 
-        TenantContract contract = checkoutRequest.getTenantContract();
         BigDecimal rentAmount = contract.getRentAmount();
         
         LocalDate moveOutDate = checkoutRequest.getExpectedMoveOutDate();
@@ -280,14 +308,27 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                     .build();
         }
 
+        List<CheckoutSettlementResponse.InvoiceResponse> unpaidInvoiceResponses = new ArrayList<>();
+        for (var inv : unpaidRentInvoices) {
+            unpaidInvoiceResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
+                    .id(inv.getId())
+                    .code(inv.getCode() != null ? inv.getCode() : "RENT")
+                    .type(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : "RENT")
+                    .amount(inv.getGrandTotal())
+                    .build());
+        }
+        for (var inv : unpaidUtilityInvoices) {
+            unpaidInvoiceResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
+                    .id(inv.getId())
+                    .code(inv.getBillingPeriod())
+                    .type(inv.getUtilityType() != null ? inv.getUtilityType().name() : "UTILITY")
+                    .amount(inv.getAmount())
+                    .build());
+        }
+
         return CheckoutSettlementResponse.builder()
                 .depositAmount(deposit)
-                .unpaidInvoices(unpaidInvoicesEntity.stream().map(inv -> CheckoutSettlementResponse.InvoiceResponse.builder()
-                        .id(inv.getId())
-                        .code(inv.getMonth()) // just using month as code for now if code doesn't exist
-                        .type("RENT") // simplified
-                        .amount(inv.getAmount())
-                        .build()).collect(Collectors.toList()))
+                .unpaidInvoices(unpaidInvoiceResponses)
                 .unpaidTotal(unpaidTotal)
                 .damages(inspection.getDamages().stream().map(d -> CheckoutSettlementResponse.DamageResponse.builder()
                         .label(d.getLabel())
@@ -640,5 +681,78 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
             if (contract.getProperty().getOperationManagerId() != null) return contract.getProperty().getOperationManagerId();
         }
         return null;
+    }
+
+    private com.sep490.slms2026.entity.UtilityInvoice createFinalUtilityInvoice(
+            TenantContract contract, com.sep490.slms2026.enums.UtilityType type,
+            BigDecimal finalReading, String meterImageUrl, LocalDate moveOutDate) {
+
+        BigDecimal prev = resolvePrevReading(contract, type);
+        BigDecimal unitPrice = resolveFinalUnitPrice(contract, type);
+
+        BigDecimal consumption = finalReading.subtract(prev);
+        if (consumption.signum() < 0) {
+            throw new BusinessException("METER_ROLLBACK",
+                    "Chỉ số cuối nhỏ hơn chỉ số kỳ trước — kiểm tra lại số đọc.");
+        }
+
+        return utilityInvoiceRepository.save(com.sep490.slms2026.entity.UtilityInvoice.builder()
+                .property(contract.getProperty())
+                .room(contract.getRoom())
+                .tenantContract(contract)
+                .utilityType(type)
+                .billingPeriod(finalPeriodLabel(moveOutDate))
+                .prevReading(prev)
+                .newReading(finalReading)
+                .consumption(consumption)
+                .unitPrice(unitPrice)
+                .amount(consumption.multiply(unitPrice))
+                .meterImageUrl(meterImageUrl)
+                .status(com.sep490.slms2026.enums.UtilityInvoiceStatus.SENT)
+                .build());
+    }
+
+    private BigDecimal resolvePrevReading(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
+        Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
+                ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), contract.getRoom().getId(), type)
+                : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
+                        contract.getProperty().getId(), type);
+
+        if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())) {
+            return last.get().getNewReading();
+        }
+
+        BigDecimal moveIn = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
+                ? contract.getInitialElectricReading()
+                : contract.getInitialWaterReading();
+
+        if (moveIn == null) {
+            throw new BusinessException("NO_BASELINE_READING",
+                    "Hợp đồng không có chỉ số đầu kỳ — không tính được tiền điện/nước.");
+        }
+        return moveIn;
+    }
+
+    private BigDecimal resolveFinalUnitPrice(TenantContract contract, com.sep490.slms2026.enums.UtilityType type) {
+        if (Boolean.TRUE.equals(contract.getProperty().getWholeHouse())) {
+            Optional<com.sep490.slms2026.entity.UtilityInvoice> last = contract.getRoom() != null
+                    ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
+                            contract.getProperty().getId(), contract.getRoom().getId(), type)
+                    : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
+                            contract.getProperty().getId(), type);
+            if (last.isPresent() && contract.getId().equals(last.get().getTenantContract().getId())) {
+                return last.get().getUnitPrice();
+            }
+        }
+        return type == com.sep490.slms2026.enums.UtilityType.ELECTRIC
+                ? contract.getProperty().getElectricityUnitPrice()
+                : contract.getProperty().getWaterUnitPrice();
+    }
+
+    private String finalPeriodLabel(LocalDate moveOutDate) {
+        return String.format("%02d/%d (01/%02d–%02d/%02d, chốt trả phòng)", 
+                moveOutDate.getMonthValue(), moveOutDate.getYear(),
+                moveOutDate.getMonthValue(), moveOutDate.getDayOfMonth(), moveOutDate.getMonthValue());
     }
 }
