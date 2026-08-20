@@ -138,6 +138,10 @@ public class TenantContractResponse {
     // Các field mới cho Hợp đồng nháp (DRAFT)
     private UUID assignedManagerId;
     private String assignedManagerName;
+    private UUID onboardedByManagerId;
+    private String onboardedByManagerName;
+    private String onboardedByManagerPhone;
+    private LocalDateTime onboardedAt;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
 

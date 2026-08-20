@@ -206,6 +206,14 @@ public class TenantContract implements Serializable {
     @JoinColumn(name = "assigned_manager_id")
     private User assignedManager;
 
+    /** Người thực sự đón khách / bàn giao nhà. Ghi một lần lúc onboard, không đổi khi đổi QL khu vực. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "onboarded_by_manager_id")
+    private User onboardedByManager;
+
+    @Column(name = "onboarded_at")
+    private LocalDateTime onboardedAt;
+
     @Column(name = "draft_contract_file_url", length = 512)
     private String draftContractFileUrl;
 

@@ -96,13 +96,15 @@ public class BulkImportController {
      * Import hàng loạt hợp đồng thuê nháp (DRAFT) từ Excel.
      * BĐS phải đã tồn tại — map theo Mã HĐ inbound / Mã BĐS / Tên tòa nhà.
      * File mẫu: docs/SLMS2026_import_tenant_draft_contracts.xlsx
+     * skipInvalidRows=true: import dòng sạch, trả kèm errors (mỗi lỗi có {@code code}) của dòng bỏ.
      */
     @PostMapping(value = "/tenant-draft-contracts-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<BulkImportResponse> importTenantDraftContractsExcel(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
-        return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun));
+            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun,
+            @RequestParam(value = "skipInvalidRows", defaultValue = "false") boolean skipInvalidRows) {
+        return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun, skipInvalidRows));
     }
 
     /**

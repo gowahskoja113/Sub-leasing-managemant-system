@@ -423,6 +423,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         contract.setStatus(ContractStatus.ACTIVE);
         contract.setActivatedAt(LocalDateTime.now());
+        if (contract.getOnboardedByManager() == null) {
+            contract.setOnboardedByManager(userRepository.getReferenceById(
+                    com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId()));
+            contract.setOnboardedAt(LocalDateTime.now());
+        }
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
         backfillOnboardingInvoiceTenant(saved);
@@ -1635,6 +1640,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .priceRejectReason(c.getPriceRejectReason())
                 .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
                 .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
+                .onboardedByManagerId(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getId() : null)
+                .onboardedByManagerName(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getFullName() : null)
+                .onboardedByManagerPhone(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getPhoneNumber() : null)
+                .onboardedAt(c.getOnboardedAt())
                 .draftContractFileUrl(c.getDraftContractFileUrl())
                 .contractFileAvailable(resolveContractFileUrl(c) != null)
                 .expectedReceptionDate(c.getExpectedReceptionDate())

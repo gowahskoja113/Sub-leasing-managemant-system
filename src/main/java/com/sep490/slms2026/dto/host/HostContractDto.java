@@ -4,6 +4,8 @@ import lombok.Builder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Builder
 public record HostContractDto(
@@ -22,6 +24,12 @@ public record HostContractDto(
         LocalDate startDate,
         LocalDate endDate,
         String status,
-        String equipmentSnapshot
+        String equipmentSnapshot,
+        UUID assignedManagerId,
+        String assignedManagerName,
+        UUID onboardedByManagerId,
+        String onboardedByManagerName,
+        String onboardedByManagerPhone,
+        LocalDateTime onboardedAt
 ) {
 }

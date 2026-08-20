@@ -896,6 +896,12 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .endDate(c.getEndDate())
                 .status(c.getStatus().name())
                 .equipmentSnapshot(c.getEquipmentSnapshot())
+                .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
+                .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
+                .onboardedByManagerId(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getId() : null)
+                .onboardedByManagerName(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getFullName() : null)
+                .onboardedByManagerPhone(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getPhoneNumber() : null)
+                .onboardedAt(c.getOnboardedAt())
                 .build();
     }
 

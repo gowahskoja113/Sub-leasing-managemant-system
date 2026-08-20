@@ -11,6 +11,7 @@ import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.security.CustomUserDetails;
@@ -133,9 +134,16 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
     @Override
     @Transactional
     public void removeManager(UUID zoneId) {
+        assertNoLiveContracts(zoneId);
+        doRemoveManager(zoneId);
+    }
+
+    /** Nhả khu vực khi bàn giao — không chặn HĐ còn sống (host đã xác nhận bảng trước/sau). */
+    private void doRemoveManager(UUID zoneId) {
         CustomUserDetails currentUser = SecurityUtils.requireCurrentUser();
         ZoneManager existingZm = zoneManagerRepository.findById(zoneId)
-                .orElseThrow(() -> new ResourceNotFoundException("Zone manager assignment not found for zone: " + zoneId));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy phân công quản lý cho khu vực này"));
 
         UUID fromManagerId = existingZm.getManagerId();
         Zone zone = zoneRepository.findById(zoneId)
@@ -184,7 +192,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
                 if (zm == null || !request.getManagerId().equals(zm.getManagerId())) {
                     continue;
                 }
-                removeManager(releaseZoneId);
+                doRemoveManager(releaseZoneId);
             }
         }
         return assigned;
@@ -251,6 +259,36 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
         return history.stream()
                 .sorted((a, b) -> b.getAt().compareTo(a.getAt()))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Chặn DELETE khi còn việc phải làm. Đếm hợp đồng DRAFT/PENDING/ACTIVE — không đếm
+     * PropertyStatus.RENTED (nhà chia phòng có khách vẫn mang status ACTIVE).
+     * EXPIRED không chặn.
+     */
+    private void assertNoLiveContracts(UUID zoneId) {
+        List<TenantContract> stillLive = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
+        long active = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.ACTIVE).count();
+        long pending = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.PENDING).count();
+        long draft = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.DRAFT).count();
+        if (active == 0 && pending == 0 && draft == 0) {
+            return;
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (active > 0) {
+            reasons.add(active + " hợp đồng đang có khách ở");
+        }
+        if (pending > 0) {
+            reasons.add(pending + " hợp đồng đã chốt chưa nhận khách");
+        }
+        if (draft > 0) {
+            reasons.add(draft + " hợp đồng chờ đón khách");
+        }
+
+        throw new BusinessException(
+                "Không gỡ được quản lý: khu vực còn " + String.join(", ", reasons)
+                        + ". Hãy đổi sang quản lý khác để những việc này được chuyển giao.");
     }
 
     private ZoneHandoverResponse toHandoverResponse(ZoneManagerHandover h) {

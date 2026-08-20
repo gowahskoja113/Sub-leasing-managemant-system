@@ -18,10 +18,12 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ConflictException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.DepreciationService;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.InboundLeaseRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -60,6 +62,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final RenovationSessionViewMapper renovationSessionViewMapper;
     private final TenantOnboardingService tenantOnboardingService;
     private final ZoneManagerRepository zoneManagerRepository;
+    private final NotificationRepository notificationRepository;
+    private final UserPushTokenService userPushTokenService;
 
     @Override
     @Transactional
@@ -550,7 +554,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         ZoneManager zoneManager = zoneManagerRepository.findById(property.getZone().getId()).orElse(null);
         if (zoneManager != null) {
             property.setOperationManagerId(zoneManager.getManagerId());
+            property.setManagedBy(zoneManager.getManagerId());
             property.setStatus(PropertyStatus.ACTIVE);
+            if (property.getManagerAcceptedAt() == null) {
+                property.setManagerAcceptedAt(LocalDateTime.now());
+            }
+            notifyPropertyAssigned(property, zoneManager.getManagerId());
         } else {
             property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
         }
@@ -581,6 +590,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         UUID managerId = request.getOperationManagerId();
         validateOperationManager(managerId);
+        upsertZoneManager(property, managerId);
 
         if (property.getStatus() == PropertyStatus.ACTIVE || property.getStatus() == PropertyStatus.RENTED) {
             if (!managerId.equals(property.getOperationManagerId())) {
@@ -636,6 +646,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         property.setOperationManagerId(managerId);
         property.setManagedBy(managerId);
+        upsertZoneManager(property, managerId);
         PropertyResponse response = mapPropertyResponse(
                 propertyRepository.save(property), extractShortAddress(property));
         // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
@@ -791,6 +802,14 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setAppliedPrice(finalPrice);
         propertyRepository.save(property);
 
+        if (property.getStatus() == PropertyStatus.ACTIVE) {
+            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+            for (Room room : draftRooms) {
+                room.setStatus(RoomStatus.AVAILABLE);
+            }
+            roomRepository.saveAll(draftRooms);
+        }
+
         return PropertyActivationResponse.builder()
                 .propertyId(propertyId)
                 .pricingScope(PricingScope.WHOLE_HOUSE)
@@ -834,6 +853,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
             room.setPrice(finalPrice);
             room.setAppliedPrice(finalPrice);
+            // hostConfirm đã tự gán QL → nhà ACTIVE, không còn bước assignOperationManager
+            if (property.getStatus() == PropertyStatus.ACTIVE) {
+                room.setStatus(RoomStatus.AVAILABLE);
+            }
 
             activatedRooms.add(PropertyActivationResponse.ActivatedRoom.builder()
                     .roomId(room.getId())
@@ -1273,5 +1296,45 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         if (exists) {
             throw new ConflictException("Địa chỉ này đã được sử dụng cho một tòa nhà khác");
         }
+    }
+
+    /** Gán nhà lẻ cũng ghi zone_managers — một khu vực một quản lý, để hostConfirm tự gán được. */
+    private void upsertZoneManager(Property property, UUID managerId) {
+        if (property.getZone() == null || managerId == null) {
+            return;
+        }
+        UUID zoneId = property.getZone().getId();
+        ZoneManager existing = zoneManagerRepository.findById(zoneId).orElse(null);
+        ZoneManager zm = existing != null ? existing : new ZoneManager();
+        zm.setZoneId(zoneId);
+        zm.setManagerId(managerId);
+        zm.setAssignedBy(SecurityUtils.requireCurrentUser().getId());
+        zm.setAssignedAt(LocalDateTime.now());
+        zoneManagerRepository.save(zm);
+    }
+
+    private void notifyPropertyAssigned(Property property, UUID managerId) {
+        if (managerId == null) {
+            return;
+        }
+        String zoneName = property.getZone() != null ? property.getZone().getName() : "khu vực";
+        String title = "Bạn được giao một căn nhà mới";
+        String body = "Nhà " + property.getPropertyName() + " (" + zoneName
+                + ") đã được đưa vào khai thác và giao cho bạn phụ trách.";
+
+        notificationRepository.save(Notification.builder()
+                .userId(managerId)
+                .title(title)
+                .content(body)
+                .type("PROPERTY_ASSIGNED")
+                .screen("PropertyDetail")
+                .paramsJson("{\"propertyId\":" + property.getId() + "}")
+                .read(false)
+                .build());
+
+        userPushTokenService.sendToUser(managerId, title, body, Map.of(
+                "screen", "PropertyDetail",
+                "params", Map.of("propertyId", property.getId()),
+                "type", "PROPERTY_ASSIGNED"));
     }
 }

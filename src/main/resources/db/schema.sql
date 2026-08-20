@@ -371,6 +371,8 @@ CREATE TABLE IF NOT EXISTS tenant_contracts (
     price_reject_reason                 TEXT,
     handover_acknowledged_at            TIMESTAMP,
     assigned_manager_id                 UUID REFERENCES "User"(id),
+    onboarded_by_manager_id             UUID REFERENCES "User"(id),
+    onboarded_at                        TIMESTAMP,
     draft_contract_file_url             VARCHAR(512),
     expected_reception_date             DATE,
     draft_tenant_name                   VARCHAR(255),
