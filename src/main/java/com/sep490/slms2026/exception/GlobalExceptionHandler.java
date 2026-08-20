@@ -199,9 +199,9 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.BAD_REQUEST.value())
-                        .error("Dữ liệu không hợp lệ hoặc vi phạm ràng buộc hệ thống (DATA_INTEGRITY_VIOLATION)")
+                        .error("Không lưu được do lỗi hệ thống, không phải do dữ liệu bạn nhập. Vui lòng báo đội kỹ thuật. (DATA_INTEGRITY_VIOLATION)")
                         .code("DATA_INTEGRITY_VIOLATION")
-                        .message("Dữ liệu không hợp lệ hoặc vi phạm ràng buộc hệ thống")
+                        .message("Không lưu được do lỗi hệ thống, không phải do dữ liệu bạn nhập. Vui lòng báo đội kỹ thuật.")
                         .build());
     }
 }
