@@ -675,6 +675,54 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 : null;
         com.sep490.slms2026.entity.CheckoutSettlement settlement = checkoutSettlementRepository.findByCheckoutRequestId(request.getId()).orElse(null);
 
+        CheckoutRequestResponse.SettlementDto settlementDto = null;
+        if (settlement != null) {
+            java.util.List<CheckoutRequestResponse.ChargeItem> finalCharges = new java.util.ArrayList<>();
+            if (settlement.getSettlementInvoices() != null) {
+                for (var inv : settlement.getSettlementInvoices()) {
+                    finalCharges.add(CheckoutRequestResponse.ChargeItem.builder()
+                            .id(inv.getInvoiceId())
+                            .code(inv.getInvoiceCode())
+                            .type(inv.getInvoiceType())
+                            .amount(inv.getAmount())
+                            .build());
+                }
+            }
+
+            java.util.List<Long> invoiceIds = finalCharges.stream()
+                    .map(CheckoutRequestResponse.ChargeItem::getId)
+                    .toList();
+            java.math.BigDecimal chargesTotal = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal chargesPaid = java.math.BigDecimal.ZERO;
+            Boolean chargesSettled = true;
+
+            if (!invoiceIds.isEmpty()) {
+                java.util.List<com.sep490.slms2026.entity.TenantInvoice> invoices = tenantInvoiceRepository.findAllById(invoiceIds);
+                chargesTotal = invoices.stream()
+                        .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
+                        .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                chargesPaid = invoices.stream()
+                        .filter(inv -> inv.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.PAID)
+                        .map(com.sep490.slms2026.entity.TenantInvoice::getGrandTotal)
+                        .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                chargesSettled = chargesTotal.compareTo(java.math.BigDecimal.ZERO) <= 0 || chargesPaid.compareTo(chargesTotal) >= 0;
+            }
+
+            settlementDto = CheckoutRequestResponse.SettlementDto.builder()
+                    .finalCharges(finalCharges)
+                    .chargesTotal(chargesTotal)
+                    .chargesPaid(chargesPaid)
+                    .chargesSettled(chargesSettled)
+                    .depositAmount(settlement.getDepositAmount())
+                    .refundDueDate(settlement.getRefundDueDate())
+                    .refundPaidAt(settlement.getRefundPaidAt())
+                    .refundProofUrl(settlement.getRefundProofUrl())
+                    .refundConfirmedAt(settlement.getRefundConfirmedAt())
+                    .refundDisputedAt(settlement.getRefundDisputedAt())
+                    .refundDisputeReason(settlement.getRefundDisputeReason())
+                    .build();
+        }
+
         return CheckoutRequestResponse.builder()
                 .id(request.getId())
                 .contractId(contract.getId())
@@ -704,6 +752,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .refundAccountHolder(request.getRefundAccountHolder())
                 .refundDisputedAt(settlement != null ? settlement.getRefundDisputedAt() : null)
                 .refundDisputeReason(settlement != null ? settlement.getRefundDisputeReason() : null)
+                .settlement(settlementDto)
                 .build();
     }
 }
