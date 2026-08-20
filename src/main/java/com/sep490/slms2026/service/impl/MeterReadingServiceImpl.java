@@ -231,14 +231,27 @@ public class MeterReadingServiceImpl implements MeterReadingService {
     }
 
     private BigDecimal resolveInitialReading(Long propertyId, Long roomId, UtilityType utilityType) {
-        if (roomId != null) {
-            return tenantContractRepository.findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
-                    .map(contract -> readingFromContract(contract, utilityType))
-                    .orElse(BigDecimal.ZERO);
+        Optional<TenantContract> activeContract = roomId != null
+                ? tenantContractRepository.findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
+                : tenantContractRepository.findByPropertyIdAndRoomIsNullAndStatus(propertyId, ContractStatus.ACTIVE);
+
+        if (activeContract.isEmpty()) {
+            return BigDecimal.ZERO;
         }
-        return tenantContractRepository.findByPropertyIdAndRoomIsNullAndStatus(propertyId, ContractStatus.ACTIVE)
-                .map(contract -> readingFromContract(contract, utilityType))
-                .orElse(BigDecimal.ZERO);
+
+        TenantContract contract = activeContract.get();
+
+        Optional<com.sep490.slms2026.entity.UtilityInvoice> lastCheckout = roomId != null
+                ? utilityInvoiceRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+                        propertyId, roomId, utilityType, "%chốt trả phòng%")
+                : utilityInvoiceRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+                        propertyId, utilityType, "%chốt trả phòng%");
+
+        if (lastCheckout.isPresent() && !contract.getId().equals(lastCheckout.get().getTenantContract().getId())) {
+            return lastCheckout.get().getNewReading();
+        }
+
+        return readingFromContract(contract, utilityType);
     }
 
     private BigDecimal readingFromContract(TenantContract contract, UtilityType utilityType) {

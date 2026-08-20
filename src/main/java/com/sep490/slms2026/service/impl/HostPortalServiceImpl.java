@@ -301,7 +301,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                     LocalDate heldSince = c.getDepositPaidAt() != null
                             ? c.getDepositPaidAt().toLocalDate()
                             : (c.getPaidAt() != null ? c.getPaidAt().toLocalDate() : c.getStartDate());
-                    return HostDepositsResponse.DepositItem.builder()
+                    var builder = HostDepositsResponse.DepositItem.builder()
                             .contractId(c.getId())
                             .contractCode(c.getContractCode())
                             .endDate(c.getEndDate())
@@ -318,8 +318,18 @@ public class HostPortalServiceImpl implements HostPortalService {
                                     : null)
                             .refundBankName(ctx != null && ctx.request() != null ? ctx.request().getRefundBankName() : null)
                             .refundBankAccount(ctx != null && ctx.request() != null ? ctx.request().getRefundBankAccount() : null)
-                            .refundAccountHolder(ctx != null && ctx.request() != null ? ctx.request().getRefundAccountHolder() : null)
-                            // Note: chargesSettled and outstandingAmount logic can be added if needed, or left as null if not directly available here.
+                            .refundAccountHolder(ctx != null && ctx.request() != null ? ctx.request().getRefundAccountHolder() : null);
+
+                    List<TenantInvoice> unpaid = tenantInvoiceRepository
+                            .findByTenantContractIdAndStatusNotIn(c.getId(),
+                                    List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
+                    BigDecimal outstanding = unpaid.stream()
+                            .map(TenantInvoice::getGrandTotal)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    return builder
+                            .chargesSettled(outstanding.compareTo(BigDecimal.ZERO) <= 0)
+                            .outstandingAmount(outstanding)
                             .build();
                 })
                 .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
