@@ -35,5 +35,18 @@ public interface UtilityBillRepository extends JpaRepository<UtilityBill, Long> 
               AND (p.wholeHouse IS NULL OR p.wholeHouse = false)
             """)
     List<UtilityBill> findPublishedSharedHouseBillsWithDeadline(@Param("status") UtilityBillStatus status);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
+            JOIN FETCH b.property p
+            WHERE b.month = :month
+              AND b.year = :year
+              AND b.status = :status
+              AND b.readingDeadline IS NOT NULL
+            """)
+    List<UtilityBill> findPublishedByPeriodWithReadingDeadline(
+            @Param("month") int month,
+            @Param("year") int year,
+            @Param("status") UtilityBillStatus status);
 }
 

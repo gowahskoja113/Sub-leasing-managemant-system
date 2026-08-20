@@ -3,14 +3,15 @@ package com.sep490.slms2026.service.impl;
 import com.sep490.slms2026.dto.request.CreateMeterReadingRequest;
 import com.sep490.slms2026.dto.response.MeterReadingResponse;
 import com.sep490.slms2026.dto.response.PendingMeterReadingItem;
-import com.sep490.slms2026.entity.BillingConfig;
 import com.sep490.slms2026.entity.MeterReading;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
+import com.sep490.slms2026.entity.UtilityBill;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
+import com.sep490.slms2026.enums.UtilityBillStatus;
 import com.sep490.slms2026.enums.UtilityType;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
@@ -18,10 +19,10 @@ import com.sep490.slms2026.repository.MeterReadingRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.repository.UtilityBillRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
-import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.MeterReadingService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
@@ -51,8 +52,8 @@ public class MeterReadingServiceImpl implements MeterReadingService {
     private final MeterReadingRepository meterReadingRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final UtilityBillRepository utilityBillRepository;
     private final PropertyAccessService propertyAccessService;
-    private final BillingConfigService billingConfigService;
 
     @Override
     @Transactional(readOnly = true)
@@ -134,24 +135,35 @@ public class MeterReadingServiceImpl implements MeterReadingService {
         YearMonth month = ContractBillingCalendar.parsePeriod(period)
                 .orElse(YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")));
         String normalized = ContractBillingCalendar.normalizePeriod(month);
-        BillingConfig config = billingConfigService.current();
 
-        List<TenantContract> contracts = admin
-                ? tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE)
-                : tenantContractRepository.findActiveByOperationManagerId(ContractStatus.ACTIVE, user.getId());
+        List<UtilityBill> bills = utilityBillRepository.findPublishedByPeriodWithReadingDeadline(
+                month.getMonthValue(), month.getYear(), UtilityBillStatus.PUBLISHED);
 
         List<PendingMeterReadingItem> items = new ArrayList<>();
-        for (TenantContract contract : contracts) {
-            if (contract.getProperty() == null) {
+        for (UtilityBill bill : bills) {
+            Property property = bill.getProperty();
+            if (property == null) {
                 continue;
             }
-            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
-            LocalDate meterDue = ContractBillingCalendar.meterDueDate(
-                    month, billingDay, config.getReminderLeadDays());
-            for (UtilityType type : List.of(UtilityType.ELECTRIC, UtilityType.WATER)) {
+            if (!admin && !user.getId().equals(property.getOperationManagerId())) {
+                continue;
+            }
+            LocalDate readingDeadline = bill.getReadingDeadline();
+            if (readingDeadline == null) {
+                continue;
+            }
+            UtilityType type = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
+
+            for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(property.getId())) {
+                if (contract.getRoom() == null) {
+                    continue;
+                }
+                if (contract.getStartDate() != null && contract.getStartDate().isAfter(readingDeadline)) {
+                    continue;
+                }
                 Optional<MeterReading> reading = findReading(
-                        contract.getProperty().getId(),
-                        contract.getRoom() != null ? contract.getRoom().getId() : null,
+                        property.getId(),
+                        contract.getRoom().getId(),
                         type,
                         normalized);
                 boolean hasReading = reading.isPresent();
@@ -159,16 +171,17 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                 if (hasPhoto) {
                     continue;
                 }
+                int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
                 items.add(PendingMeterReadingItem.builder()
-                        .propertyId(contract.getProperty().getId())
-                        .propertyName(contract.getProperty().getPropertyName())
-                        .roomId(contract.getRoom() != null ? contract.getRoom().getId() : null)
-                        .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
+                        .propertyId(property.getId())
+                        .propertyName(property.getPropertyName())
+                        .roomId(contract.getRoom().getId())
+                        .roomNumber(contract.getRoom().getRoomNumber())
                         .contractId(contract.getId())
                         .utilityType(UtilityTypeMapper.toApi(type))
                         .period(normalized)
                         .billingDay(billingDay)
-                        .meterDueDate(meterDue)
+                        .meterDueDate(readingDeadline)
                         .hasReading(hasReading)
                         .hasPhoto(false)
                         .build());
