@@ -557,9 +557,6 @@ public class BillingCronServiceImpl implements BillingCronService {
                 continue;
             }
             UUID managerId = contract.getProperty().getOperationManagerId();
-            if (managerId == null) {
-                managerId = contract.getProperty().getOperationManagerId();
-            }
             if (managerId == null || !notifiedManagers.add(managerId)) {
                 continue;
             }
