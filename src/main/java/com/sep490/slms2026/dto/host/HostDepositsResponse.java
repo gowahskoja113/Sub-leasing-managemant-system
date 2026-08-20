@@ -30,5 +30,6 @@ public record HostDepositsResponse(BigDecimal totalHeld, List<DepositItem> items
         private String refundAccountHolder;
         private Boolean chargesSettled;
         private BigDecimal outstandingAmount;
+        private String checkoutNote;
     }
 }

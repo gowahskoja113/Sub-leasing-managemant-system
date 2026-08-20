@@ -75,6 +75,9 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .expectedMoveOutDate(request.getExpectedMoveOutDate())
                 .reason(request.getReason().trim())
                 .note(request.getNote())
+                .refundBankName(request.getRefundBankName())
+                .refundBankAccount(request.getRefundBankAccount())
+                .refundAccountHolder(request.getRefundAccountHolder())
                 .status(CheckoutRequestStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .build());
@@ -179,6 +182,9 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .expectedMoveOutDate(request.getExpectedMoveOutDate())
                 .reason(request.getReason() != null ? request.getReason().trim() : "Quản lý tạo")
                 .note(request.getNote())
+                .refundBankName(request.getRefundBankName())
+                .refundBankAccount(request.getRefundBankAccount())
+                .refundAccountHolder(request.getRefundAccountHolder())
                 .status(CheckoutRequestStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .build());
