@@ -45,6 +45,15 @@ public class TenantInvoiceResponse {
     private String payosQrCode;
     private Long payosOrderCode;
     private Boolean autoIssued;
+    private BigDecimal prevReading;
+    private BigDecimal newReading;
+    private String meterImageUrl;
+    private LocalDateTime meterCapturedAt;
+    private String utilityBillImageUrl;
+    private String billingAddress;
+    private String customerCode;
+    private String propertyType;
+    private InvoiceDisputeResponse dispute;
     /**
      * true nếu tiền nhà chu kỳ đầu đã thu cùng QR onboard ({@code onboardPaid=true} trong note),
      * hoặc đây là hoá đơn {@code HD-ONBOARD-*}. FE gắn nhãn "đã thu lúc nhận nhà".

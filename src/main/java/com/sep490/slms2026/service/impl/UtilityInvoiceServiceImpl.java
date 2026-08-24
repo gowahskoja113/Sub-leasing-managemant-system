@@ -23,6 +23,7 @@ import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.BillingConfigService;
+import com.sep490.slms2026.service.InvoiceDisputeService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.MeterReadingService;
 import com.sep490.slms2026.service.PropertyAccessService;
@@ -63,6 +64,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final MeterReadingService meterReadingService;
     private final MeterOverrideService meterOverrideService;
     private final BillingConfigService billingConfigService;
+    private final InvoiceDisputeService invoiceDisputeService;
 
     @Override
     @Transactional
@@ -213,6 +215,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
         if (contract != null) {
             tenantBillingService.createFromUtilityInvoice(invoice, contract);
+            invoiceDisputeService.attachReplacementIfPresent(invoice);
             
             if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
                 java.util.UUID tenantId = contract.getTenant().getUser().getId();

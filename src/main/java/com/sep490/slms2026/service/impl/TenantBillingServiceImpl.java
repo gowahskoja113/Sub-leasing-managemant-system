@@ -15,6 +15,7 @@ import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.RealtimeEventService;
+import com.sep490.slms2026.service.InvoiceDisputeService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
@@ -42,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -70,6 +72,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final UserRepository userRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+    private final InvoiceDisputeService invoiceDisputeService;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -774,8 +777,12 @@ public class TenantBillingServiceImpl implements TenantBillingService {
 
     private void refreshOverdueStatuses(UUID tenantUserId) {
         LocalDate today = LocalDate.now();
+        Set<Long> frozen = invoiceDisputeService.openDisputeTenantInvoiceIds();
         for (TenantInvoice invoice : tenantInvoiceRepository.findForTenant(
                 tenantUserId, TenantInvoiceStatus.PENDING, null)) {
+            if (frozen.contains(invoice.getId())) {
+                continue;
+            }
             if (invoice.getDueDate() != null && invoice.getDueDate().isBefore(today)) {
                 invoice.setStatus(TenantInvoiceStatus.OVERDUE);
                 tenantInvoiceRepository.save(invoice);
@@ -1159,7 +1166,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
 
     private TenantInvoiceResponse toResponse(TenantInvoice invoice) {
-        return TenantInvoiceResponse.builder()
+        TenantInvoiceResponse response = TenantInvoiceResponse.builder()
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
@@ -1190,6 +1197,8 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .autoIssued(invoice.getAutoIssued())
                 .onboardPaid(isOnboardPaidInvoice(invoice))
                 .build();
+        invoiceDisputeService.enrichTenantInvoice(invoice, response);
+        return response;
     }
 
     private TenantPaymentResponse toPaymentResponse(TenantPayment payment) {

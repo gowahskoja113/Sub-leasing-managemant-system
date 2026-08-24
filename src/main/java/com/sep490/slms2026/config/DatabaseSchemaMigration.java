@@ -116,6 +116,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureRentalPriceModel();
         ensureCashCollectAndProxyPayTables();
         ensureNotificationDedupeKey();
+        ensureInvoiceDisputesTable();
     }
 
     /**
@@ -1245,6 +1246,40 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_payments", "facilitated_by", "UUID");
         addColumnIfNotExists("tenant_payments", "unlocked_by_admin", "UUID");
         addColumnIfNotExists("tenant_payments", "payment_note", "TEXT");
+    }
+
+    private void ensureInvoiceDisputesTable() {
+        createTableIfNotExists(
+                "invoice_disputes",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                invoice_id BIGINT NOT NULL REFERENCES utility_invoices(id),
+                tenant_invoice_id BIGINT NOT NULL REFERENCES tenant_invoices(id),
+                tenant_contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                status VARCHAR(20) NOT NULL,
+                reason VARCHAR(30) NOT NULL,
+                note VARCHAR(500) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                resolved_at TIMESTAMP,
+                resolved_by UUID,
+                resolution_note VARCHAR(1000),
+                replacement_invoice_id BIGINT REFERENCES utility_invoices(id)
+                """);
+        createTableIfNotExists(
+                "invoice_dispute_photos",
+                """
+                dispute_id BIGINT NOT NULL REFERENCES invoice_disputes(id) ON DELETE CASCADE,
+                photo_url VARCHAR(1024) NOT NULL
+                """);
+        try {
+            jdbcTemplate.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_disputes_active
+                    ON invoice_disputes (invoice_id)
+                    WHERE status <> 'WITHDRAWN'
+                    """);
+        } catch (Exception e) {
+            log.warn("Could not create ux_invoice_disputes_active: {}", e.getMessage());
+        }
     }
 
     private void backfillPayosOrdersFromInvoices() {

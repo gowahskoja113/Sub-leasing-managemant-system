@@ -635,6 +635,30 @@ CREATE TABLE IF NOT EXISTS utility_invoices (
     created_at          TIMESTAMP NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS invoice_disputes (
+    id                      BIGSERIAL PRIMARY KEY,
+    invoice_id              BIGINT NOT NULL REFERENCES utility_invoices(id),
+    tenant_invoice_id       BIGINT NOT NULL REFERENCES tenant_invoices(id),
+    tenant_contract_id      BIGINT NOT NULL REFERENCES tenant_contracts(id),
+    status                  VARCHAR(20) NOT NULL,
+    reason                  VARCHAR(30) NOT NULL,
+    note                    VARCHAR(500) NOT NULL,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    resolved_at             TIMESTAMP,
+    resolved_by             UUID,
+    resolution_note         VARCHAR(1000),
+    replacement_invoice_id  BIGINT REFERENCES utility_invoices(id)
+);
+
+CREATE TABLE IF NOT EXISTS invoice_dispute_photos (
+    dispute_id BIGINT NOT NULL REFERENCES invoice_disputes(id) ON DELETE CASCADE,
+    photo_url  VARCHAR(1024) NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_disputes_active
+    ON invoice_disputes (invoice_id)
+    WHERE status <> 'WITHDRAWN';
+
 CREATE TABLE IF NOT EXISTS meter_readings (
     id            BIGSERIAL PRIMARY KEY,
     property_id   BIGINT NOT NULL REFERENCES properties(id),

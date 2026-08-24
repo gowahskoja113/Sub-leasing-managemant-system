@@ -20,6 +20,7 @@ import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.BillingCronService;
+import com.sep490.slms2026.service.InvoiceDisputeService;
 import com.sep490.slms2026.service.UnitPriceService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
@@ -44,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +61,7 @@ public class BillingCronServiceImpl implements BillingCronService {
     private final BillingConfigService billingConfigService;
     private final MeterReadingRepository meterReadingRepository;
     private final UnitPriceService unitPriceService;
+    private final InvoiceDisputeService invoiceDisputeService;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -125,8 +128,12 @@ public class BillingCronServiceImpl implements BillingCronService {
         );
         List<TenantInvoice> invoices = tenantInvoiceRepository.findByStatusInAndDueDateIsNotNull(statuses);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        Set<Long> frozenInvoiceIds = invoiceDisputeService.openDisputeTenantInvoiceIds();
 
         for (TenantInvoice invoice : invoices) {
+            if (frozenInvoiceIds.contains(invoice.getId())) {
+                continue;
+            }
             // Check idempotency: if we already reminded today, skip
             if (today.equals(invoice.getLastReminderDate())) {
                 continue;
