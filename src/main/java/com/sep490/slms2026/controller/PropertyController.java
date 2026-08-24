@@ -62,9 +62,10 @@ public class PropertyController {
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
     public ResponseEntity<Page<PropertyResponse>> getAllProperties(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) Boolean hasAvailableRooms) {
         Pageable pageable = PageRequest.of(page, size);
-        return ResponseEntity.ok(propertyService.getAllProperties(pageable));
+        return ResponseEntity.ok(propertyService.getAllProperties(pageable, hasAvailableRooms));
     }
 
     @PutMapping("/{id}")

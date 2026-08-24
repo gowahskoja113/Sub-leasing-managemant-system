@@ -49,6 +49,46 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     long countByDeletedIsFalse();
 
+    @Query("""
+            SELECT r.property.id, r.status, COUNT(r)
+            FROM Room r
+            WHERE r.deleted = false
+              AND r.property.id IN :propertyIds
+            GROUP BY r.property.id, r.status
+            """)
+    List<Object[]> countGroupedByPropertyIdAndStatus(@Param("propertyIds") java.util.Collection<Long> propertyIds);
+
+    @Query("""
+            SELECT r.property.id, COUNT(r)
+            FROM Room r
+            WHERE r.deleted = false
+              AND r.property.id IN :propertyIds
+              AND r.status = com.sep490.slms2026.enums.RoomStatus.AVAILABLE
+              AND NOT EXISTS (
+                  SELECT 1 FROM TenantContract c
+                  WHERE c.room = r
+                    AND c.status IN :holdingStatuses
+              )
+            GROUP BY r.property.id
+            """)
+    List<Object[]> countTrulyAvailableByPropertyIds(
+            @Param("propertyIds") java.util.Collection<Long> propertyIds,
+            @Param("holdingStatuses") java.util.Collection<com.sep490.slms2026.enums.ContractStatus> holdingStatuses);
+
+    /** Tòa có ≥1 phòng AVAILABLE không bị HĐ nháp/chờ giữ chỗ. */
+    @Query("""
+            SELECT DISTINCT r.property.id FROM Room r
+            WHERE r.deleted = false
+              AND r.status = com.sep490.slms2026.enums.RoomStatus.AVAILABLE
+              AND NOT EXISTS (
+                  SELECT 1 FROM TenantContract c
+                  WHERE c.room = r
+                    AND c.status IN :holdingStatuses
+              )
+            """)
+    List<Long> findPropertyIdsWithTrulyAvailableRooms(
+            @Param("holdingStatuses") java.util.Collection<com.sep490.slms2026.enums.ContractStatus> holdingStatuses);
+
     @Query("SELECT COALESCE(MAX(r.floor), 0) FROM Room r WHERE r.property.id = :propertyId AND r.deleted = false")
     int findMaxFloorByPropertyId(@Param("propertyId") Long propertyId);
 

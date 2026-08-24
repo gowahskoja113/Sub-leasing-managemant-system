@@ -24,6 +24,14 @@ public class PropertyResponse {
     private Boolean hasRenovation;
     private Integer totalFloor;
     private Integer totalRooms;
+    /** Số phòng thật đang có (đếm bản ghi rooms, khác totalRooms khai báo). */
+    private Integer roomCount;
+    /** Phòng AVAILABLE chưa bị HĐ DRAFT/PENDING giữ chỗ. */
+    private Integer availableRooms;
+    private Integer rentedRooms;
+    private Integer maintenanceRooms;
+    /** Phòng còn DRAFT — chưa mở cho thuê. */
+    private Integer notOpenedRooms;
     private String status;
     private BigDecimal price;
     private BigDecimal listedPrice;

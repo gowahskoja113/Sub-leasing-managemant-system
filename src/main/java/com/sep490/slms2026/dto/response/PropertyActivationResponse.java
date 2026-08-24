@@ -27,6 +27,13 @@ public class PropertyActivationResponse {
     private String operationManagerName;
     private List<ActivatedRoom> rooms;
 
+    /**
+     * Phòng DRAFT bị bỏ qua khi soft-activate (thiếu giá / thiếu DepreciationResult).
+     * Null hoặc rỗng = không bỏ qua phòng nào.
+     */
+    private Integer skippedRoomCount;
+    private List<SkippedRoom> skippedRooms;
+
     /** HĐ chủ nhà chưa tới ngày bắt đầu — vẫn ACTIVE, FE cảnh báo. */
     private Boolean leaseNotStartedWarning;
     /** Số tháng còn khai thác < 6. */
@@ -45,5 +52,17 @@ public class PropertyActivationResponse {
         private BigDecimal price;
         private BigDecimal adminSuggestedPrice;
         private RoomStatus status;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class SkippedRoom {
+        private Long roomId;
+        private String roomNumber;
+        /** Lý do bỏ qua — hiện FE tại màn kích hoạt. */
+        private String reason;
     }
 }

@@ -77,6 +77,14 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
     List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
 
+    @Query("""
+            SELECT DISTINCT c.property.id FROM TenantContract c
+            WHERE c.room IS NULL
+              AND c.status IN :statuses
+            """)
+    List<Long> findPropertyIdsWithWholeHouseContractsInStatuses(
+            @Param("statuses") java.util.Collection<ContractStatus> statuses);
+
     List<TenantContract> findByPropertyId(Long propertyId);
 
     // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
