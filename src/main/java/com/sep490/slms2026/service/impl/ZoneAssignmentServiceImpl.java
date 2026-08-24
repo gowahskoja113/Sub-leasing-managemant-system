@@ -8,7 +8,6 @@ import com.sep490.slms2026.dto.response.ZoneAssignmentResponse;
 import com.sep490.slms2026.dto.response.ZoneHandoverResponse;
 import com.sep490.slms2026.entity.*;
 import com.sep490.slms2026.enums.ContractStatus;
-import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -16,6 +15,7 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.PropertyOnboardingService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.service.ZoneAssignmentService;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +49,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
     private final TenantContractRepository tenantContractRepository;
     private final NotificationRepository notificationRepository;
     private final UserPushTokenService userPushTokenService;
+    private final PropertyOnboardingService propertyOnboardingService;
 
     private static final DateTimeFormatter DATE_VN = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
@@ -99,15 +100,9 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
         zm.setAssignedAt(LocalDateTime.now());
         zoneManagerRepository.save(zm);
 
-        // Update properties
-        List<PropertyStatus> validStatuses = List.of(
-                PropertyStatus.PENDING_OPERATION_MANAGER,
-                PropertyStatus.ACTIVE,
-                PropertyStatus.RENTED,
-                PropertyStatus.MAINTENANCE,
-                PropertyStatus.INACTIVE
-        );
-        int affectedProperties = propertyRepository.updateOperationManagerByZoneId(request.getManagerId(), zoneId, validStatuses);
+        // Từng nhà qua assignOperationManager — không JPQL bulk ACTIVE (bỏ sót mở phòng / managerAcceptedAt).
+        int affectedProperties = propertyOnboardingService.applyZoneOperationManager(
+                zoneId, request.getManagerId());
 
         // Update contracts
         List<TenantContract> affected = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
@@ -151,14 +146,8 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
 
         zoneManagerRepository.delete(existingZm);
 
-        List<PropertyStatus> validStatuses = List.of(
-                PropertyStatus.PENDING_OPERATION_MANAGER,
-                PropertyStatus.ACTIVE,
-                PropertyStatus.RENTED,
-                PropertyStatus.MAINTENANCE,
-                PropertyStatus.INACTIVE
-        );
-        int affectedProperties = propertyRepository.removeOperationManagerByZoneId(zoneId, validStatuses);
+        // ACTIVE → PENDING_OPERATION_MANAGER + phòng trống AVAILABLE → DRAFT (không bulk JPQL).
+        int affectedProperties = propertyOnboardingService.releaseZoneOperationManager(zoneId);
         List<TenantContract> affected = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
         int affectedContracts = tenantContractRepository.removeAssignedManagerByZoneId(zoneId);
 

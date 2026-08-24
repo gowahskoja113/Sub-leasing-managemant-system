@@ -838,7 +838,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         unitPriceService.revertToListedPrice(contract);
 
         if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser(), null);
         }
     }
 
@@ -852,7 +852,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         
         // Disable account if no other active contracts
         if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+            disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser(), contractId);
         }
 
         tenantPaymentClaimRepository.deleteByTenantContractId(contractId);
@@ -901,18 +901,31 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setEndDate(effectiveDate);
 
         TenantContract saved = tenantContractRepository.save(contract);
-
-        if (saved.getTenant() != null && saved.getTenant().getUser() != null) {
-            disableTenantAccountIfNoActiveContracts(saved.getTenant().getUser());
-        }
+        // Không khoá TK khách ở đây — khách còn cần confirmRefund / disputeRefund.
         unitPriceService.revertToListedPrice(saved);
 
         return toResponse(saved);
     }
 
-    private void disableTenantAccountIfNoActiveContracts(User user) {
-        if (user == null || user.getRole() != Role.ROLE_TENANT) return;
+    @Override
+    @Transactional
+    public void disableTenantAccountIfNoActiveContracts(UUID tenantUserId, Long exceptContractId) {
+        if (tenantUserId == null) {
+            return;
+        }
+        userRepository.findById(tenantUserId)
+                .ifPresent(user -> disableTenantAccountIfNoActiveContracts(user, exceptContractId));
+    }
+
+    private void disableTenantAccountIfNoActiveContracts(User user, Long exceptContractId) {
+        if (user == null || user.getRole() != Role.ROLE_TENANT) {
+            return;
+        }
+        if (user.getStatus() == UserStatus.DISABLE) {
+            return;
+        }
         boolean conThue = tenantContractRepository.findByTenantId(user.getId()).stream()
+                .filter(c -> exceptContractId == null || !exceptContractId.equals(c.getId()))
                 .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
                             || c.getStatus() == ContractStatus.PENDING
                             || c.getStatus() == ContractStatus.DRAFT
@@ -1129,7 +1142,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
             tenantContractRepository.save(contract);
             if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-                disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser());
+                disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser(), contract.getId());
             }
             notifyContractAutoCancelled(contract);
             count++;

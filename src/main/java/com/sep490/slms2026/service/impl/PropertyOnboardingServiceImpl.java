@@ -503,14 +503,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Property saved = propertyRepository.save(property);
         // Giống hostConfirm / assignOperationManager: ACTIVE thì mở phòng DRAFT.
-        // Trước đây nhánh cải tạo có QL chỉ set ACTIVE — phòng kẹt DRAFT (MTX#07, MTX#08).
-        if (saved.getStatus() == PropertyStatus.ACTIVE) {
-            if (Boolean.TRUE.equals(saved.getWholeHouse())) {
-                activateDraftRooms(propertyId);
-            } else {
-                activateDraftRoomsPerRoom(propertyId, true);
-            }
-        }
+        openDraftRoomsIfActive(saved);
         return mapPropertyResponse(saved, extractShortAddress(saved));
     }
 
@@ -585,13 +578,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         // Gán QL theo khu vực đi tắt — không qua assignOperationManager — nên kích hoạt phòng tại đây.
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            if (Boolean.TRUE.equals(property.getWholeHouse())) {
-                activateDraftRooms(propertyId);
-            } else {
-                applySkippedRooms(response, activateDraftRoomsPerRoom(propertyId, true));
-            }
-        }
+        applySkippedRooms(response, openDraftRoomsIfActive(property));
 
         applyInboundLeaseWarnings(response, inboundLease, today);
         return response;
@@ -623,20 +610,13 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 tenantOnboardingService.reassignManagerForProperty(propertyId, managerId);
             }
             // Heal phòng kẹt DRAFT trên nhà đã ACTIVE (vd. duyệt trước khi có kích hoạt phòng).
-            if (property.getStatus() == PropertyStatus.ACTIVE) {
-                if (Boolean.TRUE.equals(property.getWholeHouse())) {
-                    activateDraftRooms(propertyId);
-                    return buildWholeHouseActivationResponse(property, propertyId);
-                }
-                RoomActivationResult activation = activateDraftRoomsPerRoom(propertyId, true);
-                PropertyActivationResponse response = buildActivePerRoomActivationResponse(property, propertyId);
-                applySkippedRooms(response, activation);
-                return response;
-            }
+            RoomActivationResult activation = openDraftRoomsIfActive(property);
             if (Boolean.TRUE.equals(property.getWholeHouse())) {
                 return buildWholeHouseActivationResponse(property, propertyId);
             }
-            return buildActivePerRoomActivationResponse(property, propertyId);
+            PropertyActivationResponse response = buildActivePerRoomActivationResponse(property, propertyId);
+            applySkippedRooms(response, activation);
+            return response;
         }
 
         property.setOperationManagerId(managerId);
@@ -645,12 +625,56 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             property.setManagerAcceptedAt(java.time.LocalDateTime.now());
         }
         propertyRepository.save(property);
+        notifyPropertyAssigned(property, managerId);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            activateDraftRooms(propertyId);
+            openDraftRoomsIfActive(property);
             return buildWholeHouseActivationResponse(property, propertyId);
         }
         return activatePerRoom(property, propertyId, managerId);
+    }
+
+    private static final List<PropertyStatus> ZONE_MANAGER_PROPERTY_STATUSES = List.of(
+            PropertyStatus.PENDING_OPERATION_MANAGER,
+            PropertyStatus.ACTIVE,
+            PropertyStatus.RENTED,
+            PropertyStatus.MAINTENANCE,
+            PropertyStatus.INACTIVE
+    );
+
+    @Override
+    @Transactional
+    public int applyZoneOperationManager(UUID zoneId, UUID managerId) {
+        List<Property> properties = propertyRepository.findByZone_IdAndStatusIn(zoneId, ZONE_MANAGER_PROPERTY_STATUSES);
+        AssignOperationManagerRequest request = AssignOperationManagerRequest.builder()
+                .operationManagerId(managerId)
+                .build();
+        for (Property property : properties) {
+            if (property.getStatus() == PropertyStatus.MAINTENANCE
+                    || property.getStatus() == PropertyStatus.INACTIVE) {
+                property.setOperationManagerId(managerId);
+                propertyRepository.save(property);
+                continue;
+            }
+            assignOperationManager(property.getId(), request);
+        }
+        return properties.size();
+    }
+
+    @Override
+    @Transactional
+    public int releaseZoneOperationManager(UUID zoneId) {
+        List<Property> properties = propertyRepository.findByZone_IdAndStatusIn(zoneId, ZONE_MANAGER_PROPERTY_STATUSES);
+        for (Property property : properties) {
+            property.setOperationManagerId(null);
+            if (property.getStatus() == PropertyStatus.ACTIVE) {
+                property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+                property.setManagerAcceptedAt(null);
+                revertAvailableRoomsToDraft(property.getId());
+            }
+        }
+        propertyRepository.saveAll(properties);
+        return properties.size();
     }
 
     @Override
@@ -880,10 +904,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         roomRepository.saveAll(draftRooms);
 
         // hostConfirm tự gán QL → ACTIVE: kích hoạt phòng tại đây (không còn bước assignOperationManager).
-        RoomActivationResult activation = null;
-        if (property.getStatus() == PropertyStatus.ACTIVE) {
-            activation = activateDraftRoomsPerRoom(propertyId, true);
-        }
+        RoomActivationResult activation = openDraftRoomsIfActive(property);
 
         List<PropertyActivationResponse.ActivatedRoom> activatedRooms = draftRooms.stream()
                 .map(room -> {
@@ -980,6 +1001,31 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .operationManagerName(resolveOperationManagerName(managerId))
                 .rooms(activatedRooms)
                 .build();
+    }
+
+    /**
+     * Một chỗ mở phòng DRAFT khi nhà đã ACTIVE (hostConfirm / assign / cải tạo / gán khu vực).
+     */
+    private RoomActivationResult openDraftRoomsIfActive(Property property) {
+        if (property == null || property.getStatus() != PropertyStatus.ACTIVE) {
+            return RoomActivationResult.empty();
+        }
+        Long propertyId = property.getId();
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            activateDraftRooms(propertyId);
+            return RoomActivationResult.empty();
+        }
+        return activateDraftRoomsPerRoom(propertyId, true);
+    }
+
+    /** Gỡ khai thác: phòng trống AVAILABLE → DRAFT. Không đụng phòng đang thuê / bảo trì. */
+    private void revertAvailableRoomsToDraft(Long propertyId) {
+        List<Room> available = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.AVAILABLE);
+        if (available.isEmpty()) {
+            return;
+        }
+        available.forEach(room -> room.setStatus(RoomStatus.DRAFT));
+        roomRepository.saveAll(available);
     }
 
     /** Đưa mọi phòng DRAFT sang AVAILABLE (nhà nguyên căn — không bắt giá từng phòng). */

@@ -24,4 +24,19 @@ public interface CheckoutSettlementRepository extends JpaRepository<CheckoutSett
     List<CheckoutSettlement> findAllByTenantContractIdIn(@Param("contractIds") Collection<Long> contractIds);
 
     boolean existsByRefundProofHash(String hash);
+
+    /**
+     * Host đã chuyển cọc, khách chưa xác nhận / chưa khiếu nại, quá {@code paidBefore}.
+     * Dùng cron khoá TK sau 30 ngày im lặng.
+     */
+    @Query("""
+            SELECT s FROM CheckoutSettlement s
+            JOIN FETCH s.checkoutRequest cr
+            WHERE s.refundPaidAt IS NOT NULL
+              AND s.refundPaidAt < :paidBefore
+              AND s.refundConfirmedAt IS NULL
+              AND s.refundDisputedAt IS NULL
+            """)
+    List<CheckoutSettlement> findSilentRefundAwaitingAccountDisable(
+            @Param("paidBefore") java.time.LocalDateTime paidBefore);
 }

@@ -176,10 +176,13 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     @Override
     public CheckoutSettlementResponse getSettlement(Long checkoutRequestId) {
         CheckoutRequest checkoutRequest = checkoutRequestRepository.findById(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Checkout request not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy yêu cầu trả phòng ID=" + checkoutRequestId));
 
         CheckoutInspection inspection = checkoutInspectionRepository.findByCheckoutRequestId(checkoutRequestId)
-                .orElseThrow(() -> new RuntimeException("Inspection not found. Cannot calculate settlement."));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Chưa có biên bản kiểm tra cho yêu cầu trả phòng ID=" + checkoutRequestId
+                                + " — không tính được quyết toán."));
 
         BigDecimal deposit = checkoutRequest.getTenantContract().getDeposit();
         if (deposit == null) deposit = BigDecimal.ZERO;

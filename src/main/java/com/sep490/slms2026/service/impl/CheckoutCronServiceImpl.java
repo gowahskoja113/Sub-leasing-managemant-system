@@ -20,6 +20,8 @@ import java.util.List;
 @Slf4j
 public class CheckoutCronServiceImpl implements CheckoutCronService {
 
+    private static final int REFUND_SILENCE_DISABLE_DAYS = 30;
+
     private final CheckoutRequestRepository checkoutRequestRepository;
     private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final CheckoutProcessService checkoutProcessService;
@@ -28,6 +30,7 @@ public class CheckoutCronServiceImpl implements CheckoutCronService {
     private final com.sep490.slms2026.service.TwilioService twilioService;
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
     private final com.sep490.slms2026.repository.NotificationRepository notificationRepository;
+    private final com.sep490.slms2026.service.TenantOnboardingService tenantOnboardingService;
 
     @Override
     @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Ho_Chi_Minh") // Run at midnight every day
@@ -58,6 +61,34 @@ public class CheckoutCronServiceImpl implements CheckoutCronService {
         }
         
         log.info("Finished autoAcceptSettlementTask. Auto-accepted {} requests.", autoAcceptedCount);
+    }
+
+    @Override
+    @Scheduled(cron = "0 15 0 * * *", zone = "Asia/Ho_Chi_Minh")
+    @Transactional
+    public void disableAccountsAfterSilentRefund() {
+        LocalDateTime paidBefore = LocalDateTime.now().minusDays(REFUND_SILENCE_DISABLE_DAYS);
+        List<com.sep490.slms2026.entity.CheckoutSettlement> silent =
+                checkoutSettlementRepository.findSilentRefundAwaitingAccountDisable(paidBefore);
+        int disabled = 0;
+        for (com.sep490.slms2026.entity.CheckoutSettlement settlement : silent) {
+            CheckoutRequest request = settlement.getCheckoutRequest();
+            if (request == null || request.getTenantUserId() == null) {
+                continue;
+            }
+            try {
+                Long contractId = request.getTenantContract() != null
+                        ? request.getTenantContract().getId()
+                        : null;
+                tenantOnboardingService.disableTenantAccountIfNoActiveContracts(
+                        request.getTenantUserId(), contractId);
+                disabled++;
+            } catch (Exception e) {
+                log.error("Failed to disable tenant after silent refund, checkoutRequestId={}",
+                        request.getId(), e);
+            }
+        }
+        log.info("disableAccountsAfterSilentRefund: candidates={}, processed={}", silent.size(), disabled);
     }
 
     @Scheduled(cron = "0 30 8 * * *", zone = "Asia/Ho_Chi_Minh") // Run at 8:30 AM every day

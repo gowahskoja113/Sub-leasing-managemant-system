@@ -5,7 +5,6 @@ import com.sep490.slms2026.enums.PropertyStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -74,19 +73,13 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByOperationManagerId(UUID operationManagerId);
 
+    List<Property> findByZone_IdAndStatusIn(UUID zoneId, List<PropertyStatus> statuses);
+
     List<Property> findByStatus(PropertyStatus status);
 
     Page<Property> findByStatusAndOperationManagerIdIsNotNull(PropertyStatus status, Pageable pageable);
 
     Page<Property> findByStatusInAndOperationManagerIdIsNotNull(List<PropertyStatus> statuses, Pageable pageable);
-
-    @Modifying
-    @Query("UPDATE Property p SET p.operationManagerId = :managerId, p.status = CASE WHEN p.status = 'PENDING_OPERATION_MANAGER' THEN 'ACTIVE' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
-    int updateOperationManagerByZoneId(@Param("managerId") UUID managerId, @Param("zoneId") UUID zoneId, @Param("validStatuses") List<PropertyStatus> validStatuses);
-
-    @Modifying
-    @Query("UPDATE Property p SET p.operationManagerId = null, p.status = CASE WHEN p.status = 'ACTIVE' THEN 'PENDING_OPERATION_MANAGER' ELSE p.status END WHERE p.zone.id = :zoneId AND p.status IN :validStatuses")
-    int removeOperationManagerByZoneId(@Param("zoneId") UUID zoneId, @Param("validStatuses") List<PropertyStatus> validStatuses);
 
     /**
      * Nhà còn nhận khách mới:

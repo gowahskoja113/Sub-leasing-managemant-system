@@ -46,6 +46,11 @@ class TenantCheckoutServiceImplTest {
   @Mock private TenantContractRepository tenantContractRepository;
   @Mock private UserRepository userRepository;
   @Mock private TenantOnboardingService tenantOnboardingService;
+  @Mock private com.sep490.slms2026.repository.NotificationRepository notificationRepository;
+  @Mock private com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+  @Mock private com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
+  @Mock private com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
+  @Mock private com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
 
   @InjectMocks private TenantCheckoutServiceImpl service;
 
@@ -95,6 +100,9 @@ class TenantCheckoutServiceImplTest {
     when(checkoutRequestRepository.findById(5L)).thenReturn(Optional.of(checkoutRequest));
     when(checkoutRequestRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     when(userRepository.findById(managerId)).thenReturn(Optional.of(new User()));
+    when(checkoutSettlementRepository.findByCheckoutRequestId(5L)).thenReturn(Optional.empty());
+    when(tenantInvoiceRepository.findByTenantContractIdAndStatusNotIn(eq(10L), any()))
+        .thenReturn(List.of());
   }
 
   @Test
@@ -125,6 +133,26 @@ class TenantCheckoutServiceImplTest {
 
     verify(tenantOnboardingService).terminateActiveContract(eq(10L), any());
     assertEquals(CheckoutRequestStatus.COMPLETED.name(), response.getStatus());
+  }
+
+  @Test
+  void completeRequest_rejectsWhenUnpaidChargesRemain() {
+    com.sep490.slms2026.entity.TenantInvoice unpaid = com.sep490.slms2026.entity.TenantInvoice.builder()
+        .id(99L)
+        .grandTotal(new java.math.BigDecimal("1500000"))
+        .status(com.sep490.slms2026.enums.TenantInvoiceStatus.PENDING)
+        .build();
+    when(tenantInvoiceRepository.findByTenantContractIdAndStatusNotIn(eq(10L), any()))
+        .thenReturn(List.of(unpaid));
+
+    CompleteCheckoutRequest body = new CompleteCheckoutRequest();
+    body.setActualMoveOutDate(LocalDate.of(2026, 7, 15));
+
+    BusinessException ex = assertThrows(BusinessException.class,
+        () -> service.completeRequest(5L, managerId, body));
+    assertEquals(
+        "Khách còn nợ 1500000 — không thanh lý được hợp đồng khi chưa thu đủ.",
+        ex.getMessage());
   }
 
   @Test

@@ -50,8 +50,16 @@ public interface TenantOnboardingService {
 
     /**
      * Thanh lý / chấm dứt HĐ đang ACTIVE (hoặc EXPIRED) — trả phòng sớm, vi phạm, thỏa thuận.
+     * Không khoá tài khoản khách — khoá theo vòng đời cọc (xác nhận hoàn cọc / im lặng 30 ngày).
      */
     TenantContractResponse terminateActiveContract(Long contractId, com.sep490.slms2026.dto.request.TerminateContractRequest request);
+
+    /**
+     * Khoá {@code ROLE_TENANT} nếu không còn HĐ sống (DRAFT/PENDING/ACTIVE/EXPIRED),
+     * bỏ qua {@code exceptContractId} (HĐ vừa xác nhận cọc / đang im lặng — có thể vẫn ACTIVE).
+     * Gọi sau confirmRefund hoặc cron 30 ngày — không gọi lúc thanh lý.
+     */
+    void disableTenantAccountIfNoActiveContracts(java.util.UUID tenantUserId, Long exceptContractId);
 
     /** Đồng bộ ACTIVE→EXPIRED khi quá endDate; khôi phục thiết bị DISABLE. Không giải phóng phòng. */
     void syncExpiredIfNeeded(TenantContract contract);

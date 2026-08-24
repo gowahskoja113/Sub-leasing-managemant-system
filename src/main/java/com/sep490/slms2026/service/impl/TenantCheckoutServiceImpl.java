@@ -328,6 +328,8 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
             throw new BusinessException("Ngày trả phòng thực tế không được trước ngày bắt đầu hợp đồng");
         }
 
+        assertChargesSettledBeforeComplete(requestId, contract.getId());
+
         String completionNote = request != null ? request.getNote() : null;
         String terminateNote = "Hoàn tất yêu cầu trả phòng #" + checkoutRequest.getId();
         if (completionNote != null && !completionNote.isBlank()) {
@@ -412,6 +414,12 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 "Khách phòng " + roomStr + " đã hoàn tất thủ tục hoàn cọc. Vào hồ sơ trả phòng để thanh lý hợp đồng.",
                 data);
         }
+
+        // Vòng đời cọc: xác nhận nhận đủ → khoá TK (bỏ qua HĐ checkout hiện tại, kể cả còn ACTIVE).
+        Long contractId = checkoutRequest.getTenantContract() != null
+                ? checkoutRequest.getTenantContract().getId()
+                : null;
+        tenantOnboardingService.disableTenantAccountIfNoActiveContracts(tenantUserId, contractId);
 
         return toResponse(checkoutRequest);
     }
@@ -666,6 +674,51 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 pushNotificationService.sendPushNotification(u.getPushToken(), title, content, data);
             }
         });
+    }
+
+    /**
+     * Cổng tiền phía BE: không thanh lý khi khách còn nợ hoá đơn liên quan quyết toán.
+     * <ul>
+     *   <li>Có {@code CheckoutSettlement} + dòng hoá đơn khoá → đối chiếu PAID trên đúng các hoá đơn đó
+     *       (cùng nguồn với {@code chargesTotal}/{@code chargesPaid} trên FE).</li>
+     *   <li>Chưa có bảng quyết toán (hồ sơ cũ) → kiểm mọi hoá đơn chưa PAID/CANCELLED của HĐ.</li>
+     * </ul>
+     */
+    private void assertChargesSettledBeforeComplete(Long checkoutRequestId, Long contractId) {
+        com.sep490.slms2026.entity.CheckoutSettlement settlement =
+                checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId).orElse(null);
+
+        java.util.List<com.sep490.slms2026.entity.TenantInvoice> unpaid;
+        if (settlement != null
+                && settlement.getSettlementInvoices() != null
+                && !settlement.getSettlementInvoices().isEmpty()) {
+            java.util.List<Long> invoiceIds = settlement.getSettlementInvoices().stream()
+                    .map(com.sep490.slms2026.entity.CheckoutSettlementInvoice::getInvoiceId)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            unpaid = tenantInvoiceRepository.findAllById(invoiceIds).stream()
+                    .filter(inv -> inv.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID
+                            && inv.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED)
+                    .toList();
+        } else {
+            // Hồ sơ cũ chưa khoá bảng quyết toán — vẫn không cho thanh lý khi còn nợ.
+            unpaid = tenantInvoiceRepository.findByTenantContractIdAndStatusNotIn(
+                    contractId,
+                    java.util.List.of(
+                            com.sep490.slms2026.enums.TenantInvoiceStatus.PAID,
+                            com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
+        }
+
+        if (unpaid.isEmpty()) {
+            return;
+        }
+
+        java.math.BigDecimal owed = unpaid.stream()
+                .map(inv -> inv.getGrandTotal() != null ? inv.getGrandTotal() : java.math.BigDecimal.ZERO)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        throw new BusinessException(
+                "Khách còn nợ " + owed.toPlainString()
+                        + " — không thanh lý được hợp đồng khi chưa thu đủ.");
     }
 
     private UUID getManagerId(TenantContract contract) {
