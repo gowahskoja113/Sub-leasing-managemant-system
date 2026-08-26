@@ -97,6 +97,7 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         // --- con của tenant_invoices (phải trước khi xoá tenant_invoices) ---
         jdbcTemplate.update("DELETE FROM tenant_payments WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
         jdbcTemplate.update("DELETE FROM tenant_invoice_payos_orders WHERE invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM invoice_dispute_photos WHERE dispute_id IN (SELECT id FROM invoice_disputes WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
         jdbcTemplate.update("DELETE FROM invoice_disputes WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
 
         // --- con của tenant_contracts ---
@@ -127,7 +128,17 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         jdbcTemplate.update("DELETE FROM master_leases WHERE property_id = ?", propertyId);
         jdbcTemplate.update("DELETE FROM viewing_lead_properties WHERE property_id = ?", propertyId);
 
-        depreciationResultRepository.deleteByPropertyId(propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_payment_claims WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM household_members WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_equipments WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_condition_photos WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contracts WHERE property_id = ?", propertyId);
+
+        jdbcTemplate.update(
+            "DELETE FROM depreciation_results WHERE room_id IN (SELECT id FROM rooms WHERE property_id = ?) "
+          + "OR inbound_contract_id IN (SELECT id FROM inbound_contracts WHERE property_id = ?)",
+            propertyId, propertyId);
         equipmentRepository.deleteByPropertyId(propertyId);
         handoverEquipmentRepository.deleteByPropertyId(propertyId);
         monthlyReadingRepository.deleteByPropertyId(propertyId);
@@ -135,12 +146,6 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         renovationLineRepository.deleteByPropertyId(propertyId);
         renovationSessionRepository.deleteByPropertyId(propertyId);
         equipmentManifestRepository.deleteByPropertyId(propertyId);
-        jdbcTemplate.update("DELETE FROM tenant_payment_claims WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
-        jdbcTemplate.update("DELETE FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
-        jdbcTemplate.update("DELETE FROM household_members WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
-        jdbcTemplate.update("DELETE FROM tenant_contract_equipments WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
-        jdbcTemplate.update("DELETE FROM tenant_contract_condition_photos WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
-        jdbcTemplate.update("DELETE FROM tenant_contracts WHERE property_id = ?", propertyId);
         
         jdbcTemplate.update("DELETE FROM property_images WHERE property_id = ?", propertyId);
         roomRepository.deleteAllByPropertyId(propertyId);

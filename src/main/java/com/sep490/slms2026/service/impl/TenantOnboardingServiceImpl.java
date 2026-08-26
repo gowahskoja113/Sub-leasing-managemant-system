@@ -834,6 +834,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         releaseContractOccupancy(contract);
         contract.setStatus(ContractStatus.TERMINATED);
         contract.setTerminatedAt(LocalDateTime.now());
+        if (contract.getPaymentStatus() == PaymentStatus.PENDING) {
+            contract.setPaymentStatus(PaymentStatus.CANCELLED);
+        }
         tenantContractRepository.save(contract);
         unitPriceService.revertToListedPrice(contract);
 
@@ -895,6 +898,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         LocalDateTime now = LocalDateTime.now();
         contract.setStatus(ContractStatus.TERMINATED);
         contract.setTerminatedAt(now);
+        if (contract.getPaymentStatus() == PaymentStatus.PENDING) {
+            contract.setPaymentStatus(PaymentStatus.CANCELLED);
+        }
         contract.setTerminationType(request.getType());
         contract.setTerminationReason(request.getReason().trim());
         contract.setTerminationNote(request.getNote() != null ? request.getNote().trim() : null);
@@ -1137,6 +1143,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             releaseContractOccupancy(contract);
             contract.setStatus(ContractStatus.TERMINATED);
             contract.setTerminatedAt(LocalDateTime.now());
+            if (contract.getPaymentStatus() == PaymentStatus.PENDING) {
+                contract.setPaymentStatus(PaymentStatus.CANCELLED);
+            }
             contract.setTerminationType(com.sep490.slms2026.enums.ContractTerminationType.NO_SHOW);
             contract.setTerminationReason("Tự động hủy: khách không đến nhận nhà quá " + noShowGraceDays
                     + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
