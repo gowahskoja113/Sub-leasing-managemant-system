@@ -556,19 +556,22 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         LocalDate today = LocalDate.now();
         InboundLeaseRules.assertLeaseNotExpired(today, inboundLease);
 
-        property.setHostContingencyPercent(request.getContingencyPercent());
+        // Phải có QL khu vực TRƯỚC khi ghi gì — giá đã gồm lương QL; duyệt xong không tính lại.
+        Zone zone = property.getZone();
+        ZoneManager zoneManager = zoneManagerRepository.findById(zone.getId())
+                .orElseThrow(() -> new BusinessException(
+                        "ZONE_HAS_NO_MANAGER",
+                        "Khu vực " + zone.getName() + " chưa có quản lý vận hành. "
+                                + "Gán quản lý cho khu vực trước khi duyệt giá — giá thuê phải gồm lương "
+                                + "quản lý, duyệt xong không tính lại được."));
 
-        ZoneManager zoneManager = zoneManagerRepository.findById(property.getZone().getId()).orElse(null);
-        if (zoneManager != null) {
-            property.setOperationManagerId(zoneManager.getManagerId());
-            property.setStatus(PropertyStatus.ACTIVE);
-            if (property.getManagerAcceptedAt() == null) {
-                property.setManagerAcceptedAt(LocalDateTime.now());
-            }
-            notifyPropertyAssigned(property, zoneManager.getManagerId());
-        } else {
-            property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+        property.setHostContingencyPercent(request.getContingencyPercent());
+        property.setOperationManagerId(zoneManager.getManagerId());
+        property.setStatus(PropertyStatus.ACTIVE);
+        if (property.getManagerAcceptedAt() == null) {
+            property.setManagerAcceptedAt(LocalDateTime.now());
         }
+        notifyPropertyAssigned(property, zoneManager.getManagerId());
 
         PropertyActivationResponse response;
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
