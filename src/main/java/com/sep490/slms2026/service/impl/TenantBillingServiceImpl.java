@@ -686,9 +686,12 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private void syncInvoicesForTenant(UUID tenantUserId) {
         for (UtilityInvoice utilityInvoice : utilityInvoiceRepository.findByTenantUserId(tenantUserId)) {
             TenantContract contract = utilityInvoice.getTenantContract();
-            if (contract != null) {
-                createFromUtilityInvoice(utilityInvoice, contract);
-            }
+            if (contract == null) continue;
+
+            var existing = tenantInvoiceRepository.findByUtilityInvoiceId(utilityInvoice.getId()).orElse(null);
+            if (existing != null && existing.getStatus() == TenantInvoiceStatus.PAID) continue;
+
+            createFromUtilityInvoice(utilityInvoice, contract);
         }
 
         List<TenantContract> contracts = tenantContractRepository.findByTenantId(tenantUserId);
