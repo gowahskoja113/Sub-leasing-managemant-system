@@ -51,7 +51,7 @@ public class AdminBillingServiceImpl implements AdminBillingService {
             } catch (Exception e) {}
         }
 
-        return tenantContractRepository.findAdminDeposits(paymentStatus, pageable)
+        return tenantContractRepository.findAdminDeposits(paymentStatus, false, pageable)
                 .map(contract -> {
                     String tenantPhone = null;
                     if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
