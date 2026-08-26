@@ -272,10 +272,18 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             @Param("priceApprovalStatus") com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus,
             Pageable pageable);
 
-    @Query("SELECT c FROM TenantContract c " +
-           "WHERE (:status IS NULL OR c.paymentStatus = :status) " +
-           "ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC")
-    Page<TenantContract> findAdminDeposits(@Param("status") com.sep490.slms2026.enums.PaymentStatus status, Pageable pageable);
+    @Query("""
+            SELECT c FROM TenantContract c
+            WHERE (:status IS NULL OR c.paymentStatus = :status)
+              AND (:includeClosed = TRUE
+                   OR c.status NOT IN (com.sep490.slms2026.enums.ContractStatus.TERMINATED,
+                                       com.sep490.slms2026.enums.ContractStatus.EXPIRED)
+                   OR c.paymentStatus = com.sep490.slms2026.enums.PaymentStatus.PAID)
+            ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC
+            """)
+    Page<TenantContract> findAdminDeposits(@Param("status") com.sep490.slms2026.enums.PaymentStatus status,
+                                           @Param("includeClosed") boolean includeClosed,
+                                           Pageable pageable);
 
     @Query("SELECT c FROM TenantContract c " +
            "JOIN c.property p " +

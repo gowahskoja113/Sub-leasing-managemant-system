@@ -194,14 +194,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        String detail = ex.getMostSpecificCause().getMessage();
+        log.warn("Data integrity violation: {}", detail);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
-                        .status(HttpStatus.BAD_REQUEST.value())
-                        .error("Không lưu được do lỗi hệ thống, không phải do dữ liệu bạn nhập. Vui lòng báo đội kỹ thuật. (DATA_INTEGRITY_VIOLATION)")
+                        .status(HttpStatus.CONFLICT.value())
+                        .error("Còn dữ liệu liên quan chưa xoá được: " + detail)
                         .code("DATA_INTEGRITY_VIOLATION")
-                        .message("Không lưu được do lỗi hệ thống, không phải do dữ liệu bạn nhập. Vui lòng báo đội kỹ thuật.")
+                        .message("Còn dữ liệu liên quan chưa xoá được: " + detail)
                         .build());
     }
 }
