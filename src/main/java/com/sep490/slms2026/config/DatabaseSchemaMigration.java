@@ -110,7 +110,15 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         // Multi-device Expo push tokens (1 account → nhiều máy)
         ensureUserPushTokensTable();
         ensureBillingConfigTable();
+        ensurePricingConfigTable();
         ensureUtilityBillsUtilityTypeColumn();
+        addColumnIfNotExists("tenant_contracts", "last_escalation_year", "INTEGER");
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE tenant_contracts ALTER COLUMN rent_escalation_type TYPE VARCHAR(30)");
+        } catch (Exception e) {
+            log.debug("rent_escalation_type widen: {}", e.getMessage());
+        }
         addColumnIfNotExists("utility_bills", "reading_deadline", "DATE");
         ensureZoneManagerTables();
         ensureRentalPriceModel();
@@ -1029,6 +1037,39 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     VALUES (1, 3, 2, 1, NOW())
                     """);
             log.info("Seeded billing_config singleton (reminder=3, grace=2, meterReminder=1)");
+        }
+    }
+
+    private void ensurePricingConfigTable() {
+        createTableIfNotExists(
+                "pricing_config",
+                """
+                id BIGINT PRIMARY KEY,
+                mode VARCHAR(20) NOT NULL DEFAULT 'FORWARD',
+                p_desired NUMERIC(19, 2),
+                roi_expected NUMERIC(19, 4),
+                o_operation NUMERIC(19, 2) NOT NULL DEFAULT 2000000,
+                manager_salaries_json TEXT,
+                annual_increase_pct NUMERIC(19, 4) NOT NULL DEFAULT 5,
+                escalation_grace_months INTEGER NOT NULL DEFAULT 6,
+                new_year_price_lead_months INTEGER NOT NULL DEFAULT 2,
+                v_rate_pct NUMERIC(19, 4) NOT NULL DEFAULT 10,
+                handover_buffer_months INTEGER NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP,
+                updated_by UUID
+                """);
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pricing_config WHERE id = 1", Integer.class);
+        if (count == null || count == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO pricing_config
+                        (id, mode, p_desired, roi_expected, o_operation, manager_salaries_json,
+                         annual_increase_pct, escalation_grace_months, new_year_price_lead_months,
+                         v_rate_pct, handover_buffer_months, updated_at)
+                    VALUES (1, 'FORWARD', 10000000, 0, 2000000, '{}',
+                            5, 6, 2, 10, 1, NOW())
+                    """);
+            log.info("Seeded pricing_config singleton");
         }
     }
 

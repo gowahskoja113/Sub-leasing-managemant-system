@@ -22,5 +22,6 @@ public class BulkImportContractResultResponse {
     private String tenantName;
     private BigDecimal listedPrice;
     private BigDecimal rentAmount;
+    private BigDecimal rentEscalationPercent;
     private BigDecimal deltaPercent;
 }

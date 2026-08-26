@@ -66,6 +66,10 @@ public class TenantContractResponse {
     private BigDecimal listedPrice;
     private String rentEscalationType;
     private BigDecimal rentEscalationPercent;
+    /** Ngày tăng giá kế tiếp (01/01/…) — null nếu không tăng. */
+    private LocalDate nextEscalationDate;
+    /** Giá sau lần tăng kế tiếp. */
+    private BigDecimal nextEscalationAmount;
     private String rentScheduleJson;
     private BigDecimal deposit;
     /**

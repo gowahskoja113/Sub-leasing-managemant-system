@@ -85,10 +85,27 @@ public class ExcelTenantDraftContractWorkbookReader {
                     .deposit(deposit)
                     .expectedReceptionDate(readDate(row, headers.get("Ngày đón khách dự kiến"), formatter, evaluator))
                     .rentEscalationTypeRaw(readOptionalString(row, headers.get("Loại tăng giá"), formatter, evaluator))
-                    .rentEscalationPercent(readDecimal(row, headers.get("% tăng/năm"), formatter, evaluator))
+                    .rentEscalationPercent(firstPresentDecimal(row, headers, formatter, evaluator,
+                            "Tăng giá theo năm (%)", "% tăng/năm"))
                     .rentScheduleRaw(readOptionalString(row, headers.get("Lịch tăng giá"), formatter, evaluator))
                     .build());
         }
         return rows;
+    }
+
+    private static BigDecimal firstPresentDecimal(Row row, Map<String, Integer> headers,
+                                                  DataFormatter formatter, FormulaEvaluator evaluator,
+                                                  String... headerNames) {
+        for (String name : headerNames) {
+            Integer idx = headers.get(name);
+            if (idx == null) {
+                continue;
+            }
+            BigDecimal value = readDecimal(row, idx, formatter, evaluator);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 }

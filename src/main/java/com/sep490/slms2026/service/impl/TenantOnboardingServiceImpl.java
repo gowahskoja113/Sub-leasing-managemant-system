@@ -48,7 +48,9 @@ import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.event.InvoicePaidEvent;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.AnnualCalendarEscalation;
 import com.sep490.slms2026.util.InboundLeaseRules;
 import com.sep490.slms2026.util.RentEscalationSupport;
 import com.sep490.slms2026.util.RentFirstCycleCalculator;
@@ -111,6 +113,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final ApplicationEventPublisher applicationEventPublisher;
     private final UnitPriceService unitPriceService;
     private final InboundContractRepository inboundContractRepository;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional
@@ -227,11 +230,12 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .draftTenantAddress(request.isDraft() ? request.getPermanentAddress() : null)
                 .build();
 
-        RentEscalationSupport.apply(contract,
+        RentEscalationSupport.applyWithDefaults(contract,
                 request.getRentEscalationType(),
                 request.getRentEscalationPercent(),
                 request.getRentSchedule(),
-                null);
+                null,
+                pricingConfigService.current().getAnnualIncreasePct());
         contract.setBaseRentAmount(request.getRentAmount());
 
         // Thành viên ở cùng (bỏ qua dòng trống)
@@ -1619,6 +1623,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .listedPrice(isManager ? null : unitPriceService.resolveListedPrice(c))
                 .rentEscalationType(c.getRentEscalationType() != null ? c.getRentEscalationType().name() : null)
                 .rentEscalationPercent(c.getRentEscalationPercent())
+                .nextEscalationDate(isManager ? null : AnnualCalendarEscalation.nextEscalationDate(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
+                .nextEscalationAmount(isManager ? null : AnnualCalendarEscalation.nextEscalationAmount(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
                 .rentScheduleJson(c.getRentScheduleJson())
                 .deposit(isManager ? null : c.getDeposit())
                 .initialPaymentAmount(isManager ? null : TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))

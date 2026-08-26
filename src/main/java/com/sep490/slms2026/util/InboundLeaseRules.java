@@ -59,8 +59,15 @@ public final class InboundLeaseRules {
 
     /**
      * Mẫu số chia vốn: tháng còn khai thác (sau cải tạo / chờ duyệt) trừ cửa sổ bàn giao.
+     * {@code bufferOverride = null} → dùng {@link #HANDOVER_BUFFER_MONTHS}.
      */
-    public static RevenueWindow resolveRevenueWindow(InboundContract lease, Property property, LocalDate today) {
+    public static RevenueWindow resolveRevenueWindow(
+            InboundContract lease, Property property, LocalDate today) {
+        return resolveRevenueWindow(lease, property, today, null);
+    }
+
+    public static RevenueWindow resolveRevenueWindow(
+            InboundContract lease, Property property, LocalDate today, Integer bufferOverride) {
         int leaseMonths = leaseMonths(lease);
         LocalDate rentableFrom = rentableFrom(lease, property, today);
         long rentableMonths = ChronoUnit.MONTHS.between(rentableFrom, lease.getEndDate().plusDays(1));
@@ -68,7 +75,11 @@ public final class InboundLeaseRules {
             throw new BusinessException(
                     "Hợp đồng với chủ nhà không còn tháng nào khai thác được — không thể định giá");
         }
-        int buffer = rentableMonths >= HANDOVER_MIN_TERM_MONTHS ? HANDOVER_BUFFER_MONTHS : 0;
+        int wanted = bufferOverride != null ? bufferOverride : HANDOVER_BUFFER_MONTHS;
+        if (wanted < 0) {
+            wanted = 0;
+        }
+        int buffer = rentableMonths >= HANDOVER_MIN_TERM_MONTHS ? wanted : 0;
         int revenueMonths = Math.max(1, (int) rentableMonths - buffer);
         return new RevenueWindow(rentableFrom, leaseMonths, (int) rentableMonths, buffer, revenueMonths);
     }

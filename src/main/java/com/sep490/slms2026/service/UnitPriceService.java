@@ -26,6 +26,9 @@ public interface UnitPriceService {
 
     int applyDueEscalations();
 
+    /** Báo trước khách/quản lý trước 01/01 (≥15 ngày). */
+    int notifyUpcomingAnnualEscalations();
+
     BigDecimal resolveListedPrice(TenantContract contract);
 
     BigDecimal deltaPercent(BigDecimal oldPrice, BigDecimal newPrice);

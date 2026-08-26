@@ -9,9 +9,11 @@ import com.sep490.slms2026.dto.response.RoomPriceHistoryResponse;
 import com.sep490.slms2026.dto.response.RoomResponse;
 import com.sep490.slms2026.entity.HostNotification;
 import com.sep490.slms2026.entity.Notification;
+import com.sep490.slms2026.entity.PricingConfig;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.RoomPriceHistory;
+import com.sep490.slms2026.entity.Tenant;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
@@ -32,9 +34,11 @@ import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.PropertyService;
 import com.sep490.slms2026.service.UnitPriceService;
 import com.sep490.slms2026.service.UserPushTokenService;
+import com.sep490.slms2026.util.AnnualCalendarEscalation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -47,6 +51,7 @@ import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -63,6 +68,9 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final List<ContractStatus> OCCUPYING_STATUSES =
             List.of(ContractStatus.ACTIVE, ContractStatus.EXPIRED);
+    private static final List<ContractStatus> ESCALATION_STATUSES =
+            List.of(ContractStatus.ACTIVE, ContractStatus.PENDING);
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final RoomRepository roomRepository;
     private final PropertyRepository propertyRepository;
@@ -74,6 +82,7 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     private final UserPushTokenService userPushTokenService;
     private final RoomMapper roomMapper;
     private final PropertyService propertyService;
+    private final PricingConfigService pricingConfigService;
     /** Spring Boot 4 không expose ObjectMapper Jackson 2 thành bean. */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -189,7 +198,9 @@ public class UnitPriceServiceImpl implements UnitPriceService {
             recordHistory(property.getId(), null, changeType, oldApplied, newPrice,
                     contract.getId(), reason, actor);
         }
-        if (changeType == RoomPriceChangeType.HOP_DONG || changeType == RoomPriceChangeType.DIEU_KHOAN_HD) {
+        if (changeType == RoomPriceChangeType.HOP_DONG
+                || changeType == RoomPriceChangeType.DIEU_KHOAN_HD
+                || changeType == RoomPriceChangeType.ANNUAL_INCREASE) {
             notifyAppliedChanged(contract, oldApplied, newPrice, changeType, actor);
         }
     }
@@ -246,15 +257,24 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     @Transactional
     public int applyDueEscalations() {
         LocalDate today = LocalDate.now(VN);
+        PricingConfig pricingConfig = pricingConfigService.current();
         int applied = 0;
-        List<TenantContract> active = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
-        for (TenantContract contract : active) {
-            try {
-                if (applyEscalationIfDue(contract, today)) {
-                    applied++;
+
+        if (today.getMonthValue() == 1 && today.getDayOfMonth() == 1
+                || shouldCatchUpAnnual(today)) {
+            applied += applyAnnualListedPriceIncrease(today.getYear(), pricingConfig);
+        }
+
+        for (ContractStatus status : ESCALATION_STATUSES) {
+            List<TenantContract> contracts = tenantContractRepository.findByStatus(status);
+            for (TenantContract contract : contracts) {
+                try {
+                    if (applyEscalationIfDue(contract, today, pricingConfig)) {
+                        applied++;
+                    }
+                } catch (Exception e) {
+                    log.warn("Không áp được điều khoản tăng giá HĐ {}: {}", contract.getId(), e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Không áp được điều khoản tăng giá HĐ {}: {}", contract.getId(), e.getMessage());
             }
         }
         return applied;
@@ -281,11 +301,123 @@ public class UnitPriceServiceImpl implements UnitPriceService {
                 .divide(oldPrice, 1, RoundingMode.HALF_UP);
     }
 
-    private boolean applyEscalationIfDue(TenantContract contract, LocalDate today) {
+    @Override
+    @Transactional
+    public int notifyUpcomingAnnualEscalations() {
+        LocalDate today = LocalDate.now(VN);
+        LocalDate nextJan1 = LocalDate.of(today.getYear() + 1, 1, 1);
+        long daysUntil = ChronoUnit.DAYS.between(today, nextJan1);
+        // Báo trước ít nhất 15 ngày; chạy trong cửa sổ 15→14 để idempotent mỗi năm một lần.
+        if (daysUntil < 14 || daysUntil > 15) {
+            return 0;
+        }
+        PricingConfig config = pricingConfigService.current();
+        int year = nextJan1.getYear();
+        int notified = 0;
+        Map<UUID, StringBuilder> managerDigests = new HashMap<>();
+
+        for (ContractStatus status : ESCALATION_STATUSES) {
+            for (TenantContract contract : tenantContractRepository.findByStatus(status)) {
+                if (!AnnualCalendarEscalation.isAnnualCalendar(contract)
+                        || !AnnualCalendarEscalation.hasPositivePercent(contract)) {
+                    continue;
+                }
+                if (AnnualCalendarEscalation.alreadyEscalatedForYear(contract, year)) {
+                    continue;
+                }
+                if (AnnualCalendarEscalation.isDeferredByGrace(
+                        contract.getStartDate(), year, config.getEscalationGraceMonths())) {
+                    continue;
+                }
+                BigDecimal oldRent = contract.getRentAmount();
+                BigDecimal newRent = AnnualCalendarEscalation.applyOneYearIncrease(
+                        oldRent, contract.getRentEscalationPercent());
+                if (oldRent == null || newRent == null) {
+                    continue;
+                }
+                if (notifyTenantEscalationPreview(contract, oldRent, newRent, nextJan1, year)) {
+                    notified++;
+                }
+                appendManagerDigest(managerDigests, contract, oldRent, newRent, nextJan1);
+            }
+        }
+        for (Map.Entry<UUID, StringBuilder> e : managerDigests.entrySet()) {
+            notifyManagerEscalationList(e.getKey(), e.getValue().toString(), year);
+        }
+        return notified;
+    }
+
+    /** Catch-up nếu miss cron 01/01: còn trong năm và chưa escalate năm này. */
+    private boolean shouldCatchUpAnnual(LocalDate today) {
+        return today.getMonthValue() == 1;
+    }
+
+    private int applyAnnualListedPriceIncrease(int year, PricingConfig config) {
+        BigDecimal pct = config.getAnnualIncreasePct();
+        if (pct == null || pct.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        String reasonTag = "ANNUAL_INCREASE:" + year;
+        Actor actor = Actor.system();
+        int updated = 0;
+
+        for (Room room : roomRepository.findAll()) {
+            if (room.isDeleted() || room.getPrice() == null
+                    || room.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            if (alreadyListedAnnual(room.getProperty().getId(), room.getId(), reasonTag)) {
+                continue;
+            }
+            BigDecimal old = room.getPrice();
+            BigDecimal neu = AnnualCalendarEscalation.applyOneYearIncrease(old, pct);
+            room.setPrice(neu);
+            roomRepository.save(room);
+            recordHistory(room.getProperty().getId(), room.getId(), RoomPriceChangeType.ANNUAL_INCREASE,
+                    old, neu, null, reasonTag + " · niêm yết +" + strip(pct) + "%", actor);
+            updated++;
+        }
+
+        for (Property property : propertyRepository.findAll()) {
+            if (!Boolean.TRUE.equals(property.getWholeHouse())
+                    || property.getPrice() == null
+                    || property.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            if (alreadyListedAnnual(property.getId(), null, reasonTag)) {
+                continue;
+            }
+            BigDecimal old = property.getPrice();
+            BigDecimal neu = AnnualCalendarEscalation.applyOneYearIncrease(old, pct);
+            property.setPrice(neu);
+            propertyRepository.save(property);
+            recordHistory(property.getId(), null, RoomPriceChangeType.ANNUAL_INCREASE,
+                    old, neu, null, reasonTag + " · niêm yết +" + strip(pct) + "%", actor);
+            updated++;
+        }
+        return updated;
+    }
+
+    private boolean alreadyListedAnnual(Long propertyId, Long roomId, String reasonTag) {
+        List<RoomPriceHistory> rows = roomId == null
+                ? roomPriceHistoryRepository.findByPropertyIdAndRoomIdIsNullOrderByChangedAtDescIdDesc(propertyId)
+                : roomPriceHistoryRepository.findByPropertyIdAndRoomIdOrderByChangedAtDescIdDesc(propertyId, roomId);
+        return rows.stream().anyMatch(h ->
+                h.getChangeType() == RoomPriceChangeType.ANNUAL_INCREASE
+                        && h.getReason() != null
+                        && h.getReason().contains(reasonTag));
+    }
+
+    private boolean applyEscalationIfDue(TenantContract contract, LocalDate today, PricingConfig config) {
         RentEscalationType type = contract.getRentEscalationType();
         if (type == null || type == RentEscalationType.NONE || contract.getStartDate() == null) {
             return false;
         }
+
+        if (type == RentEscalationType.ANNUAL_CALENDAR) {
+            return applyAnnualCalendarEscalation(contract, today, config);
+        }
+
         int monthIndex = (int) ChronoUnit.MONTHS.between(contract.getStartDate(), today) + 1;
         if (monthIndex < 1) {
             return false;
@@ -309,12 +441,8 @@ public class UnitPriceServiceImpl implements UnitPriceService {
             BigDecimal base = contract.getBaseRentAmount() != null
                     ? contract.getBaseRentAmount()
                     : contract.getRentAmount();
-            BigDecimal factor = BigDecimal.ONE.add(
-                    contract.getRentEscalationPercent().divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP));
-            BigDecimal target = base;
-            for (int i = 0; i < years; i++) {
-                target = target.multiply(factor).setScale(0, RoundingMode.HALF_UP);
-            }
+            BigDecimal target = AnnualCalendarEscalation.compound(
+                    base, contract.getRentEscalationPercent(), years);
             if (pricesEqual(contract.getRentAmount(), target)) {
                 contract.setRentEscalationLastFromMonth(dueFromMonth);
                 tenantContractRepository.save(contract);
@@ -345,6 +473,150 @@ public class UnitPriceServiceImpl implements UnitPriceService {
         applyContractRent(contract, RoomPriceChangeType.DIEU_KHOAN_HD,
                 "Lịch HĐ từ tháng " + due.getFromMonth() + " · " + contract.getContractCode());
         return true;
+    }
+
+    private boolean applyAnnualCalendarEscalation(
+            TenantContract contract, LocalDate today, PricingConfig config) {
+        if (!AnnualCalendarEscalation.hasPositivePercent(contract)) {
+            return false;
+        }
+        int year = today.getYear();
+        // Chỉ áp trong tháng 1 (01/01 + catch-up nếu miss cron).
+        if (today.getMonthValue() != 1) {
+            return false;
+        }
+        if (AnnualCalendarEscalation.alreadyEscalatedForYear(contract, year)) {
+            return false;
+        }
+        // HĐ bắt đầu sau 01/01 năm này → chưa tới kỳ
+        if (contract.getStartDate().isAfter(LocalDate.of(year, 1, 1))) {
+            return false;
+        }
+        if (AnnualCalendarEscalation.isDeferredByGrace(
+                contract.getStartDate(), year, config.getEscalationGraceMonths())) {
+            return false;
+        }
+
+        BigDecimal oldRent = contract.getRentAmount();
+        BigDecimal newRent = AnnualCalendarEscalation.applyOneYearIncrease(
+                oldRent, contract.getRentEscalationPercent());
+        if (oldRent == null || newRent == null || pricesEqual(oldRent, newRent)) {
+            contract.setLastEscalationYear(year);
+            tenantContractRepository.save(contract);
+            return false;
+        }
+        contract.setRentAmount(newRent);
+        contract.setLastEscalationYear(year);
+        tenantContractRepository.save(contract);
+        applyContractRent(contract, RoomPriceChangeType.ANNUAL_INCREASE,
+                "ANNUAL_INCREASE " + year + " · +" + strip(contract.getRentEscalationPercent())
+                        + "% · " + contract.getContractCode());
+        notifyTenantEscalationApplied(contract, oldRent, newRent, LocalDate.of(year, 1, 1));
+        return true;
+    }
+
+    private boolean notifyTenantEscalationPreview(
+            TenantContract contract, BigDecimal oldRent, BigDecimal newRent,
+            LocalDate applyDate, int year) {
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId == null) {
+            return false;
+        }
+        String dedupe = "rent-escalation-notice:" + contract.getId() + ":" + year;
+        String title = "Thông báo điều chỉnh giá thuê từ " + applyDate.format(DATE_FMT);
+        String body = String.format(
+                "Theo điều khoản tăng giá trong hợp đồng %s, giá thuê sẽ điều chỉnh từ %s đ lên %s đ "
+                        + "kể từ ngày %s (tăng %s%%/năm dương lịch).",
+                contract.getContractCode(),
+                formatVnd(oldRent),
+                formatVnd(newRent),
+                applyDate.format(DATE_FMT),
+                strip(contract.getRentEscalationPercent()));
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "ContractDetail");
+        data.put("params", Map.of("contractId", contract.getId()));
+        data.put("type", "RENT_ESCALATION_NOTICE");
+        saveUserNotification(tenantUserId, title, body, "RENT_ESCALATION_NOTICE",
+                "ContractDetail", writeJson(data.get("params")), dedupe);
+        userPushTokenService.sendToUser(tenantUserId, title, body, data);
+        return true;
+    }
+
+    private void notifyTenantEscalationApplied(
+            TenantContract contract, BigDecimal oldRent, BigDecimal newRent, LocalDate applyDate) {
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId == null) {
+            return;
+        }
+        String title = "Giá thuê đã điều chỉnh theo hợp đồng";
+        String body = String.format(
+                "Giá thuê HĐ %s: %s đ → %s đ (áp dụng từ %s).",
+                contract.getContractCode(), formatVnd(oldRent), formatVnd(newRent),
+                applyDate.format(DATE_FMT));
+        Map<String, Object> data = new HashMap<>();
+        data.put("screen", "ContractDetail");
+        data.put("params", Map.of("contractId", contract.getId()));
+        data.put("type", "RENT_ESCALATION_APPLIED");
+        saveUserNotification(tenantUserId, title, body, "RENT_ESCALATION_APPLIED",
+                "ContractDetail", writeJson(data.get("params")),
+                "rent-escalation-applied:" + contract.getId() + ":" + applyDate.getYear());
+        userPushTokenService.sendToUser(tenantUserId, title, body, data);
+    }
+
+    private void appendManagerDigest(
+            Map<UUID, StringBuilder> digests, TenantContract contract,
+            BigDecimal oldRent, BigDecimal newRent, LocalDate applyDate) {
+        UUID managerId = null;
+        if (contract.getAssignedManager() != null) {
+            managerId = contract.getAssignedManager().getId();
+        } else if (contract.getProperty() != null && contract.getProperty().getOperationManagerId() != null) {
+            managerId = contract.getProperty().getOperationManagerId();
+        }
+        if (managerId == null) {
+            return;
+        }
+        String line = String.format("- %s · %s: %s → %s (từ %s)\n",
+                contract.getContractCode(),
+                tenantName(contract),
+                formatVnd(oldRent),
+                formatVnd(newRent),
+                applyDate.format(DATE_FMT));
+        digests.computeIfAbsent(managerId, id -> new StringBuilder()).append(line);
+    }
+
+    private void notifyManagerEscalationList(UUID managerId, String bodyLines, int year) {
+        String title = "Danh sách khách sẽ tăng giá thuê 01/01/" + year;
+        String body = "Các hợp đồng phụ trách sẽ điều chỉnh giá:\n" + bodyLines;
+        Map<String, Object> data = Map.of(
+                "type", "RENT_ESCALATION_MANAGER_LIST",
+                "screen", "ContractList",
+                "year", year);
+        saveUserNotification(managerId, title, body, "RENT_ESCALATION_MANAGER_LIST",
+                "ContractList", null, "rent-escalation-manager:" + managerId + ":" + year);
+        userPushTokenService.sendToUser(managerId, title, body, data);
+    }
+
+    private void saveUserNotification(UUID userId, String title, String body, String type,
+                                      String screen, String paramsJson, String dedupeKey) {
+        try {
+            notificationRepository.save(Notification.builder()
+                    .userId(userId)
+                    .title(title)
+                    .content(body)
+                    .type(type)
+                    .screen(screen)
+                    .paramsJson(paramsJson)
+                    .dedupeKey(dedupeKey)
+                    .read(false)
+                    .build());
+        } catch (Exception e) {
+            log.debug("Bỏ qua notification trùng {}: {}", dedupeKey, e.getMessage());
+        }
+    }
+
+    private static UUID resolveTenantUserId(TenantContract contract) {
+        Tenant tenant = contract.getTenant();
+        return tenant != null ? tenant.getId() : null;
     }
 
     private List<RentScheduleItemRequest> parseSchedule(String json) {
@@ -494,6 +766,7 @@ public class UnitPriceServiceImpl implements UnitPriceService {
             case DIEU_KHOAN_HD -> "ĐIỀU KHOẢN HĐ";
             case TU_DONG -> "TỰ ĐỘNG";
             case HOST_DOI -> "HOST ĐỔI";
+            case ANNUAL_INCREASE -> "TĂNG GIÁ NĂM";
         };
     }
 

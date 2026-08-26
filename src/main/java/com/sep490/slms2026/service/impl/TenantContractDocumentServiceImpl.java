@@ -18,11 +18,15 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.service.ContractEquipmentService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.util.AnnualCalendarEscalation;
 import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
 import com.sep490.slms2026.util.DocxToPdfConverter;
+import com.sep490.slms2026.util.RentEscalationSupport;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
@@ -53,7 +57,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 
 @Service
@@ -69,6 +72,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private final ContractLessorProperties lessorProperties;
     private final ContractEquipmentService contractEquipmentService;
     private final TenantOnboardingService tenantOnboardingService;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional(readOnly = true)
@@ -300,6 +304,11 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         vars.put("depositInWords", VietnameseNumberToWords.convert(contract.getDeposit()));
         vars.put("depositMonths", contract.getDepositMonths() != null
                 ? String.valueOf(contract.getDepositMonths()) : "");
+        vars.put("rentEscalationPercent", contract.getRentEscalationPercent() != null
+                ? contract.getRentEscalationPercent().stripTrailingZeros().toPlainString() : "0");
+        vars.put("rentEscalationType", contract.getRentEscalationType() != null
+                ? contract.getRentEscalationType().name() : "NONE");
+        vars.put("rentEscalationClause", RentEscalationSupport.clauseText(contract));
 
         vars.put("serviceFee", formatMoney(property.getServiceFee()));
         vars.put("electricityUnitPrice", formatMoney(property.getElectricityUnitPrice()));
@@ -386,6 +395,12 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
+                .rentEscalationType(c.getRentEscalationType() != null ? c.getRentEscalationType().name() : null)
+                .rentEscalationPercent(c.getRentEscalationPercent())
+                .nextEscalationDate(AnnualCalendarEscalation.nextEscalationDate(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
+                .nextEscalationAmount(AnnualCalendarEscalation.nextEscalationAmount(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
                 .deposit(c.getDeposit())
                 .initialPaymentAmount(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
                 .depositPaymentBreakdown(PaymentBreakdownBuilder.forDepositOnboard(c))

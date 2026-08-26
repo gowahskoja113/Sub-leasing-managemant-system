@@ -21,6 +21,7 @@ import com.sep490.slms2026.repository.RenovationLineRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.DepreciationService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.pricing.PricingCalculator;
 import com.sep490.slms2026.service.pricing.PricingCalculator.PropertyResult;
 import com.sep490.slms2026.service.pricing.PricingCalculator.RoomInput;
@@ -50,6 +51,7 @@ public class DepreciationServiceImpl implements DepreciationService {
     private final RoomRepository roomRepository;
     private final EquipmentRepository equipmentRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional
@@ -62,7 +64,8 @@ public class DepreciationServiceImpl implements DepreciationService {
 
         BigDecimal totalRenovationCost = renovationLineRepository.sumCostByPropertyId(propertyId);
         BigDecimal totalEquipmentCost = equipmentRepository.sumPurchasedEquipmentCostByPropertyId(propertyId);
-        RevenueWindow window = InboundLeaseRules.resolveRevenueWindow(contract, property, LocalDate.now());
+        RevenueWindow window = InboundLeaseRules.resolveRevenueWindow(
+                contract, property, LocalDate.now(), params.getHandoverBufferMonths());
         int contractMonths = window.revenueMonths();
         BigDecimal totalRentAmount = contract.getTotalRentAmount();
 
@@ -324,8 +327,9 @@ public class DepreciationServiceImpl implements DepreciationService {
             return response;
         }
         try {
+            Integer buffer = pricingConfigService.current().getHandoverBufferMonths();
             return applyRevenueWindow(response,
-                    InboundLeaseRules.resolveRevenueWindow(contract, property, LocalDate.now()));
+                    InboundLeaseRules.resolveRevenueWindow(contract, property, LocalDate.now(), buffer));
         } catch (BusinessException ignored) {
             return response;
         }
@@ -386,6 +390,9 @@ public class DepreciationServiceImpl implements DepreciationService {
         }
         if (params.getVRate() == null) {
             params.setVRate(PricingCalculator.DEFAULT_V_RATE);
+        }
+        if (params.getHandoverBufferMonths() == null) {
+            params.setHandoverBufferMonths(pricingConfigService.current().getHandoverBufferMonths());
         }
         if (params.getMode() == PricingMode.FORWARD && params.getPDesired() == null) {
             params.setPDesired(BigDecimal.ZERO);

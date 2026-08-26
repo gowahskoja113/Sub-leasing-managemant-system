@@ -118,6 +118,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         int rentReminderLeadDays = billingConfig.getReminderLeadDays();
 
         int escalated = unitPriceService.applyDueEscalations();
+        int escalationNotices = unitPriceService.notifyUpcomingAnnualEscalations();
         int issued = generateDueRentInvoices(today);
         int meterReminded = remindPendingMeterReadings(today, billingConfig);
 
@@ -277,6 +278,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         stats.put("renotified", renotified);
         stats.put("rentIssued", issued);
         stats.put("rentEscalated", escalated);
+        stats.put("escalationNotices", escalationNotices);
         stats.put("meterReminded", meterReminded);
         return stats;
     }

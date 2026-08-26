@@ -51,6 +51,25 @@ class InboundLeaseRulesRevenueWindowTest {
         assertEquals(4, window.revenueMonths());
     }
 
+    @Test
+    void bufferOverrideIsAppliedWhenLeaseLongEnough() {
+        InboundContract lease = lease(LocalDate.of(2026, 5, 1), LocalDate.of(2028, 5, 1));
+        var window = InboundLeaseRules.resolveRevenueWindow(
+                lease, new Property(), LocalDate.of(2026, 5, 1), 2);
+        assertEquals(24, window.rentableMonths());
+        assertEquals(2, window.handoverBufferMonths());
+        assertEquals(22, window.revenueMonths());
+    }
+
+    @Test
+    void bufferOverrideIgnoredOnShortLease() {
+        InboundContract lease = lease(LocalDate.of(2026, 5, 1), LocalDate.of(2026, 9, 1));
+        var window = InboundLeaseRules.resolveRevenueWindow(
+                lease, new Property(), LocalDate.of(2026, 5, 1), 3);
+        assertEquals(0, window.handoverBufferMonths());
+        assertEquals(4, window.revenueMonths());
+    }
+
     private static InboundContract lease(LocalDate start, LocalDate end) {
         InboundContract contract = new InboundContract();
         contract.setStartDate(start);

@@ -20,6 +20,7 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.UnitPriceService;
 import com.sep490.slms2026.util.InboundLeaseRules;
@@ -69,6 +70,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
     private final TenantContractRepository tenantContractRepository;
     private final TenantOnboardingService tenantOnboardingService;
     private final UnitPriceService unitPriceService;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional
@@ -344,6 +346,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         request.setDepositMonths(row.getDepositMonths());
         request.setExpectedReceptionDate(row.getExpectedReceptionDate());
         request.setRequireDepositPayment(true);
+        // Để trống loại/% → onboard gán ANNUAL_CALENDAR từ pricing_config.
+        // Cột "Tăng giá theo năm (%)" = 0 → không tăng.
         request.setRentEscalationType(row.getRentEscalationTypeRaw());
         request.setRentEscalationPercent(row.getRentEscalationPercent());
         if (row.getRentScheduleRaw() != null && !row.getRentScheduleRaw().isBlank()) {
@@ -359,6 +363,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
                                                             String message) {
         BigDecimal listed = r.room() != null ? r.room().getPrice() : r.property().getPrice();
         BigDecimal rent = r.row().getRentAmount();
+        BigDecimal escalationPct = resolvePreviewEscalationPercent(r.row());
         return BulkImportContractResultResponse.builder()
                 .importStatus(importStatus)
                 .contractCode(contractCode)
@@ -371,8 +376,28 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
                 .tenantName(r.row().getFullName())
                 .listedPrice(listed)
                 .rentAmount(rent)
+                .rentEscalationPercent(escalationPct)
                 .deltaPercent(unitPriceService.deltaPercent(listed, rent))
                 .build();
+    }
+
+    private BigDecimal resolvePreviewEscalationPercent(TenantDraftContractImportRow row) {
+        if (row.getRentEscalationPercent() != null) {
+            return row.getRentEscalationPercent();
+        }
+        if (row.getRentEscalationTypeRaw() != null && !row.getRentEscalationTypeRaw().isBlank()) {
+            var type = RentEscalationSupport.parseType(row.getRentEscalationTypeRaw());
+            if (type == com.sep490.slms2026.enums.RentEscalationType.NONE) {
+                return BigDecimal.ZERO;
+            }
+            if (type == com.sep490.slms2026.enums.RentEscalationType.SCHEDULE) {
+                return null;
+            }
+        }
+        if (row.getRentScheduleRaw() != null && !row.getRentScheduleRaw().isBlank()) {
+            return null;
+        }
+        return pricingConfigService.current().getAnnualIncreasePct();
     }
 
     private static String buildPreviewMessage(ResolvedDraftRow r) {

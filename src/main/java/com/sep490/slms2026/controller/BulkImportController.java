@@ -96,6 +96,7 @@ public class BulkImportController {
      * Import hàng loạt hợp đồng thuê nháp (DRAFT) từ Excel.
      * BĐS phải đã tồn tại — map theo Mã HĐ inbound / Mã BĐS / Tên tòa nhà.
      * File mẫu: docs/SLMS2026_import_tenant_draft_contracts.xlsx
+     * (cột tùy chọn {@code Tăng giá theo năm (%)}: trống = annualIncreasePct cấu hình; 0 = không tăng).
      * skipInvalidRows=true: import dòng sạch, trả kèm errors (mỗi lỗi có {@code code}) của dòng bỏ.
      */
     @PostMapping(value = "/tenant-draft-contracts-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

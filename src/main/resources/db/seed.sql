@@ -8,6 +8,13 @@ INSERT INTO billing_config (id, reminder_lead_days, grace_days, meter_reminder_l
 VALUES (1, 3, 2, 1, NOW())
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO pricing_config (
+    id, mode, p_desired, roi_expected, o_operation, manager_salaries_json,
+    annual_increase_pct, escalation_grace_months, new_year_price_lead_months,
+    v_rate_pct, handover_buffer_months, updated_at
+) VALUES (1, 'FORWARD', 10000000, 0, 2000000, '{}', 5, 6, 2, 10, 1, NOW())
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO equipment_catalog (name, description, active) VALUES
     ('Điều hòa', 'Máy lạnh / điều hòa không khí', TRUE),
     ('Tủ lạnh', 'Tủ lạnh các loại', TRUE),

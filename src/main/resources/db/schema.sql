@@ -123,6 +123,22 @@ CREATE TABLE IF NOT EXISTS billing_config (
     updated_by                UUID
 );
 
+CREATE TABLE IF NOT EXISTS pricing_config (
+    id                            BIGINT PRIMARY KEY,
+    mode                          VARCHAR(20) NOT NULL DEFAULT 'FORWARD',
+    p_desired                     NUMERIC(19, 2),
+    roi_expected                  NUMERIC(19, 4),
+    o_operation                   NUMERIC(19, 2) NOT NULL DEFAULT 2000000,
+    manager_salaries_json         TEXT,
+    annual_increase_pct           NUMERIC(19, 4) NOT NULL DEFAULT 5,
+    escalation_grace_months       INTEGER NOT NULL DEFAULT 6,
+    new_year_price_lead_months    INTEGER NOT NULL DEFAULT 2,
+    v_rate_pct                    NUMERIC(19, 4) NOT NULL DEFAULT 10,
+    handover_buffer_months        INTEGER NOT NULL DEFAULT 1,
+    updated_at                    TIMESTAMP,
+    updated_by                    UUID
+);
+
 -- -----------------------------------------------------------------------------
 -- Property / room
 -- -----------------------------------------------------------------------------
@@ -336,10 +352,11 @@ CREATE TABLE IF NOT EXISTS tenant_contracts (
     contract_code                       VARCHAR(255) NOT NULL UNIQUE,
     rent_amount                         NUMERIC(19, 2) NOT NULL,
     base_rent_amount                    NUMERIC(19, 2),
-    rent_escalation_type                VARCHAR(20) DEFAULT 'NONE',
+    rent_escalation_type                VARCHAR(30) DEFAULT 'NONE',
     rent_escalation_percent             NUMERIC(19, 4),
     rent_schedule_json                  TEXT,
     rent_escalation_last_from_month     INTEGER,
+    last_escalation_year                INTEGER,
     deposit                             NUMERIC(19, 2) NOT NULL,
     move_in_date                        DATE NOT NULL,
     start_date                          DATE NOT NULL,

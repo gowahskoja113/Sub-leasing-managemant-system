@@ -56,7 +56,7 @@ public class TenantContract implements Serializable {
     private BigDecimal baseRentAmount;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "rent_escalation_type", length = 20)
+    @Column(name = "rent_escalation_type", length = 30)
     @Builder.Default
     private RentEscalationType rentEscalationType = RentEscalationType.NONE;
 
@@ -69,6 +69,10 @@ public class TenantContract implements Serializable {
 
     @Column(name = "rent_escalation_last_from_month")
     private Integer rentEscalationLastFromMonth;
+
+    /** Năm dương lịch gần nhất đã áp tăng giá (idempotent cron 01/01). */
+    @Column(name = "last_escalation_year")
+    private Integer lastEscalationYear;
 
     // Tiền cọc theo dõi riêng theo quy tắc nghiệp vụ
     @Column(name = "deposit", nullable = false)

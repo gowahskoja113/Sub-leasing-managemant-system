@@ -22,10 +22,24 @@ public final class RentEscalationSupport {
     public static void apply(TenantContract contract, String typeRaw, BigDecimal percent,
                              List<RentScheduleItemRequest> schedule, String scheduleRaw) {
         RentEscalationType type = parseType(typeRaw);
+        apply(contract, type, percent, schedule, scheduleRaw);
+    }
+
+    public static void apply(TenantContract contract, RentEscalationType type, BigDecimal percent,
+                             List<RentScheduleItemRequest> schedule, String scheduleRaw) {
+        if (type == null) {
+            type = RentEscalationType.NONE;
+        }
         contract.setRentEscalationType(type);
-        if (type == RentEscalationType.PERCENT) {
-            if (percent == null || percent.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException("% tăng/năm phải lớn hơn 0 khi Loại tăng giá = PERCENT");
+        if (type == RentEscalationType.PERCENT || type == RentEscalationType.ANNUAL_CALENDAR) {
+            if (percent == null || percent.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("% tăng/năm không hợp lệ");
+            }
+            if (percent.compareTo(BigDecimal.ZERO) == 0) {
+                contract.setRentEscalationType(RentEscalationType.NONE);
+                contract.setRentEscalationPercent(BigDecimal.ZERO);
+                contract.setRentScheduleJson(null);
+                return;
             }
             contract.setRentEscalationPercent(percent);
             contract.setRentScheduleJson(null);
@@ -51,8 +65,42 @@ public final class RentEscalationSupport {
             }
             contract.setRentEscalationPercent(null);
         } else {
-            contract.setRentEscalationPercent(null);
+            contract.setRentEscalationPercent(percent != null && percent.compareTo(BigDecimal.ZERO) == 0
+                    ? BigDecimal.ZERO : null);
             contract.setRentScheduleJson(null);
+        }
+    }
+
+    /**
+     * Gán mặc định ANNUAL_CALENDAR từ cấu hình khi request không chỉ rõ loại/%.
+     * percent = 0 → không tăng. percent null + type trống → lấy defaultPct.
+     */
+    public static void applyWithDefaults(TenantContract contract, String typeRaw, BigDecimal percent,
+                                         List<RentScheduleItemRequest> schedule, String scheduleRaw,
+                                         BigDecimal defaultAnnualPct) {
+        boolean typeBlank = typeRaw == null || typeRaw.isBlank();
+        if (!typeBlank) {
+            apply(contract, typeRaw, percent, schedule, scheduleRaw);
+            return;
+        }
+        if (schedule != null && !schedule.isEmpty()) {
+            apply(contract, RentEscalationType.SCHEDULE, percent, schedule, scheduleRaw);
+            return;
+        }
+        if (scheduleRaw != null && !scheduleRaw.isBlank()) {
+            apply(contract, RentEscalationType.SCHEDULE, percent, schedule, scheduleRaw);
+            return;
+        }
+        if (percent != null && percent.compareTo(BigDecimal.ZERO) == 0) {
+            apply(contract, RentEscalationType.NONE, BigDecimal.ZERO, null, null);
+            return;
+        }
+        BigDecimal pct = percent != null ? percent
+                : (defaultAnnualPct != null ? defaultAnnualPct : new BigDecimal("5"));
+        if (pct.compareTo(BigDecimal.ZERO) <= 0) {
+            apply(contract, RentEscalationType.NONE, BigDecimal.ZERO, null, null);
+        } else {
+            apply(contract, RentEscalationType.ANNUAL_CALENDAR, pct, null, null);
         }
     }
 
@@ -63,6 +111,11 @@ public final class RentEscalationSupport {
         String normalized = raw.trim().toUpperCase(Locale.ROOT)
                 .replace(' ', '_')
                 .replace('%', ' ');
+        if (normalized.contains("ANNUAL") || normalized.contains("CALENDAR")
+                || normalized.contains("DUONG_LICH") || normalized.contains("DƯƠNG")
+                || normalized.contains("NAM_DUONG") || normalized.equals("TANG_NAM")) {
+            return RentEscalationType.ANNUAL_CALENDAR;
+        }
         if (normalized.contains("PERCENT") || normalized.contains("PHAN_TRAM")
                 || normalized.contains("PHẦN") || normalized.equals("TANG_%")) {
             return RentEscalationType.PERCENT;
@@ -110,5 +163,35 @@ public final class RentEscalationSupport {
             items.add(item);
         }
         return items;
+    }
+
+    public static String clauseText(TenantContract contract) {
+        if (contract == null || contract.getRentEscalationType() == null
+                || contract.getRentEscalationType() == RentEscalationType.NONE) {
+            return "Giá thuê cố định trong thời hạn hợp đồng, không điều chỉnh tăng theo năm.";
+        }
+        if (contract.getRentEscalationType() == RentEscalationType.ANNUAL_CALENDAR
+                && contract.getRentEscalationPercent() != null
+                && contract.getRentEscalationPercent().compareTo(BigDecimal.ZERO) > 0) {
+            return String.format(
+                    "Giá thuê tăng %s%% mỗi năm dương lịch, áp dụng từ ngày 01/01; "
+                            + "khách thuê chưa đủ thời gian ân hạn theo chính sách công ty thì hoãn kỳ tăng đó.",
+                    strip(contract.getRentEscalationPercent()));
+        }
+        if (contract.getRentEscalationType() == RentEscalationType.PERCENT
+                && contract.getRentEscalationPercent() != null
+                && contract.getRentEscalationPercent().compareTo(BigDecimal.ZERO) > 0) {
+            return String.format(
+                    "Giá thuê tăng %s%% mỗi năm kể từ ngày bắt đầu thuê (tháng 13, 25, …).",
+                    strip(contract.getRentEscalationPercent()));
+        }
+        if (contract.getRentEscalationType() == RentEscalationType.SCHEDULE) {
+            return "Giá thuê điều chỉnh theo lịch đã thỏa thuận trong phụ lục hợp đồng.";
+        }
+        return "";
+    }
+
+    private static String strip(BigDecimal value) {
+        return value.stripTrailingZeros().toPlainString();
     }
 }
