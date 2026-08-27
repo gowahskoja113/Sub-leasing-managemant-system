@@ -472,6 +472,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 .roomsDone(progress.roomsDone())
                 .readingDeadline(bill.getReadingDeadline())
                 .overdue(overdue)
+                .billedToTenantQuantity(bill.getBilledToTenantQuantity())
+                .companyBornQuantity(bill.getCompanyBornQuantity())
                 .build();
     }
 

@@ -19,6 +19,7 @@ import com.sep490.slms2026.repository.MeterReadingRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.repository.UtilityBillRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
@@ -54,6 +55,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
+    private final UtilityBillRepository utilityBillRepository;
     private final MeterReadingRepository meterReadingRepository;
     private final TenantContractRepository tenantContractRepository;
     private final PropertyAccessService propertyAccessService;
@@ -123,19 +125,79 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                     throw new BusinessException("NO_ACTIVE_CONTRACT", "Nhà nguyên căn chưa có hợp đồng ACTIVE — không phát hành được hoá đơn cho khách.");
                 });
 
+        // Đơn giá giữ theo giấy (tổng tiền ÷ tổng kWh cả tháng) — không tính lại theo phần khách.
+        BigDecimal unitPrice = bill.getUnitPrice();
+
+        // Mốc bắt đầu tính cho khách: muộn hơn giữa "chốt kỳ trước" và "đồng hồ lúc đón khách".
+        BigDecimal startReading = resolveTenantStartReading(bill, contract, prevReading, newReading);
+        boolean midPeriodMoveIn = startReading.compareTo(prevReading) != 0;
+
+        BigDecimal consumption;
+        BigDecimal amount;
+        if (midPeriodMoveIn) {
+            consumption = newReading.subtract(startReading);
+            amount = consumption.multiply(unitPrice).setScale(0, RoundingMode.HALF_UP);
+        } else {
+            // Kỳ đủ / khách cũ: giữ đúng số trên giấy, tránh lệch làm tròn đơn giá.
+            consumption = BigDecimal.valueOf(bill.getTotalQuantity());
+            amount = bill.getTotalAmount();
+        }
+
+        BigDecimal billQty = BigDecimal.valueOf(bill.getTotalQuantity());
+        BigDecimal companyBorn = billQty.subtract(consumption);
+        if (companyBorn.compareTo(BigDecimal.ZERO) < 0) {
+            companyBorn = BigDecimal.ZERO;
+        }
+        bill.setBilledToTenantQuantity(consumption);
+        bill.setCompanyBornQuantity(companyBorn);
+        utilityBillRepository.save(bill);
+
         CreateUtilityInvoiceRequest request = CreateUtilityInvoiceRequest.builder()
                 .type(UtilityTypeMapper.toApi(bill.getType()))
                 .billingPeriod(bill.getBillingPeriod())
-                .prevReading(prevReading)
+                .prevReading(startReading)
                 .newReading(newReading)
-                .consumption(BigDecimal.valueOf(bill.getTotalQuantity()))
-                .unitPrice(bill.getUnitPrice())
-                .amount(bill.getTotalAmount())
+                .consumption(consumption)
+                .unitPrice(unitPrice)
+                .amount(amount)
                 .meterImageUrl(bill.getImageUrl())
                 .build();
         validateInvoiceAmounts(request);
         validateBillingPeriodLock(property.getId(), null, request.getBillingPeriod(), bill.getType(), contract);
         return createAndSend(property, null, contract, bill.getType(), request, false);
+    }
+
+    /**
+     * Chỉ số cũ trên hoá đơn khách: dùng mốc đón khách nếu khách dọn vào trong kỳ giấy,
+     * ngược lại giữ đầu kỳ trên giấy. Tránh tiêu thụ âm khi mốc đón nằm ngoài khoảng chỉ số.
+     * <p>
+     * Ưu tiên {@code handoverAt} khi có: chỉ áp dụng nếu thời điểm đón không sau cuối tháng kỳ bill
+     * (đón kỳ sau → bỏ qua). Thiếu mốc thời gian → so theo số chỉ (công tơ chỉ chạy tiến).
+     */
+    private BigDecimal resolveTenantStartReading(
+            UtilityBill bill, TenantContract contract, BigDecimal prevReading, BigDecimal newReading) {
+        LocalDateTime handoverAt = bill.getType() == UtilityType.ELECTRIC
+                ? contract.getElectricMeterCapturedAt()
+                : contract.getWaterMeterCapturedAt();
+        BigDecimal handoverReading = bill.getType() == UtilityType.ELECTRIC
+                ? contract.getInitialElectricReading()
+                : contract.getInitialWaterReading();
+
+        if (handoverReading == null
+                || handoverReading.compareTo(prevReading) <= 0
+                || handoverReading.compareTo(newReading) > 0) {
+            return prevReading;
+        }
+
+        // Có thời điểm đón: nếu đón sau hết tháng của kỳ bill thì không thuộc kỳ này.
+        if (handoverAt != null && bill.getYear() != null && bill.getMonth() != null) {
+            java.time.LocalDate periodEnd = java.time.YearMonth.of(bill.getYear(), bill.getMonth()).atEndOfMonth();
+            if (handoverAt.toLocalDate().isAfter(periodEnd)) {
+                return prevReading;
+            }
+        }
+
+        return handoverReading;
     }
 
     @Override

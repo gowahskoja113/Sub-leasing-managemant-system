@@ -38,5 +38,10 @@ public class UtilityBillResponse {
     private LocalDate readingDeadline;
     /** Quá hạn mà chưa ghi đủ phòng. */
     private Boolean overdue;
+
+    /** Phần tiêu thụ đã phát hành cho khách (kWh/m³). Null nếu chưa phát hành nguyên căn. */
+    private BigDecimal billedToTenantQuantity;
+    /** Phần tiêu thụ công ty chịu khi khách dọn giữa kỳ. */
+    private BigDecimal companyBornQuantity;
 }
 

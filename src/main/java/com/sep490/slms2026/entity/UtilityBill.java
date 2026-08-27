@@ -69,5 +69,19 @@ public class UtilityBill implements Serializable {
     /** Nhà chia phòng: hạn chụp đồng hồ = ngày phát hành hoá đơn tổng. */
     @Column(name = "reading_deadline")
     private LocalDate readingDeadline;
+
+    /**
+     * Phần tiêu thụ đã phát hành cho khách (kWh/m³).
+     * Có thể nhỏ hơn {@link #totalQuantity} khi khách dọn vào giữa kỳ.
+     */
+    @Column(name = "billed_to_tenant_quantity", precision = 19, scale = 4)
+    private BigDecimal billedToTenantQuantity;
+
+    /**
+     * Phần tiêu thụ công ty chịu (kWh/m³) = tổng giấy − phần khách.
+     * Dùng cho báo cáo tài chính giải thích chênh lệch chi/thu.
+     */
+    @Column(name = "company_born_quantity", precision = 19, scale = 4)
+    private BigDecimal companyBornQuantity;
 }
 

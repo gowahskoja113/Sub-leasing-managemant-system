@@ -124,6 +124,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             log.debug("rent_escalation_type widen: {}", e.getMessage());
         }
         addColumnIfNotExists("utility_bills", "reading_deadline", "DATE");
+        // Nguyên căn: tách phần khách trả vs công ty chịu khi đón khách giữa kỳ
+        addColumnIfNotExists("utility_bills", "billed_to_tenant_quantity", "NUMERIC(19, 4)");
+        addColumnIfNotExists("utility_bills", "company_born_quantity", "NUMERIC(19, 4)");
         ensureZoneManagerTables();
         ensureRentalPriceModel();
         ensureCashCollectAndProxyPayTables();
