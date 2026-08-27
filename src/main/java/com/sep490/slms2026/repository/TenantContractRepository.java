@@ -2,9 +2,11 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,6 +22,14 @@ import java.util.UUID;
 
 @Repository
 public interface TenantContractRepository extends JpaRepository<TenantContract, Long> {
+
+    /**
+     * Khóa hàng HĐ khi confirm / gửi OTP dual — tránh đua 2 bên verify rồi kẹt PENDING
+     * dù đủ cả hai mốc {@code *_otp_verified_at}.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM TenantContract c WHERE c.id = :id")
+    Optional<TenantContract> findByIdForUpdate(@Param("id") Long id);
 
     @Modifying
     @Query("UPDATE TenantContract c SET c.assignedManager = :manager WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")

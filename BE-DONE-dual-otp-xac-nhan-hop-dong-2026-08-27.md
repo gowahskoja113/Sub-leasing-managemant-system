@@ -110,3 +110,5 @@ Payload thêm: `tenantOtpVerified`, `managerOtpVerified`, `contractId`, `contrac
 - Confirm khi đã ACTIVE: idempotent, trả response
 - Activate chỉ chạy khi đủ 2 timestamp
 - `onboardedByManager` ghi lúc manager verify OTP (không đợi activate, tránh ghi nhầm nếu tenant verify cuối)
+- **Race 2 confirm song song** (fix 27/08): `findByIdForUpdate` + `PESSIMISTIC_WRITE`;
+  `tryActivateAfterDualOtp` đọc lại từ DB sau `saveAndFlush`; send OTP tự `activate` nếu đủ 2 mốc mà vẫn PENDING

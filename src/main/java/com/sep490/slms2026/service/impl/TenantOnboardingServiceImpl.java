@@ -372,7 +372,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Override
     @Transactional
     public TenantContractResponse confirmContract(Long contractId, String otp) {
-        TenantContract contract = requirePaidPendingContract(contractId);
+        TenantContract contract = requirePaidPendingContractForUpdate(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             return toResponse(contract);
         }
@@ -391,14 +391,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 // webhook/cron context — bỏ qua
             }
         }
-        tenantContractRepository.save(contract);
-        return tryActivateAfterDualOtp(contract);
+        tenantContractRepository.saveAndFlush(contract);
+        return tryActivateAfterDualOtp(contract.getId());
     }
 
     @Override
     @Transactional
     public TenantContractResponse confirmContractByTenant(Long contractId, String otp) {
-        TenantContract contract = requirePaidPendingContract(contractId);
+        TenantContract contract = requirePaidPendingContractForUpdate(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             return toResponse(contract);
         }
@@ -408,16 +408,20 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getTenantOtpVerifiedAt() == null) {
             contract.setTenantOtpVerifiedAt(LocalDateTime.now());
         }
-        tenantContractRepository.save(contract);
-        return tryActivateAfterDualOtp(contract);
+        tenantContractRepository.saveAndFlush(contract);
+        return tryActivateAfterDualOtp(contract.getId());
     }
 
     @Override
     @Transactional
     public void sendContractConfirmOtp(Long contractId) {
-        TenantContract contract = requirePaidPendingContract(contractId);
+        TenantContract contract = requirePaidPendingContractForUpdate(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             throw new BusinessException("Hợp đồng đã được kích hoạt");
+        }
+        // Đủ 2 mốc mà chưa ACTIVE (ca đua confirm cũ) → tự lành thay vì kẹt vĩnh viễn.
+        if (healStuckDualOtpIfNeeded(contract)) {
+            return;
         }
         if (contract.getManagerOtpVerifiedAt() != null) {
             throw new BusinessException("Quản lý đã xác nhận OTP rồi");
@@ -430,11 +434,15 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Override
     @Transactional
     public void sendDualContractConfirmOtps(Long contractId) {
-        TenantContract contract = requirePaidPendingContract(contractId);
+        TenantContract contract = requirePaidPendingContractForUpdate(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             throw new BusinessException("Hợp đồng đã được kích hoạt");
         }
         assertCurrentUserOwnsContract(contract);
+        // Đủ 2 mốc mà chưa ACTIVE → activate, không ném "cả hai đã xác nhận".
+        if (healStuckDualOtpIfNeeded(contract)) {
+            return;
+        }
         assertEarlyMoveInWindowForSendOtp(contract);
 
         boolean sentAny = false;
@@ -468,7 +476,15 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     }
 
     private TenantContract requirePaidPendingContract(Long contractId) {
-        TenantContract contract = findContract(contractId);
+        return requirePaidPendingContract(findContract(contractId));
+    }
+
+    /** Cùng rule {@link #requirePaidPendingContract(Long)} nhưng {@code SELECT … FOR UPDATE}. */
+    private TenantContract requirePaidPendingContractForUpdate(Long contractId) {
+        return requirePaidPendingContract(findContractForUpdate(contractId));
+    }
+
+    private TenantContract requirePaidPendingContract(TenantContract contract) {
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             return contract;
         }
@@ -510,9 +526,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     /**
      * Khi cả 2 mốc OTP đã có → activate đúng 1 lần (idempotent).
-     * Nếu chưa đủ → đẩy tiến độ realtime và trả HĐ vẫn PENDING.
+     * Đọc lại từ DB (đã khóa từ đầu transaction) thay vì tin entity cũ trong bộ nhớ —
+     * tránh ca đua confirm: mỗi bên chỉ thấy mốc của mình rồi bỏ qua activate.
      */
-    private TenantContractResponse tryActivateAfterDualOtp(TenantContract contract) {
+    private TenantContractResponse tryActivateAfterDualOtp(Long contractId) {
+        TenantContract contract = findContractForUpdate(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
             return toResponse(contract);
         }
@@ -522,6 +540,23 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             return toResponse(contract);
         }
         return activateContract(contract);
+    }
+
+    /**
+     * Đủ 2 mốc verify mà HĐ vẫn PENDING → gọi activate (cứu HĐ kẹt do race trước khi có lock).
+     * @return true nếu đã heal / đã ACTIVE
+     */
+    private boolean healStuckDualOtpIfNeeded(TenantContract contract) {
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            return true;
+        }
+        if (contract.getTenantOtpVerifiedAt() == null || contract.getManagerOtpVerifiedAt() == null) {
+            return false;
+        }
+        log.warn("HĐ {} đủ 2 mốc OTP nhưng chưa ACTIVE — tự kích hoạt (heal race dual-OTP)",
+                contract.getId());
+        activateContract(contract);
+        return true;
     }
 
     /**
@@ -1518,6 +1553,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     private TenantContract findContract(Long contractId) {
         return tenantContractRepository.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID: " + contractId));
+    }
+
+    private TenantContract findContractForUpdate(Long contractId) {
+        return tenantContractRepository.findByIdForUpdate(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID: " + contractId));
     }
 
