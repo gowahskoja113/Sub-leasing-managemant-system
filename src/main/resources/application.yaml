@@ -146,6 +146,8 @@ billing:
     due-day: 5
     final-reminder-day: 7
     termination-after-days: 3
+    # Nhắc trước phát hành (D-N … D-1); N=2 → ngày 30 và 31 khi phát hành mùng 1
+    issue-reminder-lead-days: 2
 
 # Bảo trì: tự xác nhận nếu tenant không phản hồi
 maintenance:

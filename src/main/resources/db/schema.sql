@@ -357,6 +357,7 @@ CREATE TABLE IF NOT EXISTS tenant_contracts (
     rent_schedule_json                  TEXT,
     rent_escalation_last_from_month     INTEGER,
     last_escalation_year                INTEGER,
+    last_issue_reminder_date            DATE,
     deposit                             NUMERIC(19, 2) NOT NULL,
     move_in_date                        DATE NOT NULL,
     start_date                          DATE NOT NULL,

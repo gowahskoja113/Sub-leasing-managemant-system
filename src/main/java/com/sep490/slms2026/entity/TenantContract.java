@@ -262,4 +262,8 @@ public class TenantContract implements Serializable {
     @Column(name = "termination_proposed")
     @Builder.Default
     private Boolean terminationProposed = false;
+
+    /** Mốc chống gửi trùng nhắc trước phát hành hoá đơn (D-N … D-1). */
+    @Column(name = "last_issue_reminder_date")
+    private LocalDate lastIssueReminderDate;
 }

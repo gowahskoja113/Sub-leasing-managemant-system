@@ -113,6 +113,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensurePricingConfigTable();
         ensureUtilityBillsUtilityTypeColumn();
         addColumnIfNotExists("tenant_contracts", "last_escalation_year", "INTEGER");
+        addColumnIfNotExists("tenant_contracts", "last_issue_reminder_date", "DATE");
         try {
             jdbcTemplate.execute(
                     "ALTER TABLE tenant_contracts ALTER COLUMN rent_escalation_type TYPE VARCHAR(30)");
