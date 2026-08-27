@@ -91,6 +91,9 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("tenant_contracts", "deposit_paid_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "deposit_method", "VARCHAR(50)");
         addColumnIfNotExists("tenant_contracts", "activated_at", "TIMESTAMP");
+        // Dual OTP xác nhận HĐ (= 2 chữ ký điện tử OTP)
+        addColumnIfNotExists("tenant_contracts", "tenant_otp_verified_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "manager_otp_verified_at", "TIMESTAMP");
         // Snapshot số tiền QR onboard — hoá đơn webhook khớp số đã quét
         addColumnIfNotExists("tenant_contracts", "onboard_qr_amount", "NUMERIC(19, 2)");
         addColumnIfNotExists("tenant_contracts", "onboard_qr_deposit_amount", "NUMERIC(19, 2)");
@@ -184,17 +187,22 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     /**
-     * DB constraint otp_verifications_purpose_check chỉ cho phép 'CONTRACT_CONFIRM'.
-     * Enum OtpPurpose đã thêm TENANT_ACTIVATION — cần recreate constraint.
+     * DB constraint otp_verifications_purpose_check phải khớp enum OtpPurpose.
+     * Thiếu giá trị → INSERT OTP 500 (đã từng chết luồng kích hoạt tenant 27/07/2026).
      */
     private void ensureOtpVerificationsPurposeConstraint() {
         jdbcTemplate.execute(
                 "ALTER TABLE otp_verifications DROP CONSTRAINT IF EXISTS otp_verifications_purpose_check");
         jdbcTemplate.execute("""
                 ALTER TABLE otp_verifications ADD CONSTRAINT otp_verifications_purpose_check
-                    CHECK (purpose IN ('CONTRACT_CONFIRM', 'TENANT_ACTIVATION'))
+                    CHECK (purpose IN (
+                        'CONTRACT_CONFIRM',
+                        'CONTRACT_CONFIRM_TENANT',
+                        'CONTRACT_CONFIRM_MANAGER',
+                        'TENANT_ACTIVATION'
+                    ))
                 """);
-        log.info("Ensured otp_verifications_purpose_check includes TENANT_ACTIVATION");
+        log.info("Ensured otp_verifications_purpose_check includes dual contract-confirm purposes");
     }
 
     private void ensureMaintenanceSimplifiedFlowColumns() {

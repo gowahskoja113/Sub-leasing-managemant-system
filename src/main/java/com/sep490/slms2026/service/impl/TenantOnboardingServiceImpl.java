@@ -47,6 +47,7 @@ import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.OtpService;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.event.InvoicePaidEvent;
+import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.UnitPriceService;
@@ -114,6 +115,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     private final UnitPriceService unitPriceService;
     private final InboundContractRepository inboundContractRepository;
     private final PricingConfigService pricingConfigService;
+    private final RealtimeEventService realtimeEventService;
 
     @Override
     @Transactional
@@ -370,25 +372,131 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Override
     @Transactional
     public TenantContractResponse confirmContract(Long contractId, String otp) {
-        TenantContract contract = findContract(contractId);
-
+        TenantContract contract = requirePaidPendingContract(contractId);
         if (contract.getStatus() == ContractStatus.ACTIVE) {
-            return toResponse(contract); // idempotent
+            return toResponse(contract);
+        }
+        otpService.verifyOrThrow(
+                OtpDeliveryOverride.PHONE, otp, OtpPurpose.CONTRACT_CONFIRM_MANAGER, contractId);
+        if (contract.getManagerOtpVerifiedAt() == null) {
+            contract.setManagerOtpVerifiedAt(LocalDateTime.now());
+        }
+        // Ghi nhận người đón khách ngay lúc manager ký OTP (không đợi activate).
+        if (contract.getOnboardedByManager() == null) {
+            try {
+                contract.setOnboardedByManager(userRepository.getReferenceById(
+                        com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId()));
+                contract.setOnboardedAt(LocalDateTime.now());
+            } catch (Exception ignored) {
+                // webhook/cron context — bỏ qua
+            }
+        }
+        tenantContractRepository.save(contract);
+        return tryActivateAfterDualOtp(contract);
+    }
+
+    @Override
+    @Transactional
+    public TenantContractResponse confirmContractByTenant(Long contractId, String otp) {
+        TenantContract contract = requirePaidPendingContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            return toResponse(contract);
+        }
+        assertCurrentUserOwnsContract(contract);
+        otpService.verifyOrThrow(
+                OtpDeliveryOverride.PHONE, otp, OtpPurpose.CONTRACT_CONFIRM_TENANT, contractId);
+        if (contract.getTenantOtpVerifiedAt() == null) {
+            contract.setTenantOtpVerifiedAt(LocalDateTime.now());
+        }
+        tenantContractRepository.save(contract);
+        return tryActivateAfterDualOtp(contract);
+    }
+
+    @Override
+    @Transactional
+    public void sendContractConfirmOtp(Long contractId) {
+        TenantContract contract = requirePaidPendingContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            throw new BusinessException("Hợp đồng đã được kích hoạt");
+        }
+        if (contract.getManagerOtpVerifiedAt() != null) {
+            throw new BusinessException("Quản lý đã xác nhận OTP rồi");
+        }
+        log.info("Gửi lại OTP MANAGER xác nhận HĐ {} tới số override {}",
+                contractId, OtpDeliveryOverride.PHONE);
+        otpService.sendOtp(OtpDeliveryOverride.PHONE, OtpPurpose.CONTRACT_CONFIRM_MANAGER, contractId);
+    }
+
+    @Override
+    @Transactional
+    public void sendDualContractConfirmOtps(Long contractId) {
+        TenantContract contract = requirePaidPendingContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            throw new BusinessException("Hợp đồng đã được kích hoạt");
+        }
+        assertCurrentUserOwnsContract(contract);
+        assertEarlyMoveInWindowForSendOtp(contract);
+
+        boolean sentAny = false;
+        // Chỉ sinh lại mã của bên chưa verify — không reset mốc đã xong.
+        if (contract.getTenantOtpVerifiedAt() == null) {
+            log.info("Gửi OTP TENANT xác nhận HĐ {} tới số override {}",
+                    contractId, OtpDeliveryOverride.PHONE);
+            otpService.sendOtp(OtpDeliveryOverride.PHONE, OtpPurpose.CONTRACT_CONFIRM_TENANT, contractId);
+            sentAny = true;
+        }
+        if (contract.getManagerOtpVerifiedAt() == null) {
+            log.info("Gửi OTP MANAGER xác nhận HĐ {} tới số override {}",
+                    contractId, OtpDeliveryOverride.PHONE);
+            otpService.sendOtp(OtpDeliveryOverride.PHONE, OtpPurpose.CONTRACT_CONFIRM_MANAGER, contractId);
+            sentAny = true;
+        }
+        if (!sentAny) {
+            throw new BusinessException("Cả hai bên đã xác nhận OTP rồi");
+        }
+        realtimeEventService.publishContractConfirmProgress(contract);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<TenantContractResponse> findPendingConfirmForTenant(UUID tenantUserId) {
+        return tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.PENDING
+                        && c.getPaymentStatus() == PaymentStatus.PAID)
+                .findFirst()
+                .map(this::toResponse);
+    }
+
+    private TenantContract requirePaidPendingContract(Long contractId) {
+        TenantContract contract = findContract(contractId);
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            return contract;
         }
         if (contract.getPaymentStatus() != PaymentStatus.PAID) {
-            throw new BusinessException("Chưa thanh toán onboard, không thể hoàn tất hợp đồng");
+            throw new BusinessException("Chưa thanh toán onboard, không thể xác nhận hợp đồng");
         }
+        if (contract.getStatus() != ContractStatus.PENDING && contract.getStatus() != ContractStatus.DRAFT) {
+            throw new BusinessException("Hợp đồng không ở trạng thái chờ xác nhận");
+        }
+        return contract;
+    }
 
-        // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
-        otpService.verifyOrThrow(OtpDeliveryOverride.PHONE, otp, OtpPurpose.CONTRACT_CONFIRM, contractId);
+    private void assertCurrentUserOwnsContract(TenantContract contract) {
+        var current = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        if (contract.getTenant() == null || contract.getTenant().getUser() == null
+                || !contract.getTenant().getUser().getId().equals(current.getId())) {
+            throw new BusinessException("Bạn không phải khách thuê của hợp đồng này");
+        }
+    }
 
+    /**
+     * Cửa sổ nhận sớm: kiểm ở bước gửi OTP (không chặn lúc verify vài phút sau).
+     */
+    private void assertEarlyMoveInWindowForSendOtp(TenantContract contract) {
         LocalDate today = LocalDate.now();
         InboundContract lease = requireInboundLease(contract.getProperty().getId());
         InboundLeaseRules.assertCanReceiveTenant(today, lease);
 
-        // Nhận nhà SỚM: khách đến trước ngày vào ở dự kiến.
-        // Cho phép tối đa maxEarlyMoveInDays ngày — ghi nhận ngày vào ở thực tế = hôm nay,
-        // GIỮ NGUYÊN endDate. Không được ghi đè xuống dưới mốc hợp đồng chủ nhà.
         LocalDate plannedMoveIn = contract.getMoveInDate();
         if (plannedMoveIn != null && today.isBefore(plannedMoveIn)) {
             long daysEarly = java.time.temporal.ChronoUnit.DAYS.between(today, plannedMoveIn);
@@ -396,6 +504,52 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 throw new BusinessException("Chỉ được nhận nhà sớm tối đa " + maxEarlyMoveInDays
                         + " ngày so với ngày vào ở dự kiến (" + plannedMoveIn
                         + "). Vui lòng cập nhật lại ngày vào ở hoặc nhận đúng lịch.");
+            }
+        }
+    }
+
+    /**
+     * Khi cả 2 mốc OTP đã có → activate đúng 1 lần (idempotent).
+     * Nếu chưa đủ → đẩy tiến độ realtime và trả HĐ vẫn PENDING.
+     */
+    private TenantContractResponse tryActivateAfterDualOtp(TenantContract contract) {
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            return toResponse(contract);
+        }
+        realtimeEventService.publishContractConfirmProgress(contract);
+
+        if (contract.getTenantOtpVerifiedAt() == null || contract.getManagerOtpVerifiedAt() == null) {
+            return toResponse(contract);
+        }
+        return activateContract(contract);
+    }
+
+    /**
+     * Side-effect kích hoạt HĐ: ACTIVE, phòng RENTED, hoá đơn kỳ đầu, notify.
+     * Idempotent nếu đã ACTIVE.
+     */
+    private TenantContractResponse activateContract(TenantContract contract) {
+        if (contract.getStatus() == ContractStatus.ACTIVE) {
+            return toResponse(contract);
+        }
+        if (contract.getPaymentStatus() != PaymentStatus.PAID) {
+            throw new BusinessException("Chưa thanh toán onboard, không thể hoàn tất hợp đồng");
+        }
+        if (contract.getTenantOtpVerifiedAt() == null || contract.getManagerOtpVerifiedAt() == null) {
+            throw new BusinessException("Cần đủ OTP của khách và quản lý trước khi kích hoạt");
+        }
+
+        LocalDate today = LocalDate.now();
+        InboundContract lease = requireInboundLease(contract.getProperty().getId());
+        InboundLeaseRules.assertCanReceiveTenant(today, lease);
+
+        LocalDate plannedMoveIn = contract.getMoveInDate();
+        if (plannedMoveIn != null && today.isBefore(plannedMoveIn)) {
+            long daysEarly = java.time.temporal.ChronoUnit.DAYS.between(today, plannedMoveIn);
+            if (daysEarly > maxEarlyMoveInDays) {
+                // Đã qua cửa gửi OTP — vẫn clamp ngày vào ở, không fail activate.
+                log.warn("HĐ {} activate với daysEarly={} > max={}; vẫn clamp move-in",
+                        contract.getId(), daysEarly, maxEarlyMoveInDays);
             }
             LocalDate effectiveMoveIn = InboundLeaseRules.clampMoveInToLease(today, lease);
             contract.setMoveInDate(effectiveMoveIn);
@@ -430,9 +584,13 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         contract.setStatus(ContractStatus.ACTIVE);
         contract.setActivatedAt(LocalDateTime.now());
         if (contract.getOnboardedByManager() == null) {
-            contract.setOnboardedByManager(userRepository.getReferenceById(
-                    com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId()));
-            contract.setOnboardedAt(LocalDateTime.now());
+            try {
+                contract.setOnboardedByManager(userRepository.getReferenceById(
+                        com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId()));
+                contract.setOnboardedAt(LocalDateTime.now());
+            } catch (Exception ignored) {
+                // tenant có thể là người verify cuối
+            }
         }
         TenantContract saved = tenantContractRepository.save(contract);
         contractEquipmentService.disableDeclinedForActiveContract(saved);
@@ -441,23 +599,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         notifyContractActivated(saved);
         unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
                 "Kích hoạt HĐ " + saved.getContractCode());
+        realtimeEventService.publishContractActivated(saved);
 
-        return toResponse(saved, contract.getTenant().getUser().getUsername(), accountCreated, rolePromoted);
-    }
-
-    @Override
-    @Transactional
-    public void sendContractConfirmOtp(Long contractId) {
-        TenantContract contract = findContract(contractId);
-        if (contract.getStatus() == ContractStatus.ACTIVE) {
-            throw new BusinessException("Hợp đồng đã được kích hoạt");
-        }
-        if (contract.getPaymentStatus() != PaymentStatus.PAID) {
-            throw new BusinessException("Chưa thanh toán onboard, không thể gửi OTP xác nhận");
-        }
-        // Hardcode SĐT nhận OTP (budget) — không lấy từ hợp đồng
-        log.info("Gửi OTP xác nhận HĐ {} tới số override {}", contractId, OtpDeliveryOverride.PHONE);
-        otpService.sendOtp(OtpDeliveryOverride.PHONE, OtpPurpose.CONTRACT_CONFIRM, contractId);
+        String username = saved.getTenant() != null && saved.getTenant().getUser() != null
+                ? saved.getTenant().getUser().getUsername() : null;
+        return toResponse(saved, username, accountCreated, rolePromoted);
     }
 
     @Override
@@ -499,6 +645,28 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getDepositMethod() == null || contract.getDepositMethod().isBlank()) {
             contract.setDepositMethod(method);
         }
+
+        // Tạo / gắn tài khoản tenant ngay khi tiền vào — khách kích hoạt TK rồi vào app xác nhận HĐ.
+        boolean accountCreated = false;
+        boolean rolePromoted = false;
+        if (contract.getTenant() == null
+                && contract.getDraftTenantPhone() != null
+                && !contract.getDraftTenantPhone().isBlank()) {
+            TenantCreationResult result = getOrCreateTenant(
+                    contract.getDraftTenantPhone(),
+                    contract.getDraftTenantName(),
+                    contract.getDraftTenantCccd(),
+                    contract.getDraftTenantDob(),
+                    contract.getDraftTenantCccdIssueDate(),
+                    contract.getDraftTenantCccdIssuePlace(),
+                    contract.getDraftTenantAddress());
+            contract.setTenant(result.tenant);
+            accountCreated = result.created;
+            rolePromoted = result.promoted;
+            log.info("HĐ {} gắn tenant sớm sau thanh toán (created={}, promoted={})",
+                    contract.getId(), accountCreated, rolePromoted);
+        }
+
         tenantContractRepository.save(contract);
 
         boolean invoiceCreated = createOnboardingInvoiceAndPayment(contract, payosOrderCode, method,
@@ -706,18 +874,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             String title = "✅ Đã nhận thanh toán onboard";
             String body = firstRentIncluded(contract)
                     ? "Hệ thống đã ghi nhận tiền cọc và tiền nhà chu kỳ đầu (" + amountText
-                    + "đ). Tiếp tục xác thực OTP để hoàn tất nhận nhà."
+                    + "đ). Đăng nhập / kích hoạt tài khoản rồi xác nhận hợp đồng trên app."
                     : "Hệ thống đã ghi nhận thanh toán onboard (" + amountText
-                    + "đ). Tiếp tục xác thực OTP để hoàn tất nhận nhà.";
+                    + "đ). Đăng nhập / kích hoạt tài khoản rồi xác nhận hợp đồng trên app.";
             notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
                     .userId(tenantUserId)
                     .title(title)
                     .content(body)
                     .type("DEPOSIT_PAID_TENANT")
-                    .screen("InvoiceList")
+                    .screen("ContractConfirm")
                     .build());
             userPushTokenService.sendToUser(tenantUserId, title, body, Map.of(
-                    "screen", "InvoiceList",
+                    "screen", "ContractConfirm",
                     "type", "DEPOSIT_PAID_TENANT"));
         }
 
@@ -726,7 +894,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (manager != null) {
             String title = "💰 Khách đã thanh toán xong";
             String body = "Khách " + tenantName + " · Phòng " + roomLabel
-                    + " đã thanh toán xong. Tiếp tục bước xác thực OTP để hoàn tất hợp đồng.";
+                    + " đã thanh toán xong. Chờ khách kích hoạt tài khoản và gửi OTP xác nhận hợp đồng.";
             notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
                     .userId(manager.getId())
                     .title(title)
@@ -1663,6 +1831,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                                         ? "CASH"
                                         : null)))
                 .activatedAt(c.getActivatedAt())
+                .tenantOtpVerifiedAt(c.getTenantOtpVerifiedAt())
+                .managerOtpVerifiedAt(c.getManagerOtpVerifiedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)
                 .tenantRolePromoted(rolePromoted)

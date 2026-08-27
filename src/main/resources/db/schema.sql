@@ -380,6 +380,8 @@ CREATE TABLE IF NOT EXISTS tenant_contracts (
     deposit_paid_at                     TIMESTAMP,
     deposit_method                      VARCHAR(50),
     activated_at                        TIMESTAMP,
+    tenant_otp_verified_at              TIMESTAMP,
+    manager_otp_verified_at             TIMESTAMP,
     deposit_cash_tenant_confirmed_at    TIMESTAMP,
     deposit_cash_manager_confirmed_at   TIMESTAMP,
     document_url                        VARCHAR(1024),
@@ -925,7 +927,12 @@ CREATE TABLE IF NOT EXISTS otp_verifications (
     attempt_count INTEGER NOT NULL DEFAULT 0,
     created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT otp_verifications_purpose_check CHECK (
-        purpose IN ('CONTRACT_CONFIRM', 'TENANT_ACTIVATION')
+        purpose IN (
+            'CONTRACT_CONFIRM',
+            'CONTRACT_CONFIRM_TENANT',
+            'CONTRACT_CONFIRM_MANAGER',
+            'TENANT_ACTIVATION'
+        )
     )
 );
 

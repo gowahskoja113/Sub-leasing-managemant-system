@@ -178,15 +178,17 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.syncPaymentStatus(id));
     }
 
-    /** POST /{id}/send-otp — gửi OTP SMS tới SĐT khách thuê (Twilio). */
+    /** POST /{id}/send-otp — manager gửi lại OTP của mình (tenant mới là người khởi động gửi cả 2 mã). */
     @PostMapping("/{id}/send-otp")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<Map<String, Object>> sendOtp(@PathVariable Long id) {
         tenantOnboardingService.sendContractConfirmOtp(id);
-        return ResponseEntity.ok(Map.of("success", true, "message", "Đã gửi mã OTP tới số điện thoại khách thuê"));
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Đã gửi lại mã OTP của quản lý"));
     }
 
-    /** POST /{id}/confirm — hoàn tất HĐ sau khi đã thanh toán cọc + OTP. */
+    /** POST /{id}/confirm — manager nhập OTP của mình; HĐ ACTIVE khi đủ 2 bên. */
     @PostMapping("/{id}/confirm")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractResponse> confirm(

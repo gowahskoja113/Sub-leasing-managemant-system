@@ -103,6 +103,54 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         }
     }
 
+    @Override
+    public void publishContractConfirmProgress(TenantContract contract) {
+        publishContractEvent(contract, "CONTRACT_CONFIRM_PROGRESS");
+    }
+
+    @Override
+    public void publishContractActivated(TenantContract contract) {
+        publishContractEvent(contract, "CONTRACT_ACTIVATED");
+    }
+
+    private void publishContractEvent(TenantContract contract, String eventName) {
+        if (contract == null || contract.getId() == null) {
+            return;
+        }
+        Property property = contract.getProperty();
+        BillingRealtimeEvent event = BillingRealtimeEvent.builder()
+                .event(eventName)
+                .contractId(contract.getId())
+                .propertyId(property != null ? property.getId() : null)
+                .propertyName(property != null ? property.getPropertyName() : null)
+                .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
+                .tenantUserId(contract.getTenant() != null && contract.getTenant().getUser() != null
+                        ? contract.getTenant().getUser().getId() : null)
+                .tenantName(contract.getTenant() != null && contract.getTenant().getUser() != null
+                        ? contract.getTenant().getUser().getFullName()
+                        : contract.getDraftTenantName())
+                .tenantOtpVerified(contract.getTenantOtpVerifiedAt() != null)
+                .managerOtpVerified(contract.getManagerOtpVerifiedAt() != null)
+                .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
+                .paymentStatus(contract.getPaymentStatus() != null ? contract.getPaymentStatus().name() : null)
+                .build();
+
+        Set<UUID> sent = new HashSet<>();
+        sendToRole(Role.ROLE_ADMIN, event, sent);
+        if (property != null) {
+            sendByUserId(property.getOperationManagerId(), event, sent);
+        }
+        if (contract.getAssignedManager() != null) {
+            sendToUser(contract.getAssignedManager(), event, sent);
+        }
+        if (contract.getOnboardedByManager() != null) {
+            sendToUser(contract.getOnboardedByManager(), event, sent);
+        }
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            sendToUser(contract.getTenant().getUser(), event, sent);
+        }
+    }
+
     private String resolveUserName(UUID userId) {
         if (userId == null) {
             return null;

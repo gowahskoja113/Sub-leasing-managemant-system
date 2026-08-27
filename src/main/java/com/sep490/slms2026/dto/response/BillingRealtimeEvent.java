@@ -32,4 +32,10 @@ public class BillingRealtimeEvent {
     String remittedByName;
     String payerName;
     String unlockedByAdminName;
+
+    /** Dual-OTP confirm progress (CONTRACT_CONFIRM_PROGRESS / CONTRACT_ACTIVATED). */
+    Boolean tenantOtpVerified;
+    Boolean managerOtpVerified;
+    String contractStatus;
+    String paymentStatus;
 }

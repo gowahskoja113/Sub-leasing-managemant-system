@@ -163,9 +163,17 @@ public class TenantContract implements Serializable {
     @Column(name = "deposit_method", length = 50)
     private String depositMethod;
 
-    /** Thời điểm HĐ chuyển sang ACTIVE (confirm OTP thành công). */
+    /** Thời điểm HĐ chuyển sang ACTIVE (cả 2 OTP xác nhận thành công). */
     @Column(name = "activated_at")
     private LocalDateTime activatedAt;
+
+    /** Thời điểm khách nhập đúng OTP xác nhận hợp đồng. */
+    @Column(name = "tenant_otp_verified_at")
+    private LocalDateTime tenantOtpVerifiedAt;
+
+    /** Thời điểm quản lý nhập đúng OTP xác nhận hợp đồng. */
+    @Column(name = "manager_otp_verified_at")
+    private LocalDateTime managerOtpVerifiedAt;
 
     /** Khách xác nhận đã trả cọc tiền mặt. */
     @Column(name = "deposit_cash_tenant_confirmed_at")

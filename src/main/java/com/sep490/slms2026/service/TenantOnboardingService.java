@@ -24,11 +24,32 @@ public interface TenantOnboardingService {
      */
     TenantContractResponse createDepositPayment(Long contractId);
 
-    /** Hoàn tất HĐ (sau khi đã thanh toán cọc + OTP): set ACTIVE, phòng RENTED. */
+    /**
+     * Manager xác nhận OTP của mình ({@code CONTRACT_CONFIRM_MANAGER}).
+     * Chỉ kích hoạt HĐ khi cả tenant lẫn manager đã verify.
+     */
     TenantContractResponse confirmContract(Long contractId, String otp);
 
-    /** Gửi OTP SMS tới SĐT khách thuê để xác nhận hoàn tất HĐ. */
+    /**
+     * Tenant (đã login) xác nhận OTP của mình ({@code CONTRACT_CONFIRM_TENANT}).
+     * Chỉ kích hoạt HĐ khi cả hai bên đã verify.
+     */
+    TenantContractResponse confirmContractByTenant(Long contractId, String otp);
+
+    /**
+     * Manager gửi lại OTP của mình. Tenant mới là người khởi động gửi cả 2 mã
+     * qua {@link #sendDualContractConfirmOtps(Long)}.
+     */
     void sendContractConfirmOtp(Long contractId);
+
+    /**
+     * Tenant bấm "Gửi OTP xác nhận": sinh 2 mã (TENANT + MANAGER), gửi về số override.
+     * Kiểm tra cửa sổ nhận sớm tại bước này (không chặn lúc verify).
+     */
+    void sendDualContractConfirmOtps(Long contractId);
+
+    /** HĐ PENDING + PAID đang chờ tenant xác nhận (cho RootNavigator ép màn confirm). */
+    java.util.Optional<TenantContractResponse> findPendingConfirmForTenant(java.util.UUID tenantUserId);
 
     /** Đánh dấu đã thanh toán theo orderCode (gọi từ webhook PayOS). */
     void markDepositPaid(Long payosOrderCode);

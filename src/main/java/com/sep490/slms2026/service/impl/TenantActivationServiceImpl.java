@@ -7,6 +7,7 @@ import com.sep490.slms2026.dto.response.TenantActivateCheckResponse;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.OtpPurpose;
+import com.sep490.slms2026.enums.PaymentStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.repository.TenantContractRepository;
@@ -75,10 +76,10 @@ public class TenantActivationServiceImpl implements TenantActivationService {
                     .build();
         }
 
-        if (!hasActiveContract(user)) {
+        if (!hasEligibleContract(user)) {
             return TenantActivateCheckResponse.builder()
                     .status("NOT_ELIGIBLE")
-                    .message("Chưa có hợp đồng hiệu lực. Vui lòng hoàn tất nhận phòng với quản lý trước.")
+                    .message("Chưa có hợp đồng đã thanh toán. Vui lòng hoàn tất thanh toán cọc với quản lý trước.")
                     .username(user.getUsername())
                     .build();
         }
@@ -136,9 +137,12 @@ public class TenantActivationServiceImpl implements TenantActivationService {
                 .orElseThrow(() -> new BusinessException(check.getMessage()));
     }
 
-    private boolean hasActiveContract(User user) {
+    /** Cho phép kích hoạt khi đã ACTIVE hoặc PENDING+PAID (chờ dual-OTP confirm). */
+    private boolean hasEligibleContract(User user) {
         return tenantContractRepository.findByTenantId(user.getId()).stream()
-                .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE);
+                .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
+                        || (c.getStatus() == ContractStatus.PENDING
+                        && c.getPaymentStatus() == PaymentStatus.PAID));
     }
 
     private Optional<User> findUserByPhone(String localPhone) {
