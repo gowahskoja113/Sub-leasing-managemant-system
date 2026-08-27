@@ -148,6 +148,9 @@ billing:
     termination-after-days: 3
     # Nhắc trước phát hành (D-N … D-1); N=2 → ngày 30 và 31 khi phát hành mùng 1
     issue-reminder-lead-days: 2
+  utility:
+    # Trần tổng phòng = totalQuantity × (1 + % này). Đọc trễ vài ngày so với chốt EVN vẫn lọt.
+    room-sum-tolerance-percent: ${BILLING_UTILITY_ROOM_SUM_TOLERANCE_PERCENT:10}
 
 # Bảo trì: tự xác nhận nếu tenant không phản hồi
 maintenance:
@@ -167,3 +170,7 @@ manager:
     passcode-ttl-minutes: ${MANAGER_OVERRIDE_PASSCODE_TTL_MINUTES:10}
     # TTL overrideToken sau verify (phút), mặc định 15
     ttl-minutes: ${MANAGER_OVERRIDE_TTL_MINUTES:15}
+
+# Đối soát điện/nước nhà chia phòng: hao hụt (companyBorn ÷ total) vượt ngưỡng → cảnh báo.
+utility:
+  loss-alert-threshold-percent: ${UTILITY_LOSS_ALERT_THRESHOLD_PERCENT:15}

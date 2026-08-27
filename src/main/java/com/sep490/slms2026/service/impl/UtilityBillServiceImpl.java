@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.CreateUtilityBillRequest;
+import com.sep490.slms2026.dto.response.RoomUtilitySumSnapshot;
 import com.sep490.slms2026.dto.response.UtilityBillResponse;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.Property;
@@ -28,6 +29,7 @@ import com.sep490.slms2026.service.UtilityInvoiceService;
 import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -65,6 +67,9 @@ public class UtilityBillServiceImpl implements UtilityBillService {
     private final UtilityInvoiceService utilityInvoiceService;
     private final TenantContractRepository tenantContractRepository;
     private final HostNotificationRepository hostNotificationRepository;
+
+    @Value("${billing.utility.room-sum-tolerance-percent:10}")
+    private int roomSumTolerancePercent;
 
     @Override
     @Transactional
@@ -452,6 +457,22 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 && bill.getReadingDeadline() != null
                 && today.isAfter(bill.getReadingDeadline())
                 && progress.roomsDone() < progress.roomsTotal();
+
+        BigDecimal roomSumQuantity = null;
+        BigDecimal roomSumCap = null;
+        Integer roomsBilled = null;
+        Integer roomsExpected = null;
+        if (!wholeHouse && qty != null) {
+            RoomUtilitySumSnapshot snap = utilityInvoiceService.sumActiveRoomConsumptions(
+                    bill.getProperty().getId(), bill.getBillingPeriod(), type, null);
+            roomSumQuantity = snap.getSum() != null ? snap.getSum() : BigDecimal.ZERO;
+            BigDecimal tolerance = BigDecimal.valueOf(roomSumTolerancePercent)
+                    .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+            roomSumCap = BigDecimal.valueOf(qty).multiply(BigDecimal.ONE.add(tolerance));
+            roomsBilled = progress.roomsDone();
+            roomsExpected = progress.roomsTotal();
+        }
+
         return UtilityBillResponse.builder()
                 .id(bill.getId())
                 .propertyId(bill.getProperty().getId())
@@ -474,6 +495,10 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 .overdue(overdue)
                 .billedToTenantQuantity(bill.getBilledToTenantQuantity())
                 .companyBornQuantity(bill.getCompanyBornQuantity())
+                .roomSumQuantity(roomSumQuantity)
+                .roomSumCap(roomSumCap)
+                .roomsBilled(roomsBilled)
+                .roomsExpected(roomsExpected)
                 .build();
     }
 

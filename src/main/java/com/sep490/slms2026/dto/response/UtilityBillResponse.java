@@ -39,9 +39,18 @@ public class UtilityBillResponse {
     /** Quá hạn mà chưa ghi đủ phòng. */
     private Boolean overdue;
 
-    /** Phần tiêu thụ đã phát hành cho khách (kWh/m³). Null nếu chưa phát hành nguyên căn. */
+    /** Phần tiêu thụ đã phát hành cho khách (kWh/m³). Null khi nhà chia phòng chưa đọc đủ phòng. */
     private BigDecimal billedToTenantQuantity;
-    /** Phần tiêu thụ công ty chịu khi khách dọn giữa kỳ. */
+    /** Phần tiêu thụ công ty chịu (hao hụt / trước khi đón khách). */
     private BigDecimal companyBornQuantity;
+
+    /** Tổng tiêu thụ các phòng đã ghi trong kỳ (chia phòng). Null với nguyên căn / chưa có HĐ phòng. */
+    private BigDecimal roomSumQuantity;
+    /** Trần cho phép = totalQuantity × (1 + tolerance%). */
+    private BigDecimal roomSumCap;
+    /** Số phòng đã phát hành hoá đơn kỳ này (alias roomsDone cho FE tiến độ). */
+    private Integer roomsBilled;
+    /** Số phòng cần ghi kỳ này (alias roomsTotal). */
+    private Integer roomsExpected;
 }
 

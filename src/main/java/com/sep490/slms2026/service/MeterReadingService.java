@@ -15,5 +15,17 @@ public interface MeterReadingService {
 
     List<PendingMeterReadingItem> listPending(String period);
 
+    /**
+     * Phòng còn thiếu ảnh công tơ cho (property, period, type) — cùng điều kiện {@link #listPending}.
+     * Không lọc theo user hiện tại (dùng nội bộ để chốt đối soát).
+     */
+    List<PendingMeterReadingItem> listPendingFor(Long propertyId, String period, UtilityType type);
+
+    /**
+     * Phòng có HĐ ACTIVE cần đọc kỳ này (cùng filter {@link #listPending}, chưa trừ ảnh).
+     * Dùng để biết tập phòng phải có hoá đơn trước khi chốt đối soát.
+     */
+    List<PendingMeterReadingItem> listEligibleForPeriod(Long propertyId, String period, UtilityType type);
+
     boolean hasPhoto(Long propertyId, Long roomId, UtilityType type, String period);
 }

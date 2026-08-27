@@ -148,44 +148,96 @@ public class MeterReadingServiceImpl implements MeterReadingService {
             if (!admin && !user.getId().equals(property.getOperationManagerId())) {
                 continue;
             }
-            LocalDate readingDeadline = bill.getReadingDeadline();
-            if (readingDeadline == null) {
+            UtilityType type = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
+            items.addAll(collectPendingForBill(bill, property, type, normalized, true));
+        }
+        return items;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingMeterReadingItem> listPendingFor(Long propertyId, String period, UtilityType type) {
+        return collectForPropertyPeriod(propertyId, period, type, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingMeterReadingItem> listEligibleForPeriod(Long propertyId, String period, UtilityType type) {
+        return collectForPropertyPeriod(propertyId, period, type, false);
+    }
+
+    private List<PendingMeterReadingItem> collectForPropertyPeriod(
+            Long propertyId, String period, UtilityType type, boolean onlyMissingPhoto) {
+        YearMonth month = ContractBillingCalendar.parsePeriod(period)
+                .orElse(YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")));
+        String normalized = ContractBillingCalendar.normalizePeriod(month);
+        UtilityType resolvedType = type != null ? type : UtilityType.ELECTRIC;
+
+        Optional<UtilityBill> billOpt = utilityBillRepository
+                .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+                        propertyId,
+                        month.getMonthValue(),
+                        month.getYear(),
+                        resolvedType,
+                        UtilityBillStatus.PUBLISHED);
+        if (billOpt.isEmpty()) {
+            return List.of();
+        }
+        UtilityBill bill = billOpt.get();
+        Property property = bill.getProperty();
+        if (property == null) {
+            return List.of();
+        }
+        return collectPendingForBill(bill, property, resolvedType, normalized, onlyMissingPhoto);
+    }
+
+    /**
+     * Cùng bộ điều kiện: HĐ ACTIVE có phòng, bỏ qua khách bắt đầu sau readingDeadline.
+     * {@code onlyMissingPhoto=true} → bỏ qua phòng đã có ảnh (listPending).
+     * Nhà nguyên căn (deadline null) → rỗng.
+     */
+    private List<PendingMeterReadingItem> collectPendingForBill(
+            UtilityBill bill,
+            Property property,
+            UtilityType type,
+            String normalizedPeriod,
+            boolean onlyMissingPhoto) {
+        LocalDate readingDeadline = bill.getReadingDeadline();
+        if (readingDeadline == null) {
+            return List.of();
+        }
+        List<PendingMeterReadingItem> items = new ArrayList<>();
+        for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(property.getId())) {
+            if (contract.getRoom() == null) {
                 continue;
             }
-            UtilityType type = bill.getType() != null ? bill.getType() : UtilityType.ELECTRIC;
-
-            for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(property.getId())) {
-                if (contract.getRoom() == null) {
-                    continue;
-                }
-                if (contract.getStartDate() != null && contract.getStartDate().isAfter(readingDeadline)) {
-                    continue;
-                }
-                Optional<MeterReading> reading = findReading(
-                        property.getId(),
-                        contract.getRoom().getId(),
-                        type,
-                        normalized);
-                boolean hasReading = reading.isPresent();
-                boolean hasPhoto = reading.filter(r -> r.getImageUrl() != null && !r.getImageUrl().isBlank()).isPresent();
-                if (hasPhoto) {
-                    continue;
-                }
-                int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
-                items.add(PendingMeterReadingItem.builder()
-                        .propertyId(property.getId())
-                        .propertyName(property.getPropertyName())
-                        .roomId(contract.getRoom().getId())
-                        .roomNumber(contract.getRoom().getRoomNumber())
-                        .contractId(contract.getId())
-                        .utilityType(UtilityTypeMapper.toApi(type))
-                        .period(normalized)
-                        .billingDay(billingDay)
-                        .meterDueDate(readingDeadline)
-                        .hasReading(hasReading)
-                        .hasPhoto(false)
-                        .build());
+            if (contract.getStartDate() != null && contract.getStartDate().isAfter(readingDeadline)) {
+                continue;
             }
+            Optional<MeterReading> reading = findReading(
+                    property.getId(),
+                    contract.getRoom().getId(),
+                    type,
+                    normalizedPeriod);
+            boolean hasReading = reading.isPresent();
+            boolean hasPhoto = reading.filter(r -> r.getImageUrl() != null && !r.getImageUrl().isBlank()).isPresent();
+            if (onlyMissingPhoto && hasPhoto) {
+                continue;
+            }
+            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
+            items.add(PendingMeterReadingItem.builder()
+                    .propertyId(property.getId())
+                    .propertyName(property.getPropertyName())
+                    .roomId(contract.getRoom().getId())
+                    .roomNumber(contract.getRoom().getRoomNumber())
+                    .contractId(contract.getId())
+                    .utilityType(UtilityTypeMapper.toApi(type))
+                    .period(normalizedPeriod)
+                    .billingDay(billingDay)
+                    .meterDueDate(readingDeadline)
+                    .hasReading(hasReading)
+                    .hasPhoto(hasPhoto)
+                    .build());
         }
         return items;
     }

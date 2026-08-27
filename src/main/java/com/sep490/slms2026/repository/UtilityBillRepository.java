@@ -29,6 +29,20 @@ public interface UtilityBillRepository extends JpaRepository<UtilityBill, Long> 
 
     @Query("""
             SELECT b FROM UtilityBill b
+            WHERE b.property.id = :propertyId
+              AND b.type = :type
+              AND b.companyBornQuantity IS NOT NULL
+              AND (b.year < :year OR (b.year = :year AND b.month < :month))
+            ORDER BY b.year DESC, b.month DESC
+            """)
+    List<UtilityBill> findPreviousWithCompanyBorn(
+            @Param("propertyId") Long propertyId,
+            @Param("type") UtilityType type,
+            @Param("year") int year,
+            @Param("month") int month);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
             JOIN FETCH b.property p
             WHERE b.status = :status
               AND b.readingDeadline IS NOT NULL
