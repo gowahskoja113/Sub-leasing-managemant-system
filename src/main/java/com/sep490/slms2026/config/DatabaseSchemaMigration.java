@@ -123,6 +123,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         } catch (Exception e) {
             log.debug("rent_escalation_type widen: {}", e.getMessage());
         }
+        ensureTenantContractsRentEscalationTypeConstraint();
         addColumnIfNotExists("utility_bills", "reading_deadline", "DATE");
         // Nguyên căn: tách phần khách trả vs công ty chịu khi đón khách giữa kỳ
         addColumnIfNotExists("utility_bills", "billed_to_tenant_quantity", "NUMERIC(19, 4)");
@@ -1026,6 +1027,23 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             log.info("Migrated tenant_contracts_status_check constraint");
         } catch (Exception e) {
             log.warn("Could not migrate tenant_contracts_status_check constraint: {}", e.getMessage());
+        }
+    }
+
+    /** Enum RentEscalationType thêm ANNUAL_CALENDAR — constraint Hibernate cũ chỉ có NONE/PERCENT/SCHEDULE. */
+    private void ensureTenantContractsRentEscalationTypeConstraint() {
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE tenant_contracts DROP CONSTRAINT IF EXISTS tenant_contracts_rent_escalation_type_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE tenant_contracts ADD CONSTRAINT tenant_contracts_rent_escalation_type_check
+                        CHECK (rent_escalation_type IN (
+                            'NONE', 'PERCENT', 'SCHEDULE', 'ANNUAL_CALENDAR'
+                        ))
+                    """);
+            log.info("Ensured tenant_contracts_rent_escalation_type_check includes ANNUAL_CALENDAR");
+        } catch (Exception e) {
+            log.warn("Could not migrate tenant_contracts_rent_escalation_type_check: {}", e.getMessage());
         }
     }
 

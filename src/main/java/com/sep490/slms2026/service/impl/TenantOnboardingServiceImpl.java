@@ -60,6 +60,7 @@ import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.PaymentMethods;
 import com.sep490.slms2026.util.TenantContractPaymentAmounts;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -74,8 +75,10 @@ import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -94,6 +97,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @org.springframework.beans.factory.annotation.Value("${contract.no-show-grace-days:10}")
     private int noShowGraceDays;
 
+    private final EntityManager entityManager;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final PropertyRepository propertyRepository;
@@ -271,10 +275,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 saved = tenantContractRepository.saveAndFlush(contract);
                 break;
             } catch (DataIntegrityViolationException e) {
+                if (!isDuplicateContractCode(e)) {
+                    throw e;
+                }
                 if (attempt == 2) {
                     throw new BusinessException("Hệ thống đang bận, vui lòng thử lại để sinh mã hợp đồng");
                 }
                 log.warn("Trùng mã hợp đồng {}, thử lại lần {}", contract.getContractCode(), attempt + 1);
+                entityManager.detach(contract);
             }
         }
 
@@ -1761,6 +1769,23 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .or(() -> userRepository.findByUsername(localPhone))
                 .or(() -> userRepository.findByUsername(internationalPhone))
                 .orElse(null);
+    }
+
+    /** Chỉ retry sinh mã khi trùng unique contract_code (23505), không phải check constraint khác. */
+    private static boolean isDuplicateContractCode(DataIntegrityViolationException e) {
+        for (Throwable t = e.getMostSpecificCause(); t != null; t = t.getCause()) {
+            if (t instanceof SQLException sql) {
+                if ("23505".equals(sql.getSQLState())) {
+                    String msg = sql.getMessage();
+                    return msg != null && msg.toLowerCase(Locale.ROOT).contains("contract_code");
+                }
+                return false;
+            }
+        }
+        String msg = e.getMessage();
+        return msg != null
+                && msg.toLowerCase(Locale.ROOT).contains("contract_code")
+                && msg.toLowerCase(Locale.ROOT).contains("duplicate");
     }
 
     private String generateContractCode() {
