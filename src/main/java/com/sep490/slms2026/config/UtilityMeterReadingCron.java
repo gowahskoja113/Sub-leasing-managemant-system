@@ -18,7 +18,7 @@ public class UtilityMeterReadingCron {
     private final UtilityBillService utilityBillService;
 
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Ho_Chi_Minh")
-    @Scheduled(cron = "0 0 15 * * *", zone = "Asia/Ho_Chi_Minh")
+    @Scheduled(cron = "0 0 18 * * *", zone = "Asia/Ho_Chi_Minh")
     @Scheduled(cron = "0 0 20 * * *", zone = "Asia/Ho_Chi_Minh")
     public void remindUtilityMeterReading() {
         int reminded = utilityBillService.remindUtilityMeterReading();

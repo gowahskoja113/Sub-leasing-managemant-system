@@ -257,7 +257,7 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                         false)) {
                     sent++;
                 }
-            } else if (today.equals(deadline) && !now.isBefore(LocalTime.of(15, 0))) {
+            } else if (today.equals(deadline) && !now.isBefore(LocalTime.of(18, 0))) {
                 if (notifyReadingMilestone(bill, "UTILITY_READING_DUE_TODAY",
                         "utility-reading:" + bill.getId() + ":due-today",
                         dueTodayTitle(bill),
@@ -283,7 +283,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
         String kind = water ? "nước" : "điện";
         String unit = water ? "m³" : "kWh";
         String label = propertyLabel(property);
-        String paramsJson = "{\"propertyId\":" + property.getId() + "}";
+        String periodStr = bill.getBillingPeriod();
+        String paramsJson = "{\"propertyId\":" + property.getId() + ",\"period\":\"" + periodStr + "\"}";
 
         String notifType;
         String title;
@@ -299,20 +300,21 @@ public class UtilityBillServiceImpl implements UtilityBillService {
             RoomProgress progress = roomProgress(bill);
             int total = progress.roomsTotal();
             int remaining = Math.max(total - progress.roomsDone(), 0);
-            notifType = "UTILITY_READING_ASSIGNED";
-            title = "⚡ Việc hôm nay: chụp đồng hồ " + kind;
-            content = "⚡ Việc hôm nay: chụp đồng hồ + ghi chỉ số " + total + " phòng · " + label
-                    + " · đơn giá " + formatVnPrice(bill.getUnitPrice()) + "đ/" + unit
-                    + ". Phải xong trong hôm nay. Còn " + remaining + "/" + total + " phòng.";
+            notifType = "UTILITY_READING_TODAY";
+            title = "⚡ HÔM NAY phải chụp công tơ — nhà " + property.getPropertyName();
+            content = "Admin vừa chốt hoá đơn " + kind + " kỳ " + bill.getMonth() + "/" + bill.getYear() + ". "
+                    + "Chỉ số phải chụp trong hôm nay để khớp đúng mốc EVN. "
+                    + "Còn " + remaining + "/" + total + " phòng chưa có ảnh.";
             dedupeKey = "utility-reading:" + bill.getId() + ":assigned";
         }
+        String screen = wholeHouse ? "UtilityBilling" : "MeterReadingPending";
 
         notificationRepository.save(Notification.builder()
                 .userId(managerId)
                 .title(title)
                 .content(content)
                 .type(notifType)
-                .screen("UtilityBilling")
+                .screen(screen)
                 .paramsJson(paramsJson)
                 .dedupeKey(dedupeKey)
                 .read(false)
@@ -320,9 +322,10 @@ public class UtilityBillServiceImpl implements UtilityBillService {
 
         Map<String, Object> data = new HashMap<>();
         data.put("type", notifType);
-        data.put("screen", "UtilityBilling");
+        data.put("screen", screen);
         data.put("propertyId", property.getId());
-        data.put("params", Map.of("propertyId", property.getId()));
+        data.put("period", periodStr);
+        data.put("params", Map.of("propertyId", property.getId(), "period", periodStr));
         userPushTokenService.sendToUser(managerId, title, content, data);
     }
 
@@ -331,14 +334,16 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                                            String title, String content, boolean notifyAdminAndHost) {
         Property property = bill.getProperty();
         UUID managerId = resolveManagerId(property);
-        String paramsJson = "{\"propertyId\":" + property.getId() + ",\"billId\":" + bill.getId() + "}";
-        boolean sent = notifyAppUser(managerId, type, title, content, paramsJson, dedupeKey);
+        String periodStr = bill.getBillingPeriod();
+        String paramsJson = "{\"propertyId\":" + property.getId() + ",\"period\":\"" + periodStr + "\"}";
+        String screen = "MeterReadingPending";
+        boolean sent = notifyAppUser(managerId, type, title, content, paramsJson, dedupeKey, screen, property.getId(), periodStr);
 
         if (!notifyAdminAndHost) {
             return sent;
         }
         for (User admin : userRepository.findByRoleAndStatus(Role.ROLE_ADMIN, UserStatus.ACTIVE)) {
-            if (notifyAppUser(admin.getId(), type, title, content, paramsJson, dedupeKey)) {
+            if (notifyAppUser(admin.getId(), type, title, content, paramsJson, dedupeKey, screen, property.getId(), periodStr)) {
                 sent = true;
             }
         }
@@ -363,7 +368,7 @@ public class UtilityBillServiceImpl implements UtilityBillService {
     }
 
     private boolean notifyAppUser(UUID userId, String type, String title, String content,
-                                  String paramsJson, String dedupeKey) {
+                                  String paramsJson, String dedupeKey, String screen, Long propertyId, String period) {
         if (userId == null) {
             return false;
         }
@@ -376,7 +381,7 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                     .title(title)
                     .content(content)
                     .type(type)
-                    .screen("UtilityBilling")
+                    .screen(screen)
                     .paramsJson(paramsJson)
                     .dedupeKey(dedupeKey)
                     .read(false)
@@ -386,18 +391,20 @@ public class UtilityBillServiceImpl implements UtilityBillService {
         }
         Map<String, Object> data = new HashMap<>();
         data.put("type", type);
-        data.put("screen", "UtilityBilling");
-        data.put("params", paramsJson);
+        data.put("screen", screen);
+        if (propertyId != null) data.put("propertyId", propertyId);
+        if (period != null) data.put("period", period);
+        data.put("params", Map.of("propertyId", propertyId != null ? propertyId : "", "period", period != null ? period : ""));
         userPushTokenService.sendToUser(userId, title, content, data);
         return true;
     }
 
     private String dueTodayTitle(UtilityBill bill) {
-        return "⏰ Còn phòng chưa ghi chỉ số — hết hôm nay là quá hạn";
+        return "⚡ Cuối ngày rồi — còn phòng thiếu ảnh công tơ";
     }
 
     private String dueTodayContent(UtilityBill bill, int remaining, int total) {
-        return "⏰ Còn " + remaining + "/" + total + " phòng chưa ghi chỉ số — hết hôm nay là quá hạn"
+        return "⚡ Cuối ngày rồi — còn " + remaining + "/" + total + " phòng chưa có ảnh công tơ"
                 + " · " + kindPeriodLabel(bill) + " · " + propertyLabel(bill.getProperty());
     }
 
