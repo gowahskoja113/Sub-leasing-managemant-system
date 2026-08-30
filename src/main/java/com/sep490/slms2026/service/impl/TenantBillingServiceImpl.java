@@ -80,6 +80,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     @Value("${billing.manager-payment-qr.ttl-minutes:15}")
     private int managerPaymentQrTtlMinutes;
 
+    @Value("${billing.utility.payment-window-days:2}")
+    private int utilityPaymentWindowDays;
+
     @Override
     @Transactional
     public List<TenantInvoiceResponse> listInvoices(UUID tenantUserId, String status, String type) {
@@ -312,8 +315,9 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         TenantInvoiceType type = utilityInvoice.getUtilityType() == UtilityType.ELECTRIC
                 ? TenantInvoiceType.ELECTRICITY
                 : TenantInvoiceType.WATER;
-        YearMonth ym = YearMonth.from(utilityInvoice.getCreatedAt());
-        LocalDate dueDate = ym.atEndOfMonth().plusDays(20);
+        
+        java.time.LocalDate issuedOn = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
+        java.time.LocalDate dueDate = issuedOn.plusDays(utilityPaymentWindowDays);
 
         if (existing != null) {
             if (existing.getStatus() == TenantInvoiceStatus.PAID) {

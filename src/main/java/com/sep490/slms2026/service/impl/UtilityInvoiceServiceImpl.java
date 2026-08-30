@@ -577,6 +577,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 Map<String, Object> data = new HashMap<>();
                 data.put("screen", "InvoiceList");
                 data.put("type", "UTILITY_INVOICE_CREATED");
+                data.put("invoiceId", invoice.getId());
                 userPushTokenService.sendToUser(tenantId, title, content, data);
             }
         }

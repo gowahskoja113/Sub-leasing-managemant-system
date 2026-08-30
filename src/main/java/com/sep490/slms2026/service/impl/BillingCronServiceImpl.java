@@ -146,11 +146,21 @@ public class BillingCronServiceImpl implements BillingCronService {
         Set<Long> frozenInvoiceIds = invoiceDisputeService.openDisputeTenantInvoiceIds();
         // Gộp tin quản lý ngày 5–7: 1 tin/manager/ngày (không spam, không lộ số tiền)
         Map<UUID, List<ManagerUnpaidLine>> managerUnpaidDigest = new LinkedHashMap<>();
+        Map<UUID, List<ManagerUtilityUnpaidLine>> managerUtilityUnpaidDigest = new LinkedHashMap<>();
 
         for (TenantInvoice invoice : invoices) {
             if (frozenInvoiceIds.contains(invoice.getId())) {
                 continue;
             }
+
+            if ((invoice.getInvoiceType() == TenantInvoiceType.ELECTRICITY || invoice.getInvoiceType() == TenantInvoiceType.WATER)
+                    && invoice.getDueDate() != null) {
+                long daysUntilDue = ChronoUnit.DAYS.between(today, invoice.getDueDate());
+                String period = invoice.getBillingPeriod() != null ? invoice.getBillingPeriod() : "";
+                long overdueDays = daysUntilDue < 0 ? -daysUntilDue : 0;
+                collectManagerUtilityUnpaid(managerUtilityUnpaidDigest, invoice, period, overdueDays, daysUntilDue);
+            }
+
             // Check idempotency: if we already reminded today, skip
             if (today.equals(invoice.getLastReminderDate())) {
                 continue;
@@ -329,6 +339,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         }
 
         int managerUnpaidNotified = flushManagerUnpaidDigest(managerUnpaidDigest, today);
+        int managerUtilityUnpaidNotified = flushManagerUtilityUnpaidDigest(managerUtilityUnpaidDigest, today);
 
         Map<String, Integer> stats = new HashMap<>();
         stats.put("reminded", reminded);
@@ -340,6 +351,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         stats.put("meterReminded", meterReminded);
         stats.put("issueReminded", issueReminded);
         stats.put("managerUnpaidNotified", managerUnpaidNotified);
+        stats.put("managerUtilityUnpaidNotified", managerUtilityUnpaidNotified);
         return stats;
     }
     
@@ -501,6 +513,100 @@ public class BillingCronServiceImpl implements BillingCronService {
         // Ngày trước mốc chấm dứt (mặc định ngày 7 → quá hạn 2 ngày)
         return "Quá hạn " + line.overdueDays() + " ngày — " + who + " (" + line.period()
                 + "). Ngày mai đủ điều kiện đề nghị chấm dứt hợp đồng.";
+    }
+
+    private record ManagerUtilityUnpaidLine(String tenantName, String roomLabel, String period, long overdueDays, long daysUntilDue, Long invoiceId, Long propertyId) {}
+
+    private void collectManagerUtilityUnpaid(Map<UUID, List<ManagerUtilityUnpaidLine>> digest,
+                                      TenantInvoice invoice, String period, long overdueDays, long daysUntilDue) {
+        UUID managerId = resolvePropertyManagerId(invoice);
+        if (managerId == null) {
+            return;
+        }
+        String tenantName = "Khách";
+        if (invoice.getTenantContract().getTenant() != null
+                && invoice.getTenantContract().getTenant().getUser() != null
+                && invoice.getTenantContract().getTenant().getUser().getFullName() != null) {
+            tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+        } else if (invoice.getTenantContract().getDraftTenantName() != null) {
+            tenantName = invoice.getTenantContract().getDraftTenantName();
+        }
+        String roomStr = invoice.getTenantContract().getRoom() != null
+                ? invoice.getTenantContract().getRoom().getRoomNumber()
+                : "Nguyên căn";
+        Long propertyId = invoice.getTenantContract().getProperty() != null ? invoice.getTenantContract().getProperty().getId() : null;
+        digest.computeIfAbsent(managerId, k -> new ArrayList<>())
+                .add(new ManagerUtilityUnpaidLine(tenantName, roomStr, period, overdueDays, daysUntilDue, invoice.getId(), propertyId));
+    }
+
+    private int flushManagerUtilityUnpaidDigest(Map<UUID, List<ManagerUtilityUnpaidLine>> digest, LocalDate today) {
+        if (digest == null || digest.isEmpty()) {
+            return 0;
+        }
+        int sent = 0;
+        String dayKey = today.format(DAY_KEY);
+        for (Map.Entry<UUID, List<ManagerUtilityUnpaidLine>> entry : digest.entrySet()) {
+            UUID managerId = entry.getKey();
+            List<ManagerUtilityUnpaidLine> lines = entry.getValue();
+            if (lines == null || lines.isEmpty()) {
+                continue;
+            }
+            String dedupeKey = "UTILITY_UNPAID_MANAGER:" + managerId + ":" + dayKey;
+            
+            // Tính số lượng phòng chưa thanh toán
+            int total = lines.size();
+            long maxOverdue = lines.stream().mapToLong(ManagerUtilityUnpaidLine::overdueDays).max().orElse(0);
+            long minDaysUntilDue = lines.stream().mapToLong(ManagerUtilityUnpaidLine::daysUntilDue).min().orElse(0);
+            
+            String title;
+            if (maxOverdue > 0) {
+                title = String.format("🔴 Quá hạn thanh toán — %d phòng chưa trả HĐ điện/nước", total);
+            } else if (minDaysUntilDue == 0) {
+                title = String.format("⚠️ HÔM NAY hạn cuối — %d phòng chưa trả HĐ điện/nước", total);
+            } else if (minDaysUntilDue > 0) {
+                title = String.format("⏳ Đã gửi HĐ điện/nước — %d phòng chưa thanh toán", total);
+            } else {
+                title = String.format("HĐ điện/nước — %d phòng chưa thanh toán", total);
+            }
+
+            StringBuilder content = new StringBuilder();
+            if (lines.size() == 1) {
+                ManagerUtilityUnpaidLine line = lines.get(0);
+                content.append(managerUtilityUnpaidLineContent(line));
+            } else {
+                for (ManagerUtilityUnpaidLine line : lines) {
+                    if (content.length() > 0) {
+                        content.append('\n');
+                    }
+                    content.append("• ").append(managerUtilityUnpaidLineContent(line));
+                }
+            }
+
+            // Gắn propertyId và period của bản ghi đầu tiên vào extraData
+            ManagerUtilityUnpaidLine firstLine = lines.get(0);
+            Map<String, Object> extraData = new HashMap<>();
+            if (firstLine.propertyId() != null) {
+                extraData.put("propertyId", firstLine.propertyId());
+            }
+            extraData.put("period", firstLine.period());
+            
+            if (sendPushNotificationOnly(managerId, title, content.toString(), "UTILITY_UNPAID_MANAGER", "BuildingBilling",
+                    dedupeKey, extraData)) {
+                sent++;
+            }
+        }
+        return sent;
+    }
+
+    private static String managerUtilityUnpaidLineContent(ManagerUtilityUnpaidLine line) {
+        String who = line.tenantName() + " · Phòng " + line.roomLabel();
+        if (line.overdueDays() > 0) {
+            return "Quá hạn " + line.overdueDays() + " ngày — " + who + " (" + line.period() + ")";
+        } else if (line.daysUntilDue() == 0) {
+            return "Hôm nay hạn cuối — " + who + " (" + line.period() + ")";
+        } else {
+            return "Còn " + line.daysUntilDue() + " ngày tới hạn — " + who + " (" + line.period() + ")";
+        }
     }
 
     /** true nếu HD-ONBOARD đã PAID và có tiền nhà kỳ đầu — không được đòi FIRST lần nữa. */
