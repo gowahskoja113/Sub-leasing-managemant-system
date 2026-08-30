@@ -12,7 +12,6 @@ import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.entity.UtilityBill;
 import com.sep490.slms2026.entity.UtilityInvoice;
-import com.sep490.slms2026.entity.BillingConfig;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -32,7 +31,6 @@ import com.sep490.slms2026.repository.UtilityBillRepository;
 import com.sep490.slms2026.repository.UtilityInvoiceRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
-import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.InvoiceDisputeService;
 import com.sep490.slms2026.service.MeterOverrideService;
 import com.sep490.slms2026.service.MeterReadingService;
@@ -76,7 +74,6 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
     private final MeterReadingService meterReadingService;
     private final MeterOverrideService meterOverrideService;
-    private final BillingConfigService billingConfigService;
     private final InvoiceDisputeService invoiceDisputeService;
     private final UserRepository userRepository;
 
@@ -87,6 +84,9 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     /** Trần tổng phòng = giấy × (1 + % này). */
     @Value("${billing.utility.room-sum-tolerance-percent:10}")
     private int roomSumTolerancePercent;
+
+    @Value("${billing.rent.grace-days:2}")
+    private int graceDaysValue;
 
     @Override
     @Transactional
@@ -652,12 +652,11 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
         java.time.YearMonth periodMonth = ContractBillingCalendar.parsePeriod(billingPeriod).orElse(null);
         if (periodMonth != null && java.time.YearMonth.from(today).equals(periodMonth)) {
-            BillingConfig config = billingConfigService.current();
             java.time.LocalDate deadline = contract != null
                     ? ContractBillingCalendar.dueDate(
                             periodMonth,
                             ContractBillingCalendar.billingDayOfMonth(contract),
-                            config.getGraceDays())
+                            graceDaysValue)
                     : periodMonth.atEndOfMonth();
             if (today.isAfter(deadline)) {
                 throw new BusinessException("UTILITY_WINDOW_CLOSED",

@@ -1,6 +1,5 @@
 package com.sep490.slms2026.service.impl;
 
-import com.sep490.slms2026.entity.BillingConfig;
 import com.sep490.slms2026.entity.MeterReading;
 import com.sep490.slms2026.entity.Notification;
 import com.sep490.slms2026.entity.TenantContract;
@@ -18,7 +17,6 @@ import com.sep490.slms2026.repository.NotificationRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.UserRepository;
-import com.sep490.slms2026.service.BillingConfigService;
 import com.sep490.slms2026.service.BillingCronService;
 import com.sep490.slms2026.service.InvoiceDisputeService;
 import com.sep490.slms2026.service.UnitPriceService;
@@ -60,10 +58,15 @@ public class BillingCronServiceImpl implements BillingCronService {
     private final UserPushTokenService userPushTokenService;
     private final TenantContractRepository tenantContractRepository;
     private final UserRepository userRepository;
-    private final BillingConfigService billingConfigService;
     private final MeterReadingRepository meterReadingRepository;
     private final UnitPriceService unitPriceService;
     private final InvoiceDisputeService invoiceDisputeService;
+
+    @Value("${billing.rent.reminder-lead-days:3}")
+    private int rentReminderLeadDaysValue;
+
+    @Value("${billing.meter.reminder-lead-days:1}")
+    private int meterReminderLeadDaysValue;
 
     @Value("${billing.reminder-days-before:3}")
     private int reminderDaysBefore;
@@ -120,8 +123,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         int renotified = 0;
 
         LocalDate today = todayVn();
-        BillingConfig billingConfig = billingConfigService.current();
-        int rentReminderLeadDays = billingConfig.getReminderLeadDays();
+        int rentReminderLeadDays = rentReminderLeadDaysValue;
         long finalOverdueDaysThreshold = (long) finalReminderDay - rentDueDay;
         if (finalOverdueDaysThreshold <= 0) {
             log.warn("Cấu hình vô lý: billing.rent.final-reminder-day ({}) <= billing.rent.due-day ({}) — nhắc lần cuối có thể bị bỏ",
@@ -131,7 +133,7 @@ public class BillingCronServiceImpl implements BillingCronService {
         int escalated = unitPriceService.applyDueEscalations();
         int escalationNotices = unitPriceService.notifyUpcomingAnnualEscalations();
         int issued = generateDueRentInvoices(today);
-        int meterReminded = remindPendingMeterReadings(today, billingConfig);
+        int meterReminded = remindPendingMeterReadings(today);
         int issueReminded = remindUpcomingRent(today);
 
         List<TenantInvoiceStatus> statuses = List.of(
@@ -744,13 +746,14 @@ public class BillingCronServiceImpl implements BillingCronService {
         return reminded;
     }
 
-    int remindPendingMeterReadings(LocalDate today, BillingConfig billingConfig) {
+    int remindPendingMeterReadings(LocalDate today) {
         YearMonth currentMonth = YearMonth.from(today);
         String period = ContractBillingCalendar.normalizePeriod(currentMonth);
         List<TenantContract> activeContracts =
                 tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
-        java.util.Set<UUID> notifiedManagers = new java.util.HashSet<>();
-        int reminded = 0;
+        
+        Map<UUID, List<TenantContract>> managerMissing = new HashMap<>();
+        Map<UUID, LocalDate> managerMeterDue = new HashMap<>();
 
         for (TenantContract contract : activeContracts) {
             if (contract.getProperty() == null) {
@@ -759,10 +762,10 @@ public class BillingCronServiceImpl implements BillingCronService {
             int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
             LocalDate remindDate = ContractBillingCalendar.meterRemindDate(
                     currentMonth, billingDay,
-                    billingConfig.getReminderLeadDays(),
-                    billingConfig.getMeterReminderLeadDays());
+                    rentReminderLeadDaysValue,
+                    meterReminderLeadDaysValue);
             LocalDate meterDue = ContractBillingCalendar.meterDueDate(
-                    currentMonth, billingDay, billingConfig.getReminderLeadDays());
+                    currentMonth, billingDay, rentReminderLeadDaysValue);
             if (today.isBefore(remindDate) || today.isAfter(meterDue)) {
                 continue;
             }
@@ -770,22 +773,65 @@ public class BillingCronServiceImpl implements BillingCronService {
                 continue;
             }
             UUID managerId = contract.getProperty().getOperationManagerId();
-            if (managerId == null || !notifiedManagers.add(managerId)) {
-                continue;
+            if (managerId != null) {
+                managerMissing.computeIfAbsent(managerId, k -> new ArrayList<>()).add(contract);
+                managerMeterDue.put(managerId, meterDue);
             }
+        }
+
+        int reminded = 0;
+        for (Map.Entry<UUID, List<TenantContract>> entry : managerMissing.entrySet()) {
+            UUID managerId = entry.getKey();
             LocalDateTime startOfDay = today.atStartOfDay();
             if (notificationRepository.existsByUserIdAndTypeAndCreatedAtGreaterThanEqual(
                     managerId, "METER_READING_DUE", startOfDay)) {
                 continue;
             }
-            String propertyName = contract.getProperty().getPropertyName();
-            String title = "📸 Cần chụp ảnh công tơ";
-            String content = "Nhà " + propertyName
-                    + " chưa có ảnh công tơ kỳ " + period
-                    + ". Hạn ghi điện " + meterDue.format(DateTimeFormatter.ofPattern("dd/MM"))
-                    + " — chưa có ảnh thì không phát hành hoá đơn điện/nước.";
-            String paramsJson = "{\"propertyId\":" + contract.getProperty().getId()
-                    + ",\"period\":\"" + period + "\"}";
+
+            List<TenantContract> contracts = entry.getValue();
+            LocalDate meterDue = managerMeterDue.get(managerId);
+
+            int totalMissingMeters = 0;
+            Map<String, Integer> propertyRoomsCount = new LinkedHashMap<>();
+            Map<String, Boolean> propertyWholeHouse = new HashMap<>();
+
+            for (TenantContract c : contracts) {
+                Long pId = c.getProperty().getId();
+                Long rId = c.getRoom() != null ? c.getRoom().getId() : null;
+                boolean missingElec = !hasMeterPhoto(pId, rId, UtilityType.ELECTRIC, period);
+                boolean missingWater = !hasMeterPhoto(pId, rId, UtilityType.WATER, period);
+                
+                if (missingElec) totalMissingMeters++;
+                if (missingWater) totalMissingMeters++;
+
+                String propName = c.getProperty().getPropertyName();
+                propertyRoomsCount.put(propName, propertyRoomsCount.getOrDefault(propName, 0) + 1);
+                if (rId == null) {
+                    propertyWholeHouse.put(propName, true);
+                }
+            }
+
+            StringBuilder summary = new StringBuilder();
+            int i = 0;
+            for (Map.Entry<String, Integer> pEntry : propertyRoomsCount.entrySet()) {
+                if (i > 0) summary.append(", ");
+                String propName = pEntry.getKey();
+                int count = pEntry.getValue();
+                boolean isWholeHouse = propertyWholeHouse.getOrDefault(propName, false);
+                
+                if (isWholeHouse) {
+                    summary.append(propName).append(" (nguyên căn)");
+                } else {
+                    summary.append(propName).append(" (").append(count).append(" phòng)");
+                }
+                i++;
+            }
+
+            String title = String.format("📸 Còn %d công tơ chưa chụp", totalMissingMeters);
+            String content = String.format("%s. Hạn ghi điện: %s.",
+                    summary.toString(), meterDue.format(DateTimeFormatter.ofPattern("dd/MM")));
+            String paramsJson = "{\"period\":\"" + period + "\"}";
+            
             notificationRepository.save(Notification.builder()
                     .userId(managerId)
                     .title(title)
@@ -795,10 +841,10 @@ public class BillingCronServiceImpl implements BillingCronService {
                     .paramsJson(paramsJson)
                     .read(false)
                     .build());
+            
             userPushTokenService.sendToUser(managerId, title, content, Map.of(
                     "type", "METER_READING_DUE",
                     "screen", "MeterReadingPending",
-                    "propertyId", contract.getProperty().getId(),
                     "period", period));
             reminded++;
         }
