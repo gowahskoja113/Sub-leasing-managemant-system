@@ -318,6 +318,8 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         
         java.time.LocalDate issuedOn = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
         java.time.LocalDate dueDate = issuedOn.plusDays(utilityPaymentWindowDays);
+        YearMonth ym = ContractBillingCalendar.parsePeriod(utilityInvoice.getBillingPeriod())
+                .orElse(YearMonth.from(issuedOn));
 
         if (existing != null) {
             if (existing.getStatus() == TenantInvoiceStatus.PAID) {
