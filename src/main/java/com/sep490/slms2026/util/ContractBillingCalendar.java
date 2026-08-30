@@ -25,13 +25,7 @@ public final class ContractBillingCalendar {
     }
 
     public static int billingDayOfMonth(TenantContract contract) {
-        LocalDate start = contract != null && contract.getStartDate() != null
-                ? contract.getStartDate()
-                : (contract != null ? contract.getMoveInDate() : null);
-        if (start == null) {
-            return 1;
-        }
-        return start.getDayOfMonth();
+        return REGULAR_RENT_DUE_DAY;
     }
 
     public static int clampDay(YearMonth month, int dayOfMonth) {
