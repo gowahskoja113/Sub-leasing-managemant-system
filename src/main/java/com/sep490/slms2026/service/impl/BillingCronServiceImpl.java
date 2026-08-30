@@ -376,11 +376,11 @@ public class BillingCronServiceImpl implements BillingCronService {
                         "screen", screen));
     }
 
-    private void sendPushNotificationOnly(UUID userId, String title, String content, String type, String screen) {
-        sendPushNotificationOnly(userId, title, content, type, screen, null, null);
+    private void sendNotificationWithPush(UUID userId, String title, String content, String type, String screen) {
+        sendNotificationWithPush(userId, title, content, type, screen, null, null);
     }
 
-    private boolean sendPushNotificationOnly(UUID userId, String title, String content, String type, String screen,
+    private boolean sendNotificationWithPush(UUID userId, String title, String content, String type, String screen,
                                           String dedupeKey, Map<String, Object> extraData) {
         Map<String, Object> data = new HashMap<>();
         data.put("type", type != null ? type : "BILLING");
@@ -484,7 +484,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                 content = body.toString();
             }
             // Không đưa số tiền — cùng chính sách PAYMENT_RECEIVED_MANAGER
-            if (sendPushNotificationOnly(managerId, title, content, "RENT_UNPAID_MANAGER", "RentInvoice",
+            if (sendNotificationWithPush(managerId, title, content, "RENT_UNPAID_MANAGER", "RentInvoice",
                     dedupeKey, Map.of("count", lines.size()))) {
                 sent++;
             }
@@ -590,7 +590,7 @@ public class BillingCronServiceImpl implements BillingCronService {
             }
             extraData.put("period", firstLine.period());
             
-            if (sendPushNotificationOnly(managerId, title, content.toString(), "UTILITY_UNPAID_MANAGER", "BuildingBilling",
+            if (sendNotificationWithPush(managerId, title, content.toString(), "UTILITY_UNPAID_MANAGER", "BuildingBilling",
                     dedupeKey, extraData)) {
                 sent++;
             }
@@ -599,7 +599,10 @@ public class BillingCronServiceImpl implements BillingCronService {
     }
 
     private static String managerUtilityUnpaidLineContent(ManagerUtilityUnpaidLine line) {
-        String who = line.tenantName() + " · Phòng " + line.roomLabel();
+        String where = "Nguyên căn".equals(line.roomLabel())
+                ? line.roomLabel()
+                : "Phòng " + line.roomLabel();
+        String who = line.tenantName() + " · " + where;
         if (line.overdueDays() > 0) {
             return "Quá hạn " + line.overdueDays() + " ngày — " + who + " (" + line.period() + ")";
         } else if (line.daysUntilDue() == 0) {
@@ -672,7 +675,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                     "%s · Phòng %s chưa thanh toán tiền phòng %s. Hợp đồng đã bị gắn cờ đề nghị chấm dứt.",
                     tenantName, roomStr, period);
             String dedupeKey = "RENT_OVERDUE_MANAGER:" + invoice.getId() + ":" + todayVn().format(DAY_KEY);
-            sendPushNotificationOnly(managerId, title, content, "RENT_OVERDUE_MANAGER", "RentInvoice",
+            sendNotificationWithPush(managerId, title, content, "RENT_OVERDUE_MANAGER", "RentInvoice",
                     dedupeKey, Map.of("invoiceId", invoice.getId()));
         }
         
@@ -687,7 +690,7 @@ public class BillingCronServiceImpl implements BillingCronService {
             String title = String.format("⛔ Khách thuê quá hạn tiền phòng %d ngày", overdueDays);
             String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán tiền phòng %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.", 
                     tenantName, roomStr, propertyName, period);
-            sendPushNotificationOnly(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice",
+            sendNotificationWithPush(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice",
                     "RENT_OVERDUE_HOST:" + invoice.getId() + ":" + host.getId(),
                     Map.of("invoiceId", invoice.getId()));
             
@@ -837,7 +840,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                     period, formatCurrency(amount), whenPhrase,
                     dueDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
             String dedupeKey = "RENT_REMINDER_PRE:" + contract.getId() + ":" + today.format(DAY_KEY);
-            boolean sent = sendPushNotificationOnly(
+            boolean sent = sendNotificationWithPush(
                     contract.getTenant().getId(), title, content, "RENT_REMINDER_PRE", "InvoiceList",
                     dedupeKey, null);
             // Luôn chốt mốc ngày dù dedupe chặn (cron chạy 2 lần / catch-up sweep)

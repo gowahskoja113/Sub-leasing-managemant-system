@@ -29,6 +29,8 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     boolean existsByUserIdAndDedupeKey(UUID userId, String dedupeKey);
 
+    java.util.Optional<Notification> findByDedupeKey(String dedupeKey);
+
     @Modifying
     @Query("UPDATE Notification n SET n.read = true WHERE n.userId = :userId")
     void markAllAsRead(@Param("userId") UUID userId);

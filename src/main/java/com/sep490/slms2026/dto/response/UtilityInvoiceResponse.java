@@ -30,4 +30,5 @@ public class UtilityInvoiceResponse {
     private LocalDateTime createdAt;
     private String tenantFullName;
     private String tenantPhone;
+    private Boolean tenantViewed;
 }

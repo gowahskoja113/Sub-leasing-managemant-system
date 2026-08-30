@@ -570,6 +570,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         .type("UTILITY_INVOICE_CREATED")
                         .screen("InvoiceList")
                         .paramsJson("{\"invoiceId\": " + invoice.getId() + "}")
+                        .dedupeKey("utility-invoice:" + invoice.getId() + ":created")
                         .read(false)
                         .build();
                 notificationRepository.save(notification);
@@ -752,6 +753,10 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         .tenantPhone(tenantUser.getPhoneNumber());
             }
         }
+
+        builder.tenantViewed(notificationRepository.findByDedupeKey("utility-invoice:" + invoice.getId() + ":created")
+                .map(Notification::isRead)
+                .orElse(null));
 
         return builder.build();
     }
