@@ -134,9 +134,11 @@ public class GeminiRoomDescribeProvider {
     }
 
     private String buildRequestBody(List<ImageSource> images) throws Exception {
-        // Tải song song — tránh tuần tự 20s/ảnh khiến request nhiều ảnh timeout.
-        List<byte[]> imageBytes = IntStream.range(0, images.size())
+        // Bắn hết task trước, join sau — stream pipeline map(join) ngay sau supplyAsync vẫn tuần tự.
+        List<CompletableFuture<byte[]>> downloads = IntStream.range(0, images.size())
                 .mapToObj(i -> CompletableFuture.supplyAsync(() -> images.get(i).bytes()))
+                .toList();
+        List<byte[]> imageBytes = downloads.stream()
                 .map(CompletableFuture::join)
                 .toList();
 
