@@ -714,7 +714,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
     private void validateInvoiceAmounts(CreateUtilityInvoiceRequest request) {
         BigDecimal expectedConsumption = request.getNewReading().subtract(request.getPrevReading());
-        if (expectedConsumption.compareTo(request.getConsumption()) != 0) {
+        // Cho phép ±1 đơn vị: prevReading cũ còn lẻ hoặc làm tròn đồng hồ (phần đỏ) trên FE.
+        if (expectedConsumption.subtract(request.getConsumption()).abs().compareTo(BigDecimal.ONE) > 0) {
             throw new BusinessException("CONSUMPTION_MISMATCH",
                     "Tiêu thụ không khớp (chỉ số mới − chỉ số cũ)");
         }

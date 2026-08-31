@@ -20,6 +20,8 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.IntStream;
 
 /**
  * Gemini (Google AI Studio) — nhìn cả bộ ảnh rồi viết 1 đoạn hiện trạng tiếng Việt.
@@ -132,15 +134,21 @@ public class GeminiRoomDescribeProvider {
     }
 
     private String buildRequestBody(List<ImageSource> images) throws Exception {
+        // Tải song song — tránh tuần tự 20s/ảnh khiến request nhiều ảnh timeout.
+        List<byte[]> imageBytes = IntStream.range(0, images.size())
+                .mapToObj(i -> CompletableFuture.supplyAsync(() -> images.get(i).bytes()))
+                .map(CompletableFuture::join)
+                .toList();
+
         ObjectNode root = objectMapper.createObjectNode();
         ArrayNode contents = root.putArray("contents");
         ObjectNode content = contents.addObject();
         ArrayNode parts = content.putArray("parts");
         parts.addObject().put("text", PROMPT);
-        for (ImageSource src : images) {
-            byte[] bytes = src.bytes();
+        for (int i = 0; i < images.size(); i++) {
+            byte[] bytes = imageBytes.get(i);
             ObjectNode inline = parts.addObject().putObject("inline_data");
-            inline.put("mime_type", guessMime(src.url()));
+            inline.put("mime_type", guessMime(images.get(i).url()));
             inline.put("data", Base64.getEncoder().encodeToString(bytes));
         }
         ObjectNode gen = root.putObject("generationConfig");

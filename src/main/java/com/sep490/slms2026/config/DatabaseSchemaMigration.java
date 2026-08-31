@@ -94,6 +94,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         // Dual OTP xác nhận HĐ (= 2 chữ ký điện tử OTP)
         addColumnIfNotExists("tenant_contracts", "tenant_otp_verified_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "manager_otp_verified_at", "TIMESTAMP");
+        addColumnIfNotExists("tenant_contracts", "confirm_requested_at", "TIMESTAMP");
         // Snapshot số tiền QR onboard — hoá đơn webhook khớp số đã quét
         addColumnIfNotExists("tenant_contracts", "onboard_qr_amount", "NUMERIC(19, 2)");
         addColumnIfNotExists("tenant_contracts", "onboard_qr_deposit_amount", "NUMERIC(19, 2)");
@@ -128,6 +129,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         // Nguyên căn: tách phần khách trả vs công ty chịu khi đón khách giữa kỳ
         addColumnIfNotExists("utility_bills", "billed_to_tenant_quantity", "NUMERIC(19, 4)");
         addColumnIfNotExists("utility_bills", "company_born_quantity", "NUMERIC(19, 4)");
+        roundLegacyMeterReadingsToIntegers();
         ensureZoneManagerTables();
         ensureRentalPriceModel();
         ensureCashCollectAndProxyPayTables();
@@ -1372,6 +1374,54 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.warn("Could not backfill tenant_invoice_payos_orders: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * FE từ 27/08 chỉ ghi phần nguyên đồng hồ; dữ liệu cũ còn phần lẻ gây CONSUMPTION_MISMATCH
+     * khi kỳ hoá đơn đầu lấy prevReading lẻ trừ newReading nguyên. Làm tròn HALF_UP một lần.
+     */
+    private void roundLegacyMeterReadingsToIntegers() {
+        try {
+            int tcElec = jdbcTemplate.update("""
+                    UPDATE tenant_contracts
+                    SET initial_electric_reading = ROUND(initial_electric_reading)
+                    WHERE initial_electric_reading IS NOT NULL
+                      AND initial_electric_reading <> ROUND(initial_electric_reading)
+                    """);
+            int tcWater = jdbcTemplate.update("""
+                    UPDATE tenant_contracts
+                    SET initial_water_reading = ROUND(initial_water_reading)
+                    WHERE initial_water_reading IS NOT NULL
+                      AND initial_water_reading <> ROUND(initial_water_reading)
+                    """);
+            int uiPrev = jdbcTemplate.update("""
+                    UPDATE utility_invoices
+                    SET prev_reading = ROUND(prev_reading)
+                    WHERE prev_reading <> ROUND(prev_reading)
+                    """);
+            int uiNew = jdbcTemplate.update("""
+                    UPDATE utility_invoices
+                    SET new_reading = ROUND(new_reading)
+                    WHERE new_reading <> ROUND(new_reading)
+                    """);
+            int uiCons = jdbcTemplate.update("""
+                    UPDATE utility_invoices
+                    SET consumption = ROUND(consumption)
+                    WHERE consumption <> ROUND(consumption)
+                    """);
+            int mr = jdbcTemplate.update("""
+                    UPDATE meter_readings
+                    SET reading = ROUND(reading)
+                    WHERE reading <> ROUND(reading)
+                    """);
+            int total = tcElec + tcWater + uiPrev + uiNew + uiCons + mr;
+            if (total > 0) {
+                log.info("Rounded legacy meter readings to integers: {} rows (tcElec={}, tcWater={}, uiPrev={}, uiNew={}, uiCons={}, mr={})",
+                        total, tcElec, tcWater, uiPrev, uiNew, uiCons, mr);
+            }
+        } catch (Exception e) {
+            log.warn("Could not round legacy meter readings: {}", e.getMessage());
         }
     }
 }

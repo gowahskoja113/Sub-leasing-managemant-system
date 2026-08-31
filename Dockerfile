@@ -11,6 +11,8 @@ WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 
 # Render injects PORT; Spring reads server.port
+# Cấu hình thêm trên server (không có trong image — .dockerignore loại .env):
+#   GEMINI_API_KEY=...   → POST /vision/describe-room
 ENV PORT=8080
 ENV TZ=Asia/Ho_Chi_Minh
 EXPOSE 8080

@@ -175,6 +175,10 @@ public class TenantContract implements Serializable {
     @Column(name = "manager_otp_verified_at")
     private LocalDateTime managerOtpVerifiedAt;
 
+    /** Thời điểm khách bấm gửi OTP xác nhận (chưa verify — khác với tenantOtpVerifiedAt). */
+    @Column(name = "confirm_requested_at")
+    private LocalDateTime confirmRequestedAt;
+
     /** Khách xác nhận đã trả cọc tiền mặt. */
     @Column(name = "deposit_cash_tenant_confirmed_at")
     private LocalDateTime depositCashTenantConfirmedAt;

@@ -439,6 +439,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .activatedAt(c.getActivatedAt())
                 .tenantOtpVerifiedAt(c.getTenantOtpVerifiedAt())
                 .managerOtpVerifiedAt(c.getManagerOtpVerifiedAt())
+                .confirmRequestedAt(c.getConfirmRequestedAt())
                 .documentUrl(resolveContractFileUrl(c))
                 .documentGeneratedAt(c.getDocumentGeneratedAt())
                 .type(type)

@@ -131,6 +131,8 @@ public class TenantContractResponse {
     private LocalDateTime tenantOtpVerifiedAt;
     /** Thời điểm quản lý verify OTP xác nhận HĐ. */
     private LocalDateTime managerOtpVerifiedAt;
+    /** Thời điểm khách bấm gửi OTP xác nhận (null = chưa bấm gửi). */
+    private LocalDateTime confirmRequestedAt;
 
     // Onboarding: thông tin tài khoản tenant sau confirm
     private String  tenantUsername;        // = SĐT khách (username). Không còn mật khẩu mặc định — khách tự kích hoạt trên app.

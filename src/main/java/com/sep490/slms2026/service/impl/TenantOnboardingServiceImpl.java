@@ -453,6 +453,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         assertEarlyMoveInWindowForSendOtp(contract);
 
+        if (contract.getConfirmRequestedAt() == null) {
+            contract.setConfirmRequestedAt(LocalDateTime.now());
+        }
+
         boolean sentAny = false;
         // Chỉ sinh lại mã của bên chưa verify — không reset mốc đã xong.
         if (contract.getTenantOtpVerifiedAt() == null) {
@@ -470,6 +474,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (!sentAny) {
             throw new BusinessException("Cả hai bên đã xác nhận OTP rồi");
         }
+        tenantContractRepository.saveAndFlush(contract);
         realtimeEventService.publishContractConfirmProgress(contract);
     }
 
@@ -1898,6 +1903,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .activatedAt(c.getActivatedAt())
                 .tenantOtpVerifiedAt(c.getTenantOtpVerifiedAt())
                 .managerOtpVerifiedAt(c.getManagerOtpVerifiedAt())
+                .confirmRequestedAt(c.getConfirmRequestedAt())
                 .tenantUsername(tenantUsername)
                 .tenantAccountCreated(accountCreated)
                 .tenantRolePromoted(rolePromoted)
