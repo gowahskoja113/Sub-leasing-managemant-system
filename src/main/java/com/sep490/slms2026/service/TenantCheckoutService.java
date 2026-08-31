@@ -38,4 +38,8 @@ public interface TenantCheckoutService {
     CheckoutRequestResponse forceSettle(Long requestId, UUID adminUserId, com.sep490.slms2026.dto.request.ForceSettleRequest request);
 
     CheckoutRequestResponse resolveRefundDispute(Long requestId, UUID adminUserId, com.sep490.slms2026.dto.request.ResolveRefundDisputeRequest request);
+
+    void processExpiredContracts();
+
+    void processContractExpirationReminders();
 }

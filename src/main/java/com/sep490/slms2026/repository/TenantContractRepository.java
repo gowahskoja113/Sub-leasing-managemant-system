@@ -266,7 +266,11 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     Optional<TenantContract> findByRoomIdAndStatus(Long roomId, ContractStatus status);
 
+    Optional<TenantContract> findTopByRoomIdAndStatusInOrderByEndDateDesc(Long roomId, java.util.Collection<ContractStatus> statuses);
+
     Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
+
+    Optional<TenantContract> findTopByPropertyIdAndRoomIsNullAndStatusInOrderByEndDateDesc(Long propertyId, java.util.Collection<ContractStatus> statuses);
 
     Optional<TenantContract> findTopByPropertyIdAndRoomIsNullOrderByEndDateDesc(Long propertyId);
 

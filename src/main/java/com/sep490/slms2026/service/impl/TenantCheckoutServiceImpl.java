@@ -820,5 +820,96 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .settlement(settlementDto)
                 .build();
     }
+
+    @Override
+    @Transactional
+    public void processExpiredContracts() {
+        LocalDate today = LocalDate.now();
+        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        
+        for (TenantContract contract : activeContracts) {
+            if (contract.getEndDate() != null && contract.getEndDate().isBefore(today)) {
+                contract.setStatus(ContractStatus.EXPIRED);
+                tenantContractRepository.save(contract);
+                
+                tenantOnboardingService.syncExpiredIfNeeded(contract);
+                
+                if (!checkoutRequestRepository.existsByTenantContractIdAndStatusIn(contract.getId(), OPEN_STATUSES)) {
+                    CheckoutRequest saved = checkoutRequestRepository.save(CheckoutRequest.builder()
+                            .tenantUserId(contract.getTenant().getId())
+                            .tenantContract(contract)
+                            .expectedMoveOutDate(contract.getEndDate())
+                            .reason("Hợp đồng hết hạn tự nhiên")
+                            .status(CheckoutRequestStatus.PENDING)
+                            .createdAt(LocalDateTime.now())
+                            .build());
+                    
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("screen", "CheckoutDetail");
+                    Map<String, Object> params = new HashMap<>();
+                    params.put("requestId", saved.getId());
+                    data.put("params", params);
+                    
+                    sendNotification(contract.getTenant().getId(), "CHECKOUT_REQUESTED_AUTO", 
+                            "Hợp đồng đã hết hạn", "Hệ thống đã tự động tạo phiếu trả phòng do hợp đồng hết hạn.", data);
+                            
+                    UUID managerId = getManagerId(contract);
+                    if (managerId != null) {
+                        sendNotification(managerId, "CHECKOUT_REQUESTED_AUTO", 
+                            "Hợp đồng đã hết hạn", "Hệ thống đã tự động tạo phiếu trả phòng cho hợp đồng hết hạn tự nhiên.", data);
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
+    @Transactional
+    public void processContractExpirationReminders() {
+        LocalDate today = LocalDate.now();
+        List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        
+        for (TenantContract contract : activeContracts) {
+            if (contract.getEndDate() == null) continue;
+            
+            long daysLeft = java.time.temporal.ChronoUnit.DAYS.between(today, contract.getEndDate());
+            if (daysLeft == 30 || daysLeft == 15 || daysLeft == 7 || daysLeft == 1 || daysLeft == 0) {
+                String roomStr = contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "Nguyên căn";
+                String title = "Hợp đồng sắp hết hạn";
+                String contentTenant = String.format("Hợp đồng của bạn sẽ hết hạn sau %d ngày (%s).", daysLeft, contract.getEndDate());
+                String contentManager = String.format("Hợp đồng phòng %s sẽ hết hạn sau %d ngày (%s).", roomStr, daysLeft, contract.getEndDate());
+                
+                if (daysLeft == 0) {
+                    title = "Hợp đồng hết hạn hôm nay";
+                    contentTenant = "Hợp đồng của bạn hết hạn hôm nay.";
+                    contentManager = String.format("Hợp đồng phòng %s hết hạn hôm nay.", roomStr);
+                }
+                
+                Map<String, Object> data = new HashMap<>();
+                data.put("screen", "ContractDetail");
+                Map<String, Object> params = new HashMap<>();
+                params.put("contractId", contract.getId());
+                data.put("params", params);
+                
+                // Gửi tenant
+                sendNotification(contract.getTenant().getUser().getId(), "CONTRACT_EXPIRING", title, contentTenant, data);
+                
+                // Gửi manager
+                UUID managerId = getManagerId(contract);
+                if (managerId != null) {
+                    sendNotification(managerId, "CONTRACT_EXPIRING", title, contentManager, data);
+                }
+                final String finalTitle = title;
+                final String finalContentManager = contentManager;
+                
+                // Gửi host (chỉ D-30 và D-0)
+                if (daysLeft == 30 || daysLeft == 0) {
+                    userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+                        sendNotification(owner.getId(), "CONTRACT_EXPIRING", finalTitle, finalContentManager, data);
+                    });
+                }
+            }
+        }
+    }
 }
 
