@@ -102,6 +102,15 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         TenantContract contract = tenantContractRepository
                 .findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
                 .orElse(null);
+        if (contract == null) {
+            contract = tenantContractRepository.findTopByRoomIdAndStatusInOrderByEndDateDesc(roomId, java.util.List.of(ContractStatus.EXPIRED, ContractStatus.TERMINATED)).orElse(null);
+        }
+        if (contract != null && contract.getStatus() != ContractStatus.ACTIVE && contract.getEndDate() != null) {
+            java.time.LocalDate maxDate = contract.getEndDate().plusMonths(1).withDayOfMonth(7);
+            if (java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).isAfter(maxDate)) {
+                throw new BusinessException("NO_ACTIVE_CONTRACT", "Căn này đã trả phòng ngày " + contract.getEndDate() + ", không thể chốt số liệu tiện ích. Ghi nhận là chi phí công ty.");
+            }
+        }
         validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType, contract);
 
         UtilityInvoiceResponse response = createAndSend(property, room, contract, utilityType, request, true);
@@ -123,6 +132,15 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         TenantContract contract = tenantContractRepository
                 .findByPropertyIdAndRoomIsNullAndStatus(propertyId, ContractStatus.ACTIVE)
                 .orElse(null);
+        if (contract == null) {
+            contract = tenantContractRepository.findTopByPropertyIdAndRoomIsNullAndStatusInOrderByEndDateDesc(propertyId, java.util.List.of(ContractStatus.EXPIRED, ContractStatus.TERMINATED)).orElse(null);
+        }
+        if (contract != null && contract.getStatus() != ContractStatus.ACTIVE && contract.getEndDate() != null) {
+            java.time.LocalDate maxDate = contract.getEndDate().plusMonths(1).withDayOfMonth(7);
+            if (java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).isAfter(maxDate)) {
+                throw new BusinessException("NO_ACTIVE_CONTRACT", "Căn này đã trả phòng ngày " + contract.getEndDate() + ", không thể chốt số liệu tiện ích. Ghi nhận là chi phí công ty.");
+            }
+        }
         validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType, contract);
 
         return createAndSend(property, null, contract, utilityType, request, true);
@@ -563,17 +581,20 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         : String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
                                 typeStr, request.getBillingPeriod(), request.getAmount().longValue());
                 
-                Notification notification = Notification.builder()
-                        .userId(tenantId)
-                        .title(title)
-                        .content(content)
-                        .type("UTILITY_INVOICE_CREATED")
-                        .screen("InvoiceList")
-                        .paramsJson("{\"invoiceId\": " + invoice.getId() + "}")
-                        .dedupeKey("utility-invoice:" + invoice.getId() + ":created")
-                        .read(false)
-                        .build();
-                notificationRepository.save(notification);
+                String dedupeKey = "utility-invoice:" + invoice.getId() + ":created";
+                if (!notificationRepository.existsByUserIdAndDedupeKey(tenantId, dedupeKey)) {
+                    Notification notification = Notification.builder()
+                            .userId(tenantId)
+                            .title(title)
+                            .content(content)
+                            .type("UTILITY_INVOICE_CREATED")
+                            .screen("InvoiceList")
+                            .paramsJson("{\"invoiceId\": " + invoice.getId() + "}")
+                            .dedupeKey(dedupeKey)
+                            .read(false)
+                            .build();
+                    notificationRepository.save(notification);
+                }
 
                 Map<String, Object> data = new HashMap<>();
                 data.put("screen", "InvoiceList");

@@ -213,13 +213,34 @@ public final class RentFirstCycleCalculator {
         return new DeferredCarryOver(amount, first.billedDays(), prevMonth);
     }
 
-    /** Full tháng + ngày defer tháng trước (nếu có). */
+    /** Full tháng (hoặc theo ngày nếu là tháng cuối) + ngày defer tháng trước (nếu có). */
     public static BigDecimal regularRentAmount(TenantContract contract, YearMonth billingMonth) {
         if (contract == null || contract.getRentAmount() == null
                 || contract.getRentAmount().compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
         }
-        return contract.getRentAmount().add(deferredCarryOver(contract, billingMonth).amount());
+
+        BigDecimal regularAmount = contract.getRentAmount();
+
+        if (contract.getEndDate() != null) {
+            YearMonth endMonth = YearMonth.from(contract.getEndDate());
+            if (endMonth.equals(billingMonth)) {
+                int billedDays = contract.getEndDate().getDayOfMonth();
+                int daysInMonth = billingMonth.lengthOfMonth();
+
+                if (billedDays <= DEFER_THRESHOLD_DAYS) {
+                    return BigDecimal.ZERO; // Không phát hành hoá đơn tiền nhà lẻ, gộp vào bảng phí cuối
+                }
+
+                regularAmount = contract.getRentAmount()
+                        .multiply(BigDecimal.valueOf(billedDays))
+                        .divide(BigDecimal.valueOf(daysInMonth), 0, RoundingMode.HALF_UP);
+            } else if (endMonth.isBefore(billingMonth)) {
+                return BigDecimal.ZERO; // Đã quá hạn hợp đồng
+            }
+        }
+
+        return regularAmount.add(deferredCarryOver(contract, billingMonth).amount());
     }
 
     /**

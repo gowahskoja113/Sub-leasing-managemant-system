@@ -348,13 +348,15 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         BigDecimal unpaidTotal = settlementData.getFinalCharges().stream().filter(inv -> !"COMPENSATION".equals(inv.getType())).map(CheckoutSettlementResponse.InvoiceResponse::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal damageTotal = settlementData.getFinalCharges().stream().filter(inv -> "COMPENSATION".equals(inv.getType())).map(CheckoutSettlementResponse.InvoiceResponse::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         
-        BigDecimal finalAmount = settlementData.getDepositAmount().subtract(settlementData.getChargesTotal()).add(settlementData.getAdjustmentTotal());
-        BigDecimal refundAmount = BigDecimal.ZERO;
-        BigDecimal extraChargeAmount = BigDecimal.ZERO;
-        if (finalAmount.compareTo(BigDecimal.ZERO) > 0) {
-            refundAmount = finalAmount;
-        } else if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
-            extraChargeAmount = finalAmount.abs();
+        BigDecimal refundAmount = settlementData.getDepositAmount();
+        
+        // Phí cuối kỳ khách phải đóng = Tổng nợ (chargesTotal) trừ đi số tiền được hoàn (adjustmentTotal)
+        BigDecimal extraChargeAmount = settlementData.getChargesTotal().subtract(settlementData.getAdjustmentTotal());
+        
+        if (extraChargeAmount.compareTo(BigDecimal.ZERO) < 0) {
+            // Nếu khoản giảm trừ lớn hơn tổng nợ, số dư được cộng thêm vào hoàn cọc để trả lại khách.
+            refundAmount = refundAmount.add(extraChargeAmount.abs());
+            extraChargeAmount = BigDecimal.ZERO;
         }
 
         settlement.setUnpaidTotal(unpaidTotal);

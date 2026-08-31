@@ -16,6 +16,14 @@ import org.springframework.stereotype.Component;
 public class ContractLifecycleCron {
 
     private final TenantOnboardingService tenantOnboardingService;
+    private final com.sep490.slms2026.service.TenantCheckoutService tenantCheckoutService;
+
+    @Scheduled(cron = "0 25 8 * * *", zone = "Asia/Ho_Chi_Minh")
+    public void expireDueContracts() {
+        tenantCheckoutService.processExpiredContracts();
+        tenantCheckoutService.processContractExpirationReminders();
+        log.info("ContractLifecycleCron: đã xử lý hợp đồng hết hạn và nhắc nhở");
+    }
 
     @Scheduled(cron = "0 15 7 * * *", zone = "Asia/Ho_Chi_Minh")
     public void remindUpcomingReception() {
