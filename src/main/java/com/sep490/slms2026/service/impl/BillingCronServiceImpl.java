@@ -89,6 +89,9 @@ public class BillingCronServiceImpl implements BillingCronService {
     @Value("${billing.rent.issue-reminder-lead-days:2}")
     private int issueReminderLeadDays;
 
+    @Value("${billing.startup-sweep-enabled:true}")
+    private boolean startupSweepEnabled;
+
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DAY_KEY = DateTimeFormatter.ISO_LOCAL_DATE;
 
@@ -102,6 +105,10 @@ public class BillingCronServiceImpl implements BillingCronService {
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void runSweepOnStartup() {
+        if (!startupSweepEnabled) {
+            log.debug("Startup billing sweep skipped (billing.startup-sweep-enabled=false)");
+            return;
+        }
         log.info("Startup billing sweep (catch-up after restart / clock change)...");
         Map<String, Integer> result = runDailySweep();
         log.info("Startup billing sweep done: {}", result);

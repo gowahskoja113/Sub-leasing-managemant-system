@@ -2,6 +2,18 @@ server:
   # Render gán PORT; local mặc định 8080
   port: ${PORT:8080}
 
+logging:
+  level:
+    root: INFO
+    com.sep490.slms2026: INFO
+    # WebSocket/STOMP broker — mặc định im; bật DEBUG khi debug realtime
+    org.springframework.messaging: WARN
+    org.springframework.web.socket: WARN
+    org.springframework.web.socket.messaging: WARN
+    # Hibernate SQL qua logger (khác show-sql); chỉ bật khi cần
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
 spring:
   datasource:
     url: ${DB_URL}
@@ -20,10 +32,11 @@ spring:
     generate-ddl: true
     hibernate:
       ddl-auto: update
-    show-sql: true
+    # Bật tạm khi debug SQL: JPA_SHOW_SQL=true (mặc định tắt — tránh flood console)
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${JPA_FORMAT_SQL:false}
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
   servlet:
@@ -136,6 +149,8 @@ springdoc:
 # Tiền nhà REGULAR: tự gen ngày 1, hạn ngày 5; sau ngày 5 catch-up vẫn OVERDUE.
 # Các giá trị yaml dưới đây là fallback / seed khi bảng billing_config chưa có.
 billing:
+  # Catch-up billing khi app start — tắt local nếu DevTools restart liên tục: BILLING_STARTUP_SWEEP=false
+  startup-sweep-enabled: ${BILLING_STARTUP_SWEEP:true}
   reminder-days-before: 3
   late-fee-percent: 2
   overdue-renotify-days: 7
