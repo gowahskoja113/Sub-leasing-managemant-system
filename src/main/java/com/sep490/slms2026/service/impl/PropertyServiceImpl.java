@@ -14,6 +14,7 @@ import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
+import com.sep490.slms2026.service.PropertyCodeService;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOccupancyAssembler;
 import com.sep490.slms2026.service.PropertyService;
@@ -44,6 +45,7 @@ public class PropertyServiceImpl implements PropertyService {
     private final UserRepository userRepository;
     private final InboundContractRepository inboundContractRepository;
     private final PropertyOccupancyAssembler propertyOccupancyAssembler;
+    private final PropertyCodeService propertyCodeService;
 
     @Override
     @Transactional
@@ -53,6 +55,8 @@ public class PropertyServiceImpl implements PropertyService {
 
         Property property = new Property();
         property.setPropertyName(request.getPropertyName());
+        property.setPropertyCode(propertyCodeService.resolveForCreate(
+                request.getPropertyCode(), request.getPropertyName()));
         property.setZone(zone);
         if (request.getCreatedBy() != null) {
             property.setCreatedBy(request.getCreatedBy());
@@ -245,6 +249,7 @@ public class PropertyServiceImpl implements PropertyService {
     private PropertyResponse mapToResponse(Property property, String shortAddress) {
         PropertyResponse response = new PropertyResponse();
         response.setId(property.getId());
+        response.setPropertyCode(property.getPropertyCode());
         response.setPropertyName(property.getPropertyName());
         response.setShortAddress(shortAddress);
         response.setFullAddress(property.getAddress());

@@ -35,6 +35,13 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     boolean existsByAddressIgnoreCaseAndIdNot(String address, Long id);
 
+    boolean existsByPropertyCode(String propertyCode);
+
+    boolean existsByPropertyCodeAndIdNot(String propertyCode, Long id);
+
+    @Query("SELECT p.propertyCode FROM Property p WHERE p.propertyCode IS NOT NULL")
+    List<String> findAllPropertyCodes();
+
     Optional<Property> findFirstByAddressIgnoreCase(String address);
 
     List<Property> findByPropertyNameIgnoreCase(String propertyName);

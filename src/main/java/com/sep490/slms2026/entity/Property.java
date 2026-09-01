@@ -27,6 +27,10 @@ public class Property implements Serializable {
     @Column(name = "property_name", nullable = false)
     private String propertyName;
 
+    /** Mã nhà cố định — dùng khớp folder zip import hoá đơn, không đổi khi đổi tên. */
+    @Column(name = "property_code", nullable = false, unique = true, length = 32)
+    private String propertyCode;
+
     @Column(nullable = false)
     private String address;
 

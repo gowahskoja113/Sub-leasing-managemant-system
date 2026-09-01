@@ -8,8 +8,12 @@ import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
+import com.sep490.slms2026.util.PropertyCodeHelper;
 
 @Slf4j
 @Component
@@ -139,6 +143,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureCashCollectAndProxyPayTables();
         ensureNotificationDedupeKey();
         ensureInvoiceDisputesTable();
+        ensurePropertyCodeColumn();
     }
 
     /**
@@ -1441,6 +1446,83 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.warn("Could not backfill tenant_invoice_payos_orders: {}", e.getMessage());
+        }
+    }
+
+    private void ensurePropertyCodeColumn() {
+        addColumnIfNotExists("properties", "property_code", "VARCHAR(32)");
+        backfillPropertyCodes();
+        try {
+            jdbcTemplate.execute("ALTER TABLE properties ALTER COLUMN property_code SET NOT NULL");
+        } catch (Exception e) {
+            log.warn("Could not set NOT NULL on properties.property_code: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_property_code ON properties (property_code)");
+        } catch (Exception e) {
+            log.warn("Could not create unique index on properties.property_code: {}", e.getMessage());
+        }
+    }
+
+    private void backfillPropertyCodes() {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT id, property_name, property_code FROM properties ORDER BY id");
+            Set<String> used = new HashSet<>();
+            int maxMtx = 0;
+            for (Map<String, Object> row : rows) {
+                Object rawCode = row.get("property_code");
+                if (rawCode != null && !rawCode.toString().isBlank()) {
+                    String normalized = PropertyCodeHelper.normalize(rawCode.toString());
+                    used.add(normalized);
+                    maxMtx = Math.max(maxMtx, PropertyCodeHelper.parseMtxNumber(normalized));
+                }
+            }
+
+            int updated = 0;
+            for (Map<String, Object> row : rows) {
+                Object rawCode = row.get("property_code");
+                if (rawCode != null && !rawCode.toString().isBlank()) {
+                    continue;
+                }
+                Long id = ((Number) row.get("id")).longValue();
+                String propertyName = row.get("property_name") != null
+                        ? row.get("property_name").toString() : "";
+                String base = PropertyCodeHelper.extractFromPropertyName(propertyName);
+                String code;
+                if (base == null) {
+                    do {
+                        code = PropertyCodeHelper.formatMtxCode(++maxMtx);
+                    } while (used.contains(code));
+                } else {
+                    code = base;
+                    int suffix = 2;
+                    while (used.contains(code)) {
+                        String resolved = PropertyCodeHelper.withCollisionSuffix(base, suffix++);
+                        if (suffix > 999) {
+                            do {
+                                code = PropertyCodeHelper.formatMtxCode(++maxMtx);
+                            } while (used.contains(code));
+                            break;
+                        }
+                        code = resolved;
+                    }
+                }
+                jdbcTemplate.update("UPDATE properties SET property_code = ? WHERE id = ?", code, id);
+                if (base != null && !code.equals(base)) {
+                    log.warn("Property {} backfill: collision on '{}', assigned '{}'", id, base, code);
+                } else if (base == null) {
+                    log.warn("Property {} backfill: no code in name, assigned '{}'", id, code);
+                }
+                used.add(code);
+                updated++;
+            }
+            if (updated > 0) {
+                log.info("Backfilled property_code for {} properties", updated);
+            }
+        } catch (Exception e) {
+            log.warn("Could not backfill properties.property_code: {}", e.getMessage());
         }
     }
 

@@ -11,6 +11,7 @@ import java.util.UUID;
 @Setter
 public class PropertyResponse {
     private Long id;
+    private String propertyCode;
     private String propertyName;
     private String shortAddress;
     private String fullAddress;

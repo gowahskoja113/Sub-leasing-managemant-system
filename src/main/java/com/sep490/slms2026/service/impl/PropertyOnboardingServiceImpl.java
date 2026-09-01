@@ -20,6 +20,7 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.DepreciationService;
+import com.sep490.slms2026.service.PropertyCodeService;
 import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOccupancyAssembler;
 import com.sep490.slms2026.service.PropertyOnboardingService;
@@ -68,6 +69,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final NotificationRepository notificationRepository;
     private final UserPushTokenService userPushTokenService;
     private final PropertyOccupancyAssembler propertyOccupancyAssembler;
+    private final PropertyCodeService propertyCodeService;
 
     @Override
     @Transactional
@@ -81,6 +83,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Property property = Property.builder()
                 .propertyName(request.getPropertyName())
+                .propertyCode(propertyCodeService.resolveForCreate(
+                        request.getPropertyCode(), request.getPropertyName()))
                 .address(fullAddress)
                 .zone(zone)
                 .descriptions(request.getDescriptions())
@@ -1378,6 +1382,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private PropertyResponse mapPropertyResponse(Property property, String shortAddress) {
         PropertyResponse response = new PropertyResponse();
         response.setId(property.getId());
+        response.setPropertyCode(property.getPropertyCode());
         response.setPropertyName(property.getPropertyName());
         response.setShortAddress(shortAddress);
         response.setFullAddress(property.getAddress());
