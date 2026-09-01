@@ -160,15 +160,40 @@ public class InvoiceDisputeServiceImpl implements InvoiceDisputeService {
 
         if ("ACCEPTED".equals(outcome)) {
             dispute.setStatus(InvoiceDisputeStatus.ACCEPTED);
-            tenantInvoice.setStatus(TenantInvoiceStatus.CANCELLED);
-            tenantInvoiceRepository.save(tenantInvoice);
-            if (utilityInvoice != null) {
-                utilityInvoice.setStatus(UtilityInvoiceStatus.CANCELLED);
+            
+            BigDecimal oldTotal = tenantInvoice.getGrandTotal();
+            if (oldTotal == null) oldTotal = BigDecimal.ZERO;
+            
+            if (request.getCorrectedNewReading() != null && request.getCorrectedUnitPrice() != null && utilityInvoice != null) {
+                BigDecimal prev = request.getCorrectedPrevReading() != null ? request.getCorrectedPrevReading() : (utilityInvoice.getPrevReading() != null ? utilityInvoice.getPrevReading() : BigDecimal.ZERO);
+                BigDecimal currentNew = request.getCorrectedNewReading();
+                BigDecimal currentUnit = request.getCorrectedUnitPrice();
+                BigDecimal consumption = currentNew.subtract(prev);
+                BigDecimal newAmount = currentUnit.multiply(consumption);
+                
+                utilityInvoice.setPrevReading(prev);
+                utilityInvoice.setNewReading(currentNew);
+                utilityInvoice.setConsumption(consumption);
+                utilityInvoice.setUnitPrice(currentUnit);
+                utilityInvoice.setAmount(newAmount);
                 utilityInvoiceRepository.save(utilityInvoice);
+                
+                tenantInvoice.setTotalAmount(newAmount);
+                tenantInvoice.setGrandTotal(newAmount);
             }
+            
             if (wasPaid) {
-                createRefundCredit(tenantInvoice);
+                if (oldTotal.compareTo(tenantInvoice.getGrandTotal()) > 0) {
+                    BigDecimal diff = oldTotal.subtract(tenantInvoice.getGrandTotal());
+                    createRefundCreditAmount(tenantInvoice, diff);
+                } else if (oldTotal.compareTo(tenantInvoice.getGrandTotal()) < 0) {
+                    tenantInvoice.setStatus(TenantInvoiceStatus.PENDING);
+                    applyGraceDueDate(tenantInvoice);
+                }
+            } else {
+                applyGraceDueDate(tenantInvoice);
             }
+            tenantInvoiceRepository.save(tenantInvoice);
             notifyOnResolve(dispute, true);
         } else if ("REJECTED".equals(outcome)) {
             dispute.setStatus(InvoiceDisputeStatus.REJECTED);
@@ -261,14 +286,14 @@ public class InvoiceDisputeServiceImpl implements InvoiceDisputeService {
         tenantInvoiceRepository.save(invoice);
     }
 
-    private void createRefundCredit(TenantInvoice invoice) {
-        if (invoice.getTenantContract() == null || invoice.getGrandTotal() == null
-                || invoice.getGrandTotal().compareTo(BigDecimal.ZERO) <= 0) {
+    private void createRefundCreditAmount(TenantInvoice invoice, BigDecimal amount) {
+        if (invoice.getTenantContract() == null || amount == null
+                || amount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
         tenantPendingChargeRepository.save(TenantPendingCharge.builder()
                 .tenantContract(invoice.getTenantContract())
-                .amount(invoice.getGrandTotal().negate())
+                .amount(amount.negate())
                 .category("UTILITY_DISPUTE_CREDIT")
                 .note("Hoàn/trừ kỳ sau do khiếu nại hoá đơn " + invoice.getCode() + " được chấp nhận.")
                 .status("PENDING")
@@ -475,8 +500,8 @@ public class InvoiceDisputeServiceImpl implements InvoiceDisputeService {
             UUID managerId = resolveManagerId(invoice);
             if (managerId != null) {
                 sendNotification(managerId, "INVOICE_DISPUTE_ACCEPTED",
-                        "Khiếu nại được chấp nhận — cần đọc lại số",
-                        "Hoá đơn " + invoice.getCode() + " đã huỷ vì sai. Cần phát hành lại bản đúng.",
+                        "Khiếu nại được chấp nhận",
+                        "Khiếu nại hoá đơn " + invoice.getCode() + " đã được chấp nhận và cập nhật.",
                         invoice.getId());
             }
         }

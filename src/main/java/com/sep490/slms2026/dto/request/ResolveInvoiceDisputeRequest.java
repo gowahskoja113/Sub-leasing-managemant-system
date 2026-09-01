@@ -5,6 +5,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
+import java.math.BigDecimal;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,4 +21,8 @@ public class ResolveInvoiceDisputeRequest {
     @NotBlank(message = "Ghi chú kết luận không được để trống")
     @Size(min = 10, max = 1000, message = "Ghi chú kết luận phải từ 10 đến 1000 ký tự")
     private String note;
+
+    private BigDecimal correctedPrevReading;
+    private BigDecimal correctedNewReading;
+    private BigDecimal correctedUnitPrice;
 }
