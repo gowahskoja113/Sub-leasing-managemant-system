@@ -227,19 +227,36 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     private void ensureCostAgreementStatusConstraint() {
-        jdbcTemplate.execute(
-                "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_cost_agreement_status_check");
-        jdbcTemplate.execute("""
-                ALTER TABLE maintenance_requests ADD CONSTRAINT maintenance_requests_cost_agreement_status_check
-                    CHECK (cost_agreement_status::text = ANY (ARRAY[
-                        'NOT_APPLICABLE',
-                        'PENDING',
-                        'AGREED',
-                        'DISPUTED',
-                        'WAIVED'
-                    ]::text[]))
-                """);
-        log.info("Ensured maintenance_requests_cost_agreement_status_check includes WAIVED");
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                )
+                """,
+                Boolean.class);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        // Entity redesign bỏ cột này — DB mới (Hibernate ddl-auto) cần add lại trước khi gắn CHECK.
+        addColumnIfNotExists("maintenance_requests", "cost_agreement_status", "VARCHAR(50)");
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_cost_agreement_status_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE maintenance_requests ADD CONSTRAINT maintenance_requests_cost_agreement_status_check
+                        CHECK (cost_agreement_status IS NULL OR cost_agreement_status IN (
+                            'NOT_APPLICABLE',
+                            'PENDING',
+                            'AGREED',
+                            'DISPUTED',
+                            'WAIVED'
+                        ))
+                    """);
+            log.info("Ensured maintenance_requests_cost_agreement_status_check includes WAIVED");
+        } catch (Exception e) {
+            log.warn("Could not ensure maintenance_requests_cost_agreement_status_check: {}", e.getMessage());
+        }
     }
 
     /** Map legacy maintenance statuses sang flow rút gọn (bước trung gian). */
