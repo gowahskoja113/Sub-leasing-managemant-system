@@ -76,6 +76,13 @@ public interface TenantOnboardingService {
     TenantContractResponse terminateActiveContract(Long contractId, com.sep490.slms2026.dto.request.TerminateContractRequest request);
 
     /**
+     * Gia hạn hợp đồng đang ACTIVE.
+     * Dời endDate (không vượt quá InboundContract), cập nhật giá thuê (nếu có),
+     * ghi lịch sử giá, và gửi thông báo.
+     */
+    TenantContractResponse extendContract(Long contractId, com.sep490.slms2026.dto.request.ExtendContractRequest request);
+
+    /**
      * Khoá {@code ROLE_TENANT} nếu không còn HĐ sống (DRAFT/PENDING/ACTIVE/EXPIRED),
      * bỏ qua {@code exceptContractId} (HĐ vừa xác nhận cọc / đang im lặng — có thể vẫn ACTIVE).
      * Gọi sau confirmRefund hoặc cron 30 ngày — không gọi lúc thanh lý.
