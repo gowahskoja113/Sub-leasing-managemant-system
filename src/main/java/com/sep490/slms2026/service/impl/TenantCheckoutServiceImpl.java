@@ -439,11 +439,14 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
             throw new BusinessException("Bạn đã xác nhận nhận cọc, không thể khiếu nại nữa");
         }
 
+        if (settlement.getRefundDisputedAt() != null && settlement.getRefundDisputeResolvedAt() == null) {
+            throw new BusinessException("DISPUTE_IN_PROGRESS",
+                "Khiếu nại trước của bạn đang được xử lý. Vui lòng chờ kết luận.");
+        }
+
         settlement.setRefundDisputedAt(LocalDateTime.now());
         String reason = request.getReason().trim();
         settlement.setRefundDisputeReason(reason);
-        settlement.setRefundDisputeResolvedAt(null);
-        settlement.setRefundDisputeOutcome(null);
         checkoutSettlementRepository.save(settlement);
 
         depositAuditLogRepository.save(com.sep490.slms2026.entity.DepositAuditLog.builder()
