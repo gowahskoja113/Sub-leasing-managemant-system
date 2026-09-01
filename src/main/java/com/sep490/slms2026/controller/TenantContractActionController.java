@@ -254,4 +254,15 @@ public class TenantContractActionController {
             @Valid @RequestBody com.sep490.slms2026.dto.request.TerminateContractRequest request) {
         return ResponseEntity.ok(tenantOnboardingService.terminateActiveContract(id, request));
     }
+
+    /**
+     * PATCH /{id}/extend — gia hạn hợp đồng đang ACTIVE (dời endDate, có thể kèm giá mới).
+     */
+    @PatchMapping("/{id}/extend")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> extendContract(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ExtendContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.extendContract(id, request));
+    }
 }

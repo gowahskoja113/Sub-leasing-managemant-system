@@ -1135,6 +1135,104 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     @Override
     @Transactional
+    public TenantContractResponse extendContract(Long contractId, com.sep490.slms2026.dto.request.ExtendContractRequest request) {
+        TenantContract contract = findContract(contractId);
+
+        if (contract.getStatus() != ContractStatus.ACTIVE) {
+            throw new BusinessException("Chỉ có thể gia hạn hợp đồng đang ACTIVE. Hợp đồng này đang ở trạng thái: " + contract.getStatus());
+        }
+
+        if (!request.getNewEndDate().isAfter(contract.getEndDate())) {
+            throw new BusinessException("Ngày kết thúc mới phải sau ngày kết thúc hiện tại (" + contract.getEndDate() + ")");
+        }
+
+        InboundContract lease = requireInboundLease(contract.getProperty().getId());
+        InboundLeaseRules.assertOccupancyWindow(contract.getMoveInDate(), request.getNewEndDate(), lease);
+
+        LocalDate oldEndDate = contract.getEndDate();
+        BigDecimal oldRentAmount = contract.getRentAmount();
+
+        contract.setEndDate(request.getNewEndDate());
+
+        boolean rentChanged = request.getNewRentAmount() != null && request.getNewRentAmount().compareTo(oldRentAmount) != 0;
+        if (rentChanged) {
+            contract.setRentAmount(request.getNewRentAmount());
+            contract.setBaseRentAmount(request.getNewRentAmount());
+        }
+
+        TenantContract saved = tenantContractRepository.save(contract);
+
+        if (rentChanged) {
+            unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
+                    "Gia hạn HĐ " + saved.getContractCode());
+        }
+
+        notifyContractExtended(saved, oldEndDate, oldRentAmount);
+
+        return toResponse(saved);
+    }
+
+    private void notifyContractExtended(TenantContract contract, LocalDate oldEndDate, BigDecimal oldRentAmount) {
+        String tenantName = contract.getDraftTenantName();
+        if ((tenantName == null || tenantName.isBlank()) && contract.getTenant() != null
+                && contract.getTenant().getUser() != null) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        }
+        if (tenantName == null || tenantName.isBlank()) {
+            tenantName = "khách";
+        }
+        String roomLabel = contract.getRoom() != null && contract.getRoom().getRoomNumber() != null
+                ? contract.getRoom().getRoomNumber() : "nguyên căn";
+
+        String title = "Hợp đồng đã được gia hạn";
+        String body = "HĐ " + contract.getContractCode() + " đã được gia hạn đến ngày " + contract.getEndDate();
+        if (contract.getRentAmount().compareTo(oldRentAmount) != 0) {
+            body += " với giá thuê mới " + contract.getRentAmount().stripTrailingZeros().toPlainString() + "đ";
+        }
+        body += ".";
+
+        UUID tenantUserId = resolveTenantUserId(contract);
+        if (tenantUserId != null) {
+            notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                    .userId(tenantUserId)
+                    .title(title)
+                    .content(body)
+                    .type("CONTRACT_EXTENDED")
+                    .screen("ContractDetail")
+                    .paramsJson("{\"contractId\":" + contract.getId() + "}")
+                    .build());
+            userPushTokenService.sendToUser(tenantUserId, title, body, Map.of(
+                    "screen", "ContractDetail",
+                    "params", Map.of("contractId", contract.getId()),
+                    "type", "CONTRACT_EXTENDED"));
+        }
+
+        User manager = resolveContractManager(contract);
+        if (manager != null) {
+            String managerBody = "HĐ " + contract.getContractCode() + " của " + tenantName + " · Phòng " + roomLabel
+                    + " đã được gia hạn đến ngày " + contract.getEndDate();
+            if (contract.getRentAmount().compareTo(oldRentAmount) != 0) {
+                managerBody += " với giá thuê mới " + contract.getRentAmount().stripTrailingZeros().toPlainString() + "đ";
+            }
+            managerBody += ".";
+            notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
+                    .userId(manager.getId())
+                    .title(title)
+                    .content(managerBody)
+                    .type("CONTRACT_EXTENDED_MANAGER")
+                    .screen("ResumeContract")
+                    .paramsJson("{\"contractId\":" + contract.getId() + "}")
+                    .build());
+            userPushTokenService.sendToUser(manager.getId(), title, managerBody, Map.of(
+                    "screen", "ResumeContract",
+                    "params", Map.of("contractId", contract.getId()),
+                    "type", "CONTRACT_EXTENDED_MANAGER"));
+        }
+    }
+
+
+    @Override
+    @Transactional
     public void disableTenantAccountIfNoActiveContracts(UUID tenantUserId, Long exceptContractId) {
         if (tenantUserId == null) {
             return;
