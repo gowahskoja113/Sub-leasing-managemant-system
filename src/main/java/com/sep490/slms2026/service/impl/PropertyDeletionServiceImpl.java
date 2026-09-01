@@ -112,6 +112,8 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         jdbcTemplate.update("DELETE FROM tenant_pending_charges WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
 
         // --- bảo trì (con trước, cha sau) ---
+        jdbcTemplate.update("DELETE FROM outstanding_damage_photos WHERE record_id IN (SELECT id FROM outstanding_damage_records WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM outstanding_damage_records WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
         jdbcTemplate.update("DELETE FROM maintenance_images WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
         jdbcTemplate.update("DELETE FROM maintenance_timelines WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
         jdbcTemplate.update("DELETE FROM maintenance_history WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);

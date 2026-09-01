@@ -28,6 +28,9 @@ public class CheckoutDamageItem implements Serializable {
     @Column(name = "equipment_id")
     private Long equipmentId;
 
+    @Column(name = "maintenance_request_id")
+    private Long maintenanceRequestId;
+
     @Column(nullable = false)
     private String label;
 

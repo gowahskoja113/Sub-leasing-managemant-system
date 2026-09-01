@@ -1,31 +1,22 @@
 package com.sep490.slms2026.enums;
 
 /**
- * Simplified maintenance flow:
- * PENDING → APPROVED → WAITING_TENANT_CONFIRM → CLOSED
- *                         ↘ REJECTED → (manager approve) → APPROVED
+ * Redesigned maintenance flow (2026-09):
+ * OPEN → IN_REPAIR → CLOSED (Luồng A — hao mòn)
+ * OPEN → TENANT_FAULT → CLOSED | PENDING_TENANT_REPAIR → CLOSED | OUTSTANDING_DAMAGE (Luồng B)
  */
 public enum MaintenanceStatus {
-    /** Tenant vừa tạo yêu cầu */
-    PENDING,
-    /** Manager đã duyệt, đang chờ thợ ngoài sửa */
-    APPROVED,
-    /** Manager báo sửa xong, chờ tenant xác nhận */
-    WAITING_TENANT_CONFIRM,
-    /** Tenant từ chối kết quả sửa (kèm lý do + ảnh) */
-    REJECTED,
-    /** Kết thúc luồng sửa chữa (tenant confirm hoặc auto-confirm) */
+    /** Tenant tạo, chờ manager check */
+    OPEN,
+    /** Manager approve, đang sửa (Luồng A) hoặc đang xử lý sau reject-fault nhánh manager sửa */
+    IN_REPAIR,
+    /** Manager reject — lỗi do tenant */
+    TENANT_FAULT,
+    /** Giao tenant tự sửa */
+    PENDING_TENANT_REPAIR,
+    /** Tenant không sửa / quá hạn — chờ checkout trừ cọc */
+    OUTSTANDING_DAMAGE,
+    /** Hoàn tất */
     CLOSED,
-    CANCELLED,
-
-    // --- Legacy (giữ để đọc dữ liệu cũ; đã migrate sang status mới) ---
-    @Deprecated ACKNOWLEDGED,
-    @Deprecated SCHEDULED,
-    @Deprecated IN_PROGRESS,
-    @Deprecated ON_HOLD,
-    @Deprecated PENDING_APPROVAL,
-    @Deprecated DONE,
-    @Deprecated CONFIRMED,
-    @Deprecated RESOLVED,
-    @Deprecated REOPENED
+    CANCELLED
 }

@@ -14,6 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class CheckoutDamageItemRequest {
     private Long equipmentId;
+    /** Link từ outstanding_damage_records / maintenance ticket. */
+    private Long maintenanceRequestId;
     private String label;
     private BigDecimal amount;
     private String note;

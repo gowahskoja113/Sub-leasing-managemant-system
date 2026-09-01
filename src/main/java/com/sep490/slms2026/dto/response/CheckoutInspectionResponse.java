@@ -29,6 +29,7 @@ public class CheckoutInspectionResponse {
     public static class DamageItemResponse {
         private Long id;
         private Long equipmentId;
+        private Long maintenanceRequestId;
         private String label;
         private BigDecimal amount;
         private String note;

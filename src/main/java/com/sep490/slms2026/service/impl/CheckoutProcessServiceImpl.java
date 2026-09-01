@@ -58,6 +58,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
     private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
     private final com.sep490.slms2026.service.TwilioService twilioService;
+    private final com.sep490.slms2026.service.MaintenanceService maintenanceService;
 
     private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
             CheckoutRequestStatus.APPROVED,
@@ -100,6 +101,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 CheckoutDamageItem item = CheckoutDamageItem.builder()
                         .checkoutInspection(inspection)
                         .equipmentId(d.getEquipmentId())
+                        .maintenanceRequestId(d.getMaintenanceRequestId())
                         .label(d.getLabel())
                         .amount(d.getAmount())
                         .note(d.getNote())
@@ -110,6 +112,15 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         }
 
         checkoutInspectionRepository.save(inspection);
+
+        if (inspection.getDamages() != null) {
+            for (CheckoutDamageItem item : inspection.getDamages()) {
+                if (item.getMaintenanceRequestId() != null && item.getId() != null) {
+                    maintenanceService.markOutstandingDamageResolved(
+                            item.getMaintenanceRequestId(), item.getId(), item.getAmount());
+                }
+            }
+        }
 
         TenantContract contract = checkoutRequest.getTenantContract();
         if (contract != null && checkoutRequest.getExpectedMoveOutDate() != null) {
@@ -165,6 +176,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 .damages(inspection.getDamages().stream().map(d -> CheckoutInspectionResponse.DamageItemResponse.builder()
                         .id(d.getId())
                         .equipmentId(d.getEquipmentId())
+                        .maintenanceRequestId(d.getMaintenanceRequestId())
                         .label(d.getLabel())
                         .amount(d.getAmount())
                         .note(d.getNote())

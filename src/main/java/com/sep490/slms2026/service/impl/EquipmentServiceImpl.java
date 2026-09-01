@@ -11,6 +11,7 @@ import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.EquipmentStatus;
 import com.sep490.slms2026.enums.MaintenanceCategory;
+import com.sep490.slms2026.enums.MaintenanceFlowType;
 import com.sep490.slms2026.enums.MaintenanceStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.exception.BusinessException;
@@ -158,6 +159,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                     .description("Manager đánh dấu \"" + equipmentLabel + "\" "
                             + previousStatus.name() + " → " + newStatus.name())
                     .category(resolveMaintenanceCategory(equipment).name())
+                    .flowType(MaintenanceFlowType.NORMAL_WEAR)
                     .status(MaintenanceStatus.CLOSED)
                     .resolvedAt(LocalDateTime.now())
                     .resolutionNote("Ghi nhận từ cập nhật trạng thái vòng đời thiết bị")

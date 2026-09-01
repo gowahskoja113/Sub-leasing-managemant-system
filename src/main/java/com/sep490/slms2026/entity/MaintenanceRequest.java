@@ -8,6 +8,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +44,7 @@ public class MaintenanceRequest implements Serializable {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tenant_contract_id")
     private TenantContract tenantContract;
-    
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "equipment_id", insertable = false, updatable = false)
     private Equipment equipment;
@@ -53,19 +54,17 @@ public class MaintenanceRequest implements Serializable {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "assigned_manager_id")
-    private User assignedManager;
-
-    private LocalDateTime scheduledDate;
-
-    // We keep main's category and priority types to ensure main code compiles
     private String category;
-    
+
     private String priority;
 
     @Enumerated(EnumType.STRING)
-    private MaintenanceStatus status = MaintenanceStatus.PENDING;
+    @Builder.Default
+    private MaintenanceStatus status = MaintenanceStatus.OPEN;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "flow_type")
+    private MaintenanceFlowType flowType;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
@@ -73,86 +72,78 @@ public class MaintenanceRequest implements Serializable {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    // New Fields from specs (main)
     private LocalDateTime acknowledgedAt;
-
-    @Column(name = "scheduled_slots", columnDefinition = "TEXT")
-    private String scheduledSlots; // comma-separated or JSON
-
-    private String confirmedSlot;
-    
-    @Column(columnDefinition = "TEXT")
-    private String onHoldReason;
-
-    @Enumerated(EnumType.STRING)
-    private ApprovalStatus approvalStatus = ApprovalStatus.NONE;
-
     private LocalDateTime doneAt;
-    private LocalDateTime tenantConfirmedAt;
-    
-    @Column(name = "resolved_at")
     private LocalDateTime resolvedAt;
-
-    private Integer reopenCount = 0;
-    
-    private String technicianId; // reference to technician
-
-    @Enumerated(EnumType.STRING)
-    private CostPaidBy costPaidBy = CostPaidBy.HOST;
-
-    @Enumerated(EnumType.STRING)
-    private DamageCause cause;
-
-    // repairCost is BigDecimal in main, Long in maintenance. We keep main's BigDecimal.
-    private BigDecimal repairCost;
-
-    /** Đồng ý bồi thường — độc lập với status chính của ticket. */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "cost_agreement_status")
-    @Builder.Default
-    private CostAgreementStatus costAgreementStatus = CostAgreementStatus.NOT_APPLICABLE;
-
-    @Column(name = "cost_dispute_reason", columnDefinition = "TEXT")
-    private String costDisputeReason;
 
     @Column(name = "resolution_note", columnDefinition = "TEXT")
     private String resolutionNote;
 
-    @Column(name = "reject_reason", columnDefinition = "TEXT")
-    private String rejectReason;
+    @Column(name = "repair_description", columnDefinition = "TEXT")
+    private String repairDescription;
 
-    @Column(name = "reject_image_urls", columnDefinition = "TEXT")
-    private String rejectImageUrls;
-    
-    // Images
     @Column(name = "before_image_urls", columnDefinition = "TEXT")
     private String beforeImageUrls;
 
     @Column(name = "after_image_urls", columnDefinition = "TEXT")
     private String afterImageUrls;
 
+    @Column(name = "invoice_image_urls", columnDefinition = "TEXT")
+    private String invoiceImageUrls;
+
+    @Column(name = "invoice_vendor")
+    private String invoiceVendor;
+
+    @Column(name = "invoice_number")
+    private String invoiceNumber;
+
+    @Column(name = "invoice_date")
+    private LocalDate invoiceDate;
+
+    @Column(name = "invoice_amount")
+    private BigDecimal invoiceAmount;
+
+    @Column(name = "previous_request_id")
+    private Long previousRequestId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "damage_cause")
+    private DamageCause damageCause;
+
+    @Column(name = "fault_reason", columnDefinition = "TEXT")
+    private String faultReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "fault_resolution_path")
+    private FaultResolutionPath faultResolutionPath;
+
+    @Column(name = "self_repair_deadline")
+    private LocalDate selfRepairDeadline;
+
+    @Column(name = "estimated_damage_amount")
+    private BigDecimal estimatedDamageAmount;
+
     @Column(name = "equipment_id")
     private Long equipmentId;
 
     @Column(name = "is_deleted", nullable = false)
+    @Builder.Default
     private boolean deleted = false;
 
-    // 1 Request có nhiều hình ảnh đính kèm
     @OneToMany(mappedBy = "maintenanceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<MaintenanceImage> images = new ArrayList<>();
 
-    // 1 Request có nhiều lần đổi trạng thái (audit timeline)
     @OneToMany(mappedBy = "maintenanceRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<MaintenanceHistory> statusHistories = new ArrayList<>();
-    
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
-    
+
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

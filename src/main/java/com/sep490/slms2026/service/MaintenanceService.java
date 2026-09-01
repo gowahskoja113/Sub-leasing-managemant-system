@@ -3,7 +3,10 @@ package com.sep490.slms2026.service;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
+import com.sep490.slms2026.dto.response.OutstandingDamageResponse;
 import org.springframework.data.domain.Page;
+
+import java.math.BigDecimal;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,34 +27,31 @@ public interface MaintenanceService {
 
     List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 
-    /** Manager duyệt yêu cầu: PENDING → APPROVED */
+    /** Manager check OK → IN_REPAIR (Luồng A). */
     MaintenanceRequestResponse approve(Long id, MaintenanceApproveRequest request);
 
-    /** Manager báo sửa xong: APPROVED → WAITING_TENANT_CONFIRM */
+    /** Manager reject lỗi tenant → TENANT_FAULT / PENDING_TENANT_REPAIR (Luồng B). */
+    MaintenanceRequestResponse rejectFault(Long id, MaintenanceRejectFaultRequest request);
+
+    /** Tenant upload bằng chứng đã tự sửa. */
+    MaintenanceRequestResponse submitSelfRepair(Long id, MaintenanceSubmitSelfRepairRequest request,
+                                                List<MultipartFile> files);
+
+    /** Manager verify tenant đã tự sửa. */
+    MaintenanceRequestResponse verifyRepair(Long id, MaintenanceVerifyRepairRequest request);
+
+    /** Manager hoàn tất → CLOSED + notify. */
     MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request);
 
-    /** Tenant xác nhận đã sửa xong: WAITING_TENANT_CONFIRM → CLOSED */
-    MaintenanceRequestResponse confirm(Long id, MaintenanceConfirmRequest request);
-
-    /** Tenant từ chối kết quả sửa (lý do + ảnh): WAITING_TENANT_CONFIRM → REJECTED */
-    MaintenanceRequestResponse reject(Long id, MaintenanceRejectRequest request, List<MultipartFile> files);
-
-    /**
-     * Manager xem xét reject của tenant.
-     * approve=true  → quay lại APPROVED (sửa lại)
-     * approve=false → giữ / đưa lại WAITING_TENANT_CONFIRM (manager không đồng ý reopen)
-     */
-    MaintenanceRequestResponse reviewReject(Long id, MaintenanceApproveRequest request);
-
-    List<MaintenanceRequestResponse> getPendingCostResolution(Long propertyId, Long roomId);
-
-    MaintenanceRequestResponse resolveCost(Long id, MaintenanceResolveCostRequest request);
-
-    /** Manager hủy yêu cầu */
     MaintenanceRequestResponse cancel(Long id, String reason);
 
     MaintenanceRequestResponse uploadPhotos(Long id, List<MultipartFile> files, String type);
 
-    /** Auto-confirm các ticket chờ tenant quá hạn (cron). */
-    int autoConfirmOverdue();
+    List<OutstandingDamageResponse> getOutstandingDamages(Long propertyId, Long tenantContractId);
+
+    /** Cron: quá hạn tự sửa → OUTSTANDING_DAMAGE. */
+    int processOverdueSelfRepairs();
+
+    /** Đánh dấu outstanding damage đã xử lý tại checkout. */
+    void markOutstandingDamageResolved(Long maintenanceRequestId, Long checkoutDamageItemId, BigDecimal actualAmount);
 }

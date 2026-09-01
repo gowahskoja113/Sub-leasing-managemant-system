@@ -69,6 +69,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureCostAgreementStatusConstraint();
         ensureMaintenanceImagesPhotoHistory();
         migrateMaintenanceStatusesToSimplifiedFlow();
+        ensureMaintenanceRedesignColumns();
+        migrateMaintenanceStatusesToRedesignFlow();
+        ensureOutstandingDamageTables();
+        addColumnIfNotExists("checkout_damage_items", "maintenance_request_id", "BIGINT");
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
@@ -233,7 +237,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         log.info("Ensured maintenance_requests_cost_agreement_status_check includes WAIVED");
     }
 
-    /** Map legacy maintenance statuses sang flow rút gọn. */
+    /** Map legacy maintenance statuses sang flow rút gọn (bước trung gian). */
     private void migrateMaintenanceStatusesToSimplifiedFlow() {
         try {
             int updated = 0;
@@ -249,6 +253,69 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         } catch (Exception e) {
             log.warn("Could not migrate maintenance statuses: {}", e.getMessage());
         }
+    }
+
+    /** Cột mới cho redesign maintenance 2026-09. */
+    private void ensureMaintenanceRedesignColumns() {
+        addColumnIfNotExists("maintenance_requests", "flow_type", "VARCHAR(50)");
+        addColumnIfNotExists("maintenance_requests", "invoice_image_urls", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "invoice_vendor", "VARCHAR(255)");
+        addColumnIfNotExists("maintenance_requests", "invoice_number", "VARCHAR(100)");
+        addColumnIfNotExists("maintenance_requests", "invoice_date", "DATE");
+        addColumnIfNotExists("maintenance_requests", "invoice_amount", "DECIMAL(15,2)");
+        addColumnIfNotExists("maintenance_requests", "repair_description", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "previous_request_id", "BIGINT");
+        addColumnIfNotExists("maintenance_requests", "damage_cause", "VARCHAR(50)");
+        addColumnIfNotExists("maintenance_requests", "fault_reason", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "fault_resolution_path", "VARCHAR(50)");
+        addColumnIfNotExists("maintenance_requests", "self_repair_deadline", "DATE");
+        addColumnIfNotExists("maintenance_requests", "estimated_damage_amount", "DECIMAL(15,2)");
+    }
+
+    /** Map status cũ → redesign (OPEN / IN_REPAIR / CLOSED / CANCELLED). */
+    private void migrateMaintenanceStatusesToRedesignFlow() {
+        try {
+            int updated = 0;
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET status = 'OPEN' WHERE status = 'PENDING'");
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET status = 'IN_REPAIR' WHERE status IN ('APPROVED','WAITING_TENANT_CONFIRM','REJECTED')");
+            updated += jdbcTemplate.update(
+                    "UPDATE maintenance_requests SET flow_type = 'NORMAL_WEAR' WHERE flow_type IS NULL AND status IN ('OPEN','IN_REPAIR','CLOSED')");
+            if (updated > 0) {
+                log.info("Migrated {} maintenance_requests rows to redesign statuses", updated);
+            }
+            int rejectPhotos = jdbcTemplate.update(
+                    "UPDATE maintenance_images SET type = 'FAULT_EVIDENCE' WHERE type = 'REJECT'");
+            if (rejectPhotos > 0) {
+                log.info("Migrated {} maintenance_images REJECT → FAULT_EVIDENCE", rejectPhotos);
+            }
+        } catch (Exception e) {
+            log.warn("Could not migrate maintenance redesign statuses: {}", e.getMessage());
+        }
+    }
+
+    private void ensureOutstandingDamageTables() {
+        createTableIfNotExists(
+                "outstanding_damage_records",
+                """
+                id BIGSERIAL PRIMARY KEY,
+                maintenance_request_id BIGINT NOT NULL REFERENCES maintenance_requests(id),
+                tenant_contract_id BIGINT NOT NULL REFERENCES tenant_contracts(id),
+                equipment_id BIGINT,
+                label VARCHAR(255) NOT NULL,
+                estimated_amount DECIMAL(15,2) NOT NULL,
+                note TEXT,
+                resolved_at_checkout BOOLEAN NOT NULL DEFAULT FALSE,
+                checkout_damage_item_id BIGINT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                """);
+        createTableIfNotExists(
+                "outstanding_damage_photos",
+                """
+                record_id BIGINT NOT NULL REFERENCES outstanding_damage_records(id) ON DELETE CASCADE,
+                photo_url VARCHAR(500) NOT NULL
+                """);
     }
 
     private void ensureCheckoutRequestsTable() {

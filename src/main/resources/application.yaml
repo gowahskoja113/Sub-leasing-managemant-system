@@ -152,9 +152,10 @@ billing:
     # Trần tổng phòng = totalQuantity × (1 + % này). Đọc trễ vài ngày so với chốt EVN vẫn lọt.
     room-sum-tolerance-percent: ${BILLING_UTILITY_ROOM_SUM_TOLERANCE_PERCENT:10}
 
-# Bảo trì: tự xác nhận nếu tenant không phản hồi
+# Bảo trì (redesign 2026-09)
 maintenance:
-  auto-confirm-days: 3
+  # Gợi ý FE prefill deadline tự sửa (manager vẫn nhập mỗi lần)
+  self-repair-default-days: 14
 
 # Vòng đời hợp đồng thuê
 contract:

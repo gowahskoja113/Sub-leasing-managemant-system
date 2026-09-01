@@ -3,6 +3,7 @@ package com.sep490.slms2026.controller;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
+import com.sep490.slms2026.dto.response.OutstandingDamageResponse;
 import com.sep490.slms2026.service.MaintenanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -57,15 +58,14 @@ public class MaintenanceController {
         return maintenanceService.getDashboardStats();
     }
 
-    @GetMapping("/pending-cost-resolution")
+    @GetMapping("/outstanding-damages")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public List<MaintenanceRequestResponse> getPendingCostResolution(
+    public List<OutstandingDamageResponse> getOutstandingDamages(
             @RequestParam(required = false) Long propertyId,
-            @RequestParam(required = false) Long roomId) {
-        return maintenanceService.getPendingCostResolution(propertyId, roomId);
+            @RequestParam(required = false) Long tenantContractId) {
+        return maintenanceService.getOutstandingDamages(propertyId, tenantContractId);
     }
 
-    /** Manager duyệt yêu cầu → chờ thợ ngoài sửa. */
     @PutMapping("/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public MaintenanceRequestResponse approve(
@@ -74,64 +74,47 @@ public class MaintenanceController {
         return maintenanceService.approve(id, request != null ? request : new MaintenanceApproveRequest());
     }
 
-    /** Manager báo sửa xong (cần ảnh AFTER). */
+    @PutMapping("/{id}/reject-fault")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse rejectFault(
+            @PathVariable Long id,
+            @RequestBody MaintenanceRejectFaultRequest request) {
+        return maintenanceService.rejectFault(id, request);
+    }
+
+    @PutMapping(value = "/{id}/submit-self-repair", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('TENANT')")
+    public MaintenanceRequestResponse submitSelfRepairJson(
+            @PathVariable Long id,
+            @RequestBody MaintenanceSubmitSelfRepairRequest request) {
+        return maintenanceService.submitSelfRepair(id, request, null);
+    }
+
+    @PutMapping(value = "/{id}/submit-self-repair", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('TENANT')")
+    public MaintenanceRequestResponse submitSelfRepairMultipart(
+            @PathVariable Long id,
+            @RequestParam(value = "note", required = false) String note,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files) {
+        MaintenanceSubmitSelfRepairRequest request = new MaintenanceSubmitSelfRepairRequest();
+        request.setNote(note);
+        return maintenanceService.submitSelfRepair(id, request, files);
+    }
+
+    @PutMapping("/{id}/verify-repair")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse verifyRepair(
+            @PathVariable Long id,
+            @RequestBody MaintenanceVerifyRepairRequest request) {
+        return maintenanceService.verifyRepair(id, request);
+    }
+
     @PutMapping("/{id}/complete")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public MaintenanceRequestResponse complete(
             @PathVariable Long id,
             @RequestBody(required = false) MaintenanceCompleteRequest request) {
         return maintenanceService.complete(id, request != null ? request : new MaintenanceCompleteRequest());
-    }
-
-    /** Tenant xác nhận đã sửa xong. */
-    @PutMapping("/{id}/confirm")
-    @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse confirm(
-            @PathVariable Long id,
-            @RequestBody(required = false) MaintenanceConfirmRequest request) {
-        return maintenanceService.confirm(id, request != null ? request : new MaintenanceConfirmRequest());
-    }
-
-    /** Tenant từ chối (JSON): reason + images URLs. */
-    @PutMapping(value = "/{id}/reject", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse rejectJson(
-            @PathVariable Long id,
-            @RequestBody MaintenanceRejectRequest request) {
-        return maintenanceService.reject(id, request, null);
-    }
-
-    /** Tenant từ chối (multipart): reason + files. */
-    @PutMapping(value = "/{id}/reject", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse rejectMultipart(
-            @PathVariable Long id,
-            @RequestParam("reason") String reason,
-            @RequestParam(value = "files", required = false) List<MultipartFile> files) {
-        MaintenanceRejectRequest request = new MaintenanceRejectRequest();
-        request.setReason(reason);
-        return maintenanceService.reject(id, request, files);
-    }
-
-    /**
-     * Manager xem xét reject:
-     * approve=true → APPROVED (sửa lại);
-     * approve=false → WAITING_TENANT_CONFIRM (yêu cầu tenant xác nhận lại).
-     */
-    @PutMapping("/{id}/review-reject")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse reviewReject(
-            @PathVariable Long id,
-            @RequestBody MaintenanceApproveRequest request) {
-        return maintenanceService.reviewReject(id, request);
-    }
-
-    @PutMapping("/{id}/resolve-cost")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse resolveCost(
-            @PathVariable Long id,
-            @RequestBody MaintenanceResolveCostRequest request) {
-        return maintenanceService.resolveCost(id, request);
     }
 
     @PutMapping("/{id}/cancel")
