@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "maintenance_requests")
@@ -122,6 +123,18 @@ public class MaintenanceRequest implements Serializable {
 
     @Column(name = "estimated_damage_amount")
     private BigDecimal estimatedDamageAmount;
+
+    @Column(name = "admin_reviewed_at")
+    private LocalDateTime adminReviewedAt;
+
+    @Column(name = "admin_reviewed_by")
+    private UUID adminReviewedBy;
+
+    @Column(name = "admin_approved")
+    private Boolean adminApproved;
+
+    @Column(name = "admin_review_note", columnDefinition = "TEXT")
+    private String adminReviewNote;
 
     @Column(name = "equipment_id")
     private Long equipmentId;

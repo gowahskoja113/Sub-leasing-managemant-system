@@ -144,6 +144,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureNotificationDedupeKey();
         ensureInvoiceDisputesTable();
         ensurePropertyCodeColumn();
+        ensureMaintenanceAdminReviewColumns();
     }
 
     /**
@@ -292,6 +293,14 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("maintenance_requests", "fault_resolution_path", "VARCHAR(50)");
         addColumnIfNotExists("maintenance_requests", "self_repair_deadline", "DATE");
         addColumnIfNotExists("maintenance_requests", "estimated_damage_amount", "DECIMAL(15,2)");
+    }
+
+    /** Cột admin duyệt báo lỗi do khách (luồng report-fault 2026-09). */
+    private void ensureMaintenanceAdminReviewColumns() {
+        addColumnIfNotExists("maintenance_requests", "admin_reviewed_at", "TIMESTAMP");
+        addColumnIfNotExists("maintenance_requests", "admin_reviewed_by", "UUID");
+        addColumnIfNotExists("maintenance_requests", "admin_approved", "BOOLEAN");
+        addColumnIfNotExists("maintenance_requests", "admin_review_note", "TEXT");
     }
 
     /** Map status cũ → redesign (OPEN / IN_REPAIR / CLOSED / CANCELLED). */

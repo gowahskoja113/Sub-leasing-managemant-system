@@ -82,6 +82,22 @@ public class MaintenanceController {
         return maintenanceService.rejectFault(id, request);
     }
 
+    @PutMapping("/{id}/report-fault")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse reportFault(
+            @PathVariable Long id,
+            @RequestBody MaintenanceReportFaultRequest request) {
+        return maintenanceService.reportFault(id, request);
+    }
+
+    @PutMapping("/{id}/admin-review")
+    @PreAuthorize("hasRole('ADMIN')")
+    public MaintenanceRequestResponse adminReviewFault(
+            @PathVariable Long id,
+            @RequestBody MaintenanceAdminReviewRequest request) {
+        return maintenanceService.adminReviewFault(id, request);
+    }
+
     @PutMapping(value = "/{id}/submit-self-repair", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasRole('TENANT')")
     public MaintenanceRequestResponse submitSelfRepairJson(

@@ -342,6 +342,82 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     @Transactional
+    public MaintenanceRequestResponse reportFault(Long id, MaintenanceReportFaultRequest request) {
+        MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
+        requireStatus(req, MaintenanceStatus.OPEN);
+
+        if (request == null || isBlank(request.getFaultReason())) {
+            throw new BusinessException("Bắt buộc nhập lý do (faultReason)");
+        }
+
+        List<String> evidenceUrls = new ArrayList<>();
+        if (request.getFaultEvidenceImages() != null) {
+            evidenceUrls.addAll(request.getFaultEvidenceImages().stream()
+                    .filter(u -> u != null && !u.isBlank()).toList());
+        }
+        if (evidenceUrls.isEmpty()) {
+            throw new BusinessException("Bắt buộc đính kèm ảnh bằng chứng lỗi tenant (faultEvidenceImages)");
+        }
+
+        MaintenanceStatus old = req.getStatus();
+        req.setFlowType(MaintenanceFlowType.TENANT_FAULT);
+        req.setDamageCause(DamageCause.TENANT_MISUSE);
+        req.setFaultReason(request.getFaultReason().trim());
+        req.setFaultResolutionPath(null);
+        req.setSelfRepairDeadline(null);
+        req.setEstimatedDamageAmount(null);
+        req.setStatus(MaintenanceStatus.TENANT_FAULT);
+        appendPhotoHistory(req, MaintenancePhotoType.FAULT_EVIDENCE, evidenceUrls);
+        repository.save(req);
+        addTimeline(req, old, MaintenanceStatus.TENANT_FAULT,
+                "Manager báo lỗi do khách — chờ admin duyệt");
+        return convertToResponse(req);
+    }
+
+    @Override
+    @Transactional
+    public MaintenanceRequestResponse adminReviewFault(Long id, MaintenanceAdminReviewRequest request) {
+        MaintenanceRequest req = findActive(id);
+        requireAdminAccess();
+
+        if (request == null || request.getApproved() == null) {
+            throw new BusinessException("Bắt buộc gửi approved (true/false)");
+        }
+        if (req.getStatus() != MaintenanceStatus.TENANT_FAULT) {
+            throw new BusinessException(
+                    "Chỉ duyệt phiếu ở trạng thái TENANT_FAULT. Hiện tại: " + req.getStatus());
+        }
+        if (req.getFlowType() != MaintenanceFlowType.TENANT_FAULT) {
+            throw new BusinessException("Phiếu không thuộc luồng báo lỗi do khách");
+        }
+        if (isBlank(req.getFaultReason())) {
+            throw new BusinessException("Phiếu chưa có báo cáo lỗi do khách");
+        }
+        if (req.getFaultResolutionPath() != null) {
+            throw new BusinessException(
+                    "Phiếu đã rẽ nhánh xử lý sửa chữa (luồng cũ), không dùng admin-review");
+        }
+        if (req.getAdminReviewedAt() != null) {
+            throw new BusinessException("Phiếu đã được admin duyệt trước đó");
+        }
+
+        CustomUserDetails admin = SecurityUtils.requireCurrentUser();
+        req.setAdminReviewedAt(LocalDateTime.now());
+        req.setAdminReviewedBy(admin.getId());
+        req.setAdminApproved(request.getApproved());
+        req.setAdminReviewNote(trimToNull(request.getNote()));
+        repository.save(req);
+
+        String decision = Boolean.TRUE.equals(request.getApproved()) ? "Duyệt" : "Không duyệt";
+        String note = decision + " báo lỗi do khách"
+                + (req.getAdminReviewNote() != null ? ": " + req.getAdminReviewNote() : "");
+        addTimeline(req, req.getStatus(), req.getStatus(), note);
+        return convertToResponse(req);
+    }
+
+    @Override
+    @Transactional
     public MaintenanceRequestResponse submitSelfRepair(Long id, MaintenanceSubmitSelfRepairRequest request,
                                                        List<MultipartFile> files) {
         MaintenanceRequest req = findActive(id);
@@ -792,6 +868,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
+    private void requireAdminAccess() {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if (!"ROLE_ADMIN".equals(role)) {
+            throw new AccessDeniedException("Chỉ admin mới được thao tác này");
+        }
+    }
+
     private void assertCanViewRequest(MaintenanceRequest req) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         String role = user.getAuthorities().iterator().next().getAuthority();
@@ -1169,6 +1253,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .faultResolutionPath(req.getFaultResolutionPath())
                 .selfRepairDeadline(req.getSelfRepairDeadline())
                 .estimatedDamageAmount(req.getEstimatedDamageAmount())
+                .adminReviewedAt(req.getAdminReviewedAt())
+                .adminReviewedBy(req.getAdminReviewedBy())
+                .adminApproved(req.getAdminApproved())
+                .adminReviewNote(req.getAdminReviewNote())
                 .beforeImages(before)
                 .afterImages(after)
                 .invoiceImages(invoice)
@@ -1204,6 +1292,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 res.setEquipmentId(eq.getId());
                 res.setEquipmentName(eq.getCatalog() != null ? eq.getCatalog().getName() : null);
             });
+        }
+        if (req.getAdminReviewedBy() != null) {
+            userRepository.findById(req.getAdminReviewedBy()).ifPresent(admin ->
+                    res.setAdminReviewedByName(admin.getFullName()));
         }
 
         List<MaintenanceTimeline> timelines = timelineRepository.findByMaintenanceRequestIdOrderByChangedAtAsc(req.getId());

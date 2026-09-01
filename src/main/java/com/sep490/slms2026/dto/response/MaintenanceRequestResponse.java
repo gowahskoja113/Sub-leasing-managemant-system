@@ -62,6 +62,12 @@ public class MaintenanceRequestResponse {
     private LocalDate selfRepairDeadline;
     private BigDecimal estimatedDamageAmount;
 
+    private LocalDateTime adminReviewedAt;
+    private UUID adminReviewedBy;
+    private String adminReviewedByName;
+    private Boolean adminApproved;
+    private String adminReviewNote;
+
     private TenantInvoiceResponse issuedInvoice;
 
     private List<String> beforeImages;

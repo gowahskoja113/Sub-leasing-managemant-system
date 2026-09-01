@@ -33,6 +33,12 @@ public interface MaintenanceService {
     /** Manager reject lỗi tenant → TENANT_FAULT / PENDING_TENANT_REPAIR (Luồng B). */
     MaintenanceRequestResponse rejectFault(Long id, MaintenanceRejectFaultRequest request);
 
+    /** Manager báo lỗi do khách — chờ admin duyệt (không rẽ nhánh sửa/hoá đơn). */
+    MaintenanceRequestResponse reportFault(Long id, MaintenanceReportFaultRequest request);
+
+    /** Admin duyệt / không duyệt báo lỗi do khách. */
+    MaintenanceRequestResponse adminReviewFault(Long id, MaintenanceAdminReviewRequest request);
+
     /** Tenant upload bằng chứng đã tự sửa. */
     MaintenanceRequestResponse submitSelfRepair(Long id, MaintenanceSubmitSelfRepairRequest request,
                                                 List<MultipartFile> files);
