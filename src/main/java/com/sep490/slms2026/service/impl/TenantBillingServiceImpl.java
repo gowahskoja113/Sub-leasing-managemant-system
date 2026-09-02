@@ -99,9 +99,11 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public TenantInvoiceResponse getInvoice(UUID tenantUserId, Long invoiceId) {
-        return toResponse(loadOwnedInvoice(invoiceId, tenantUserId));
+        TenantInvoice invoice = loadOwnedInvoice(invoiceId, tenantUserId);
+        markUtilityInvoiceViewedIfAbsent(invoice);
+        return toResponse(invoice);
     }
 
     @Override
@@ -1143,6 +1145,20 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         return tenantInvoiceRepository.findByIdAndTenantUserId(invoiceId, tenantUserId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy hóa đơn ID=" + invoiceId));
+    }
+
+    /** Ghi nhận lần đầu khách mở hoá đơn tiện ích (tab Hoá đơn → chi tiết). */
+    private void markUtilityInvoiceViewedIfAbsent(TenantInvoice invoice) {
+        Long utilityInvoiceId = invoice.getUtilityInvoiceId();
+        if (utilityInvoiceId == null) {
+            return;
+        }
+        utilityInvoiceRepository.findById(utilityInvoiceId).ifPresent(ui -> {
+            if (ui.getTenantViewedAt() == null) {
+                ui.setTenantViewedAt(LocalDateTime.now());
+                utilityInvoiceRepository.save(ui);
+            }
+        });
     }
 
     private TenantInvoiceStatus parseStatus(String status) {

@@ -776,9 +776,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             }
         }
 
-        builder.tenantViewed(notificationRepository.findByDedupeKey("utility-invoice:" + invoice.getId() + ":created")
-                .map(Notification::isRead)
-                .orElse(null));
+        if (invoice.getTenantViewedAt() != null) {
+            builder.tenantViewed(true);
+        } else {
+            builder.tenantViewed(notificationRepository
+                    .findByDedupeKey("utility-invoice:" + invoice.getId() + ":created")
+                    .map(Notification::isRead)
+                    .orElse(null));
+        }
 
         return builder.build();
     }

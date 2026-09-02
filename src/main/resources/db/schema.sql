@@ -652,7 +652,8 @@ CREATE TABLE IF NOT EXISTS utility_invoices (
     status              VARCHAR(50) NOT NULL,
     sent_at             TIMESTAMP,
     created_by          UUID,
-    created_at          TIMESTAMP NOT NULL
+    created_at          TIMESTAMP NOT NULL,
+    tenant_viewed_at    TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS invoice_disputes (

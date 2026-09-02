@@ -145,6 +145,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureInvoiceDisputesTable();
         ensurePropertyCodeColumn();
         ensureMaintenanceAdminReviewColumns();
+        ensureUtilityInvoiceTenantViewedAtColumn();
     }
 
     /**
@@ -1550,6 +1551,10 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         } catch (Exception e) {
             log.warn("Could not backfill properties.property_code: {}", e.getMessage());
         }
+    }
+
+    private void ensureUtilityInvoiceTenantViewedAtColumn() {
+        addColumnIfNotExists("utility_invoices", "tenant_viewed_at", "TIMESTAMP");
     }
 
     /**
