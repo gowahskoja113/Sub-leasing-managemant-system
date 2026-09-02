@@ -43,6 +43,10 @@ public class CheckoutRequest implements Serializable {
     @Builder.Default
     private CheckoutRequestStatus status = CheckoutRequestStatus.PENDING;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "origin", length = 32)
+    private com.sep490.slms2026.enums.CheckoutOrigin origin;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

@@ -49,6 +49,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
     private final com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
     private final com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
     private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
+    private final com.sep490.slms2026.repository.ExtensionRequestRepository extensionRequestRepository;
 
     @Override
     @Transactional
@@ -119,16 +120,21 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         if (checkoutRequest.getStatus() != CheckoutRequestStatus.PENDING) {
             throw new BusinessException("Chỉ có thể hủy yêu cầu đang chờ duyệt");
         }
+        if (checkoutRequest.getOrigin() == com.sep490.slms2026.enums.CheckoutOrigin.CONTRACT_EXPIRED) {
+            throw new BusinessException("Phiếu này do hệ thống tạo vì hợp đồng đã hết hạn, không huỷ được. Liên hệ quản lý nếu cần hỗ trợ.");
+        }
         checkoutRequest.setStatus(CheckoutRequestStatus.REJECTED);
         checkoutRequest.setRejectReason("Khách hủy yêu cầu");
         checkoutRequest.setReviewedAt(LocalDateTime.now());
         CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
 
         // Revert contract endDate if it was set (though it's only set in approve, but just in case)
-        if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
-            if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
-                checkoutRequest.getTenantContract().setEndDate(null);
-                tenantContractRepository.save(checkoutRequest.getTenantContract());
+        if (checkoutRequest.getOrigin() == null || checkoutRequest.getOrigin() == com.sep490.slms2026.enums.CheckoutOrigin.TENANT_REQUEST) {
+            if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
+                if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
+                    checkoutRequest.getTenantContract().setEndDate(null);
+                    tenantContractRepository.save(checkoutRequest.getTenantContract());
+                }
             }
         }
 
@@ -287,10 +293,12 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         CheckoutRequest saved = checkoutRequestRepository.save(checkoutRequest);
 
         // Revert contract endDate if it was set
-        if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
-            if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
-                checkoutRequest.getTenantContract().setEndDate(null);
-                tenantContractRepository.save(checkoutRequest.getTenantContract());
+        if (checkoutRequest.getOrigin() == null || checkoutRequest.getOrigin() == com.sep490.slms2026.enums.CheckoutOrigin.TENANT_REQUEST) {
+            if (checkoutRequest.getTenantContract() != null && checkoutRequest.getTenantContract().getEndDate() != null) {
+                if (checkoutRequest.getTenantContract().getEndDate().equals(checkoutRequest.getExpectedMoveOutDate())) {
+                    checkoutRequest.getTenantContract().setEndDate(null);
+                    tenantContractRepository.save(checkoutRequest.getTenantContract());
+                }
             }
         }
 
@@ -831,35 +839,76 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
         List<TenantContract> activeContracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
         
         for (TenantContract contract : activeContracts) {
-            if (contract.getEndDate() != null && contract.getEndDate().isBefore(today)) {
-                contract.setStatus(ContractStatus.EXPIRED);
-                tenantContractRepository.save(contract);
-                
-                tenantOnboardingService.syncExpiredIfNeeded(contract);
-                
-                if (!checkoutRequestRepository.existsByTenantContractIdAndStatusIn(contract.getId(), OPEN_STATUSES)) {
-                    CheckoutRequest saved = checkoutRequestRepository.save(CheckoutRequest.builder()
-                            .tenantUserId(contract.getTenant().getId())
-                            .tenantContract(contract)
-                            .expectedMoveOutDate(contract.getEndDate())
-                            .reason("Hợp đồng hết hạn tự nhiên")
-                            .status(CheckoutRequestStatus.PENDING)
-                            .createdAt(LocalDateTime.now())
-                            .build());
-                    
-                    Map<String, Object> data = new HashMap<>();
-                    data.put("screen", "CheckoutDetail");
-                    Map<String, Object> params = new HashMap<>();
-                    params.put("requestId", saved.getId());
-                    data.put("params", params);
-                    
-                    sendNotification(contract.getTenant().getId(), "CHECKOUT_REQUESTED_AUTO", 
-                            "Hợp đồng đã hết hạn", "Hệ thống đã tự động tạo phiếu trả phòng do hợp đồng hết hạn.", data);
-                            
+            if (contract.getEndDate() == null) continue;
+
+            boolean hasPendingExtension = extensionRequestRepository.existsByTenantContractIdAndStatus(contract.getId(), com.sep490.slms2026.enums.ExtensionRequestStatus.PENDING);
+            
+            if (hasPendingExtension) {
+                // Check if 7 days passed
+                if (today.isAfter(contract.getEndDate().plusDays(7))) {
+                    List<com.sep490.slms2026.entity.ExtensionRequest> pendingReqs = extensionRequestRepository.findByTenantContractIdAndStatus(contract.getId(), com.sep490.slms2026.enums.ExtensionRequestStatus.PENDING);
+                    for (com.sep490.slms2026.entity.ExtensionRequest req : pendingReqs) {
+                        req.setStatus(com.sep490.slms2026.enums.ExtensionRequestStatus.EXPIRED);
+                        req.setRejectReason("Quá hạn xử lý");
+                        extensionRequestRepository.save(req);
+                        sendNotification(req.getTenantUserId(), "EXTENSION_EXPIRED", "Đơn gia hạn quá hạn", "Đơn xin gia hạn không được xử lý kịp. Hợp đồng đã kết thúc, hệ thống đã mở phiếu trả phòng.", null);
+                    }
+                    hasPendingExtension = false;
+                }
+            }
+            
+            if (hasPendingExtension && !today.isBefore(contract.getEndDate())) {
+                if (today.isEqual(contract.getEndDate())) {
+                    String title = "Đơn gia hạn đang chờ xử lý";
+                    String content = "Hợp đồng phòng " + (contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "nguyên căn") + " hôm nay là ngày cuối nhưng còn đơn gia hạn chưa duyệt. Tạm hoãn tạo phiếu trả phòng.";
                     UUID managerId = getManagerId(contract);
                     if (managerId != null) {
-                        sendNotification(managerId, "CHECKOUT_REQUESTED_AUTO", 
-                            "Hợp đồng đã hết hạn", "Hệ thống đã tự động tạo phiếu trả phòng cho hợp đồng hết hạn tự nhiên.", data);
+                        sendNotification(managerId, "EXTENSION_REMINDER", title, content, null);
+                    }
+                    userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_ADMIN).forEach(admin -> {
+                        sendNotification(admin.getId(), "EXTENSION_REMINDER", title, content, null);
+                    });
+                    userRepository.findByRole(com.sep490.slms2026.enums.Role.ROLE_OWNER).forEach(owner -> {
+                        sendNotification(owner.getId(), "EXTENSION_REMINDER", title, content, null);
+                    });
+                }
+            }
+
+            if (!hasPendingExtension) {
+                // 1. Kết thúc hợp đồng (khi qua ngày cuối)
+                if (contract.getEndDate().isBefore(today)) {
+                    contract.setStatus(ContractStatus.EXPIRED);
+                    tenantContractRepository.save(contract);
+                    tenantOnboardingService.syncExpiredIfNeeded(contract);
+                }
+
+                // 2. Tạo phiếu trả phòng (từ 00:00 ngày cuối trở đi)
+                if (!today.isBefore(contract.getEndDate())) {
+                    if (!checkoutRequestRepository.existsByTenantContractIdAndStatusIn(contract.getId(), OPEN_STATUSES)) {
+                        CheckoutRequest saved = checkoutRequestRepository.save(CheckoutRequest.builder()
+                                .tenantUserId(contract.getTenant().getId())
+                                .tenantContract(contract)
+                                .expectedMoveOutDate(contract.getEndDate())
+                                .reason("Hợp đồng hết hạn tự nhiên")
+                                .status(CheckoutRequestStatus.PENDING)
+                                .origin(com.sep490.slms2026.enums.CheckoutOrigin.CONTRACT_EXPIRED)
+                                .createdAt(LocalDateTime.now())
+                                .build());
+                        
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("screen", "CheckoutDetail");
+                        Map<String, Object> params = new HashMap<>();
+                        params.put("requestId", saved.getId());
+                        data.put("params", params);
+                        
+                        sendNotification(contract.getTenant().getId(), "CHECKOUT_REQUESTED_AUTO", 
+                                "Hôm nay là ngày cuối của hợp đồng", "Hệ thống đã tự động tạo phiếu trả phòng do hợp đồng hết hạn.", data);
+                                
+                        UUID managerId = getManagerId(contract);
+                        if (managerId != null) {
+                            sendNotification(managerId, "CHECKOUT_REQUESTED_AUTO", 
+                                "Hợp đồng đã hết hạn", "Hệ thống đã tự động tạo phiếu trả phòng cho hợp đồng hết hạn tự nhiên.", data);
+                        }
                     }
                 }
             }
@@ -883,9 +932,9 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 String contentManager = String.format("Hợp đồng phòng %s sẽ hết hạn sau %d ngày (%s).", roomStr, daysLeft, contract.getEndDate());
                 
                 if (daysLeft == 0) {
-                    title = "Hợp đồng hết hạn hôm nay";
-                    contentTenant = "Hợp đồng của bạn hết hạn hôm nay.";
-                    contentManager = String.format("Hợp đồng phòng %s hết hạn hôm nay.", roomStr);
+                    title = "Hôm nay là ngày cuối của hợp đồng";
+                    contentTenant = "Quản lý sẽ liên hệ làm thủ tục trả phòng trong hôm nay. Sau hôm nay hợp đồng kết thúc.";
+                    contentManager = String.format("Hôm nay là ngày cuối của hợp đồng phòng %s.", roomStr);
                 }
                 
                 Map<String, Object> data = new HashMap<>();
