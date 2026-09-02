@@ -77,6 +77,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceRedesignColumns();
         migrateMaintenanceStatusesToRedesignFlow();
         ensureMaintenanceRequestsStatusConstraint();
+        ensureMaintenanceTimelineStatusConstraints();
         ensureOutstandingDamageTables();
         addColumnIfNotExists("checkout_damage_items", "maintenance_request_id", "BIGINT");
         ensureTenantPendingChargesTable();
@@ -265,72 +266,116 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
 
     /** Gỡ CHECK status cũ trước backfill — deploy có thể còn constraint thủ công chặn OPEN/IN_REPAIR. */
     private void dropMaintenanceRequestsStatusCheck() {
+        dropMaintenanceStatusCheckIfExists("maintenance_requests", "maintenance_requests_status_check");
+        dropMaintenanceStatusCheckIfExists("maintenance_timelines", "maintenance_timelines_new_status_check");
+        dropMaintenanceStatusCheckIfExists("maintenance_timelines", "maintenance_timelines_old_status_check");
+        dropMaintenanceStatusCheckIfExists("maintenance_history", "maintenance_history_new_status_check");
+        dropMaintenanceStatusCheckIfExists("maintenance_history", "maintenance_history_old_status_check");
+    }
+
+    private void dropMaintenanceStatusCheckIfExists(String table, String constraintName) {
         Boolean tableExists = jdbcTemplate.queryForObject(
                 """
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                    WHERE table_schema = 'public' AND table_name = ?
                 )
                 """,
-                Boolean.class);
+                Boolean.class,
+                table);
         if (!Boolean.TRUE.equals(tableExists)) {
             return;
         }
         try {
-            jdbcTemplate.execute(
-                    "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_status_check");
-            log.info("Dropped maintenance_requests_status_check (if present) before status backfill");
+            jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraintName);
+            log.info("Dropped {} on {} (if present) before maintenance status backfill", constraintName, table);
         } catch (Exception e) {
-            log.warn("Could not drop maintenance_requests_status_check: {}", e.getMessage());
+            log.warn("Could not drop {} on {}: {}", constraintName, table, e.getMessage());
         }
     }
 
+    private static final String MAINTENANCE_REDESIGN_STATUS_IN =
+            "'OPEN','IN_REPAIR','TENANT_FAULT','PENDING_TENANT_REPAIR','OUTSTANDING_DAMAGE','CLOSED','CANCELLED'";
+
     /** Đồng bộ CHECK status theo enum redesign — gọi sau migrateMaintenanceStatusesToRedesignFlow(). */
     private void ensureMaintenanceRequestsStatusConstraint() {
+        ensureMaintenanceStatusCheck("maintenance_requests", "status",
+                "maintenance_requests_status_check", false);
+    }
+
+    /** Timeline/history cũng có CHECK status từ Hibernate — bị bỏ sót khi redesign. */
+    private void ensureMaintenanceTimelineStatusConstraints() {
+        ensureMaintenanceStatusCheck("maintenance_timelines", "old_status",
+                "maintenance_timelines_old_status_check", true);
+        ensureMaintenanceStatusCheck("maintenance_timelines", "new_status",
+                "maintenance_timelines_new_status_check", false);
+        ensureMaintenanceStatusCheck("maintenance_history", "old_status",
+                "maintenance_history_old_status_check", true);
+        ensureMaintenanceStatusCheck("maintenance_history", "new_status",
+                "maintenance_history_new_status_check", true);
+    }
+
+    private void ensureMaintenanceStatusCheck(String table, String column, String constraintName, boolean allowNull) {
         Boolean tableExists = jdbcTemplate.queryForObject(
                 """
                 SELECT EXISTS (
                     SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                    WHERE table_schema = 'public' AND table_name = ?
                 )
                 """,
-                Boolean.class);
+                Boolean.class,
+                table);
         if (!Boolean.TRUE.equals(tableExists)) {
             return;
         }
         try {
-            jdbcTemplate.execute(
-                    "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_status_check");
-            jdbcTemplate.execute("""
-                    ALTER TABLE maintenance_requests ADD CONSTRAINT maintenance_requests_status_check
-                        CHECK (status IN (
-                            'OPEN',
-                            'IN_REPAIR',
-                            'TENANT_FAULT',
-                            'PENDING_TENANT_REPAIR',
-                            'OUTSTANDING_DAMAGE',
-                            'CLOSED',
-                            'CANCELLED'
-                        ))
-                    """);
-            log.info("Ensured maintenance_requests_status_check for redesign flow");
+            jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraintName);
+            String nullGuard = allowNull ? column + " IS NULL OR " : "";
+            jdbcTemplate.execute(String.format("""
+                    ALTER TABLE %s ADD CONSTRAINT %s
+                        CHECK (%s%s IN (%s))
+                    """, table, constraintName, nullGuard, column, MAINTENANCE_REDESIGN_STATUS_IN));
+            log.info("Ensured {} on {}.{}", constraintName, table, column);
         } catch (Exception e) {
-            log.warn("Could not ensure maintenance_requests_status_check: {}", e.getMessage());
+            log.warn("Could not ensure {} on {}.{}: {}", constraintName, table, column, e.getMessage());
         }
+    }
+
+    private int migrateMaintenanceStatusColumnSimplified(String table, String column) {
+        int updated = 0;
+        updated += jdbcTemplate.update(
+                "UPDATE %s SET %s = 'APPROVED' WHERE %s IN ('ACKNOWLEDGED','SCHEDULED','IN_PROGRESS','ON_HOLD','REOPENED')"
+                        .formatted(table, column, column));
+        updated += jdbcTemplate.update(
+                "UPDATE %s SET %s = 'WAITING_TENANT_CONFIRM' WHERE %s IN ('DONE','PENDING_APPROVAL')"
+                        .formatted(table, column, column));
+        updated += jdbcTemplate.update(
+                "UPDATE %s SET %s = 'CLOSED' WHERE %s IN ('CONFIRMED','RESOLVED')"
+                        .formatted(table, column, column));
+        return updated;
+    }
+
+    private int migrateMaintenanceStatusColumnRedesign(String table, String column) {
+        int updated = 0;
+        updated += jdbcTemplate.update(
+                "UPDATE %s SET %s = 'OPEN' WHERE %s = 'PENDING'".formatted(table, column, column));
+        updated += jdbcTemplate.update(
+                "UPDATE %s SET %s = 'IN_REPAIR' WHERE %s IN ('APPROVED','WAITING_TENANT_CONFIRM','REJECTED')"
+                        .formatted(table, column, column));
+        return updated;
     }
 
     /** Map legacy maintenance statuses sang flow rút gọn (bước trung gian). */
     private void migrateMaintenanceStatusesToSimplifiedFlow() {
         try {
             int updated = 0;
-            updated += jdbcTemplate.update(
-                    "UPDATE maintenance_requests SET status = 'APPROVED' WHERE status IN ('ACKNOWLEDGED','SCHEDULED','IN_PROGRESS','ON_HOLD','REOPENED')");
-            updated += jdbcTemplate.update(
-                    "UPDATE maintenance_requests SET status = 'WAITING_TENANT_CONFIRM' WHERE status IN ('DONE','PENDING_APPROVAL')");
-            updated += jdbcTemplate.update(
-                    "UPDATE maintenance_requests SET status = 'CLOSED' WHERE status IN ('CONFIRMED','RESOLVED')");
+            updated += migrateMaintenanceStatusColumnSimplified("maintenance_requests", "status");
+            updated += migrateMaintenanceStatusColumnSimplified("maintenance_timelines", "old_status");
+            updated += migrateMaintenanceStatusColumnSimplified("maintenance_timelines", "new_status");
+            updated += migrateMaintenanceStatusColumnSimplified("maintenance_history", "old_status");
+            updated += migrateMaintenanceStatusColumnSimplified("maintenance_history", "new_status");
             if (updated > 0) {
-                log.info("Migrated {} maintenance_requests rows to simplified statuses", updated);
+                log.info("Migrated {} maintenance status columns to simplified statuses", updated);
             }
         } catch (Exception e) {
             log.warn("Could not migrate maintenance statuses: {}", e.getMessage());
@@ -366,14 +411,15 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     private void migrateMaintenanceStatusesToRedesignFlow() {
         try {
             int updated = 0;
-            updated += jdbcTemplate.update(
-                    "UPDATE maintenance_requests SET status = 'OPEN' WHERE status = 'PENDING'");
-            updated += jdbcTemplate.update(
-                    "UPDATE maintenance_requests SET status = 'IN_REPAIR' WHERE status IN ('APPROVED','WAITING_TENANT_CONFIRM','REJECTED')");
+            updated += migrateMaintenanceStatusColumnRedesign("maintenance_requests", "status");
+            updated += migrateMaintenanceStatusColumnRedesign("maintenance_timelines", "old_status");
+            updated += migrateMaintenanceStatusColumnRedesign("maintenance_timelines", "new_status");
+            updated += migrateMaintenanceStatusColumnRedesign("maintenance_history", "old_status");
+            updated += migrateMaintenanceStatusColumnRedesign("maintenance_history", "new_status");
             updated += jdbcTemplate.update(
                     "UPDATE maintenance_requests SET flow_type = 'NORMAL_WEAR' WHERE flow_type IS NULL AND status IN ('OPEN','IN_REPAIR','CLOSED')");
             if (updated > 0) {
-                log.info("Migrated {} maintenance_requests rows to redesign statuses", updated);
+                log.info("Migrated {} maintenance status columns to redesign statuses", updated);
             }
             int rejectPhotos = jdbcTemplate.update(
                     "UPDATE maintenance_images SET type = 'FAULT_EVIDENCE' WHERE type = 'REJECT'");
