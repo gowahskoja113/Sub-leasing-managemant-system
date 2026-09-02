@@ -18,7 +18,7 @@ public class ContractLifecycleCron {
     private final TenantOnboardingService tenantOnboardingService;
     private final com.sep490.slms2026.service.TenantCheckoutService tenantCheckoutService;
 
-    @Scheduled(cron = "0 25 8 * * *", zone = "Asia/Ho_Chi_Minh")
+    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Ho_Chi_Minh")
     public void expireDueContracts() {
         tenantCheckoutService.processExpiredContracts();
         tenantCheckoutService.processContractExpirationReminders();
