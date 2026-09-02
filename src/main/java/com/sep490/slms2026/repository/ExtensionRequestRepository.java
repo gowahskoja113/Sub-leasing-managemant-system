@@ -17,4 +17,5 @@ public interface ExtensionRequestRepository extends JpaRepository<ExtensionReque
     List<ExtensionRequest> findAllByOrderByCreatedAtDesc();
     List<ExtensionRequest> findByStatusOrderByCreatedAtDesc(ExtensionRequestStatus status);
     List<ExtensionRequest> findByTenantContractIdAndStatus(Long contractId, ExtensionRequestStatus status);
+    List<ExtensionRequest> findByTenantContractIdOrderByCreatedAtDesc(Long contractId);
 }

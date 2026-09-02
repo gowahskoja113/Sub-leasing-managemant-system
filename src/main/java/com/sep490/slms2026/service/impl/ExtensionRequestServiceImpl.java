@@ -160,6 +160,21 @@ public class ExtensionRequestServiceImpl implements ExtensionRequestService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<ExtensionRequestResponse> listRequestsForTenant(UUID tenantUserId, Long contractId) {
+        loadOwnedContract(contractId, tenantUserId);
+        
+        List<ExtensionRequest> requests = extensionRequestRepository.findByTenantContractIdOrderByCreatedAtDesc(contractId);
+        return requests.stream()
+                .map(req -> {
+                    ExtensionRequestResponse res = toResponse(req);
+                    res.setManagerNote(null);
+                    return res;
+                })
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<ExtensionRequestResponse> listRequestsForManager(String status) {
         return listRequestsByStatus(status);
     }
