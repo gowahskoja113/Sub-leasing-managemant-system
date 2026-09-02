@@ -73,11 +73,13 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureCostAgreementStatusConstraint();
         ensureMaintenanceImagesPhotoHistory();
         dropMaintenanceRequestsStatusCheck();
+        dropMaintenanceImagesTypeCheck();
         migrateMaintenanceStatusesToSimplifiedFlow();
         ensureMaintenanceRedesignColumns();
         migrateMaintenanceStatusesToRedesignFlow();
         ensureMaintenanceRequestsStatusConstraint();
         ensureMaintenanceTimelineStatusConstraints();
+        ensureMaintenanceImagesTypeConstraint();
         ensureOutstandingDamageTables();
         addColumnIfNotExists("checkout_damage_items", "maintenance_request_id", "BIGINT");
         ensureTenantPendingChargesTable();
@@ -271,6 +273,42 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         dropMaintenanceStatusCheckIfExists("maintenance_timelines", "maintenance_timelines_old_status_check");
         dropMaintenanceStatusCheckIfExists("maintenance_history", "maintenance_history_new_status_check");
         dropMaintenanceStatusCheckIfExists("maintenance_history", "maintenance_history_old_status_check");
+    }
+
+    private void dropMaintenanceImagesTypeCheck() {
+        dropMaintenanceStatusCheckIfExists("maintenance_images", "maintenance_images_type_check");
+    }
+
+    /** Enum redesign thêm FAULT_EVIDENCE, SELF_REPAIR — CHECK cũ trên deploy chỉ có BEFORE/AFTER/INVOICE/REJECT. */
+    private void ensureMaintenanceImagesTypeConstraint() {
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'maintenance_images'
+                )
+                """,
+                Boolean.class);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE maintenance_images DROP CONSTRAINT IF EXISTS maintenance_images_type_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE maintenance_images ADD CONSTRAINT maintenance_images_type_check
+                        CHECK (type IN (
+                            'BEFORE',
+                            'FAULT_EVIDENCE',
+                            'SELF_REPAIR',
+                            'AFTER',
+                            'INVOICE'
+                        ))
+                    """);
+            log.info("Ensured maintenance_images_type_check for redesign photo types");
+        } catch (Exception e) {
+            log.warn("Could not ensure maintenance_images_type_check: {}", e.getMessage());
+        }
     }
 
     private void dropMaintenanceStatusCheckIfExists(String table, String constraintName) {
