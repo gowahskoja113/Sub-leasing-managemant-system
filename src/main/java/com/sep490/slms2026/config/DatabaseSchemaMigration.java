@@ -72,9 +72,11 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceSimplifiedFlowColumns();
         ensureCostAgreementStatusConstraint();
         ensureMaintenanceImagesPhotoHistory();
+        dropMaintenanceRequestsStatusCheck();
         migrateMaintenanceStatusesToSimplifiedFlow();
         ensureMaintenanceRedesignColumns();
         migrateMaintenanceStatusesToRedesignFlow();
+        ensureMaintenanceRequestsStatusConstraint();
         ensureOutstandingDamageTables();
         addColumnIfNotExists("checkout_damage_items", "maintenance_request_id", "BIGINT");
         ensureTenantPendingChargesTable();
@@ -258,6 +260,62 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             log.info("Ensured maintenance_requests_cost_agreement_status_check includes WAIVED");
         } catch (Exception e) {
             log.warn("Could not ensure maintenance_requests_cost_agreement_status_check: {}", e.getMessage());
+        }
+    }
+
+    /** Gỡ CHECK status cũ trước backfill — deploy có thể còn constraint thủ công chặn OPEN/IN_REPAIR. */
+    private void dropMaintenanceRequestsStatusCheck() {
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                )
+                """,
+                Boolean.class);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_status_check");
+            log.info("Dropped maintenance_requests_status_check (if present) before status backfill");
+        } catch (Exception e) {
+            log.warn("Could not drop maintenance_requests_status_check: {}", e.getMessage());
+        }
+    }
+
+    /** Đồng bộ CHECK status theo enum redesign — gọi sau migrateMaintenanceStatusesToRedesignFlow(). */
+    private void ensureMaintenanceRequestsStatusConstraint() {
+        Boolean tableExists = jdbcTemplate.queryForObject(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                )
+                """,
+                Boolean.class);
+        if (!Boolean.TRUE.equals(tableExists)) {
+            return;
+        }
+        try {
+            jdbcTemplate.execute(
+                    "ALTER TABLE maintenance_requests DROP CONSTRAINT IF EXISTS maintenance_requests_status_check");
+            jdbcTemplate.execute("""
+                    ALTER TABLE maintenance_requests ADD CONSTRAINT maintenance_requests_status_check
+                        CHECK (status IN (
+                            'OPEN',
+                            'IN_REPAIR',
+                            'TENANT_FAULT',
+                            'PENDING_TENANT_REPAIR',
+                            'OUTSTANDING_DAMAGE',
+                            'CLOSED',
+                            'CANCELLED'
+                        ))
+                    """);
+            log.info("Ensured maintenance_requests_status_check for redesign flow");
+        } catch (Exception e) {
+            log.warn("Could not ensure maintenance_requests_status_check: {}", e.getMessage());
         }
     }
 
