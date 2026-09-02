@@ -13,6 +13,7 @@ public interface ExtensionRequestService {
     ExtensionOptionsResponse getExtensionOptions(UUID tenantUserId, Long contractId);
     ExtensionRequestResponse createRequest(UUID tenantUserId, Long contractId, CreateExtensionRequest request);
     ExtensionRequestResponse withdrawRequest(UUID tenantUserId, Long requestId);
+    List<ExtensionRequestResponse> listRequestsForTenant(UUID tenantUserId, Long contractId);
     
     List<ExtensionRequestResponse> listRequestsForManager(String status);
     ExtensionRequestResponse addManagerNote(UUID managerUserId, Long requestId, ExtensionNoteRequest request);

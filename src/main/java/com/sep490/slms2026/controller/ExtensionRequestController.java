@@ -48,6 +48,14 @@ public class ExtensionRequestController {
         return ResponseEntity.ok(extensionRequestService.withdrawRequest(user.getId(), requestId));
     }
 
+    @GetMapping("/tenant/me/contracts/{contractId}/extension-requests")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<List<ExtensionRequestResponse>> listExtensionRequests(
+            @PathVariable Long contractId) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        return ResponseEntity.ok(extensionRequestService.listRequestsForTenant(user.getId(), contractId));
+    }
+
     // --- Manager Endpoints ---
 
     @GetMapping("/manager/extension-requests")
