@@ -31,4 +31,6 @@ public class UtilityInvoiceResponse {
     private String tenantFullName;
     private String tenantPhone;
     private Boolean tenantViewed;
+    /** Lần đầu khách mở hoá đơn; null khi chưa mở hoặc hoá đơn phát hành trước khi có cột. */
+    private LocalDateTime tenantViewedAt;
 }

@@ -776,6 +776,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             }
         }
 
+        builder.tenantViewedAt(invoice.getTenantViewedAt());
         if (invoice.getTenantViewedAt() != null) {
             builder.tenantViewed(true);
         } else {
