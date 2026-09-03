@@ -223,7 +223,11 @@ public class ExtensionRequestServiceImpl implements ExtensionRequestService {
         
         String title = "Đơn xin gia hạn được duyệt";
         String content = "Yêu cầu gia hạn thêm " + saved.getMonths() + " tháng của bạn đã được duyệt.";
-        sendNotification(saved.getTenantUserId(), "EXTENSION_APPROVED", title, content, null);
+        Map<String, Object> tenantData = new HashMap<>();
+        tenantData.put("screen", "ContractDetail");
+        tenantData.put("params", Map.of("contractId", saved.getTenantContract().getId()));
+        
+        sendNotification(saved.getTenantUserId(), "EXTENSION_APPROVED", title, content, tenantData);
         
         UUID managerId = getManagerId(saved.getTenantContract());
         if (managerId != null) {
@@ -253,7 +257,11 @@ public class ExtensionRequestServiceImpl implements ExtensionRequestService {
         
         String title = "Đơn xin gia hạn bị từ chối";
         String content = "Yêu cầu gia hạn của bạn đã bị từ chối: " + saved.getRejectReason();
-        sendNotification(saved.getTenantUserId(), "EXTENSION_REJECTED", title, content, null);
+        Map<String, Object> tenantData = new HashMap<>();
+        tenantData.put("screen", "ContractDetail");
+        tenantData.put("params", Map.of("contractId", saved.getTenantContract().getId()));
+        
+        sendNotification(saved.getTenantUserId(), "EXTENSION_REJECTED", title, content, tenantData);
         
         UUID managerId = getManagerId(saved.getTenantContract());
         if (managerId != null) {
