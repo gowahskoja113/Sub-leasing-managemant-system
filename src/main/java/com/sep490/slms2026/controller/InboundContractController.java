@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/v1/properties/{propertyId}/inbound-contract")
@@ -17,6 +18,7 @@ public class InboundContractController {
     private final InboundContractService inboundContractService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ResponseEntity<InboundContractResponse> signContract(
             @PathVariable Long propertyId,
             @Valid @RequestBody CreateInboundContractRequest request) {
@@ -25,6 +27,7 @@ public class InboundContractController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
     public ResponseEntity<InboundContractResponse> getContract(@PathVariable Long propertyId) {
         return ResponseEntity.ok(inboundContractService.getContractByProperty(propertyId));
     }

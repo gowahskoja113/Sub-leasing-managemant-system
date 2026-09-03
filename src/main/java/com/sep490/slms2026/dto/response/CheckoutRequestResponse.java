@@ -39,6 +39,8 @@ public class CheckoutRequestResponse {
     private String rejectReason;
     private LocalDateTime completedAt;
 
+    private String origin;
+
     private String refundBankName;
     private String refundBankAccount;
     private String refundAccountHolder;
