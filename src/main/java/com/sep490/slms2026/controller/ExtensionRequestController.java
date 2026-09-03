@@ -77,7 +77,7 @@ public class ExtensionRequestController {
     // --- Admin Endpoints ---
 
     @GetMapping("/admin/extension-requests")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','OWNER')")
     public ResponseEntity<List<ExtensionRequestResponse>> listRequestsForAdmin(
             @RequestParam(required = false) String status) {
         return ResponseEntity.ok(extensionRequestService.listRequestsForAdmin(status));

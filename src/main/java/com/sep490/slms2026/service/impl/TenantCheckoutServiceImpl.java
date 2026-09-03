@@ -812,6 +812,7 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                 .reason(request.getReason())
                 .note(request.getNote())
                 .status(request.getStatus().name())
+                .origin(request.getOrigin() != null ? request.getOrigin().name() : null)
                 .disputeCount(request.getDisputeCount())
                 .disputeReason(request.getDisputeReason())
                 .disputePhotos(request.getDisputePhotos())
@@ -851,7 +852,10 @@ public class TenantCheckoutServiceImpl implements TenantCheckoutService {
                         req.setStatus(com.sep490.slms2026.enums.ExtensionRequestStatus.EXPIRED);
                         req.setRejectReason("Quá hạn xử lý");
                         extensionRequestRepository.save(req);
-                        sendNotification(req.getTenantUserId(), "EXTENSION_EXPIRED", "Đơn gia hạn quá hạn", "Đơn xin gia hạn không được xử lý kịp. Hợp đồng đã kết thúc, hệ thống đã mở phiếu trả phòng.", null);
+                        Map<String, Object> tenantData = new HashMap<>();
+                        tenantData.put("screen", "ContractDetail");
+                        tenantData.put("params", Map.of("contractId", contract.getId()));
+                        sendNotification(req.getTenantUserId(), "EXTENSION_EXPIRED", "Đơn gia hạn quá hạn", "Đơn xin gia hạn không được xử lý kịp. Hợp đồng đã kết thúc, hệ thống đã mở phiếu trả phòng.", tenantData);
                     }
                     hasPendingExtension = false;
                 }
