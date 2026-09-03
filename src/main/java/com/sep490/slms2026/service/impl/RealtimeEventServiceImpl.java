@@ -2,7 +2,10 @@ package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.billing.InvoicePaymentContext;
 import com.sep490.slms2026.dto.response.BillingRealtimeEvent;
+import com.sep490.slms2026.dto.response.MaintenanceRealtimeEvent;
+import com.sep490.slms2026.entity.MaintenanceRequest;
 import com.sep490.slms2026.entity.Property;
+import com.sep490.slms2026.entity.Room;
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.entity.TenantInvoice;
 import com.sep490.slms2026.entity.User;
@@ -27,6 +30,7 @@ import java.util.UUID;
 public class RealtimeEventServiceImpl implements RealtimeEventService {
 
     private static final String BILLING_USER_DESTINATION = "/queue/billing";
+    private static final String MAINTENANCE_USER_DESTINATION = "/queue/maintenance";
 
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
@@ -90,16 +94,15 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                 .build();
 
         Set<UUID> sent = new HashSet<>();
-        sendToRole(Role.ROLE_ADMIN, event, sent);
-        sendToRole(Role.ROLE_OWNER, event, sent);
-        sendByUserId(property != null ? property.getOperationManagerId() : null, event, sent);
-        sendByUserId(property != null ? property.getOperationManagerId() : null, event, sent);
+        sendToRole(Role.ROLE_ADMIN, BILLING_USER_DESTINATION, event, sent);
+        sendToRole(Role.ROLE_OWNER, BILLING_USER_DESTINATION, event, sent);
+        sendByUserId(property != null ? property.getOperationManagerId() : null, BILLING_USER_DESTINATION, event, sent);
         if (contract != null && contract.getAssignedManager() != null) {
-            sendToUser(contract.getAssignedManager(), event, sent);
+            sendToUser(contract.getAssignedManager(), BILLING_USER_DESTINATION, event, sent);
         }
-        sendByUserId(invoice.getTenantUserId(), event, sent);
+        sendByUserId(invoice.getTenantUserId(), BILLING_USER_DESTINATION, event, sent);
         if (contract != null && contract.getTenant() != null && contract.getTenant().getUser() != null) {
-            sendToUser(contract.getTenant().getUser(), event, sent);
+            sendToUser(contract.getTenant().getUser(), BILLING_USER_DESTINATION, event, sent);
         }
     }
 
@@ -136,19 +139,99 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                 .build();
 
         Set<UUID> sent = new HashSet<>();
-        sendToRole(Role.ROLE_ADMIN, event, sent);
+        sendToRole(Role.ROLE_ADMIN, BILLING_USER_DESTINATION, event, sent);
         if (property != null) {
-            sendByUserId(property.getOperationManagerId(), event, sent);
+            sendByUserId(property.getOperationManagerId(), BILLING_USER_DESTINATION, event, sent);
         }
         if (contract.getAssignedManager() != null) {
-            sendToUser(contract.getAssignedManager(), event, sent);
+            sendToUser(contract.getAssignedManager(), BILLING_USER_DESTINATION, event, sent);
         }
         if (contract.getOnboardedByManager() != null) {
-            sendToUser(contract.getOnboardedByManager(), event, sent);
+            sendToUser(contract.getOnboardedByManager(), BILLING_USER_DESTINATION, event, sent);
         }
         if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
-            sendToUser(contract.getTenant().getUser(), event, sent);
+            sendToUser(contract.getTenant().getUser(), BILLING_USER_DESTINATION, event, sent);
         }
+    }
+
+    @Override
+    public void publishMaintenanceEvent(MaintenanceRequest request, String eventType) {
+        if (request == null || request.getId() == null || eventType == null || eventType.isBlank()) {
+            return;
+        }
+        try {
+            doPublishMaintenanceEvent(request, eventType.trim());
+        } catch (Exception e) {
+            log.error("Failed to publish maintenance websocket event {} for request {}: {}",
+                    eventType, request.getId(), e.getMessage(), e);
+        }
+    }
+
+    private void doPublishMaintenanceEvent(MaintenanceRequest request, String eventType) {
+        Property property = request.getProperty();
+        Room room = request.getRoom();
+        UUID tenantUserId = request.getTenant() != null && request.getTenant().getUser() != null
+                ? request.getTenant().getUser().getId()
+                : (request.getTenant() != null ? request.getTenant().getId() : null);
+        UUID assignedManagerId = property != null ? property.getOperationManagerId() : null;
+
+        String requestCode = request.getRequestCode();
+        if (requestCode == null || requestCode.isBlank()) {
+            requestCode = "M-" + request.getId();
+        }
+
+        MaintenanceRealtimeEvent event = MaintenanceRealtimeEvent.builder()
+                .event(eventType)
+                .requestId(request.getId())
+                .requestCode(requestCode)
+                .status(request.getStatus() != null ? request.getStatus().name() : null)
+                .propertyId(property != null ? property.getId() : null)
+                .propertyName(property != null ? property.getPropertyName() : null)
+                .roomId(room != null ? room.getId() : null)
+                .roomNumber(room != null ? room.getRoomNumber() : null)
+                .tenantUserId(tenantUserId)
+                .assignedManagerId(assignedManagerId)
+                .adminApproved(request.getAdminApproved())
+                .build();
+
+        Set<UUID> sent = new HashSet<>();
+        switch (eventType) {
+            case EVT_MAINTENANCE_CREATED,
+                 EVT_MAINTENANCE_ADMIN_REVIEWED,
+                 EVT_MAINTENANCE_SELF_REPAIR_SUBMITTED,
+                 EVT_MAINTENANCE_CANCELLED_BY_TENANT -> sendToPropertyManagers(property, event, sent);
+
+            case EVT_MAINTENANCE_APPROVED,
+                 EVT_MAINTENANCE_REJECT_FAULT,
+                 EVT_MAINTENANCE_VERIFY_REPAIR,
+                 EVT_MAINTENANCE_COMPLETED,
+                 EVT_MAINTENANCE_CANCELLED_BY_MANAGER -> sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
+
+            case EVT_MAINTENANCE_FAULT_REPORTED -> {
+                sendToRole(Role.ROLE_ADMIN, MAINTENANCE_USER_DESTINATION, event, sent);
+                sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
+            }
+
+            default -> {
+                // Fallback an toàn: đẩy cho tenant + manager phụ trách (+ admin nếu có adminApproved).
+                log.warn("Unknown maintenance eventType '{}', broadcasting to tenant+manager", eventType);
+                sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
+                sendToPropertyManagers(property, event, sent);
+            }
+        }
+
+        log.debug("Published {} to /user/queue/maintenance for request {} ({} recipients)",
+                eventType, request.getId(), sent.size());
+    }
+
+    /** Manager phụ trách nhà; nếu chưa gán thì gửi mọi ROLE_MANAGER đang ACTIVE. */
+    private void sendToPropertyManagers(Property property, MaintenanceRealtimeEvent event, Set<UUID> sent) {
+        UUID managerId = property != null ? property.getOperationManagerId() : null;
+        if (managerId != null) {
+            sendByUserId(managerId, MAINTENANCE_USER_DESTINATION, event, sent);
+            return;
+        }
+        sendToRole(Role.ROLE_MANAGER, MAINTENANCE_USER_DESTINATION, event, sent);
     }
 
     private String resolveUserName(UUID userId) {
@@ -160,19 +243,19 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                 .orElse(null);
     }
 
-    private void sendToRole(Role role, BillingRealtimeEvent event, Set<UUID> sent) {
+    private void sendToRole(Role role, String destination, Object event, Set<UUID> sent) {
         userRepository.findByRoleAndStatus(role, UserStatus.ACTIVE)
-                .forEach(user -> sendToUser(user, event, sent));
+                .forEach(user -> sendToUser(user, destination, event, sent));
     }
 
-    private void sendByUserId(UUID userId, BillingRealtimeEvent event, Set<UUID> sent) {
+    private void sendByUserId(UUID userId, String destination, Object event, Set<UUID> sent) {
         if (userId == null || sent.contains(userId)) {
             return;
         }
-        userRepository.findById(userId).ifPresent(user -> sendToUser(user, event, sent));
+        userRepository.findById(userId).ifPresent(user -> sendToUser(user, destination, event, sent));
     }
 
-    private void sendToUser(User user, BillingRealtimeEvent event, Set<UUID> sent) {
+    private void sendToUser(User user, String destination, Object event, Set<UUID> sent) {
         if (user == null || user.getUsername() == null || user.getUsername().isBlank()) {
             return;
         }
@@ -182,7 +265,7 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         if (user.getId() != null && !sent.add(user.getId())) {
             return;
         }
-        messagingTemplate.convertAndSendToUser(user.getUsername(), BILLING_USER_DESTINATION, event);
+        messagingTemplate.convertAndSendToUser(user.getUsername(), destination, event);
     }
 
     private String resolveTenantName(TenantInvoice invoice) {
@@ -196,4 +279,3 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
         return invoice.getTenantContract().getDraftTenantName();
     }
 }
-

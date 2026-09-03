@@ -16,6 +16,7 @@ import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.PropertyImageStorage;
+import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.TenantPendingChargeService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import jakarta.persistence.criteria.Predicate;
@@ -56,6 +57,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final NotificationRepository notificationRepository;
     private final UserPushTokenService userPushTokenService;
     private final TenantPendingChargeService tenantPendingChargeService;
+    private final RealtimeEventService realtimeEventService;
 
     @Override
     public Page<MaintenanceRequestResponse> getRequests(
@@ -182,6 +184,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "Khách thuê " + user.getFullName() + ": \"" + title + "\" — "
                         + locationLabel + " (#" + req.getId() + ")",
                 "MAINTENANCE_CREATED");
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_CREATED);
 
         return convertToResponse(req);
     }
@@ -268,6 +271,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "Yêu cầu bảo trì đã được duyệt",
                 "Yêu cầu #" + req.getId() + " \"" + req.getTitle() + "\" đã được tiếp nhận, đang sửa chữa.",
                 "MAINTENANCE_APPROVED");
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_APPROVED);
         return convertToResponse(req);
     }
 
@@ -337,6 +341,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "MAINTENANCE_TENANT_FAULT");
         }
 
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_REJECT_FAULT);
         return convertToResponse(req);
     }
 
@@ -372,6 +377,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         repository.save(req);
         addTimeline(req, old, MaintenanceStatus.TENANT_FAULT,
                 "Manager báo lỗi do khách — chờ admin duyệt");
+        notifyAdmins(req,
+                "Báo cáo lỗi do khách — cần duyệt",
+                "Phiếu #" + req.getId() + " \"" + req.getTitle() + "\": "
+                        + req.getFaultReason(),
+                "MAINTENANCE_FAULT_REPORTED");
+        notifyTenant(req,
+                "Manager báo lỗi do khách thuê",
+                "Yêu cầu #" + req.getId() + " — đang chờ admin duyệt. Lý do: " + req.getFaultReason(),
+                "MAINTENANCE_FAULT_REPORTED");
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_FAULT_REPORTED);
         return convertToResponse(req);
     }
 
@@ -413,6 +428,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         String note = decision + " báo lỗi do khách"
                 + (req.getAdminReviewNote() != null ? ": " + req.getAdminReviewNote() : "");
         addTimeline(req, req.getStatus(), req.getStatus(), note);
+        String reviewBody = Boolean.TRUE.equals(request.getApproved())
+                ? "Admin đã duyệt báo lỗi phiếu #" + req.getId() + " \"" + req.getTitle() + "\"."
+                : "Admin không duyệt báo lỗi phiếu #" + req.getId() + " \"" + req.getTitle() + "\".";
+        if (req.getAdminReviewNote() != null) {
+            reviewBody += " Ghi chú: " + req.getAdminReviewNote();
+        }
+        notifyPropertyManager(req,
+                Boolean.TRUE.equals(request.getApproved()) ? "Admin đã duyệt báo lỗi" : "Admin không duyệt báo lỗi",
+                reviewBody,
+                "MAINTENANCE_ADMIN_REVIEWED");
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_ADMIN_REVIEWED);
         return convertToResponse(req);
     }
 
@@ -443,6 +469,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "Yêu cầu #" + req.getId() + " — vui lòng kiểm tra và xác nhận.",
                 "MAINTENANCE_SELF_REPAIR_SUBMITTED");
         repository.save(req);
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_SELF_REPAIR_SUBMITTED);
         return convertToResponse(req);
     }
 
@@ -475,6 +502,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "Tự sửa chữa đã được xác nhận",
                     "Yêu cầu #" + req.getId() + " — manager đã xác nhận bạn đã sửa xong.",
                     "MAINTENANCE_COMPLETED");
+            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_VERIFY_REPAIR);
             return convertToResponse(req);
         }
 
@@ -489,6 +517,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "Yêu cầu #" + req.getId() + " — chi phí ước tính "
                         + req.getEstimatedDamageAmount() + "đ sẽ được xử lý khi checkout.",
                 "MAINTENANCE_SELF_REPAIR_OVERDUE");
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_VERIFY_REPAIR);
         return convertToResponse(req);
     }
 
@@ -544,6 +573,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 : "Manager hoàn tất sửa chữa";
         addTimeline(req, old, MaintenanceStatus.CLOSED, note);
         notifyTenantOnComplete(req, managerRepairFault);
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
 
         MaintenanceRequestResponse response = convertToResponse(req);
         response.setIssuedInvoice(issuedInvoice);
@@ -585,6 +615,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "Yêu cầu #" + req.getId() + " \"" + req.getTitle() + "\" đã bị huỷ."
                             + (isBlank(timelineNote) ? "" : " Lý do: " + timelineNote),
                     "MAINTENANCE_CANCELLED");
+            realtimeEventService.publishMaintenanceEvent(req,
+                    RealtimeEventService.EVT_MAINTENANCE_CANCELLED_BY_MANAGER);
+        } else {
+            notifyPropertyManager(req,
+                    "Khách thuê đã huỷ yêu cầu bảo trì",
+                    "Yêu cầu #" + req.getId() + " \"" + req.getTitle() + "\" đã bị khách huỷ."
+                            + (isBlank(timelineNote) ? "" : " Lý do: " + timelineNote),
+                    "MAINTENANCE_CANCELLED");
+            realtimeEventService.publishMaintenanceEvent(req,
+                    RealtimeEventService.EVT_MAINTENANCE_CANCELLED_BY_TENANT);
         }
         return convertToResponse(req);
     }
@@ -976,11 +1016,22 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private void notifyPropertyManager(MaintenanceRequest req, String title, String body, String type) {
         UUID managerId = req.getProperty() != null ? req.getProperty().getOperationManagerId() : null;
-        if (managerId == null) {
+        if (managerId != null) {
+            saveAndPush(managerId, title, body, type,
+                    "MaintenanceTicketDetail", "ticketId", req.getId());
             return;
         }
-        saveAndPush(managerId, title, body, type,
-                "MaintenanceTicketDetail", "ticketId", req.getId());
+        // Chưa gán operationManager → fan-out mọi manager ACTIVE (khớp routing WS)
+        userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE)
+                .forEach(manager -> saveAndPush(manager.getId(), title, body, type,
+                        "MaintenanceTicketDetail", "ticketId", req.getId()));
+    }
+
+    /** Admin: ghi khay chuông (web) + push nếu có token. */
+    private void notifyAdmins(MaintenanceRequest req, String title, String body, String type) {
+        userRepository.findByRoleAndStatus(Role.ROLE_ADMIN, UserStatus.ACTIVE)
+                .forEach(admin -> saveAndPush(admin.getId(), title, body, type,
+                        "MaintenanceFaultReview", "requestId", req.getId()));
     }
 
     private void saveAndPush(UUID userId, String title, String body, String type,
