@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -67,7 +68,7 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'OPEN' AND m.deleted = false")
     long countOpen();
 
-    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false")
+    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false")
     long countInProgress();
 
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CLOSED' AND m.deleted = false")
@@ -85,7 +86,7 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'OPEN' AND m.deleted = false AND m.property.operationManagerId = :managerId")
     long countOpenByManager(@Param("managerId") UUID managerId);
 
-    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false AND m.property.operationManagerId = :managerId")
+    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false AND m.property.operationManagerId = :managerId")
     long countInProgressByManager(@Param("managerId") UUID managerId);
 
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CLOSED' AND m.deleted = false AND m.property.operationManagerId = :managerId")
@@ -102,4 +103,37 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
 
     boolean existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
             Long roomId, List<MaintenanceStatus> excludedStatuses, Long excludedId);
+
+    /** Phiếu OPEN còn lịch xem active hoặc REPAIR_SCHEDULED còn lịch sửa — để chống trùng / calendar. */
+    @Query("""
+            SELECT r FROM MaintenanceRequest r
+            JOIN FETCH r.property p
+            LEFT JOIN FETCH r.room
+            WHERE r.deleted = false
+              AND p.operationManagerId = :managerId
+              AND (
+                    (r.status = com.sep490.slms2026.enums.MaintenanceStatus.OPEN
+                     AND r.visitAppointmentAt IS NOT NULL)
+                 OR (r.status = com.sep490.slms2026.enums.MaintenanceStatus.REPAIR_SCHEDULED
+                     AND r.repairAppointmentAt IS NOT NULL)
+              )
+              AND (:excludeId IS NULL OR r.id <> :excludeId)
+            """)
+    List<MaintenanceRequest> findActiveAppointmentSlotsByManager(
+            @Param("managerId") UUID managerId,
+            @Param("excludeId") Long excludeId);
+
+    @Query("""
+            SELECT r FROM MaintenanceRequest r
+            JOIN FETCH r.property p
+            LEFT JOIN FETCH r.room
+            LEFT JOIN FETCH r.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE r.deleted = false
+              AND r.status = com.sep490.slms2026.enums.MaintenanceStatus.OPEN
+              AND r.visitAppointmentAt IS NOT NULL
+              AND r.visitArrivalConfirmedAt IS NULL
+              AND r.visitAppointmentAt < :deadline
+            """)
+    List<MaintenanceRequest> findNoShowVisitsForAutoCancel(@Param("deadline") LocalDateTime deadline);
 }

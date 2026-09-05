@@ -77,6 +77,22 @@ public class MaintenanceRequest implements Serializable {
     private LocalDateTime doneAt;
     private LocalDateTime resolvedAt;
 
+    /** Lịch hẹn manager tới xem sự cố (tenant đặt lúc tạo / đổi lịch). */
+    @Column(name = "visit_appointment_at")
+    private LocalDateTime visitAppointmentAt;
+
+    /** Manager xác nhận có mặt (app quét QR — BE chỉ ghi mốc thời gian). */
+    @Column(name = "visit_arrival_confirmed_at")
+    private LocalDateTime visitArrivalConfirmedAt;
+
+    /** Lịch hẹn sửa sau khi đánh giá (khi chọn đặt lịch sau → REPAIR_SCHEDULED). */
+    @Column(name = "repair_appointment_at")
+    private LocalDateTime repairAppointmentAt;
+
+    /** Manager bắt đầu sửa từ REPAIR_SCHEDULED (app quét QR — BE chỉ ghi mốc). */
+    @Column(name = "repair_started_at")
+    private LocalDateTime repairStartedAt;
+
     @Column(name = "resolution_note", columnDefinition = "TEXT")
     private String resolutionNote;
 

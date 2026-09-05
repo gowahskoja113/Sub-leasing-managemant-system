@@ -192,6 +192,8 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                 .tenantUserId(tenantUserId)
                 .assignedManagerId(assignedManagerId)
                 .adminApproved(request.getAdminApproved())
+                .visitAppointmentAt(request.getVisitAppointmentAt())
+                .repairAppointmentAt(request.getRepairAppointmentAt())
                 .build();
 
         Set<UUID> sent = new HashSet<>();
@@ -210,6 +212,11 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
             case EVT_MAINTENANCE_FAULT_REPORTED -> {
                 sendToRole(Role.ROLE_ADMIN, MAINTENANCE_USER_DESTINATION, event, sent);
                 sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
+            }
+
+            case EVT_MAINTENANCE_SCHEDULE_CHANGED -> {
+                sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
+                sendToPropertyManagers(property, event, sent);
             }
 
             default -> {

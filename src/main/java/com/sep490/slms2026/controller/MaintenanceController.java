@@ -3,17 +3,21 @@ package com.sep490.slms2026.controller;
 import com.sep490.slms2026.dto.request.*;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
+import com.sep490.slms2026.dto.response.ManagerAvailabilitySlotResponse;
 import com.sep490.slms2026.dto.response.OutstandingDamageResponse;
 import com.sep490.slms2026.service.MaintenanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/maintenance")
@@ -46,12 +50,6 @@ public class MaintenanceController {
         return maintenanceService.getMyRequests(pageable);
     }
 
-    @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
-    public MaintenanceRequestResponse getRequestById(@PathVariable Long id) {
-        return maintenanceService.getRequestById(id);
-    }
-
     @GetMapping("/dashboard")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public MaintenanceDashboardResponse getDashboardStats() {
@@ -64,6 +62,22 @@ public class MaintenanceController {
             @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) Long tenantContractId) {
         return maintenanceService.getOutstandingDamages(propertyId, tenantContractId);
+    }
+
+    @GetMapping("/manager-availability")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    public List<ManagerAvailabilitySlotResponse> getManagerAvailability(
+            @RequestParam(required = false) Long propertyId,
+            @RequestParam(required = false) UUID managerId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return maintenanceService.getManagerAvailability(propertyId, managerId, from, to);
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    public MaintenanceRequestResponse getRequestById(@PathVariable Long id) {
+        return maintenanceService.getRequestById(id);
     }
 
     @PutMapping("/{id}/approve")
@@ -131,6 +145,34 @@ public class MaintenanceController {
             @PathVariable Long id,
             @RequestBody(required = false) MaintenanceCompleteRequest request) {
         return maintenanceService.complete(id, request != null ? request : new MaintenanceCompleteRequest());
+    }
+
+    @PutMapping("/{id}/reschedule-visit")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    public MaintenanceRequestResponse rescheduleVisit(
+            @PathVariable Long id,
+            @RequestBody MaintenanceRescheduleVisitRequest request) {
+        return maintenanceService.rescheduleVisit(id, request);
+    }
+
+    @PutMapping("/{id}/confirm-arrival")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse confirmArrival(@PathVariable Long id) {
+        return maintenanceService.confirmArrival(id);
+    }
+
+    @PutMapping("/{id}/reschedule-repair")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse rescheduleRepair(
+            @PathVariable Long id,
+            @RequestBody MaintenanceRescheduleRepairRequest request) {
+        return maintenanceService.rescheduleRepair(id, request);
+    }
+
+    @PutMapping("/{id}/start-repair")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse startRepair(@PathVariable Long id) {
+        return maintenanceService.startRepair(id);
     }
 
     @PutMapping("/{id}/cancel")

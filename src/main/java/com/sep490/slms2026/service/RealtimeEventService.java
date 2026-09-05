@@ -17,6 +17,8 @@ public interface RealtimeEventService {
     String EVT_MAINTENANCE_COMPLETED = "MAINTENANCE_COMPLETED";
     String EVT_MAINTENANCE_CANCELLED_BY_TENANT = "MAINTENANCE_CANCELLED_BY_TENANT";
     String EVT_MAINTENANCE_CANCELLED_BY_MANAGER = "MAINTENANCE_CANCELLED_BY_MANAGER";
+    /** Đổi / đặt / xác nhận lịch hẹn xem hoặc sửa — tenant + manager calendar. */
+    String EVT_MAINTENANCE_SCHEDULE_CHANGED = "MAINTENANCE_SCHEDULE_CHANGED";
 
     void publishInvoicePaid(TenantInvoice invoice);
 

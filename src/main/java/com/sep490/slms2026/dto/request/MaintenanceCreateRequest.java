@@ -2,6 +2,7 @@ package com.sep490.slms2026.dto.request;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -15,4 +16,6 @@ public class MaintenanceCreateRequest {
     /** APPLIANCE | FURNITURE | PLUMBING | ELECTRICAL */
     private String category;
     private List<String> images;
+    /** Bắt buộc — lịch hẹn manager tới xem (giờ hành chính, không trùng). */
+    private LocalDateTime visitAppointmentAt;
 }

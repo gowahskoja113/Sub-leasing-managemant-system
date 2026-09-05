@@ -2,6 +2,8 @@ package com.sep490.slms2026.dto.request;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 public class MaintenanceApproveRequest {
     /**
@@ -27,4 +29,9 @@ public class MaintenanceApproveRequest {
      * manager bắt buộc nêu lý do giữ nguyên kết quả sửa chữa.
      */
     private String note;
+
+    /**
+     * Tùy chọn — nếu có → chuyển REPAIR_SCHEDULED thay vì sửa ngay (IN_REPAIR).
+     */
+    private LocalDateTime repairAppointmentAt;
 }

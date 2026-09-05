@@ -150,6 +150,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureInvoiceDisputesTable();
         ensurePropertyCodeColumn();
         ensureMaintenanceAdminReviewColumns();
+        ensureMaintenanceAppointmentColumns();
         ensureUtilityInvoiceTenantViewedAtColumn();
     }
 
@@ -333,7 +334,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     private static final String MAINTENANCE_REDESIGN_STATUS_IN =
-            "'OPEN','IN_REPAIR','TENANT_FAULT','PENDING_TENANT_REPAIR','OUTSTANDING_DAMAGE','CLOSED','CANCELLED'";
+            "'OPEN','REPAIR_SCHEDULED','IN_REPAIR','TENANT_FAULT','PENDING_TENANT_REPAIR','OUTSTANDING_DAMAGE','CLOSED','CANCELLED'";
 
     /** Đồng bộ CHECK status theo enum redesign — gọi sau migrateMaintenanceStatusesToRedesignFlow(). */
     private void ensureMaintenanceRequestsStatusConstraint() {
@@ -443,6 +444,14 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("maintenance_requests", "admin_reviewed_by", "UUID");
         addColumnIfNotExists("maintenance_requests", "admin_approved", "BOOLEAN");
         addColumnIfNotExists("maintenance_requests", "admin_review_note", "TEXT");
+    }
+
+    /** Lịch hẹn xem / sửa bảo trì (2026-09-05). */
+    private void ensureMaintenanceAppointmentColumns() {
+        addColumnIfNotExists("maintenance_requests", "visit_appointment_at", "TIMESTAMP");
+        addColumnIfNotExists("maintenance_requests", "visit_arrival_confirmed_at", "TIMESTAMP");
+        addColumnIfNotExists("maintenance_requests", "repair_appointment_at", "TIMESTAMP");
+        addColumnIfNotExists("maintenance_requests", "repair_started_at", "TIMESTAMP");
     }
 
     /** Map status cũ → redesign (OPEN / IN_REPAIR / CLOSED / CANCELLED). */

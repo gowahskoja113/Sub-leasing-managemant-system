@@ -34,5 +34,16 @@ public interface TenantPendingChargeRepository extends JpaRepository<TenantPendi
             @Param("isAdmin") boolean isAdmin,
             @Param("propertyId") Long propertyId,
             @Param("status") String status);
+
+    List<TenantPendingCharge> findByMaintenanceRequestIdOrderByCreatedAtDesc(Long maintenanceRequestId);
+
+    @Query("""
+            SELECT tpc FROM TenantPendingCharge tpc
+            LEFT JOIN FETCH tpc.invoice
+            WHERE tpc.maintenanceRequestId = :maintenanceRequestId
+            ORDER BY tpc.createdAt DESC
+            """)
+    List<TenantPendingCharge> findByMaintenanceRequestIdWithInvoice(
+            @Param("maintenanceRequestId") Long maintenanceRequestId);
 }
 

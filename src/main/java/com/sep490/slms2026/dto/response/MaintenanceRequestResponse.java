@@ -81,6 +81,11 @@ public class MaintenanceRequestResponse {
 
     private LocalDateTime acknowledgedAt;
 
+    private LocalDateTime visitAppointmentAt;
+    private LocalDateTime visitArrivalConfirmedAt;
+    private LocalDateTime repairAppointmentAt;
+    private LocalDateTime repairStartedAt;
+
     private List<MaintenanceTimelineResponse> timeline;
 
     @Getter
