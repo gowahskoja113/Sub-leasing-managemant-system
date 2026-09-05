@@ -21,7 +21,7 @@ public class ExcelRenovationSupplementWorkbookReader {
     public RenovationSupplementImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
         try (Workbook workbook = openWorkbook(file)) {
-            DataFormatter formatter = new DataFormatter();
+            DataFormatter formatter = ExcelImportReaderSupport.usFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             Sheet renovationSheet = optionalSheet(workbook, SHEET_RENOVATION);

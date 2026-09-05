@@ -20,7 +20,11 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.UnitPriceService;
+import com.sep490.slms2026.util.InboundLeaseRules;
+import com.sep490.slms2026.util.RentEscalationSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,20 +49,37 @@ import static com.sep490.slms2026.imports.ExcelTenantDraftContractWorkbookReader
 @RequiredArgsConstructor
 public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraftContractImportService {
 
+    static final String CODE_MISSING_FIELD = "MISSING_FIELD";
+    static final String CODE_INVALID_DATE = "INVALID_DATE";
+    static final String CODE_INVALID_NUMBER = "INVALID_NUMBER";
+    static final String CODE_INVALID_FIELD = "INVALID_FIELD";
+    static final String CODE_PROPERTY_NOT_ACTIVE = "PROPERTY_NOT_ACTIVE";
+    static final String CODE_PROPERTY_NO_INBOUND_LEASE = "PROPERTY_NO_INBOUND_LEASE";
+    static final String CODE_OCCUPANCY_OUT_OF_LEASE = "OCCUPANCY_OUT_OF_LEASE";
+    static final String CODE_PROPERTY_NOT_FOUND = "PROPERTY_NOT_FOUND";
+    static final String CODE_PROPERTY_AMBIGUOUS = "PROPERTY_AMBIGUOUS";
+    static final String CODE_ROOM_NOT_FOUND = "ROOM_NOT_FOUND";
+    static final String CODE_ROOM_OCCUPIED = "ROOM_OCCUPIED";
+    static final String CODE_DUPLICATE_IN_FILE = "DUPLICATE_IN_FILE";
+    static final String CODE_FILE_EMPTY = "FILE_EMPTY";
+
     private final ExcelTenantDraftContractWorkbookReader workbookReader;
     private final InboundContractRepository inboundContractRepository;
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
     private final TenantOnboardingService tenantOnboardingService;
+    private final UnitPriceService unitPriceService;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional
-    public BulkImportResponse importWorkbook(MultipartFile file, boolean dryRun) {
+    public BulkImportResponse importWorkbook(MultipartFile file, boolean dryRun, boolean skipInvalidRows) {
         TenantDraftContractImportWorkbook workbook = workbookReader.read(file);
         if (workbook.getRows().isEmpty()) {
             throw new BulkImportValidationException("File Excel không có dòng dữ liệu", List.of(
-                    error(SHEET_DRAFT, 2, null, "file", "Không có dòng hợp đồng nháp nào để import")));
+                    error(SHEET_DRAFT, 2, null, "file", "Không có dòng hợp đồng nháp nào để import",
+                            CODE_FILE_EMPTY)));
         }
 
         List<BulkImportErrorResponse> errors = new ArrayList<>();
@@ -72,29 +93,28 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             }
         }
 
-        if (!errors.isEmpty()) {
+        if (!errors.isEmpty() && !skipInvalidRows) {
             throw new BulkImportValidationException("File Excel có lỗi validation", errors);
         }
+        if (resolved.isEmpty()) {
+            throw new BulkImportValidationException("Không có dòng nào hợp lệ để import", errors);
+        }
+
+        int skipped = countSkippedRows(errors);
 
         if (dryRun) {
             List<BulkImportContractResultResponse> dryResults = resolved.stream()
-                    .map(r -> BulkImportContractResultResponse.builder()
-                            .importStatus(IMPORT_STATUS_IMPORTED)
-                            .contractCode("(dry-run)")
-                            .propertyId(r.property().getId())
-                            .propertyName(r.property().getPropertyName())
-                            .finalStatus(ContractStatus.DRAFT.name())
-                            .message(buildPreviewMessage(r))
-                            .build())
+                    .map(r -> toImportResult(r, IMPORT_STATUS_IMPORTED, "(dry-run)",
+                            ContractStatus.DRAFT.name(), buildPreviewMessage(r)))
                     .toList();
             return BulkImportResponse.builder()
                     .dryRun(true)
                     .contractsProcessed(resolved.size())
-                    .contractsSkipped(0)
+                    .contractsSkipped(skipped)
                     .renovationLinesImported(0)
                     .equipmentRowsImported(0)
                     .results(dryResults)
-                    .errors(List.of())
+                    .errors(errors)
                     .build();
         }
 
@@ -104,25 +124,20 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             Long roomId = r.room() != null ? r.room().getId() : null;
             TenantContractResponse created = tenantOnboardingService.onboardTenant(
                     r.property().getId(), roomId, request);
-            results.add(BulkImportContractResultResponse.builder()
-                    .importStatus(IMPORT_STATUS_IMPORTED)
-                    .contractCode(created.getContractCode())
-                    .propertyId(created.getPropertyId())
-                    .propertyName(r.property().getPropertyName())
-                    .finalStatus(created.getStatus() != null ? created.getStatus().name() : ContractStatus.DRAFT.name())
-                    .message("Đã tạo HĐ nháp cho " + created.getTenantFullName()
-                            + (created.getRoomNumber() != null ? " — phòng " + created.getRoomNumber() : " — nguyên căn"))
-                    .build());
+            results.add(toImportResult(r, IMPORT_STATUS_IMPORTED, created.getContractCode(),
+                    created.getStatus() != null ? created.getStatus().name() : ContractStatus.DRAFT.name(),
+                    "Đã tạo HĐ nháp cho " + created.getTenantFullName()
+                            + (created.getRoomNumber() != null ? " — phòng " + created.getRoomNumber() : " — nguyên căn")));
         }
 
         return BulkImportResponse.builder()
                 .dryRun(false)
                 .contractsProcessed(results.size())
-                .contractsSkipped(0)
+                .contractsSkipped(skipped)
                 .renovationLinesImported(0)
                 .equipmentRowsImported(0)
                 .results(results)
-                .errors(List.of())
+                .errors(errors)
                 .build();
     }
 
@@ -132,36 +147,36 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         int before = errors.size();
         String rowKey = "row-" + row.getRowNumber();
 
-        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "Họ tên khách thuê", row.getFullName());
-        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "CCCD", row.getCccd());
-        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "Số điện thoại", row.getPhoneNumber());
+        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "Họ tên khách thuê", row.getFullName(),
+                CODE_MISSING_FIELD);
+        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "CCCD", row.getCccd(), CODE_MISSING_FIELD);
+        requireText(errors, SHEET_DRAFT, row.getRowNumber(), rowKey, "Số điện thoại", row.getPhoneNumber(),
+                CODE_MISSING_FIELD);
 
         if (row.getMoveInDate() == null) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Ngày vào ở",
-                    "Ngày vào ở không hợp lệ hoặc để trống (YYYY-MM-DD hoặc DD/MM/YYYY)"));
+            addError(errors, row, rowKey, "Ngày vào ở", CODE_INVALID_DATE,
+                    "Ngày vào ở không hợp lệ hoặc để trống (YYYY-MM-DD hoặc DD/MM/YYYY)");
         }
         if (row.getEndDate() == null) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Ngày kết thúc",
-                    "Ngày kết thúc không hợp lệ hoặc để trống"));
+            addError(errors, row, rowKey, "Ngày kết thúc", CODE_INVALID_DATE,
+                    "Ngày kết thúc không hợp lệ hoặc để trống");
         }
         if (row.getRentAmount() == null || row.getRentAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Giá thuê/tháng",
-                    "Giá thuê phải lớn hơn 0"));
+            addError(errors, row, rowKey, "Giá thuê/tháng", CODE_INVALID_NUMBER, "Giá thuê phải lớn hơn 0");
         }
         if (row.getDeposit() == null || row.getDeposit().compareTo(BigDecimal.ZERO) < 0) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Tiền cọc",
-                    "Tiền cọc không hợp lệ (điền Tiền cọc hoặc Số tháng cọc)"));
+            addError(errors, row, rowKey, "Tiền cọc", CODE_INVALID_NUMBER,
+                    "Tiền cọc không hợp lệ (điền Tiền cọc hoặc Số tháng cọc)");
         }
 
         LocalDate today = LocalDate.now();
         if (row.getMoveInDate() != null && row.getEndDate() != null) {
             if (!row.getEndDate().isAfter(row.getMoveInDate())) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Ngày kết thúc",
-                        "Ngày kết thúc phải sau ngày vào ở"));
+                addError(errors, row, rowKey, "Ngày kết thúc", CODE_INVALID_DATE,
+                        "Ngày kết thúc phải sau ngày vào ở");
             }
             if (row.getEndDate().isAfter(today.plusYears(5))) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Ngày kết thúc",
-                        "Thời hạn thuê tối đa 5 năm"));
+                addError(errors, row, rowKey, "Ngày kết thúc", CODE_INVALID_DATE, "Thời hạn thuê tối đa 5 năm");
             }
         }
 
@@ -170,9 +185,22 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             return null;
         }
         if (property.getStatus() != PropertyStatus.ACTIVE) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
+            addError(errors, row, rowKey, "BĐS", CODE_PROPERTY_NOT_ACTIVE,
                     "BĐS '" + property.getPropertyName() + "' chưa ACTIVE (status="
-                            + property.getStatus() + ") — chưa cho thuê được"));
+                            + property.getStatus() + ") — chưa cho thuê được");
+        }
+
+        InboundContract lease = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId())
+                .orElse(null);
+        if (lease == null) {
+            addError(errors, row, rowKey, "BĐS", CODE_PROPERTY_NO_INBOUND_LEASE,
+                    "Nhà chưa có hợp đồng với chủ nhà — không thể cho thuê");
+        } else {
+            String occupancyError = InboundLeaseRules.occupancyErrorOrNull(
+                    row.getMoveInDate(), row.getEndDate(), lease);
+            if (occupancyError != null) {
+                addError(errors, row, rowKey, "Ngày vào ở", CODE_OCCUPANCY_OUT_OF_LEASE, occupancyError);
+            }
         }
 
         boolean byRoom = isRoomRental(row, property);
@@ -180,44 +208,43 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         if (byRoom) {
             String roomNumber = normalizeOptional(row.getRoomNumber());
             if (roomNumber.isBlank()) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
-                        "Thuê theo phòng bắt buộc có Số phòng"));
+                addError(errors, row, rowKey, "Số phòng", CODE_MISSING_FIELD, "Thuê theo phòng bắt buộc có Số phòng");
             } else {
                 room = roomRepository.findByPropertyIdAndRoomNumberAndDeletedIsFalse(
                                 property.getId(), roomNumber)
                         .orElse(null);
                 if (room == null) {
-                    errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
+                    addError(errors, row, rowKey, "Số phòng", CODE_ROOM_NOT_FOUND,
                             "Không tìm thấy phòng '" + roomNumber + "' thuộc BĐS '"
-                                    + property.getPropertyName() + "'"));
+                                    + property.getPropertyName() + "'");
                 } else if (room.getStatus() == RoomStatus.RENTED) {
-                    errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
-                            "Phòng '" + roomNumber + "' đang được cho thuê"));
+                    addError(errors, row, rowKey, "Số phòng", CODE_ROOM_OCCUPIED,
+                            "Phòng '" + roomNumber + "' đang được cho thuê");
                 } else if (row.getMoveInDate() != null && row.getEndDate() != null) {
                     if (tenantContractRepository.existsByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)) {
-                        errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
-                                "Phòng đã có hợp đồng đang hiệu lực"));
+                        addError(errors, row, rowKey, "Số phòng", CODE_ROOM_OCCUPIED,
+                                "Phòng đã có hợp đồng đang hiệu lực");
                     } else if (tenantContractRepository.existsOverlappingContractByRoom(
                             room.getId(), row.getMoveInDate(), row.getEndDate())) {
-                        errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
-                                "Phòng đã có hợp đồng chồng lấn thời gian"));
+                        addError(errors, row, rowKey, "Số phòng", CODE_ROOM_OCCUPIED,
+                                "Phòng đã có hợp đồng chồng lấn thời gian");
                     }
                 }
             }
         } else {
             if (!normalizeOptional(row.getRoomNumber()).isBlank()) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Số phòng",
-                        "Thuê nguyên căn — để trống cột Số phòng"));
+                addError(errors, row, rowKey, "Số phòng", CODE_INVALID_FIELD,
+                        "Thuê nguyên căn — để trống cột Số phòng");
             }
             if (row.getMoveInDate() != null && row.getEndDate() != null) {
                 if (tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(
                         property.getId(), ContractStatus.ACTIVE)) {
-                    errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
-                            "Căn nhà đã có hợp đồng nguyên căn đang hiệu lực"));
+                    addError(errors, row, rowKey, "BĐS", CODE_ROOM_OCCUPIED,
+                            "Căn nhà đã có hợp đồng nguyên căn đang hiệu lực");
                 } else if (tenantContractRepository.existsOverlappingContractByProperty(
                         property.getId(), row.getMoveInDate(), row.getEndDate())) {
-                    errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
-                            "Căn nhà đã có hợp đồng chồng lấn thời gian"));
+                    addError(errors, row, rowKey, "BĐS", CODE_ROOM_OCCUPIED,
+                            "Căn nhà đã có hợp đồng chồng lấn thời gian");
                 }
             }
         }
@@ -225,8 +252,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         String occupancyKey = property.getId() + "|"
                 + (room != null ? "R:" + room.getId() : "WHOLE");
         if (!occupancyKeysInFile.add(occupancyKey)) {
-            errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
-                    "Trùng BĐS/phòng với dòng khác trong file"));
+            addError(errors, row, rowKey, "BĐS", CODE_DUPLICATE_IN_FILE,
+                    "Trùng BĐS/phòng với dòng khác trong file");
         }
 
         if (errors.size() > before) {
@@ -244,8 +271,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
             Optional<InboundContract> inbound = inboundContractRepository
                     .findByContractCodeIgnoreCaseWithProperty(inboundCode);
             if (inbound.isEmpty()) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Mã HĐ inbound",
-                        "Không tìm thấy HĐ inbound '" + inboundCode + "' trong hệ thống"));
+                addError(errors, row, rowKey, "Mã HĐ inbound", CODE_PROPERTY_NOT_FOUND,
+                        "Không tìm thấy HĐ inbound '" + inboundCode + "' trong hệ thống");
                 return null;
             }
             return inbound.get().getProperty();
@@ -254,8 +281,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         if (row.getPropertyId() != null) {
             Optional<Property> byId = propertyRepository.findById(row.getPropertyId());
             if (byId.isEmpty()) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Mã BĐS",
-                        "Không tìm thấy BĐS ID " + row.getPropertyId()));
+                addError(errors, row, rowKey, "Mã BĐS", CODE_PROPERTY_NOT_FOUND,
+                        "Không tìm thấy BĐS ID " + row.getPropertyId());
                 return null;
             }
             return byId.get();
@@ -265,21 +292,21 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         if (!name.isBlank()) {
             List<Property> matches = propertyRepository.findByPropertyNameIgnoreCase(name);
             if (matches.isEmpty()) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Tên tòa nhà",
-                        "Không tìm thấy BĐS tên '" + name + "'"));
+                addError(errors, row, rowKey, "Tên tòa nhà", CODE_PROPERTY_NOT_FOUND,
+                        "Không tìm thấy BĐS tên '" + name + "'");
                 return null;
             }
             if (matches.size() > 1) {
-                errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "Tên tòa nhà",
+                addError(errors, row, rowKey, "Tên tòa nhà", CODE_PROPERTY_AMBIGUOUS,
                         "Có " + matches.size() + " BĐS trùng tên '" + name
-                                + "' — dùng Mã HĐ inbound hoặc Mã BĐS"));
+                                + "' — dùng Mã HĐ inbound hoặc Mã BĐS");
                 return null;
             }
             return matches.get(0);
         }
 
-        errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, "BĐS",
-                "Cần ít nhất một trong: Mã HĐ inbound, Mã BĐS, hoặc Tên tòa nhà"));
+        addError(errors, row, rowKey, "BĐS", CODE_MISSING_FIELD,
+                "Cần ít nhất một trong: Mã HĐ inbound, Mã BĐS, hoặc Tên tòa nhà");
         return null;
     }
 
@@ -319,12 +346,76 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         request.setDepositMonths(row.getDepositMonths());
         request.setExpectedReceptionDate(row.getExpectedReceptionDate());
         request.setRequireDepositPayment(true);
+        // Để trống loại/% → onboard gán ANNUAL_CALENDAR từ pricing_config.
+        // Cột "Tăng giá theo năm (%)" = 0 → không tăng.
+        request.setRentEscalationType(row.getRentEscalationTypeRaw());
+        request.setRentEscalationPercent(row.getRentEscalationPercent());
+        if (row.getRentScheduleRaw() != null && !row.getRentScheduleRaw().isBlank()) {
+            request.setRentSchedule(RentEscalationSupport.parseScheduleRaw(row.getRentScheduleRaw()));
+        }
         return request;
+    }
+
+    private BulkImportContractResultResponse toImportResult(ResolvedDraftRow r,
+                                                            String importStatus,
+                                                            String contractCode,
+                                                            String finalStatus,
+                                                            String message) {
+        BigDecimal listed = r.room() != null ? r.room().getPrice() : r.property().getPrice();
+        BigDecimal rent = r.row().getRentAmount();
+        BigDecimal escalationPct = resolvePreviewEscalationPercent(r.row());
+        return BulkImportContractResultResponse.builder()
+                .importStatus(importStatus)
+                .contractCode(contractCode)
+                .propertyId(r.property().getId())
+                .propertyName(r.property().getPropertyName())
+                .finalStatus(finalStatus)
+                .message(message)
+                .roomId(r.room() != null ? r.room().getId() : null)
+                .roomNumber(r.room() != null ? r.room().getRoomNumber() : null)
+                .tenantName(r.row().getFullName())
+                .listedPrice(listed)
+                .rentAmount(rent)
+                .rentEscalationPercent(escalationPct)
+                .deltaPercent(unitPriceService.deltaPercent(listed, rent))
+                .build();
+    }
+
+    private BigDecimal resolvePreviewEscalationPercent(TenantDraftContractImportRow row) {
+        if (row.getRentEscalationPercent() != null) {
+            return row.getRentEscalationPercent();
+        }
+        if (row.getRentEscalationTypeRaw() != null && !row.getRentEscalationTypeRaw().isBlank()) {
+            var type = RentEscalationSupport.parseType(row.getRentEscalationTypeRaw());
+            if (type == com.sep490.slms2026.enums.RentEscalationType.NONE) {
+                return BigDecimal.ZERO;
+            }
+            if (type == com.sep490.slms2026.enums.RentEscalationType.SCHEDULE) {
+                return null;
+            }
+        }
+        if (row.getRentScheduleRaw() != null && !row.getRentScheduleRaw().isBlank()) {
+            return null;
+        }
+        return pricingConfigService.current().getAnnualIncreasePct();
     }
 
     private static String buildPreviewMessage(ResolvedDraftRow r) {
         String unit = r.room() != null ? "phòng " + r.room().getRoomNumber() : "nguyên căn";
         return "Sẽ tạo DRAFT cho " + r.row().getFullName() + " — " + unit;
+    }
+
+    private static void addError(List<BulkImportErrorResponse> errors,
+                                 TenantDraftContractImportRow row,
+                                 String rowKey,
+                                 String field,
+                                 String code,
+                                 String message) {
+        errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, field, message, code));
+    }
+
+    private static int countSkippedRows(List<BulkImportErrorResponse> errors) {
+        return (int) errors.stream().map(BulkImportErrorResponse::getRowNumber).distinct().count();
     }
 
     private record ResolvedDraftRow(

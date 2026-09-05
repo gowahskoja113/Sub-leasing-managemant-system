@@ -1,5 +1,6 @@
 package com.sep490.slms2026.entity;
 
+import com.sep490.slms2026.enums.RentCycleType;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
 import com.sep490.slms2026.enums.TenantInvoiceType;
 import jakarta.persistence.*;
@@ -27,7 +28,8 @@ public class TenantInvoice implements Serializable {
     @Column(nullable = false, unique = true)
     private String code;
 
-    @Column(name = "tenant_user_id", nullable = false)
+    /** Nullable cho hoá đơn onboard khi HĐ còn DRAFT/PENDING (chưa có account tenant). */
+    @Column(name = "tenant_user_id")
     private UUID tenantUserId;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -40,6 +42,10 @@ public class TenantInvoice implements Serializable {
     @Enumerated(EnumType.STRING)
     @Column(name = "invoice_type", nullable = false)
     private TenantInvoiceType invoiceType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cycle_type", length = 16)
+    private RentCycleType cycleType;
 
     @Column(name = "property_name", nullable = false)
     private String propertyName;
@@ -112,4 +118,32 @@ public class TenantInvoice implements Serializable {
 
     @Column(name = "payos_qr_code", columnDefinition = "TEXT")
     private String payosQrCode;
+
+    @Column(name = "auto_issued")
+    private Boolean autoIssued;
+
+    public static TenantInvoice createInvoice(TenantContract contract, TenantInvoiceType invoiceType, String billingPeriod) {
+        TenantInvoice invoice = new TenantInvoice();
+        invoice.setTenantContract(contract);
+        invoice.setInvoiceType(invoiceType);
+        invoice.setBillingPeriod(billingPeriod);
+        if (contract != null) {
+            if (contract.getProperty() != null) {
+                invoice.setPropertyName(contract.getProperty().getPropertyName());
+            } else {
+                invoice.setPropertyName("Unknown");
+            }
+            if (contract.getRoom() != null) {
+                invoice.setRoomNumber(contract.getRoom().getRoomNumber());
+            }
+            if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                invoice.setTenantUserId(contract.getTenant().getUser().getId());
+            }
+        }
+        invoice.setCreatedAt(LocalDateTime.now());
+        invoice.setStatus(TenantInvoiceStatus.PENDING);
+        invoice.setTotalAmount(BigDecimal.ZERO);
+        invoice.setGrandTotal(BigDecimal.ZERO);
+        return invoice;
+    }
 }

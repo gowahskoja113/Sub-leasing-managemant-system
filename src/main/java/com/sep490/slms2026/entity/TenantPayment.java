@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "tenant_payments")
+@Table(name = "tenant_payments", uniqueConstraints = {
+    @UniqueConstraint(columnNames = "tenant_invoice_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -26,7 +28,8 @@ public class TenantPayment implements Serializable {
     @JoinColumn(name = "tenant_invoice_id", nullable = false)
     private TenantInvoice tenantInvoice;
 
-    @Column(name = "tenant_user_id", nullable = false)
+    /** Nullable khi onboard chưa có account tenant — backfill lúc confirm HĐ. */
+    @Column(name = "tenant_user_id")
     private UUID tenantUserId;
 
     @Column(name = "invoice_code", nullable = false)
@@ -53,4 +56,28 @@ public class TenantPayment implements Serializable {
 
     @Column(name = "room_number")
     private String roomNumber;
+
+    @Column(name = "collection_mode", length = 30)
+    private String collectionMode;
+
+    @Column(name = "remitted_by")
+    private UUID remittedBy;
+
+    @Column(name = "remit_method", length = 50)
+    private String remitMethod;
+
+    @Column(name = "payer_name")
+    private String payerName;
+
+    @Column(name = "payer_phone", length = 20)
+    private String payerPhone;
+
+    @Column(name = "facilitated_by")
+    private UUID facilitatedBy;
+
+    @Column(name = "unlocked_by_admin")
+    private UUID unlockedByAdmin;
+
+    @Column(name = "payment_note", columnDefinition = "TEXT")
+    private String paymentNote;
 }

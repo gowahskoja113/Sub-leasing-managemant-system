@@ -4,14 +4,11 @@ import com.sep490.slms2026.enums.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Flat DTO theo contract section 3 — MaintenanceRequestResponse.
- * Dùng chung cho cả list (Page) và detail.
- */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -26,11 +23,13 @@ public class MaintenanceRequestResponse {
     private String category;
     private String priority;
     private MaintenanceStatus status;
+    private MaintenanceFlowType flowType;
+    private MaintenanceBillingHint billingHint;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    
+
     private String requestCode;
-    
+
     private UUID tenantId;
     private String tenantName;
     private String tenantPhone;
@@ -39,41 +38,56 @@ public class MaintenanceRequestResponse {
     private String roomName;
     private Long propertyId;
     private String propertyName;
-    
+
     private Long equipmentId;
     private String equipmentName;
-    
+
     private UUID assignedManagerId;
     private String assignedManagerName;
-    
-    private String scheduledDate;
-    private LocalDateTime resolvedAt;
-    private BigDecimal repairCost;
-    private String resolutionNote;
-    
-    private CostPaidBy costPaidBy;
-    private DamageCause cause;
-    private Integer reopenCount;
 
-    private String rejectReason;
+    private LocalDateTime resolvedAt;
+    private String resolutionNote;
+    private String repairDescription;
+
+    private String invoiceVendor;
+    private String invoiceNumber;
+    private LocalDate invoiceDate;
+    private BigDecimal invoiceAmount;
+
+    private Long previousRequestId;
+
+    private DamageCause damageCause;
+    private String faultReason;
+    private FaultResolutionPath faultResolutionPath;
+    private LocalDate selfRepairDeadline;
+    private BigDecimal estimatedDamageAmount;
+
+    private LocalDateTime adminReviewedAt;
+    private UUID adminReviewedBy;
+    private String adminReviewedByName;
+    private Boolean adminApproved;
+    private String adminReviewNote;
+
+    private TenantInvoiceResponse issuedInvoice;
+
     private List<String> beforeImages;
     private List<String> afterImages;
-    private List<String> rejectImages;
-    /** Gộp before + after + reject (tương thích FE cũ). */
+    private List<String> invoiceImages;
+    private List<String> faultEvidenceImages;
+    private List<String> selfRepairImages;
+    /** Gộp tất cả ảnh (tương thích FE cũ). */
     private List<String> images;
-    /**
-     * Lịch sử ảnh đầy đủ mọi vòng (append-only), sắp xếp theo createdAt tăng dần.
-     * Field cũ before/after/rejectImages vẫn là snapshot vòng hiện tại.
-     */
     private List<MaintenancePhotoHistoryResponse> photoHistory;
 
     private LocalDateTime acknowledgedAt;
-    private LocalDateTime tenantConfirmedAt;
 
-    // Main's timeline
+    private LocalDateTime visitAppointmentAt;
+    private LocalDateTime visitArrivalConfirmedAt;
+    private LocalDateTime repairAppointmentAt;
+    private LocalDateTime repairStartedAt;
+
     private List<MaintenanceTimelineResponse> timeline;
 
-    // Timeline entry class from feature/maintenance (kept for compatibility)
     @Getter
     @Setter
     @NoArgsConstructor

@@ -21,7 +21,7 @@ public class ExcelLeaseImportWorkbookReader {
     public LeaseImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
         try (Workbook workbook = openWorkbook(file)) {
-            DataFormatter formatter = new DataFormatter();
+            DataFormatter formatter = ExcelImportReaderSupport.usFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             Sheet leaseSheet = requireSheet(workbook, SHEET_LEASE);

@@ -37,9 +37,25 @@ public interface PropertyOnboardingService {
 
     OnboardingSummaryResponse submitToHost(Long propertyId);
 
+    default OnboardingSummaryResponse submitToHost(Long propertyId, String realtimeSource) {
+        return submitToHost(propertyId);
+    }
+
     PropertyActivationResponse hostConfirm(Long propertyId, HostConfirmRequest request);
 
     PropertyActivationResponse assignOperationManager(Long propertyId, AssignOperationManagerRequest request);
+
+    /**
+     * Gán QL cho từng nhà trong khu vực — đi {@link #assignOperationManager} (ACTIVE, mở phòng,
+     * {@code managerAcceptedAt}). Nhà MAINTENANCE/INACTIVE chỉ cập nhật {@code operationManagerId}.
+     */
+    int applyZoneOperationManager(java.util.UUID zoneId, java.util.UUID managerId);
+
+    /**
+     * Gỡ QL khỏi nhà trong khu vực. Nhà ACTIVE → PENDING_OPERATION_MANAGER, phòng AVAILABLE (trống)
+     * về DRAFT. Không dùng JPQL bulk update.
+     */
+    int releaseZoneOperationManager(java.util.UUID zoneId);
 
     PropertyResponse changeOperationManager(Long propertyId, AssignOperationManagerRequest request);
 

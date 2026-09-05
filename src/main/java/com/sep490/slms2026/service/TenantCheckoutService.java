@@ -21,6 +21,8 @@ public interface TenantCheckoutService {
 
     List<CheckoutRequestResponse> listRequestsForManager(String status);
 
+    CheckoutRequestResponse createRequestForManager(UUID managerId, CreateCheckoutRequest request);
+
     CheckoutRequestResponse getRequestForManager(Long requestId);
 
     CheckoutRequestResponse approveRequest(Long requestId, UUID managerUserId, ApproveCheckoutRequest request);
@@ -28,4 +30,16 @@ public interface TenantCheckoutService {
     CheckoutRequestResponse rejectRequest(Long requestId, UUID managerUserId, RejectCheckoutRequest request);
 
     CheckoutRequestResponse completeRequest(Long requestId, UUID managerUserId, CompleteCheckoutRequest request);
+
+    CheckoutRequestResponse confirmRefund(Long requestId, UUID tenantUserId);
+
+    CheckoutRequestResponse disputeRefund(Long requestId, UUID tenantUserId, com.sep490.slms2026.dto.request.DisputeRefundRequest request);
+
+    CheckoutRequestResponse forceSettle(Long requestId, UUID adminUserId, com.sep490.slms2026.dto.request.ForceSettleRequest request);
+
+    CheckoutRequestResponse resolveRefundDispute(Long requestId, UUID adminUserId, com.sep490.slms2026.dto.request.ResolveRefundDisputeRequest request);
+
+    void processExpiredContracts();
+
+    void processContractExpirationReminders();
 }

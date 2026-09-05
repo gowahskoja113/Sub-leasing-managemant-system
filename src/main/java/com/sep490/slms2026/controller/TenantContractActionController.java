@@ -29,20 +29,43 @@ public class TenantContractActionController {
     private final TenantOnboardingService tenantOnboardingService;
     private final TenantContractDocumentService tenantContractDocumentService;
 
-    /** GET / — danh sách HĐ (vd list DRAFT). */
-    @GetMapping
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
-    public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
-            @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+    private boolean hasRole(CustomUserDetails user, com.sep490.slms2026.enums.Role role) {
+        return user.getAuthorities().stream().anyMatch(a -> role.name().equals(a.getAuthority()));
     }
 
-    /** GET /{id} — xem chi tiết HĐ (manager hoặc khách thuê của HĐ đó). */
+    private String getHighestRole(CustomUserDetails user) {
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_ADMIN)) {
+            return com.sep490.slms2026.enums.Role.ROLE_ADMIN.name();
+        }
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_OWNER)) {
+            return com.sep490.slms2026.enums.Role.ROLE_OWNER.name();
+        }
+        if (hasRole(user, com.sep490.slms2026.enums.Role.ROLE_MANAGER)) {
+            return com.sep490.slms2026.enums.Role.ROLE_MANAGER.name();
+        }
+        return com.sep490.slms2026.enums.Role.ROLE_TENANT.name();
+    }
+
+    /** GET / — danh sách HĐ (vd list DRAFT). Admin và Host thấy toàn bộ; manager chỉ HĐ phụ trách. */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
+    public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
+            @RequestParam(required = false) String status) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        boolean isAdmin = hasRole(user, com.sep490.slms2026.enums.Role.ROLE_ADMIN);
+        boolean isOwner = hasRole(user, com.sep490.slms2026.enums.Role.ROLE_OWNER);
+        if (isAdmin || isOwner) {
+            return ResponseEntity.ok(tenantOnboardingService.getContractsByStatus(status));
+        }
+        return ResponseEntity.ok(tenantOnboardingService.getManagedContracts(status));
+    }
+
+    /** GET /{id} — xem chi tiết HĐ (admin, host, manager phụ trách, hoặc khách thuê của HĐ đó). */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<TenantContractResponse> get(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
+        String role = getHighestRole(user);
         return ResponseEntity.ok(tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role));
     }
@@ -74,10 +97,11 @@ public class TenantContractActionController {
     @PostMapping("/{id}/draft-document")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<byte[]> generateDraftDocument(@PathVariable Long id) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
         TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
                 id,
-                SecurityUtils.requireCurrentUser().getId(),
-                SecurityUtils.requireCurrentUser().getAuthorities().iterator().next().getAuthority());
+                user.getId(),
+                getHighestRole(user));
         byte[] pdf = tenantContractDocumentService.renderDraftDocument(id);
         String filename = "DRAFT-" + contract.getContractCode() + ".pdf";
         return ResponseEntity.ok()
@@ -88,12 +112,11 @@ public class TenantContractActionController {
 
     /** GET /{id}/document — lấy URL file HĐ (ưu tiên draftContractFileUrl trên Cloudinary). */
     @GetMapping("/{id}/document")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<TenantContractDocumentResponse> getDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
-        tenantContractDocumentService.getContractForUser(id, user.getId(), role);
-        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id));
+        String role = getHighestRole(user);
+        return ResponseEntity.ok(tenantContractDocumentService.getDocument(id, user.getId(), role));
     }
 
     /**
@@ -101,10 +124,10 @@ public class TenantContractActionController {
      * FE: fetch → blob → mở tab mới / PDF viewer.
      */
     @GetMapping("/{id}/document/download")
-    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','TENANT')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER','TENANT')")
     public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        String role = user.getAuthorities().iterator().next().getAuthority();
+        String role = getHighestRole(user);
         TenantContractResponse contract = tenantContractDocumentService.getContractForUser(
                 id, user.getId(), role);
         byte[] file = tenantContractDocumentService.downloadContractDocument(id, user.getId(), role);
@@ -141,7 +164,7 @@ public class TenantContractActionController {
                 && content[0] == '%' && content[1] == 'P' && content[2] == 'D' && content[3] == 'F';
     }
 
-    /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc qua PayOS. */
+    /** POST /{id}/deposit-payment — tạo link/QR thanh toán cọc onboard qua PayOS. */
     @PostMapping("/{id}/deposit-payment")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractResponse> createDepositPayment(@PathVariable Long id) {
@@ -155,15 +178,17 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.syncPaymentStatus(id));
     }
 
-    /** POST /{id}/send-otp — gửi OTP SMS tới SĐT khách thuê (Twilio). */
+    /** POST /{id}/send-otp — manager gửi lại OTP của mình (tenant mới là người khởi động gửi cả 2 mã). */
     @PostMapping("/{id}/send-otp")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<Map<String, Object>> sendOtp(@PathVariable Long id) {
         tenantOnboardingService.sendContractConfirmOtp(id);
-        return ResponseEntity.ok(Map.of("success", true, "message", "Đã gửi mã OTP tới số điện thoại khách thuê"));
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Đã gửi lại mã OTP của quản lý"));
     }
 
-    /** POST /{id}/confirm — hoàn tất HĐ sau khi đã thanh toán cọc + OTP. */
+    /** POST /{id}/confirm — manager nhập OTP của mình; HĐ ACTIVE khi đủ 2 bên. */
     @PostMapping("/{id}/confirm")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<TenantContractResponse> confirm(
@@ -172,7 +197,12 @@ public class TenantContractActionController {
         return ResponseEntity.ok(tenantOnboardingService.confirmContract(id, request.getOtp()));
     }
 
-    /** GET /managed — danh sách hợp đồng chờ xử lý của manager. */
+    /**
+     * GET /managed — hợp đồng manager phụ trách.
+     * Không {@code status}: pipeline chờ xử lý (duyệt giá / nháp / pending).
+     * {@code ?status=ACTIVE} (hoặc DRAFT/PENDING/EXPIRED/TERMINATED): lọc theo {@code ContractStatus}.
+     * Cũng nhận {@code PriceApprovalStatus} (PENDING_PRICE_APPROVAL, …).
+     */
     @GetMapping("/managed")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<java.util.List<TenantContractResponse>> getManagedContracts(
@@ -206,6 +236,14 @@ public class TenantContractActionController {
         return ResponseEntity.ok().build();
     }
 
+    /** DELETE /{id} — Xóa cứng hợp đồng (Hard delete). */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteContract(@PathVariable Long id) {
+        tenantOnboardingService.deleteContract(id);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * POST /{id}/terminate — thanh lý HĐ đang ACTIVE / EXPIRED (trả phòng sớm, vi phạm, thỏa thuận).
      */
@@ -215,5 +253,16 @@ public class TenantContractActionController {
             @PathVariable Long id,
             @Valid @RequestBody com.sep490.slms2026.dto.request.TerminateContractRequest request) {
         return ResponseEntity.ok(tenantOnboardingService.terminateActiveContract(id, request));
+    }
+
+    /**
+     * PATCH /{id}/extend — gia hạn hợp đồng đang ACTIVE (dời endDate, có thể kèm giá mới).
+     */
+    @PatchMapping("/{id}/extend")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> extendContract(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.ExtendContractRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.extendContract(id, request));
     }
 }

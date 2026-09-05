@@ -1,0 +1,66 @@
+package com.sep490.slms2026.repository;
+
+import com.sep490.slms2026.entity.UtilityBill;
+import com.sep490.slms2026.enums.UtilityBillStatus;
+import com.sep490.slms2026.enums.UtilityType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface UtilityBillRepository extends JpaRepository<UtilityBill, Long> {
+
+    @Query("SELECT e FROM UtilityBill e WHERE (:propertyId IS NULL OR e.property.id = :propertyId) " +
+           "AND (:month IS NULL OR e.month = :month) " +
+           "AND (:year IS NULL OR e.year = :year) " +
+           "AND (:type IS NULL OR e.type = :type) " +
+           "AND (:status IS NULL OR e.status = :status) " +
+           "ORDER BY e.createdAt DESC")
+    List<UtilityBill> findByFilters(@Param("propertyId") Long propertyId,
+                                @Param("month") Integer month,
+                                @Param("year") Integer year,
+                                @Param("type") UtilityType type,
+                                @Param("status") UtilityBillStatus status);
+
+    Optional<UtilityBill> findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+            Long propertyId, Integer month, Integer year, UtilityType type, UtilityBillStatus status);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
+            WHERE b.property.id = :propertyId
+              AND b.type = :type
+              AND b.companyBornQuantity IS NOT NULL
+              AND (b.year < :year OR (b.year = :year AND b.month < :month))
+            ORDER BY b.year DESC, b.month DESC
+            """)
+    List<UtilityBill> findPreviousWithCompanyBorn(
+            @Param("propertyId") Long propertyId,
+            @Param("type") UtilityType type,
+            @Param("year") int year,
+            @Param("month") int month);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
+            JOIN FETCH b.property p
+            WHERE b.status = :status
+              AND b.readingDeadline IS NOT NULL
+              AND (p.wholeHouse IS NULL OR p.wholeHouse = false)
+            """)
+    List<UtilityBill> findPublishedSharedHouseBillsWithDeadline(@Param("status") UtilityBillStatus status);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
+            JOIN FETCH b.property p
+            WHERE b.month = :month
+              AND b.year = :year
+              AND b.status = :status
+              AND b.readingDeadline IS NOT NULL
+            """)
+    List<UtilityBill> findPublishedByPeriodWithReadingDeadline(
+            @Param("month") int month,
+            @Param("year") int year,
+            @Param("status") UtilityBillStatus status);
+}
+

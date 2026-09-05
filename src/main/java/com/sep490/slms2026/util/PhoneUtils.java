@@ -29,4 +29,21 @@ public final class PhoneUtils {
         String local = normalizeLocal(localPhone);
         return "+84" + local.substring(1);
     }
+
+    /** Che SĐT cho manager: giữ 3 số đầu + 3 số cuối. */
+    public static String maskForManager(String phone) {
+        if (!StringUtils.hasText(phone)) {
+            return null;
+        }
+        String digits = phone.trim().replaceAll("[\\s\\-().]", "");
+        if (digits.startsWith("+84")) {
+            digits = "0" + digits.substring(3);
+        } else if (digits.startsWith("84") && digits.length() >= 11) {
+            digits = "0" + digits.substring(2);
+        }
+        if (digits.length() < 7) {
+            return "***";
+        }
+        return digits.substring(0, 3) + "****" + digits.substring(digits.length() - 3);
+    }
 }

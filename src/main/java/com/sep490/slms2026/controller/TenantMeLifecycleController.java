@@ -52,16 +52,33 @@ public class TenantMeLifecycleController {
         return ResponseEntity.ok(tenantCheckoutService.cancelRequest(currentUserId(), id));
     }
 
+    /** POST /checkout-requests/{id}/confirm-refund — tenant xác nhận đã nhận cọc. */
+    @PostMapping("/checkout-requests/{id}/confirm-refund")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<CheckoutRequestResponse> confirmRefund(@PathVariable Long id) {
+        return ResponseEntity.ok(tenantCheckoutService.confirmRefund(id, currentUserId()));
+    }
+
+    @PostMapping("/checkout-requests/{id}/dispute-refund")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<CheckoutRequestResponse> disputeRefund(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.DisputeRefundRequest request) {
+        return ResponseEntity.ok(tenantCheckoutService.disputeRefund(id, currentUserId(), request));
+    }
+
     @GetMapping("/handover")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<TenantHandoverResponse> getHandover() {
-        return ResponseEntity.ok(tenantHandoverService.getHandover(currentUserId()));
+    public ResponseEntity<TenantHandoverResponse> getHandover(
+            @RequestParam(required = false) Long contractId) {
+        return ResponseEntity.ok(tenantHandoverService.getHandover(currentUserId(), contractId));
     }
 
     @PostMapping("/handover/acknowledge")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<TenantHandoverResponse> acknowledgeHandover() {
-        return ResponseEntity.ok(tenantHandoverService.acknowledgeHandover(currentUserId()));
+    public ResponseEntity<TenantHandoverResponse> acknowledgeHandover(
+            @RequestParam(required = false) Long contractId) {
+        return ResponseEntity.ok(tenantHandoverService.acknowledgeHandover(currentUserId(), contractId));
     }
 
     private static UUID currentUserId() {

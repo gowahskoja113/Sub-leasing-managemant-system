@@ -44,6 +44,7 @@ public class TenantContractResponse {
     private LocalDateTime terminatedAt;
     private String terminationReason;
     private String terminationType;
+    private Boolean terminationProposed;
     private String pdfUrl;
     /** Thiết bị khách nhận bàn giao theo HĐ (đã chọn). */
     private List<EquipmentItem> equipmentList;
@@ -62,7 +63,35 @@ public class TenantContractResponse {
 
     private String contractCode;
     private BigDecimal rentAmount;
+    private BigDecimal listedPrice;
+    private String rentEscalationType;
+    private BigDecimal rentEscalationPercent;
+    /** Ngày tăng giá kế tiếp (01/01/…) — null nếu không tăng. */
+    private LocalDate nextEscalationDate;
+    /** Giá sau lần tăng kế tiếp. */
+    private BigDecimal nextEscalationAmount;
+    private String rentScheduleJson;
     private BigDecimal deposit;
+    /**
+     * Tổng phải thanh toán lúc onboard: tiền cọc + tiền nhà chu kỳ đầu (một QR).
+     * Cọc = deposit, hoặc rentAmount × depositMonths nếu deposit trống.
+     * Tiền nhà chu kỳ đầu = pro-rata / full theo startDate (0 nếu defer ≤3 ngày cuối tháng).
+     * VD: cọc 10tr + pro-rata 1tr → 11tr.
+     */
+    private BigDecimal initialPaymentAmount;
+
+    /**
+     * Cách tính QR cọc onboard (formula + lines) — FE bảng minh bạch lúc gen QR.
+     * Null với ROLE_MANAGER (ẩn số tiền).
+     */
+    private PaymentBreakdownResponse depositPaymentBreakdown;
+
+    /**
+     * Preview tiền nhà chu kỳ đầu (pro-rata / deferred / full) theo moveIn/startDate.
+     * Dùng trước khi có hoá đơn RENT FIRST. Null với ROLE_MANAGER.
+     */
+    private PaymentBreakdownResponse firstRentPaymentBreakdown;
+
     private LocalDate moveInDate;
     private LocalDate startDate;
     private LocalDate endDate;
@@ -93,10 +122,21 @@ public class TenantContractResponse {
     private Long payosOrderCode;
     private String payosCheckoutUrl;
     private String payosQrCode;
+    private LocalDateTime paidAt;
+    private LocalDateTime depositPaidAt;
+    private String depositMethod;
+    private LocalDateTime activatedAt;
+
+    /** Thời điểm khách verify OTP xác nhận HĐ (một trong hai "chữ ký" OTP). */
+    private LocalDateTime tenantOtpVerifiedAt;
+    /** Thời điểm quản lý verify OTP xác nhận HĐ. */
+    private LocalDateTime managerOtpVerifiedAt;
+    /** Thời điểm khách bấm gửi OTP xác nhận (null = chưa bấm gửi). */
+    private LocalDateTime confirmRequestedAt;
 
     // Onboarding: thông tin tài khoản tenant sau confirm
-    private String  tenantUsername;        // = SĐT khách (username đăng nhập)
-    private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản
+    private String  tenantUsername;        // = SĐT khách (username). Không còn mật khẩu mặc định — khách tự kích hoạt trên app.
+    private Boolean tenantAccountCreated;  // true nếu vừa TẠO MỚI tài khoản (chờ OTP kích hoạt + đặt MK)
     private Boolean tenantRolePromoted;    // true nếu vừa nâng ROLE_USER → ROLE_TENANT
 
     /** URL file DOCX đã xuất (lưu storage giống ảnh). */
@@ -109,8 +149,18 @@ public class TenantContractResponse {
     // Các field mới cho Hợp đồng nháp (DRAFT)
     private UUID assignedManagerId;
     private String assignedManagerName;
+    private UUID onboardedByManagerId;
+    private String onboardedByManagerName;
+    private String onboardedByManagerPhone;
+    private LocalDateTime onboardedAt;
     private String draftContractFileUrl;
     private LocalDate expectedReceptionDate;
+
+    /** Cảnh báo: HĐ khách kết thúc trong 1 tháng cuối HĐ chủ nhà. */
+    private Boolean leaseHandoverWindowWarning;
+    private String leaseHandoverWindowMessage;
+    private LocalDate leaseStartDate;
+    private LocalDate leaseEndDate;
     
     private List<HouseholdMemberResponse> householdMembers;
 
@@ -124,4 +174,7 @@ public class TenantContractResponse {
     public String getRoomCode() {
         return this.roomNumber;
     }
+
+    /** Thời điểm khách xác nhận đã nhận hoàn cọc (nếu đã kết thúc). */
+    private LocalDate refundConfirmedAt;
 }

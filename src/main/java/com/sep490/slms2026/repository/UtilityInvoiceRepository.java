@@ -36,10 +36,40 @@ public interface UtilityInvoiceRepository extends JpaRepository<UtilityInvoice, 
     Optional<UtilityInvoice> findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
             Long propertyId, UtilityType utilityType);
 
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType, String billingPeriodNotLike);
+
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodNotLikeOrderByCreatedAtDesc(
+            Long propertyId, UtilityType utilityType, String billingPeriodNotLike);
+
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIdAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType, String billingPeriodLike);
+
+    Optional<UtilityInvoice> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndBillingPeriodLikeOrderByCreatedAtDesc(
+            Long propertyId, UtilityType utilityType, String billingPeriodLike);
+
+    Optional<UtilityInvoice> findByTenantContractIdAndUtilityTypeAndBillingPeriod(
+            Long tenantContractId, UtilityType utilityType, String billingPeriod);
+
     @Query("""
             SELECT ui FROM UtilityInvoice ui
             WHERE ui.tenantContract.tenant.id = :tenantUserId
             ORDER BY ui.createdAt DESC
             """)
     List<UtilityInvoice> findByTenantUserId(@Param("tenantUserId") java.util.UUID tenantUserId);
+
+    List<UtilityInvoice> findByTenantContractIdAndStatusNot(Long tenantContractId, com.sep490.slms2026.enums.UtilityInvoiceStatus status);
+
+    @Query("""
+            SELECT COUNT(DISTINCT i.room.id)
+            FROM UtilityInvoice i
+            WHERE i.property.id = :propertyId
+              AND i.billingPeriod = :billingPeriod
+              AND i.utilityType = :utilityType
+              AND i.room IS NOT NULL
+            """)
+    long countDistinctRoomsInvoiced(
+            @Param("propertyId") Long propertyId,
+            @Param("billingPeriod") String billingPeriod,
+            @Param("utilityType") UtilityType utilityType);
 }

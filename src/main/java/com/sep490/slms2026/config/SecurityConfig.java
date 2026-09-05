@@ -48,13 +48,13 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/api/v1/user/register",
                                 "/api/v1/payos/webhook",
+                                "/ws/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/properties/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/uploads/properties/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/uploads/contracts/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

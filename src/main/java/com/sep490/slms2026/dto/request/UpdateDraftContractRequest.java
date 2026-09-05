@@ -45,6 +45,16 @@ public class UpdateDraftContractRequest {
     private java.time.LocalDateTime electricMeterCapturedAt;
     /** Thời điểm chụp ảnh đồng hồ nước. Null khi có URL mới → BE ghi = lúc lưu. */
     private java.time.LocalDateTime waterMeterCapturedAt;
+
+    /**
+     * Token từ POST /manager/meter-override/verify khi không chụp được ảnh điện.
+     * Kèm {@link #electricMeterOverrideReason}.
+     */
+    private java.util.UUID electricMeterOverrideToken;
+    private String electricMeterOverrideReason;
+    private java.util.UUID waterMeterOverrideToken;
+    private String waterMeterOverrideReason;
+
     /** @deprecated Ưu tiên {@link #roomConditionPhotos}. */
     private List<String> roomConditionUrls;
     /** Ảnh hiện trạng kèm thời điểm chụp — ưu tiên hơn roomConditionUrls. */
@@ -66,4 +76,8 @@ public class UpdateDraftContractRequest {
 
     /** Hộ khẩu thường trú (HKTT). */
     private String permanentAddress;
+
+    private String rentEscalationType;
+    private BigDecimal rentEscalationPercent;
+    private List<com.sep490.slms2026.dto.request.RentScheduleItemRequest> rentSchedule;
 }

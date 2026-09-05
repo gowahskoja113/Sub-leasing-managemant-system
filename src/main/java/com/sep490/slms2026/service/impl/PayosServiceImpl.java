@@ -18,6 +18,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -28,6 +30,8 @@ import java.util.List;
 public class PayosServiceImpl implements PayosService {
 
     private static final String CREATE_URL = "https://api-merchant.payos.vn/v2/payment-requests";
+    /** Ngân hàng VietQR thường không cho chuyển dưới 2.000đ — sàn số gửi PayOS. */
+    private static final long MIN_PAYOS_CHARGE_AMOUNT = 2_000L;
 
     @Value("${payos.client-id:}")
     private String clientId;
@@ -59,7 +63,7 @@ public class PayosServiceImpl implements PayosService {
     }
 
     @Override
-    public PaymentLink createPaymentLink(long orderCode, long amount, String description) {
+    public PaymentLink createPaymentLink(long orderCode, long amount, String description, LocalDateTime expiredAt) {
         if (!isConfigured()) {
             throw new BusinessException("Chưa cấu hình PayOS (PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY).");
         }
@@ -67,12 +71,17 @@ public class PayosServiceImpl implements PayosService {
         // mô tả tối đa 25 ký tự theo giới hạn PayOS
         String desc = description.length() > 25 ? description.substring(0, 25) : description;
 
-        // Chữ ký theo PayOS: các field sắp theo alphabet
+        // PayOS v2 create-payment-link: chữ ký chỉ gồm 5 field (alphabet).
+        // expiredAt được gửi trong body nhưng không nằm trong chuỗi ký.
         String dataToSign = "amount=" + chargeAmount
                 + "&cancelUrl=" + cancelUrl
                 + "&description=" + desc
                 + "&orderCode=" + orderCode
                 + "&returnUrl=" + returnUrl;
+        Integer expiredAtEpoch = null;
+        if (expiredAt != null) {
+            expiredAtEpoch = (int) expiredAt.atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toEpochSecond();
+        }
         String signature = hmacSha256(dataToSign, checksumKey);
 
         ObjectNode body = objectMapper.createObjectNode();
@@ -81,6 +90,9 @@ public class PayosServiceImpl implements PayosService {
         body.put("description", desc);
         body.put("cancelUrl", cancelUrl);
         body.put("returnUrl", returnUrl);
+        if (expiredAtEpoch != null) {
+            body.put("expiredAt", expiredAtEpoch);
+        }
         body.put("signature", signature);
 
         try {
@@ -118,18 +130,17 @@ public class PayosServiceImpl implements PayosService {
         }
     }
 
-    /** Số gửi PayOS = amount / divisor (tối thiểu 1). */
+    /** Số gửi PayOS = amount / divisor, sàn tối thiểu 2.000đ (giới hạn ngân hàng). */
     private long toPayosChargeAmount(long amount) {
         if (amount <= 0) {
             throw new BusinessException("Số tiền thanh toán không hợp lệ");
         }
         long divisor = amountDivisor <= 0 ? 1L : amountDivisor;
         long charged = amount / divisor;
-        if (charged < 1) {
-            throw new BusinessException(
-                    "Số tiền sau khi chia (÷" + divisor + ") quá nhỏ để tạo thanh toán PayOS");
-        }
-        if (divisor > 1) {
+        if (charged < MIN_PAYOS_CHARGE_AMOUNT) {
+            log.info("PayOS charge floor: gốc {} ÷ {} = {} → sàn {}", amount, divisor, charged, MIN_PAYOS_CHARGE_AMOUNT);
+            charged = MIN_PAYOS_CHARGE_AMOUNT;
+        } else if (divisor > 1) {
             log.info("PayOS amount-divisor={}: gốc {} → charge {}", divisor, amount, charged);
         }
         return charged;

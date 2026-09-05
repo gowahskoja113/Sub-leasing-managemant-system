@@ -1,6 +1,8 @@
 package com.sep490.slms2026.dto.request;
 
 import lombok.Data;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -12,8 +14,12 @@ public class MaintenanceCreateRequest {
     private Long roomId;
     /** Optional — báo hỏng không gắn thiết bị thì để null. */
     private Long equipmentId;
-    /** Tiêu đề sự cố — hiển thị trên list/detail cho tenant và manager */
+    private Long previousRequestId;
     private String title;
     private String description;
+    /** APPLIANCE | FURNITURE | PLUMBING | ELECTRICAL */
+    private String category;
     private List<String> images;
+    /** Bắt buộc — lịch hẹn manager tới xem (giờ hành chính, không trùng). */
+    private LocalDateTime visitAppointmentAt;
 }

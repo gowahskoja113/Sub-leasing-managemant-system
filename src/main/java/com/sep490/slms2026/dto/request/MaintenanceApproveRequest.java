@@ -2,6 +2,8 @@ package com.sep490.slms2026.dto.request;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 public class MaintenanceApproveRequest {
     /**
@@ -13,11 +15,23 @@ public class MaintenanceApproveRequest {
     private boolean approve = true;
 
     /**
-     * Bắt buộc khi manager duyệt request mới (PENDING → APPROVED).
      * Phân loại phục vụ báo cáo chi phí sau sửa chữa.
+     * Bắt buộc khi ticket chưa có category (vd. báo hỏng gắn thiết bị).
+     * Nếu tenant đã chọn lúc tạo → có thể bỏ trống (giữ nguyên) hoặc gửi để ghi đè.
      */
     private String category;
 
     /** Tùy chọn — manager có thể gán mức độ ưu tiên khi duyệt */
     private String priority;
+
+    /**
+     * Dùng cho /review-reject khi approve=false:
+     * manager bắt buộc nêu lý do giữ nguyên kết quả sửa chữa.
+     */
+    private String note;
+
+    /**
+     * Tùy chọn — nếu có → chuyển REPAIR_SCHEDULED thay vì sửa ngay (IN_REPAIR).
+     */
+    private LocalDateTime repairAppointmentAt;
 }

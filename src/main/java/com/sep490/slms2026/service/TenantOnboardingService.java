@@ -18,14 +18,38 @@ public interface TenantOnboardingService {
 
     TenantContractResponse getContract(Long contractId);
 
-    /** Tạo link/QR thanh toán cọc qua PayOS cho hợp đồng đang PENDING. */
+    /**
+     * Tạo link/QR thanh toán onboard qua PayOS (cọc + tiền nhà chu kỳ đầu trên một QR).
+     * Sau khi thanh toán thành công, BE ghi nhận hoá đơn onboard + FIRST RENT (PAID) nếu có tiền nhà.
+     */
     TenantContractResponse createDepositPayment(Long contractId);
 
-    /** Hoàn tất HĐ (sau khi đã thanh toán cọc + OTP): set ACTIVE, phòng RENTED. */
+    /**
+     * Manager xác nhận OTP của mình ({@code CONTRACT_CONFIRM_MANAGER}).
+     * Chỉ kích hoạt HĐ khi cả tenant lẫn manager đã verify.
+     */
     TenantContractResponse confirmContract(Long contractId, String otp);
 
-    /** Gửi OTP SMS tới SĐT khách thuê để xác nhận hoàn tất HĐ. */
+    /**
+     * Tenant (đã login) xác nhận OTP của mình ({@code CONTRACT_CONFIRM_TENANT}).
+     * Chỉ kích hoạt HĐ khi cả hai bên đã verify.
+     */
+    TenantContractResponse confirmContractByTenant(Long contractId, String otp);
+
+    /**
+     * Manager gửi lại OTP của mình. Tenant mới là người khởi động gửi cả 2 mã
+     * qua {@link #sendDualContractConfirmOtps(Long)}.
+     */
     void sendContractConfirmOtp(Long contractId);
+
+    /**
+     * Tenant bấm "Gửi OTP xác nhận": sinh 2 mã (TENANT + MANAGER), gửi về số override.
+     * Kiểm tra cửa sổ nhận sớm tại bước này (không chặn lúc verify).
+     */
+    void sendDualContractConfirmOtps(Long contractId);
+
+    /** HĐ PENDING + PAID đang chờ tenant xác nhận (cho RootNavigator ép màn confirm). */
+    java.util.Optional<TenantContractResponse> findPendingConfirmForTenant(java.util.UUID tenantUserId);
 
     /** Đánh dấu đã thanh toán theo orderCode (gọi từ webhook PayOS). */
     void markDepositPaid(Long payosOrderCode);
@@ -41,11 +65,29 @@ public interface TenantOnboardingService {
 
     /** Hủy hợp đồng đang chờ (chưa ACTIVE). */
     void cancelContract(Long contractId);
+    
+    /** Hard delete hợp đồng (chỉ dành cho test/import nhầm). */
+    void deleteContract(Long contractId);
 
     /**
      * Thanh lý / chấm dứt HĐ đang ACTIVE (hoặc EXPIRED) — trả phòng sớm, vi phạm, thỏa thuận.
+     * Không khoá tài khoản khách — khoá theo vòng đời cọc (xác nhận hoàn cọc / im lặng 30 ngày).
      */
     TenantContractResponse terminateActiveContract(Long contractId, com.sep490.slms2026.dto.request.TerminateContractRequest request);
+
+    /**
+     * Gia hạn hợp đồng đang ACTIVE.
+     * Dời endDate (không vượt quá InboundContract), cập nhật giá thuê (nếu có),
+     * ghi lịch sử giá, và gửi thông báo.
+     */
+    TenantContractResponse extendContract(Long contractId, com.sep490.slms2026.dto.request.ExtendContractRequest request);
+
+    /**
+     * Khoá {@code ROLE_TENANT} nếu không còn HĐ sống (DRAFT/PENDING/ACTIVE/EXPIRED),
+     * bỏ qua {@code exceptContractId} (HĐ vừa xác nhận cọc / đang im lặng — có thể vẫn ACTIVE).
+     * Gọi sau confirmRefund hoặc cron 30 ngày — không gọi lúc thanh lý.
+     */
+    void disableTenantAccountIfNoActiveContracts(java.util.UUID tenantUserId, Long exceptContractId);
 
     /** Đồng bộ ACTIVE→EXPIRED khi quá endDate; khôi phục thiết bị DISABLE. Không giải phóng phòng. */
     void syncExpiredIfNeeded(TenantContract contract);
@@ -74,4 +116,10 @@ public interface TenantOnboardingService {
      * giải phóng phòng/căn + notify quản lý. Trả về số HĐ đã hủy.
      */
     int autoCancelNoShowContracts();
+
+    /**
+     * Cron 07:15: nhắc quản lý đón khách (mai / hôm nay / quá hạn 1-3-7 ngày).
+     * Quá hạn gửi thêm admin + host. Trả về số HĐ đã bắn nhắc.
+     */
+    int remindUpcomingReception();
 }

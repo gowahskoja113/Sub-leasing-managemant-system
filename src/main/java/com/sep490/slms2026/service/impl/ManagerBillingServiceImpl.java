@@ -1,9 +1,11 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.response.ManagerInvoiceResponse;
+import com.sep490.slms2026.dto.response.ManagerPaymentHistoryResponse;
 import com.sep490.slms2026.dto.response.ManagerPaymentResponse;
 import com.sep490.slms2026.dto.response.RentInvoiceSummaryResponse;
 import com.sep490.slms2026.entity.TenantInvoice;
+import com.sep490.slms2026.entity.TenantPayment;
 import com.sep490.slms2026.entity.TenantPaymentClaim;
 import com.sep490.slms2026.enums.PaymentClaimStatus;
 import com.sep490.slms2026.enums.TenantInvoiceStatus;
@@ -12,16 +14,32 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.TenantPaymentClaimRepository;
+import com.sep490.slms2026.repository.TenantPaymentRepository;
 import com.sep490.slms2026.service.ManagerBillingService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.TenantBillingService;
+import com.sep490.slms2026.util.InvoiceItemBuilder;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
+import com.sep490.slms2026.util.ManagerInvoiceMask;
+import com.sep490.slms2026.util.PaymentMethods;
+import com.sep490.slms2026.util.PhoneUtils;
+import com.sep490.slms2026.dto.response.PaymentBreakdownResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
+
+import com.sep490.slms2026.dto.response.ManagerDepositDto;
+import com.sep490.slms2026.repository.TenantContractRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Service
 @RequiredArgsConstructor
@@ -29,8 +47,10 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
 
     private final TenantInvoiceRepository tenantInvoiceRepository;
     private final TenantPaymentClaimRepository tenantPaymentClaimRepository;
+    private final TenantPaymentRepository tenantPaymentRepository;
     private final PropertyAccessService propertyAccessService;
     private final TenantBillingService tenantBillingService;
+    private final TenantContractRepository tenantContractRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -53,31 +73,71 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
     @Override
     @Transactional(readOnly = true)
     public List<ManagerInvoiceResponse> listInvoices(UUID managerUserId, boolean isAdmin,
-                                                     String period, String status, String type) {
+                                                     Long propertyId, String period, String status, String type) {
+        if (propertyId != null && !isAdmin) {
+            propertyAccessService.assertCanManageProperty(propertyId);
+        }
         UUID managerFilter = isAdmin ? null : managerUserId;
         YearMonth ym = parsePeriod(period);
 
         return tenantInvoiceRepository.findForManager(
                         managerFilter,
+                        propertyId,
                         parseInvoiceStatus(status),
                         parseInvoiceType(type),
                         ym != null ? ym.getYear() : null,
                         ym != null ? ym.getMonthValue() : null)
                 .stream()
-                .map(this::toManagerInvoice)
+                .map(inv -> toManagerInvoice(inv, false, isAdmin))
                 .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin, String status) {
+    public ManagerInvoiceResponse getInvoice(UUID managerUserId, boolean isAdmin, Long invoiceId) {
+        TenantInvoice invoice = tenantInvoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hoá đơn ID=" + invoiceId));
+        if (!isAdmin) {
+            UUID opManagerId = invoice.getTenantContract().getProperty().getOperationManagerId();
+            if (opManagerId == null || !managerUserId.equals(opManagerId)) {
+                throw new AccessDeniedException("Bạn không có quyền xem hoá đơn này");
+            }
+        }
+        return toManagerInvoice(invoice, true, isAdmin);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ManagerPaymentResponse> listPayments(UUID managerUserId, boolean isAdmin,
+                                                     Long propertyId, String status) {
+        if (propertyId != null && !isAdmin) {
+            propertyAccessService.assertCanManageProperty(propertyId);
+        }
         UUID managerFilter = isAdmin ? null : managerUserId;
         PaymentClaimStatus claimStatus = parseClaimStatus(status);
 
-        return tenantPaymentClaimRepository.findForManager(managerFilter, claimStatus)
+        return tenantPaymentClaimRepository.findForManager(managerFilter, propertyId, claimStatus)
                 .stream()
                 .map(this::toManagerPayment)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ManagerPaymentHistoryResponse> listPaymentHistory(UUID managerUserId, boolean isAdmin,
+                                                                  Long propertyId, Long contractId,
+                                                                  LocalDate from, LocalDate to,
+                                                                  Pageable pageable) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new BusinessException("from không được sau to");
+        }
+        UUID managerFilter = isAdmin ? null : managerUserId;
+        LocalDateTime fromPaidAt = from != null ? from.atStartOfDay() : null;
+        LocalDateTime toPaidAtExclusive = to != null ? to.plusDays(1).atStartOfDay() : null;
+
+        return tenantPaymentRepository.findHistoryForManager(
+                        managerFilter, propertyId, contractId, fromPaidAt, toPaidAtExclusive, pageable)
+                .map(payment -> toPaymentHistory(payment, isAdmin));
     }
 
     @Override
@@ -106,6 +166,38 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         return toManagerPayment(tenantPaymentClaimRepository.save(claim));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ManagerDepositDto> getManagerDeposits(UUID managerUserId, String status, Pageable pageable) {
+        com.sep490.slms2026.enums.PaymentStatus paymentStatus = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                paymentStatus = com.sep490.slms2026.enums.PaymentStatus.valueOf(status.toUpperCase());
+            } catch (Exception e) {}
+        }
+
+        return tenantContractRepository.findManagerDeposits(managerUserId, paymentStatus, pageable)
+                .map(contract -> {
+                    String tenantPhone = null;
+                    if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+                        tenantPhone = contract.getTenant().getUser().getPhoneNumber();
+                    }
+                    return ManagerDepositDto.builder()
+                            .contractId(contract.getId())
+                            .contractCode(contract.getContractCode())
+                            .propertyName(contract.getProperty() != null ? contract.getProperty().getPropertyName() : null)
+                            .roomNumber(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : null)
+                            .tenantName(contract.getTenant() != null && contract.getTenant().getUser() != null ? contract.getTenant().getUser().getFullName() : null)
+                            .tenantPhone(PhoneUtils.maskForManager(tenantPhone))
+                            .paymentStatus(contract.getPaymentStatus() != null ? contract.getPaymentStatus().name() : null)
+                            .depositMethod(contract.getPayosOrderCode() != null ? "PAYOS" : (contract.getDepositCashManagerConfirmedAt() != null || contract.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
+                            .depositPaidAt(contract.getPaidAt() != null ? contract.getPaidAt() : contract.getDepositCashManagerConfirmedAt())
+                            .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
+                            .moveInDate(contract.getMoveInDate())
+                            .build();
+                });
+    }
+
     private TenantPaymentClaim loadClaimForManager(Long claimId, UUID managerUserId, boolean isAdmin) {
         TenantPaymentClaim claim = tenantPaymentClaimRepository.findById(claimId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -113,7 +205,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         if (!isAdmin) {
             UUID opManagerId = claim.getTenantInvoice().getTenantContract().getProperty().getOperationManagerId();
             if (!managerUserId.equals(opManagerId)) {
-                throw new BusinessException("Bạn không có quyền xử lý giao dịch này");
+                throw new AccessDeniedException("Bạn không có quyền xử lý giao dịch này");
             }
         }
         return claim;
@@ -130,30 +222,146 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .billingMonth(billingMonth)
                 .amount(invoice.getGrandTotal())
                 .status(invoice.getStatus().name())
+                .autoIssued(invoice.getAutoIssued())
+                .dueDate(invoice.getDueDate())
                 .build();
     }
 
-    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice) {
+    private ManagerInvoiceResponse toManagerInvoice(TenantInvoice invoice, boolean includeItems, boolean isAdmin) {
         String tenantName = null;
         if (invoice.getTenantContract().getTenant() != null
                 && invoice.getTenantContract().getTenant().getUser() != null) {
             tenantName = invoice.getTenantContract().getTenant().getUser().getFullName();
+        } else if (invoice.getTenantContract().getDraftTenantName() != null) {
+            tenantName = invoice.getTenantContract().getDraftTenantName();
         }
-        return ManagerInvoiceResponse.builder()
+        var contract = invoice.getTenantContract();
+        ManagerInvoiceResponse response = ManagerInvoiceResponse.builder()
                 .id(invoice.getId())
                 .code(invoice.getCode())
                 .type(invoice.getInvoiceType().name())
-                .propertyId(invoice.getTenantContract().getProperty().getId())
+                .propertyId(contract.getProperty().getId())
                 .propertyName(invoice.getPropertyName())
                 .roomNumber(invoice.getRoomNumber())
                 .tenantName(tenantName)
+                .contractId(contract.getId())
+                .contractStatus(contract.getStatus() != null ? contract.getStatus().name() : null)
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
+                .billingPeriod(invoice.getBillingPeriod())
                 .amount(invoice.getGrandTotal())
+                .totalAmount(invoice.getTotalAmount())
+                .lateFee(invoice.getLateFee())
+                .cycleType(invoice.getCycleType() != null ? invoice.getCycleType().name() : null)
                 .status(invoice.getStatus().name())
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
+                .paidAt(invoice.getPaidAt())
+                .paymentMethod(PaymentMethods.toPublic(invoice.getPaymentMethod()))
+                .transactionId(invoice.getTransactionId())
+                .payosQrCode(invoice.getPayosQrCode())
+                .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
+                .onboardPaid(invoice.getNote() != null
+                        && (invoice.getNote().contains("onboardPaid=true") || invoice.getNote().startsWith("ONBOARD|")))
                 .build();
+
+        if (includeItems) {
+            response.setItems(InvoiceItemBuilder.buildItems(invoice));
+            PaymentBreakdownResponse breakdown = PaymentBreakdownBuilder.fromInvoice(invoice);
+            response.setPaymentBreakdown(breakdown);
+        }
+
+        // Manager không xem số tiền hoá đơn tiền nhà / onboard; admin vẫn xem đầy đủ.
+        if (!isAdmin && ManagerInvoiceMask.shouldMaskAmount(invoice)) {
+            response.setAmount(null);
+            response.setTotalAmount(null);
+            response.setLateFee(null);
+            if (response.getPaymentBreakdown() != null) {
+                maskMoneyOnBreakdown(response.getPaymentBreakdown());
+            }
+            if (response.getItems() != null) {
+                response.getItems().forEach(i -> i.setAmount(null));
+            }
+        }
+
+        if (!isAdmin) {
+            stripDepositFromManagerResponse(response, invoice);
+        }
+
+        return response;
+    }
+
+    /** Manager không được đọc tiền cọc qua invoice — chỉ còn {@code /manager/deposits}. */
+    private static void stripDepositFromManagerResponse(ManagerInvoiceResponse response, TenantInvoice invoice) {
+        BigDecimal deposit = null;
+        if (response.getPaymentBreakdown() != null) {
+            PaymentBreakdownResponse b = response.getPaymentBreakdown();
+            deposit = b.getDepositAmount();
+            b.setDepositAmount(null);
+            b.setDepositMonths(null);
+            if (b.getLines() != null) {
+                b.setLines(b.getLines().stream()
+                        .filter(line -> !"depositAmount".equals(line.getKey())
+                                && !"depositMonths".equals(line.getKey()))
+                        .toList());
+            }
+            if (deposit != null) {
+                b.setFormula(null);
+                b.setTotalAmount(subtractOrNull(b.getTotalAmount(), deposit));
+            }
+        }
+        if (deposit == null) {
+            deposit = parseOnboardDeposit(invoice.getNote());
+        }
+        if (deposit != null) {
+            response.setAmount(subtractOrNull(response.getAmount(), deposit));
+            response.setTotalAmount(subtractOrNull(response.getTotalAmount(), deposit));
+        }
+        if (response.getItems() != null) {
+            response.setItems(response.getItems().stream()
+                    .filter(item -> item.getLabel() == null || !item.getLabel().contains("Tiền cọc"))
+                    .toList());
+        }
+    }
+
+    private static BigDecimal parseOnboardDeposit(String note) {
+        if (note == null || !note.startsWith("ONBOARD|")) {
+            return null;
+        }
+        for (String part : note.split("\\|")) {
+            if (part.startsWith("depositAmount=")) {
+                try {
+                    return new BigDecimal(part.substring("depositAmount=".length()).trim());
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static BigDecimal subtractOrNull(BigDecimal value, BigDecimal deposit) {
+        if (value == null) {
+            return null;
+        }
+        BigDecimal remaining = value.subtract(deposit);
+        return remaining.compareTo(BigDecimal.ZERO) <= 0 ? null : remaining;
+    }
+
+    private static void maskMoneyOnBreakdown(PaymentBreakdownResponse b) {
+        b.setTotalAmount(null);
+        b.setRentAmountMonthly(null);
+        b.setDepositAmount(null);
+        b.setDailyRate(null);
+        b.setFormula(null);
+        if (b.getLines() != null) {
+            b.getLines().forEach(line -> {
+                line.setAmount(null);
+                if (line.getUnit() != null && "VND".equalsIgnoreCase(line.getUnit())) {
+                    line.setDisplayValue("***");
+                }
+            });
+        }
     }
 
     private ManagerPaymentResponse toManagerPayment(TenantPaymentClaim claim) {
@@ -166,6 +374,7 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         return ManagerPaymentResponse.builder()
                 .id(claim.getId())
                 .invoiceCode(invoice.getCode())
+                .invoiceType(invoice.getInvoiceType() != null ? invoice.getInvoiceType().name() : null)
                 .tenantName(tenantName)
                 .roomNumber(invoice.getRoomNumber())
                 .propertyName(invoice.getPropertyName())
@@ -175,6 +384,37 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
                 .transferContent(claim.getTransferContent())
                 .createdAt(claim.getCreatedAt())
                 .verifiedAt(claim.getVerifiedAt())
+                .build();
+    }
+
+    private ManagerPaymentHistoryResponse toPaymentHistory(TenantPayment payment, boolean isAdmin) {
+        TenantInvoice invoice = payment.getTenantInvoice();
+        var contract = invoice.getTenantContract();
+        String tenantName = null;
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
+            tenantName = contract.getTenant().getUser().getFullName();
+        } else if (contract.getDraftTenantName() != null) {
+            tenantName = contract.getDraftTenantName();
+        }
+
+        BigDecimal amount = payment.getAmount();
+        if (!isAdmin && ManagerInvoiceMask.shouldMaskAmount(invoice)) {
+            amount = null;
+        }
+
+        return ManagerPaymentHistoryResponse.builder()
+                .id(payment.getId())
+                .invoiceId(invoice.getId())
+                .invoiceCode(payment.getInvoiceCode())
+                .invoiceType(payment.getInvoiceType() != null ? payment.getInvoiceType().name() : null)
+                .contractId(contract.getId())
+                .tenantName(tenantName)
+                .propertyName(payment.getPropertyName() != null ? payment.getPropertyName() : invoice.getPropertyName())
+                .roomNumber(payment.getRoomNumber() != null ? payment.getRoomNumber() : invoice.getRoomNumber())
+                .amount(amount)
+                .method(PaymentMethods.toPublic(payment.getMethod()))
+                .paidAt(payment.getPaidAt())
+                .transactionId(payment.getTransactionId())
                 .build();
     }
 

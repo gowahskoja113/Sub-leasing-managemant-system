@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@EntityListeners(NotificationListener.class)
 public class Notification implements Serializable {
 
     @Id
@@ -27,6 +28,16 @@ public class Notification implements Serializable {
     private String content;
 
     private String type; // MASTER_LEASE_EXPIRY, LOSS_ALERT, etc.
+
+    @Column(name = "screen")
+    private String screen;
+
+    @Column(name = "params_json", columnDefinition = "TEXT")
+    private String paramsJson;
+
+    /** Chống nhắc trùng cron — null với thông báo cũ / one-shot. */
+    @Column(name = "dedupe_key", length = 255)
+    private String dedupeKey;
 
     @Column(name = "is_read", nullable = false)
     private boolean read = false;

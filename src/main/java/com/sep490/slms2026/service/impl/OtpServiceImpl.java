@@ -50,8 +50,14 @@ public class OtpServiceImpl implements OtpService {
         twilioService.sendOtp(normalizedPhone, code);
 
         if (!twilioService.isConfigured()) {
-            log.warn("[DEV] Twilio Verify chưa cấu hình — mã OTP {} cho {} (purpose={}, ref={})",
-                    code, normalizedPhone, purpose, referenceId);
+            String label = switch (purpose) {
+                case CONTRACT_CONFIRM_TENANT -> "[TENANT]";
+                case CONTRACT_CONFIRM_MANAGER -> "[MANAGER]";
+                case TENANT_ACTIVATION -> "[ACTIVATION]";
+                default -> "[" + purpose.name() + "]";
+            };
+            log.warn("[DEV] Twilio Verify chưa cấu hình — mã OTP {} {} cho {} (purpose={}, ref={})",
+                    label, code, normalizedPhone, purpose, referenceId);
         }
     }
 

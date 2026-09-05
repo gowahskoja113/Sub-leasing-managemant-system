@@ -2,6 +2,7 @@ package com.sep490.slms2026.entity;
 
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PaymentStatus;
+import com.sep490.slms2026.enums.RentEscalationType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -14,8 +15,9 @@ import java.util.List;
 
 /**
  * Hợp đồng thuê giữa khách thuê (Tenant) và một phòng/căn nhà.
- * Mô phỏng pattern của {@link InboundContract}. Quy tắc: mỗi phòng chỉ có 1 HĐ ACTIVE tại một thời điểm
- * (đảm bảo ở tầng service, không phải ràng buộc DB, để giữ được HĐ cũ TERMINATED/EXPIRED cùng phòng).
+ * Mô phỏng pattern của {@link InboundContract}.
+ * Quy tắc occupancy: mỗi phòng (hoặc nguyên căn) chỉ có 1 HĐ ACTIVE tại một thời điểm
+ * (đảm bảo ở tầng service). Một tenant/account có thể có nhiều HĐ ACTIVE ở nhà/phòng khác nhau.
  */
 @Entity
 @Table(name = "tenant_contracts")
@@ -48,6 +50,29 @@ public class TenantContract implements Serializable {
 
     @Column(name = "rent_amount", nullable = false)
     private BigDecimal rentAmount;
+
+    /** Giá gốc lúc ký — dùng tính tăng %/năm, không hồi tố hoá đơn đã phát. */
+    @Column(name = "base_rent_amount", precision = 19, scale = 2)
+    private BigDecimal baseRentAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rent_escalation_type", length = 30)
+    @Builder.Default
+    private RentEscalationType rentEscalationType = RentEscalationType.NONE;
+
+    @Column(name = "rent_escalation_percent", precision = 19, scale = 4)
+    private BigDecimal rentEscalationPercent;
+
+    /** JSON: [{ "fromMonth": 13, "amount": 11000000 }] */
+    @Column(name = "rent_schedule_json", columnDefinition = "TEXT")
+    private String rentScheduleJson;
+
+    @Column(name = "rent_escalation_last_from_month")
+    private Integer rentEscalationLastFromMonth;
+
+    /** Năm dương lịch gần nhất đã áp tăng giá (idempotent cron 01/01). */
+    @Column(name = "last_escalation_year")
+    private Integer lastEscalationYear;
 
     // Tiền cọc theo dõi riêng theo quy tắc nghiệp vụ
     @Column(name = "deposit", nullable = false)
@@ -114,8 +139,45 @@ public class TenantContract implements Serializable {
     @Column(name = "payos_order_code")
     private Long payosOrderCode;
 
+    /**
+     * Snapshot tổng tiền QR onboard lúc tạo link PayOS (cọc + first rent).
+     * Dùng lại khi webhook PAID để hoá đơn khớp số đã quét, không tính lại từ HĐ.
+     */
+    @Column(name = "onboard_qr_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrAmount;
+
+    @Column(name = "onboard_qr_deposit_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrDepositAmount;
+
+    @Column(name = "onboard_qr_first_rent_amount", precision = 19, scale = 2)
+    private BigDecimal onboardQrFirstRentAmount;
+
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
+
+    /** Thời điểm ghi nhận đã thu cọc / tiền onboard (PayOS hoặc tiền mặt). */
+    @Column(name = "deposit_paid_at")
+    private LocalDateTime depositPaidAt;
+
+    /** Phương thức thu cọc: PAYOS | CASH | ... */
+    @Column(name = "deposit_method", length = 50)
+    private String depositMethod;
+
+    /** Thời điểm HĐ chuyển sang ACTIVE (cả 2 OTP xác nhận thành công). */
+    @Column(name = "activated_at")
+    private LocalDateTime activatedAt;
+
+    /** Thời điểm khách nhập đúng OTP xác nhận hợp đồng. */
+    @Column(name = "tenant_otp_verified_at")
+    private LocalDateTime tenantOtpVerifiedAt;
+
+    /** Thời điểm quản lý nhập đúng OTP xác nhận hợp đồng. */
+    @Column(name = "manager_otp_verified_at")
+    private LocalDateTime managerOtpVerifiedAt;
+
+    /** Thời điểm khách bấm gửi OTP xác nhận (chưa verify — khác với tenantOtpVerifiedAt). */
+    @Column(name = "confirm_requested_at")
+    private LocalDateTime confirmRequestedAt;
 
     /** Khách xác nhận đã trả cọc tiền mặt. */
     @Column(name = "deposit_cash_tenant_confirmed_at")
@@ -160,6 +222,14 @@ public class TenantContract implements Serializable {
     @JoinColumn(name = "assigned_manager_id")
     private User assignedManager;
 
+    /** Người thực sự đón khách / bàn giao nhà. Ghi một lần lúc onboard, không đổi khi đổi QL khu vực. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "onboarded_by_manager_id")
+    private User onboardedByManager;
+
+    @Column(name = "onboarded_at")
+    private LocalDateTime onboardedAt;
+
     @Column(name = "draft_contract_file_url", length = 512)
     private String draftContractFileUrl;
 
@@ -200,4 +270,12 @@ public class TenantContract implements Serializable {
 
     @Column(name = "termination_note", columnDefinition = "TEXT")
     private String terminationNote;
+
+    @Column(name = "termination_proposed")
+    @Builder.Default
+    private Boolean terminationProposed = false;
+
+    /** Mốc chống gửi trùng nhắc trước phát hành hoá đơn (D-N … D-1). */
+    @Column(name = "last_issue_reminder_date")
+    private LocalDate lastIssueReminderDate;
 }

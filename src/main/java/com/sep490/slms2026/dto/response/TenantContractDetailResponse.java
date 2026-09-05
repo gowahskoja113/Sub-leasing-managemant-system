@@ -8,6 +8,7 @@ import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -38,6 +39,13 @@ public class TenantContractDetailResponse {
     private LocalDateTime terminatedAt;
     private String terminationReason;
     private String pdfUrl;
+
+    private UUID assignedManagerId;
+    private String assignedManagerName;
+    private UUID onboardedByManagerId;
+    private String onboardedByManagerName;
+    private String onboardedByManagerPhone;
+    private LocalDateTime onboardedAt;
 
     @Data
     @Builder

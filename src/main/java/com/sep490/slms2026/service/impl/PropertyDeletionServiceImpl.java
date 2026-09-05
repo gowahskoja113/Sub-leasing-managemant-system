@@ -61,11 +61,6 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         String propertyName = nameAndStatus.getPropertyName();
 
         assertNoActiveTenants(propertyId);
-        if (monthlyReadingRepository.existsByPropertyId(propertyId)) {
-            throw new BusinessException(
-                    "Không thể xóa căn nhà đã có chỉ số điện nước. Chỉ dùng cho dữ liệu onboarding/import sai.");
-        }
-
         String contractCode = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
                 .map(InboundContract::getContractCode)
                 .orElse(null);
@@ -99,7 +94,53 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
      * Thứ tự con → cha: docs/BE-import-excel-status-constraint.md
      */
     private void bulkDeleteDependentRecords(Long propertyId) {
-        depreciationResultRepository.deleteByPropertyId(propertyId);
+        // --- con của tenant_invoices (phải trước khi xoá tenant_invoices) ---
+        jdbcTemplate.update("DELETE FROM tenant_payments WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_invoice_payos_orders WHERE invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM invoice_dispute_photos WHERE dispute_id IN (SELECT id FROM invoice_disputes WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM invoice_disputes WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+
+        // --- con của tenant_contracts ---
+        jdbcTemplate.update("DELETE FROM checkout_settlement_invoices WHERE checkout_settlement_id IN (SELECT s.id FROM checkout_settlements s JOIN checkout_requests r ON s.checkout_request_id = r.id WHERE r.tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_settlement_adjustments WHERE checkout_settlement_id IN (SELECT s.id FROM checkout_settlements s JOIN checkout_requests r ON s.checkout_request_id = r.id WHERE r.tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_damage_items WHERE checkout_inspection_id IN (SELECT i.id FROM checkout_inspections i JOIN checkout_requests r ON i.checkout_request_id = r.id WHERE r.tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_inspection_photos WHERE inspection_id IN (SELECT i.id FROM checkout_inspections i JOIN checkout_requests r ON i.checkout_request_id = r.id WHERE r.tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_settlements WHERE checkout_request_id IN (SELECT id FROM checkout_requests WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_inspections WHERE checkout_request_id IN (SELECT id FROM checkout_requests WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_request_dispute_photos WHERE checkout_request_id IN (SELECT id FROM checkout_requests WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM checkout_requests WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_pending_charges WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+
+        // --- bảo trì (con trước, cha sau) ---
+        jdbcTemplate.update("DELETE FROM outstanding_damage_photos WHERE record_id IN (SELECT id FROM outstanding_damage_records WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM outstanding_damage_records WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM maintenance_images WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM maintenance_timelines WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM maintenance_history WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM equipment_maintenance_histories WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE property_id = ?) OR equipment_id IN (SELECT id FROM equipments WHERE property_id = ?)", propertyId, propertyId);
+        jdbcTemplate.update("DELETE FROM maintenance_requests WHERE property_id = ?", propertyId);
+
+        // --- điện nước / tài chính / lead theo property ---
+        jdbcTemplate.update("DELETE FROM utility_invoices WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM utility_bills WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM meter_readings WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM invoices WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM expenses WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM host_expenses WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM master_leases WHERE property_id = ?", propertyId);
+        jdbcTemplate.update("DELETE FROM viewing_lead_properties WHERE property_id = ?", propertyId);
+
+        jdbcTemplate.update("DELETE FROM tenant_payment_claims WHERE tenant_invoice_id IN (SELECT id FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?))", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_invoices WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM household_members WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_equipments WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contract_condition_photos WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE property_id = ?)", propertyId);
+        jdbcTemplate.update("DELETE FROM tenant_contracts WHERE property_id = ?", propertyId);
+
+        jdbcTemplate.update(
+            "DELETE FROM depreciation_results WHERE room_id IN (SELECT id FROM rooms WHERE property_id = ?) "
+          + "OR inbound_contract_id IN (SELECT id FROM inbound_contracts WHERE property_id = ?)",
+            propertyId, propertyId);
         equipmentRepository.deleteByPropertyId(propertyId);
         handoverEquipmentRepository.deleteByPropertyId(propertyId);
         monthlyReadingRepository.deleteByPropertyId(propertyId);
@@ -107,6 +148,7 @@ public class PropertyDeletionServiceImpl implements PropertyDeletionService {
         renovationLineRepository.deleteByPropertyId(propertyId);
         renovationSessionRepository.deleteByPropertyId(propertyId);
         equipmentManifestRepository.deleteByPropertyId(propertyId);
+        
         jdbcTemplate.update("DELETE FROM property_images WHERE property_id = ?", propertyId);
         roomRepository.deleteAllByPropertyId(propertyId);
         jdbcTemplate.update("DELETE FROM properties WHERE id = ?", propertyId);

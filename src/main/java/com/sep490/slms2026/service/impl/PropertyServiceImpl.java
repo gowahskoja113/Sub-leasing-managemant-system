@@ -6,15 +6,17 @@ import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Zone;
 import com.sep490.slms2026.repository.HandoverEquipmentRepository;
+import com.sep490.slms2026.repository.InboundContractRepository;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
-import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.repository.ZoneRepository;
+import com.sep490.slms2026.service.PropertyCodeService;
 import com.sep490.slms2026.service.PropertyDeletionService;
+import com.sep490.slms2026.service.PropertyOccupancyAssembler;
 import com.sep490.slms2026.service.PropertyService;
 import com.sep490.slms2026.exception.ConflictException;
 import jakarta.persistence.EntityNotFoundException;
@@ -28,7 +30,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -42,6 +43,9 @@ public class PropertyServiceImpl implements PropertyService {
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
     private final UserRepository userRepository;
+    private final InboundContractRepository inboundContractRepository;
+    private final PropertyOccupancyAssembler propertyOccupancyAssembler;
+    private final PropertyCodeService propertyCodeService;
 
     @Override
     @Transactional
@@ -51,6 +55,8 @@ public class PropertyServiceImpl implements PropertyService {
 
         Property property = new Property();
         property.setPropertyName(request.getPropertyName());
+        property.setPropertyCode(propertyCodeService.resolveForCreate(
+                request.getPropertyCode(), request.getPropertyName()));
         property.setZone(zone);
         if (request.getCreatedBy() != null) {
             property.setCreatedBy(request.getCreatedBy());
@@ -78,7 +84,9 @@ public class PropertyServiceImpl implements PropertyService {
 
         property.setStatus(PropertyStatus.DRAFT);
         Property saved = propertyRepository.save(property);
-        return mapToResponse(saved, shortAddress);
+        PropertyResponse response = mapToResponse(saved, shortAddress);
+        propertyOccupancyAssembler.apply(response, PropertyOccupancyAssembler.Occupancy.empty());
+        return response;
     }
 
     @Override
@@ -91,6 +99,7 @@ public class PropertyServiceImpl implements PropertyService {
         String shortAddress = property.getAddress().replace(", " + zoneFullName, "");
 
         PropertyResponse response = mapToResponse(property, shortAddress);
+        propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(id));
         response.setHandoverEquipments(handoverEquipmentRepository.findByPropertyIdOrderByIdAsc(id).stream()
                 .map(he -> HandoverEquipmentResponse.builder()
                         .id(he.getId())
@@ -113,24 +122,37 @@ public class PropertyServiceImpl implements PropertyService {
     @Override
     @Transactional(readOnly = true)
     public Page<PropertyResponse> getAllProperties(Pageable pageable) {
-        return propertyRepository.findAll(pageable).map(property -> {
+        return getAllProperties(pageable, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PropertyResponse> getAllProperties(Pageable pageable, Boolean hasAvailableRooms) {
+        Page<Property> page = Boolean.TRUE.equals(hasAvailableRooms)
+                ? propertyRepository.findWithAvailableCapacity(
+                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE),
+                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING),
+                        pageable)
+                : propertyRepository.findAll(pageable);
+
+        List<PropertyResponse> content = page.getContent().stream().map(property -> {
             String zoneFullName = buildZoneFullName(property.getZone());
             String shortAddress = property.getAddress().replace(", " + zoneFullName, "");
             return mapToResponse(property, shortAddress);
-        });
+        }).toList();
+        propertyOccupancyAssembler.applyAll(content);
+        return new org.springframework.data.domain.PageImpl<>(content, pageable, page.getTotalElements());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<PropertyResponse> getRentableProperties() {
-        // Nhà nguyên căn đã có HĐ active (room == null) -> không còn cho thuê
-        Set<Long> wholeHouseRentedIds = tenantContractRepository
-                .findByRoomIsNullAndStatus(ContractStatus.ACTIVE).stream()
-                .map(c -> c.getProperty().getId())
-                .collect(Collectors.toSet());
-        // Tòa có ít nhất 1 phòng trống
-        Set<Long> propertyIdsWithAvailableRooms =
-                new HashSet<>(roomRepository.findPropertyIdsByRoomStatus(RoomStatus.AVAILABLE));
+        // Nhà nguyên căn đã bị HĐ nháp/chờ/active giữ (room == null)
+        Set<Long> wholeHouseHeldIds = propertyOccupancyAssembler.wholeHouseHeldPropertyIds();
+        // Tòa có ít nhất 1 phòng trống thật (AVAILABLE không bị DRAFT/PENDING giữ)
+        Set<Long> propertyIdsWithAvailableRooms = new HashSet<>(
+                roomRepository.findPropertyIdsWithTrulyAvailableRooms(
+                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING)));
 
         List<PropertyResponse> result = new ArrayList<>();
         for (Property p : propertyRepository.findAll()) {
@@ -138,8 +160,8 @@ public class PropertyServiceImpl implements PropertyService {
                 continue;
             }
             boolean rentable = Boolean.TRUE.equals(p.getWholeHouse())
-                    ? !wholeHouseRentedIds.contains(p.getId())          // nguyên căn: chưa có khách
-                    : propertyIdsWithAvailableRooms.contains(p.getId()); // chia phòng: còn phòng trống
+                    ? !wholeHouseHeldIds.contains(p.getId())
+                    : propertyIdsWithAvailableRooms.contains(p.getId());
             if (!rentable) {
                 continue;
             }
@@ -149,6 +171,7 @@ public class PropertyServiceImpl implements PropertyService {
             resp.setRentalAvailable(true);
             result.add(resp);
         }
+        propertyOccupancyAssembler.applyAll(result);
         return result;
     }
 
@@ -192,7 +215,9 @@ public class PropertyServiceImpl implements PropertyService {
         }
 
         Property updated = propertyRepository.save(property);
-        return mapToResponse(updated, shortAddress);
+        PropertyResponse response = mapToResponse(updated, shortAddress);
+        propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(id));
+        return response;
     }
 
     @Override
@@ -224,6 +249,7 @@ public class PropertyServiceImpl implements PropertyService {
     private PropertyResponse mapToResponse(Property property, String shortAddress) {
         PropertyResponse response = new PropertyResponse();
         response.setId(property.getId());
+        response.setPropertyCode(property.getPropertyCode());
         response.setPropertyName(property.getPropertyName());
         response.setShortAddress(shortAddress);
         response.setFullAddress(property.getAddress());
@@ -239,6 +265,15 @@ public class PropertyServiceImpl implements PropertyService {
         response.setStatus(property.getStatus().name());
         response.setDescriptions(property.getDescriptions());
         response.setPrice(property.getPrice());
+        response.setListedPrice(property.getPrice());
+        response.setAppliedPrice(property.getAppliedPrice() != null
+                ? property.getAppliedPrice() : property.getPrice());
+        response.setPriceLocked(
+                Boolean.TRUE.equals(property.getWholeHouse())
+                        && (tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(
+                                property.getId(), ContractStatus.ACTIVE)
+                        || tenantContractRepository.existsByPropertyIdAndRoomIsNullAndStatus(
+                                property.getId(), ContractStatus.EXPIRED)));
         response.setCreatedBy(property.getCreatedBy());
         response.setOperationManagerId(property.getOperationManagerId());
         response.setOperationManagerName(resolveOperationManagerName(property.getOperationManagerId()));
@@ -246,6 +281,10 @@ public class PropertyServiceImpl implements PropertyService {
         response.setImageUrls(property.getImageUrls());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
+            response.setLeaseStartDate(lease.getStartDate());
+            response.setLeaseEndDate(lease.getEndDate());
+        });
         return response;
     }
 

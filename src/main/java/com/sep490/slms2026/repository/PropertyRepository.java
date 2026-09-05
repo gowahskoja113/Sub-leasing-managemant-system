@@ -35,6 +35,13 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     boolean existsByAddressIgnoreCaseAndIdNot(String address, Long id);
 
+    boolean existsByPropertyCode(String propertyCode);
+
+    boolean existsByPropertyCodeAndIdNot(String propertyCode, Long id);
+
+    @Query("SELECT p.propertyCode FROM Property p WHERE p.propertyCode IS NOT NULL")
+    List<String> findAllPropertyCodes();
+
     Optional<Property> findFirstByAddressIgnoreCase(String address);
 
     List<Property> findByPropertyNameIgnoreCase(String propertyName);
@@ -71,9 +78,49 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     @Query("SELECT p.id FROM Property p WHERE p.operationManagerId = :managerId")
     List<Long> findIdsByOperationManagerId(@Param("managerId") UUID managerId);
 
+    List<Property> findByOperationManagerId(UUID operationManagerId);
+
+    List<Property> findByZone_IdAndStatusIn(UUID zoneId, List<PropertyStatus> statuses);
+
     List<Property> findByStatus(PropertyStatus status);
 
     Page<Property> findByStatusAndOperationManagerIdIsNotNull(PropertyStatus status, Pageable pageable);
 
     Page<Property> findByStatusInAndOperationManagerIdIsNotNull(List<PropertyStatus> statuses, Pageable pageable);
+
+    /**
+     * Nhà còn nhận khách mới:
+     * - nguyên căn: chưa có HĐ DRAFT/PENDING/ACTIVE (room IS NULL)
+     * - chia phòng: còn ≥1 phòng AVAILABLE không bị HĐ DRAFT/PENDING giữ
+     */
+    @Query("""
+            SELECT p FROM Property p
+            WHERE (
+                p.wholeHouse = true
+                AND NOT EXISTS (
+                    SELECT 1 FROM TenantContract c
+                    WHERE c.property = p
+                      AND c.room IS NULL
+                      AND c.status IN :wholeHouseHolding
+                )
+            )
+            OR (
+                (p.wholeHouse IS NULL OR p.wholeHouse = false)
+                AND EXISTS (
+                    SELECT 1 FROM Room r
+                    WHERE r.property = p
+                      AND r.deleted = false
+                      AND r.status = com.sep490.slms2026.enums.RoomStatus.AVAILABLE
+                      AND NOT EXISTS (
+                          SELECT 1 FROM TenantContract c
+                          WHERE c.room = r
+                            AND c.status IN :roomHolding
+                      )
+                )
+            )
+            """)
+    Page<Property> findWithAvailableCapacity(
+            @Param("wholeHouseHolding") List<com.sep490.slms2026.enums.ContractStatus> wholeHouseHolding,
+            @Param("roomHolding") List<com.sep490.slms2026.enums.ContractStatus> roomHolding,
+            Pageable pageable);
 }

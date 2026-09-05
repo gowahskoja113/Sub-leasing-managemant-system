@@ -3,6 +3,8 @@ package com.sep490.slms2026.controller;
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.service.PropertyService;
+import com.sep490.slms2026.service.UnitPriceService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.data.domain.Page;
@@ -20,6 +22,7 @@ import java.util.List;
 public class PropertyController {
 
     private final PropertyService propertyService;
+    private final UnitPriceService unitPriceService;
 
     @PostMapping
     public ResponseEntity<PropertyResponse> createProperty(@RequestBody PropertyCreateRequest request) {
@@ -39,13 +42,30 @@ public class PropertyController {
         return ResponseEntity.ok(propertyService.getPropertyById(id));
     }
 
+    @PatchMapping("/{id}/price")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ResponseEntity<PropertyResponse> updatePropertyPrice(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.UpdateUnitPriceRequest request) {
+        return ResponseEntity.ok(unitPriceService.updatePropertyListedPrice(id, request));
+    }
+
+    @GetMapping("/{id}/price-history")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.RoomPriceHistoryResponse>> getPriceHistory(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long roomId) {
+        return ResponseEntity.ok(unitPriceService.getPriceHistory(id, roomId));
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
     public ResponseEntity<Page<PropertyResponse>> getAllProperties(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) Boolean hasAvailableRooms) {
         Pageable pageable = PageRequest.of(page, size);
-        return ResponseEntity.ok(propertyService.getAllProperties(pageable));
+        return ResponseEntity.ok(propertyService.getAllProperties(pageable, hasAvailableRooms));
     }
 
     @PutMapping("/{id}")

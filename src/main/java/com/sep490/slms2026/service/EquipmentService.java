@@ -18,6 +18,9 @@ public interface EquipmentService {
     /** GET /api/v1/equipment/{id} — chi tiết 1 thiết bị */
     EquipmentResponse getEquipmentById(Long id);
 
+    /** Chi tiết thiết bị — TENANT chỉ xem thiết bị thuộc HĐ ACTIVE của mình */
+    EquipmentResponse getEquipmentByIdForCaller(Long id);
+
     /** PUT /api/v1/equipment/{id} — sửa thông tin thiết bị */
     EquipmentResponse updateEquipment(Long id, EquipmentResponse dto);
 
@@ -27,13 +30,16 @@ public interface EquipmentService {
     /** GET /api/v1/equipment?roomId= — thiết bị theo phòng (cho OM mobile) */
     List<EquipmentResponse> getEquipmentsByRoom(Long roomId);
 
+    /** List theo phòng — TENANT chỉ xem phòng thuộc HĐ ACTIVE */
+    List<EquipmentResponse> getEquipmentsByRoomForCaller(Long roomId);
+
     /** GET /api/v1/equipment/{id}/maintenance-history — lịch sử bảo trì thiết bị */
     List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 
     EquipmentResponse reassignEquipment(Long propertyId, Long equipmentId, ReassignEquipmentRequest request);
     EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request);
 
-    List<EquipmentResponse> getEquipmentsForCurrentTenant();
+    List<EquipmentResponse> getEquipmentsForCurrentTenant(Long contractId);
 
     EquipmentResponse getEquipmentByQrCode(String qrCode);
     

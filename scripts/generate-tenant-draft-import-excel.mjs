@@ -1,41 +1,136 @@
 /**
  * Sinh file Excel demo import hàng loạt hợp đồng thuê nháp (DRAFT).
- * BĐS tham chiếu từ ma trận đợt 1/2: docs/SLMS2026_import_matrix_dot1.xlsx
+ * BĐS lấy từ docs/SLMS2026_import_matrix_dot1.xlsx + dot2.xlsx
+ *
+ * 50 tenant seed (có TK, MK 123456) ưu tiên gán THEO_PHONG;
+ * phần còn lại = khách walk-in chưa có tài khoản.
+ * Ngày onboard: 2026-08-17 (2 căn theo phòng) → 2026-08-24.
  *
  * Chạy: node scripts/generate-tenant-draft-import-excel.mjs
  */
 import XLSX from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  TENANT_COUNT,
+  TENANT_PASSWORD,
+  seededTenant,
+  walkInTenant,
+  tenantPhone,
+  tenantFullName,
+} from './demo-tenants.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(__dirname, '..', 'docs');
 const OUT = path.join(DOCS, 'SLMS2026_import_tenant_draft_contracts.xlsx');
+const DOT1 = path.join(DOCS, 'SLMS2026_import_matrix_dot1.xlsx');
+const DOT2 = path.join(DOCS, 'SLMS2026_import_matrix_dot2.xlsx');
 
-const guide = [
-  ['Hướng dẫn import hợp đồng thuê nháp (DRAFT)'],
-  [''],
-  ['1. BĐS phải ĐÃ TỒN TẠI trong hệ thống (sau import đợt 1 + đợt 2 + Host duyệt → ACTIVE).'],
-  ['2. Ưu tiên điền "Mã HĐ inbound" (= mã cột "Mã hợp đồng" file đợt 1 / matrix).'],
-  ['3. Có thể dùng "Mã BĐS" (ID) hoặc "Tên tòa nhà" nếu không trùng tên.'],
-  ['4. Loại thuê: NGUYEN_CAN (nguyên căn) hoặc THEO_PHONG (theo phòng).'],
-  ['5. Thuê theo phòng → bắt buộc "Số phòng" (vd 101, 102 — cùng file matrix đợt 2).'],
-  ['6. Ngày: YYYY-MM-DD hoặc DD/MM/YYYY.'],
-  ['7. Nếu có "Số tháng cọc" mà trống "Tiền cọc" → BE tính deposit = giá thuê × số tháng.'],
-  ['8. API: POST /api/v1/import/tenant-draft-contracts-excel?dryRun=true|false'],
-  ['9. Auth: ADMIN hoặc MANAGER.'],
-  [''],
-  ['Tham chiếu BĐS demo từ ma trận:'],
-  ['Mã HĐ inbound', 'Tên tòa nhà (matrix)', 'Loại khai thác', 'Phòng mẫu'],
-  ['HD-MTX-01-NORENO-NOFURN', 'MTX#01 NORENO trống', 'NGUYEN_CAN', '—'],
-  ['HD-MTX-02-NORENO-FURN', 'MTX#02 NORENO có TB', 'NGUYEN_CAN', '—'],
-  ['HD-MTX-03-RENO-WH-NOFURN', 'MTX#03 NGUYEN_CAN cải tạo', 'NGUYEN_CAN', '—'],
-  ['HD-MTX-07-RENO-RM-NOFURN', 'MTX#07 THEO_PHONG cải tạo', 'THEO_PHONG', '101, 102, 103'],
-  ['HD-MTX-08-RENO-RM-EQUIP', 'MTX#08 THEO_PHONG mua TB', 'THEO_PHONG', '101, 102, 103'],
-  ['HD-MTX-10-RENO-RM-HO-EQUIP', 'MTX#10 THEO_PHONG đủ', 'THEO_PHONG', '101, 102, 103'],
-];
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
 
-// Lấy đúng mã từ generate-import-excel-matrix.mjs
+function addMonths(iso, months) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + months, d));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+function addDaysIso(iso, days) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+function matrixIdFromCode(code) {
+  const m = String(code).match(/HD-MTX-(\d+)/i);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+function furnishFromCode(code) {
+  if (code.endsWith('-FULL')) return 'FULL';
+  if (code.endsWith('-BASIC')) return 'BASIC';
+  return 'NONE';
+}
+
+/** 2 căn theo phòng onboard hôm nay 17/8; các căn còn lại trải đến 24/8. */
+function moveInDateForHouse(id, exploitation) {
+  if (exploitation === 'THEO_PHONG') {
+    if (id === 41 || id === 45) return '2026-08-17';
+    const rest = [42, 43, 44, 46, 47, 48, 49, 50];
+    const idx = rest.indexOf(id);
+    if (idx < 0) return '2026-08-24';
+    if (idx <= 5) return `2026-08-${pad2(18 + idx)}`; // 18–23
+    return '2026-08-24'; // 49, 50
+  }
+  // 40 nguyên căn: 17/8 chưa onboard (nhường 2 căn theo phòng) → 18–24
+  const dayOffset = Math.min(6, Math.floor((id - 1) / 6)); // 0..6
+  return `2026-08-${pad2(18 + dayOffset)}`;
+}
+
+function rentFor(exploitation, furnish, roomIndex) {
+  if (exploitation === 'THEO_PHONG') {
+    const base = furnish === 'FULL' ? 5_600_000 : furnish === 'BASIC' ? 4_100_000 : 3_300_000;
+    return base + roomIndex * 80_000;
+  }
+  return furnish === 'FULL' ? 12_500_000 : furnish === 'BASIC' ? 9_200_000 : 7_400_000;
+}
+
+function extraProfile(index, district, address) {
+  const year = 1987 + (index % 13);
+  const month = pad2(1 + (index % 12));
+  const day = pad2(1 + (index * 3) % 27);
+  const issueYear = 2018 + (index % 6);
+  return {
+    dob: `${year}-${month}-${day}`,
+    cccdDate: `${issueYear}-${month}-15`,
+    cccdPlace: `CA ${district}`,
+    hktt: `${address}, ${district}, TP.HCM`,
+  };
+}
+
+const wb1 = XLSX.readFile(DOT1);
+const wb2 = XLSX.readFile(DOT2);
+const leases = XLSX.utils.sheet_to_json(wb1.Sheets['1. Hop_Dong_Thue']);
+const configs = XLSX.utils.sheet_to_json(wb2.Sheets['1. Cau_Hinh_Khai_Thac']);
+const roomRows = XLSX.utils.sheet_to_json(wb2.Sheets['2. Danh_Sach_Phong']);
+
+const leaseByCode = new Map(leases.map((r) => [r['Mã hợp đồng'], r]));
+const configByCode = new Map(configs.map((r) => [r['Mã hợp đồng thuê'], r]));
+const roomsByCode = new Map();
+for (const r of roomRows) {
+  const code = r['Mã hợp đồng thuê'];
+  if (!roomsByCode.has(code)) roomsByCode.set(code, []);
+  roomsByCode.get(code).push(String(r['Số phòng']));
+}
+
+const houses = leases.map((lease) => {
+  const code = lease['Mã hợp đồng'];
+  const cfg = configByCode.get(code) ?? {};
+  const exploitation = cfg['Hình thức khai thác'] || 'NGUYEN_CAN';
+  return {
+    code,
+    name: lease['Tên tòa nhà'],
+    district: lease['Quận/Huyện'],
+    address: lease['Địa chỉ chi tiết'],
+    exploitation,
+    furnish: furnishFromCode(code),
+    matrixId: matrixIdFromCode(code),
+    rooms: roomsByCode.get(code) ?? [],
+  };
+}).sort((a, b) => a.matrixId - b.matrixId);
+
+const occupancies = [];
+for (const h of houses.filter((x) => x.exploitation === 'THEO_PHONG')) {
+  const rooms = h.rooms.length ? h.rooms : ['101', '102', '103'];
+  rooms.forEach((room, roomIndex) => {
+    occupancies.push({ house: h, room, roomIndex });
+  });
+}
+for (const h of houses.filter((x) => x.exploitation === 'NGUYEN_CAN')) {
+  occupancies.push({ house: h, room: '', roomIndex: 0 });
+}
+
 const headers = [
   'Mã HĐ inbound',
   'Mã BĐS',
@@ -57,130 +152,125 @@ const headers = [
   'Ngày đón khách dự kiến',
 ];
 
-const demoRows = [
-  // Nguyên căn — MTX#01
-  [
-    'HD-MTX-01-NORENO-NOFURN',
+const demoRows = [];
+const accountRows = [];
+let seededUsed = 0;
+let walkInUsed = 0;
+
+occupancies.forEach((occ, i) => {
+  const seeded = i < TENANT_COUNT;
+  const tenant = seeded ? seededTenant(i + 1) : walkInTenant(i - TENANT_COUNT + 1);
+  if (seeded) seededUsed++;
+  else walkInUsed++;
+
+  const { house, room, roomIndex } = occ;
+  const moveIn = moveInDateForHouse(house.matrixId, house.exploitation);
+  const end = addDaysIso(addMonths(moveIn, 12), -1);
+  const rent = rentFor(house.exploitation, house.furnish, roomIndex);
+  const depositMonths = house.furnish === 'FULL' ? 2 : 1;
+  const extra = extraProfile(i + 1, house.district, house.address);
+
+  demoRows.push([
+    house.code,
     '',
-    'MTX#01 NORENO trống',
-    'NGUYEN_CAN',
-    '',
-    'Nguyễn Văn An',
-    '079085001001',
-    '0901000001',
-    '1990-05-12',
-    '2021-03-15',
-    'CA TP. Hồ Chí Minh',
-    '123 Nguyễn Huệ, Q1, TP.HCM',
-    '2026-08-01',
-    '2027-07-31',
-    8_000_000,
-    1,
-    8_000_000,
-    '2026-08-01',
-  ],
-  // Nguyên căn — MTX#02
-  [
-    'HD-MTX-02-NORENO-FURN',
-    '',
-    'MTX#02 NORENO có TB',
-    'NGUYEN_CAN',
-    '',
-    'Trần Thị Bình',
-    '079085001002',
-    '0901000002',
-    '15/08/1992',
-    '10/06/2022',
-    'CA Quận 1',
-    '45 Lê Lợi, Q1, TP.HCM',
-    '01/09/2026',
-    '31/08/2027',
-    9_500_000,
-    2,
-    '', // BE tính = 19_000_000
-    '01/09/2026',
-  ],
-  // Theo phòng — MTX#07 phòng 101
-  [
-    'HD-MTX-07-RENO-RM-NOFURN',
-    '',
-    'MTX#07 THEO_PHONG cải tạo',
-    'THEO_PHONG',
-    '101',
-    'Lê Minh Châu',
-    '079085001003',
-    '0901000003',
-    '1995-01-20',
-    '2020-11-01',
-    'CA Bình Thạnh',
-    '88 Phạm Văn Đồng, Bình Thạnh, TP.HCM',
-    '2026-08-15',
-    '2027-08-14',
-    4_500_000,
-    1,
-    4_500_000,
-    '2026-08-15',
-  ],
-  // Theo phòng — MTX#07 phòng 102
-  [
-    'HD-MTX-07-RENO-RM-NOFURN',
-    '',
-    'MTX#07 THEO_PHONG cải tạo',
-    'THEO_PHONG',
-    '102',
-    'Phạm Quốc Dũng',
-    '079085001004',
-    '0901000004',
-    '1988-12-03',
-    '2019-07-20',
-    'CA Gò Vấp',
-    '12 Quang Trung, Gò Vấp, TP.HCM',
-    '2026-08-15',
-    '2027-02-14',
-    4_200_000,
-    1,
-    4_200_000,
-    '2026-08-15',
-  ],
-  // Theo phòng — MTX#10 phòng 101
-  [
-    'HD-MTX-10-RENO-RM-HO-EQUIP',
-    '',
-    'MTX#10 THEO_PHONG đủ',
-    'THEO_PHONG',
-    '101',
-    'Hoàng Thị Em',
-    '079085001005',
-    '0901000005',
-    '1998-04-08',
-    '2023-01-05',
-    'CA Phú Nhuận',
-    '56 Nguyễn Văn Trỗi, Phú Nhuận, TP.HCM',
-    '2026-09-01',
-    '2027-08-31',
-    5_000_000,
-    2,
-    10_000_000,
-    '2026-09-01',
-  ],
+    house.name,
+    house.exploitation,
+    room,
+    tenant.fullName,
+    tenant.cccd,
+    tenant.phone,
+    extra.dob,
+    extra.cccdDate,
+    extra.cccdPlace,
+    extra.hktt,
+    moveIn,
+    end,
+    rent,
+    depositMonths,
+    rent * depositMonths,
+    moveIn,
+  ]);
+
+  accountRows.push([
+    i + 1,
+    tenant.fullName,
+    tenant.phone,
+    tenant.cccd,
+    tenant.seeded ? `Có TK — MK ${TENANT_PASSWORD}` : 'Chưa có TK (import sẽ tạo, firstLogin)',
+    house.code,
+    house.name,
+    house.exploitation,
+    room || '—',
+    moveIn,
+  ]);
+});
+
+const rmHouses = houses.filter((h) => h.exploitation === 'THEO_PHONG');
+const whHouses = houses.filter((h) => h.exploitation === 'NGUYEN_CAN');
+
+const guide = [
+  ['Hướng dẫn import hợp đồng thuê nháp (DRAFT) — 50 căn matrix 2026'],
+  [''],
+  ['1. BĐS phải ĐÃ TỒN TẠI và ACTIVE (import đợt 1 + đợt 2 + Host duyệt + gán OM).'],
+  ['2. Ưu tiên điền "Mã HĐ inbound" (= mã cột "Mã hợp đồng" file đợt 1).'],
+  ['3. Thuê theo phòng → bắt buộc "Số phòng" (101, 102, … — file matrix đợt 2).'],
+  ['4. Ngày: YYYY-MM-DD. Onboard: 17/08/2026 (2 căn THEO_PHONG #41, #45) → 24/08/2026.'],
+  ['5. Nếu có "Số tháng cọc" mà trống "Tiền cọc" → BE tính deposit = giá thuê × số tháng.'],
+  ['6. API: POST /api/v1/import/tenant-draft-contracts-excel?dryRun=true|false'],
+  [''],
+  ['Tài khoản tenant seed (50): login = SĐT, mật khẩu 123456. Sheet "0. Tai_Khoan_San".'],
+  ['Ưu tiên gán 50 SĐT seed cho toàn bộ phòng THEO_PHONG, phần dư sang nguyên căn.'],
+  ['Dòng "Chưa có TK" = khách walk-in — import tạo account mới (chưa đặt mật khẩu).'],
+];
+
+const refHeaders = ['Mã HĐ inbound (đợt 1)', 'Tên tòa (matrix)', 'Loại', 'Phòng / NT', 'Ngày onboard', 'Ghi chú'];
+const refRows = houses.map((h) => {
+  const moveIn = moveInDateForHouse(h.matrixId, h.exploitation);
+  const rooms = h.exploitation === 'THEO_PHONG' ? h.rooms.join(', ') : '—';
+  return [
+    h.code,
+    h.name,
+    h.exploitation,
+    `${h.furnish} | ${rooms}`,
+    moveIn,
+    h.exploitation === 'THEO_PHONG'
+      ? 'Ưu tiên khách đã có TK'
+      : 'TK seed nếu còn; không thì walk-in',
+  ];
+});
+
+const accHeaders = [
+  'STT',
+  'Họ tên',
+  'SĐT (username)',
+  'CCCD',
+  'Tài khoản',
+  'Mã HĐ inbound',
+  'Tòa nhà',
+  'Loại thuê',
+  'Phòng',
+  'Ngày vào ở',
 ];
 
 const wb = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(guide), '0. Huong_Dan');
-XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...demoRows]), '1. Hop_Dong_Nhap_Khach');
-
-const refHeaders = ['Mã HĐ inbound (đợt 1)', 'Tên tòa (matrix)', 'Loại', 'Ghi chú'];
-const refRows = [
-  ['HD-MTX-01-NORENO-NOFURN', 'MTX#01 NORENO trống', 'NGUYEN_CAN', 'Import sau khi nhà ACTIVE'],
-  ['HD-MTX-02-NORENO-FURN', 'MTX#02 NORENO có TB', 'NGUYEN_CAN', 'Có TB bàn giao'],
-  ['HD-MTX-03-RENO-WH-NOFURN', 'MTX#03 NGUYEN_CAN cải tạo', 'NGUYEN_CAN', 'Sau đợt 2 + Host'],
-  ['HD-MTX-07-RENO-RM-NOFURN', 'MTX#07 THEO_PHONG cải tạo', 'THEO_PHONG', 'Phòng 101–103'],
-  ['HD-MTX-08-RENO-RM-EQUIP', 'MTX#08 THEO_PHONG mua TB', 'THEO_PHONG', 'Phòng 101–103'],
-  ['HD-MTX-10-RENO-RM-HO-EQUIP', 'MTX#10 THEO_PHONG đủ', 'THEO_PHONG', 'Phòng 101–103'],
-];
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([refHeaders, ...refRows]), '0. Tham_Chieu_BDS');
-
+XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([accHeaders, ...accountRows]), '0. Tai_Khoan_San');
+XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, ...demoRows]), '1. Hop_Dong_Nhap_Khach');
 XLSX.writeFile(wb, OUT);
+
+const todayRows = demoRows.filter((r) => r[12] === '2026-08-17');
+const todayHouses = [...new Set(todayRows.map((r) => r[0]))];
+const phones = new Set(demoRows.map((r) => r[7]));
+if (phones.size !== demoRows.length) {
+  throw new Error('Trùng SĐT trong file HĐ nháp');
+}
+
 console.log('Wrote', OUT);
-console.log('Demo rows:', demoRows.length);
-console.log('Note: mã HĐ inbound phải khớp file matrix đã import vào DB.');
+console.log('HĐ nháp:', demoRows.length);
+console.log('  THEO_PHONG nhà / phòng:', rmHouses.length, '/', occupancies.filter((o) => o.room).length);
+console.log('  NGUYEN_CAN:', whHouses.length);
+console.log('  Có TK seed:', seededUsed, '| Walk-in chưa TK:', walkInUsed);
+console.log('  Onboard 17/08 (hôm nay):', todayHouses.join(', '), `(${todayRows.length} HĐ)`);
+console.log('  Seed SĐT mẫu #1 / #50:', tenantPhone(1), tenantFullName(1), '/', tenantPhone(50), tenantFullName(50));
+console.log('  MK seed:', TENANT_PASSWORD);

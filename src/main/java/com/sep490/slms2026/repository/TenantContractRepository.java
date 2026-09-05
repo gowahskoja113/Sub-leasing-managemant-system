@@ -2,9 +2,12 @@ package com.sep490.slms2026.repository;
 
 import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -14,15 +17,44 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import com.sep490.slms2026.entity.User;
 import java.util.UUID;
 
 @Repository
 public interface TenantContractRepository extends JpaRepository<TenantContract, Long> {
 
-    // Quy tắc 1-HĐ-active: kiểm tra phòng đã có hợp đồng đang hiệu lực chưa
+    /**
+     * Khóa hàng HĐ khi confirm / gửi OTP dual — tránh đua 2 bên verify rồi kẹt PENDING
+     * dù đủ cả hai mốc {@code *_otp_verified_at}.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM TenantContract c WHERE c.id = :id")
+    Optional<TenantContract> findByIdForUpdate(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE TenantContract c SET c.assignedManager = :manager WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")
+    int updateAssignedManagerByZoneId(@Param("manager") User manager, @Param("zoneId") UUID zoneId);
+
+    @Modifying
+    @Query("UPDATE TenantContract c SET c.assignedManager = null WHERE c.property.zone.id = :zoneId AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED")
+    int removeAssignedManagerByZoneId(@Param("zoneId") UUID zoneId);
+
+    /** HĐ chưa chấm dứt trong khu vực — dùng khi đổi/gỡ quản lý để thông báo khách. */
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE p.zone.id = :zoneId
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+            """)
+    List<TenantContract> findActiveAndPendingByZoneId(@Param("zoneId") UUID zoneId);
+
+    // Quy tắc 1-HĐ-active theo ĐƠN VỊ CHO THUÊ (phòng / nguyên căn) — không giới hạn theo SĐT/tenant
     boolean existsByRoomIdAndStatus(Long roomId, ContractStatus status);
 
-    // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null)
+    // Quy tắc 1-HĐ-active cho thuê nguyên căn (room == null) — 1 property chỉ 1 HĐ nguyên căn ACTIVE
     boolean existsByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
 
     // Kiểm tra HĐ chồng lấn khoảng [moveInDate, endDate] cho phòng cụ thể
@@ -55,6 +87,14 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
     List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
 
+    @Query("""
+            SELECT DISTINCT c.property.id FROM TenantContract c
+            WHERE c.room IS NULL
+              AND c.status IN :statuses
+            """)
+    List<Long> findPropertyIdsWithWholeHouseContractsInStatuses(
+            @Param("statuses") java.util.Collection<ContractStatus> statuses);
+
     List<TenantContract> findByPropertyId(Long propertyId);
 
     // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
@@ -63,6 +103,21 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Auto-cancel no-show: HĐ nháp/chờ có moveInDate đã quá hạn
     List<TenantContract> findByStatusInAndMoveInDateBefore(
             java.util.Collection<ContractStatus> statuses, LocalDate moveInDate);
+
+    /** Cron nhắc đón khách: DRAFT/PENDING có ngày đón (expectedReceptionDate ?? moveInDate) trùng mốc. */
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            LEFT JOIN FETCH c.assignedManager
+            WHERE c.status IN :statuses
+              AND COALESCE(c.expectedReceptionDate, c.moveInDate) IN :dates
+            """)
+    List<TenantContract> findPendingReceptionOnDates(
+            @Param("statuses") java.util.Collection<ContractStatus> statuses,
+            @Param("dates") java.util.Collection<LocalDate> dates);
 
     /** Backfill: HĐ chưa kết thúc còn thiếu assignedManager */
     @Query("""
@@ -80,12 +135,38 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     List<TenantContract> findByStatus(ContractStatus status);
 
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.status = :status
+            """)
+    List<TenantContract> findByStatusWithPropertyAndTenant(@Param("status") ContractStatus status);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            JOIN FETCH c.property p
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.status = :status
+              AND p.operationManagerId = :managerId
+            """)
+    List<TenantContract> findActiveByOperationManagerId(
+            @Param("status") ContractStatus status,
+            @Param("managerId") UUID managerId);
+
     Page<TenantContract> findByStatus(ContractStatus status, Pageable pageable);
 
     @Query("""
             SELECT c FROM TenantContract c 
-            JOIN c.property p 
-            WHERE p.managedBy = :managerUserId
+            JOIN FETCH c.property p 
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND (c.priceApprovalStatus IN :statuses 
                    OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
             """)
@@ -95,8 +176,11 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     @Query("""
             SELECT c FROM TenantContract c 
-            JOIN c.property p 
-            WHERE p.managedBy = :managerUserId 
+            JOIN FETCH c.property p 
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND c.priceApprovalStatus = :status
             """)
     List<TenantContract> findManagedContractsByApprovalStatus(
@@ -105,8 +189,11 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     @Query("""
             SELECT c FROM TenantContract c 
-            JOIN c.property p 
-            WHERE p.managedBy = :managerUserId 
+            JOIN FETCH c.property p 
+            LEFT JOIN FETCH c.room
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND c.status = :status
             """)
     List<TenantContract> findManagedContractsByStatus(
@@ -116,6 +203,8 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     Page<TenantContract> findByPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus status, Pageable pageable);
 
     Optional<TenantContract> findByPayosOrderCode(Long payosOrderCode);
+
+    boolean existsByContractCode(String contractCode);
 
 
     @Query("""
@@ -132,6 +221,15 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             @Param("propertyId") Long propertyId,
             @Param("monthStart") LocalDateTime monthStart,
             @Param("monthEnd") LocalDateTime monthEnd);
+
+    @Query("""
+            SELECT COUNT(DISTINCT c.room.id)
+            FROM TenantContract c
+            WHERE c.property.id = :propertyId
+              AND c.room IS NOT NULL
+              AND c.status = com.sep490.slms2026.enums.ContractStatus.ACTIVE
+            """)
+    long countActiveRoomContracts(@Param("propertyId") Long propertyId);
 
     @Query("""
             SELECT COUNT(DISTINCT c.room.id)
@@ -168,7 +266,13 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
 
     Optional<TenantContract> findByRoomIdAndStatus(Long roomId, ContractStatus status);
 
+    Optional<TenantContract> findTopByRoomIdAndStatusInOrderByEndDateDesc(Long roomId, java.util.Collection<ContractStatus> statuses);
+
     Optional<TenantContract> findByPropertyIdAndRoomIsNullAndStatus(Long propertyId, ContractStatus status);
+
+    Optional<TenantContract> findTopByPropertyIdAndRoomIsNullAndStatusInOrderByEndDateDesc(Long propertyId, java.util.Collection<ContractStatus> statuses);
+
+    Optional<TenantContract> findTopByPropertyIdAndRoomIsNullOrderByEndDateDesc(Long propertyId);
 
     @Query("""
             SELECT c FROM TenantContract c
@@ -181,4 +285,32 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             @Param("contractStatus") ContractStatus contractStatus,
             @Param("priceApprovalStatus") com.sep490.slms2026.enums.PriceApprovalStatus priceApprovalStatus,
             Pageable pageable);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            WHERE (:status IS NULL OR c.paymentStatus = :status)
+              AND (:includeClosed = TRUE
+                   OR c.status NOT IN (com.sep490.slms2026.enums.ContractStatus.TERMINATED,
+                                       com.sep490.slms2026.enums.ContractStatus.EXPIRED)
+                   OR c.paymentStatus = com.sep490.slms2026.enums.PaymentStatus.PAID)
+            ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC
+            """)
+    Page<TenantContract> findAdminDeposits(@Param("status") com.sep490.slms2026.enums.PaymentStatus status,
+                                           @Param("includeClosed") boolean includeClosed,
+                                           Pageable pageable);
+
+    @Query("SELECT c FROM TenantContract c " +
+           "JOIN c.property p " +
+           "WHERE p.operationManagerId = :managerUserId " +
+           "AND (:status IS NULL OR c.paymentStatus = :status) " +
+           "ORDER BY COALESCE(c.paidAt, c.depositCashManagerConfirmedAt) DESC")
+    Page<TenantContract> findManagerDeposits(@Param("managerUserId") UUID managerUserId, 
+                                             @Param("status") com.sep490.slms2026.enums.PaymentStatus status, 
+                                             Pageable pageable);
+
+    @Query("SELECT MAX(c.id) FROM TenantContract c")
+    Long getMaxId();
+
+    Optional<TenantContract> findFirstByContractCodeStartingWithOrderByContractCodeDesc(String prefix);
 }
+

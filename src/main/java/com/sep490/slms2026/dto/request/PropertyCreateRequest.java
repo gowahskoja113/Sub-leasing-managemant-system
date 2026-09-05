@@ -9,6 +9,8 @@ import java.util.UUID;
 @Getter
 @Setter
 public class PropertyCreateRequest {
+    /** Tùy chọn — BE tự sinh nếu bỏ trống. */
+    private String propertyCode;
     private String propertyName;
     private String address;
     private String descriptions;
@@ -20,7 +22,6 @@ public class PropertyCreateRequest {
     private Integer totalFloor;
     private Integer totalRooms;
     private Long createdBy;
-    /** @deprecated dùng createdBy */
-    private Long managedBy;
+
     private List<String> imageUrls;
 }

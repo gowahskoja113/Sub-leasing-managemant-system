@@ -27,6 +27,10 @@ public class CheckoutRequestResponse {
     private String reason;
     private String note;
     private String status;
+    private Integer disputeCount;
+    private String disputeReason;
+    private java.util.List<String> disputePhotos;
+    private LocalDateTime disputedAt;
     private LocalDateTime createdAt;
     private LocalDateTime reviewedAt;
     private UUID reviewedBy;
@@ -34,4 +38,50 @@ public class CheckoutRequestResponse {
     private String managerNote;
     private String rejectReason;
     private LocalDateTime completedAt;
+
+    private String origin;
+
+    private String refundBankName;
+    private String refundBankAccount;
+    private String refundAccountHolder;
+    
+    private LocalDateTime refundDisputedAt;
+    private String refundDisputeReason;
+    
+    private SettlementDto settlement;
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SettlementDto {
+        private java.util.List<ChargeItem> finalCharges;
+        private java.math.BigDecimal chargesTotal;
+        private java.math.BigDecimal chargesPaid;
+        private Boolean chargesSettled;
+
+        private java.math.BigDecimal depositAmount;
+        private java.time.LocalDate refundDueDate;
+
+        private LocalDateTime refundPaidAt;
+        private String refundProofUrl;
+        private LocalDateTime refundConfirmedAt;
+        private LocalDateTime refundDisputedAt;
+        private String refundDisputeReason;
+        private LocalDateTime refundDisputeResolvedAt;
+        private String refundDisputeOutcome;
+    }
+
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChargeItem {
+        private Long id;
+        private String code;
+        private String type;
+        private java.math.BigDecimal amount;
+    }
 }

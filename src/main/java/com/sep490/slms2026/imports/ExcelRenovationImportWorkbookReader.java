@@ -23,7 +23,7 @@ public class ExcelRenovationImportWorkbookReader {
     public RenovationImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
         try (Workbook workbook = openWorkbook(file)) {
-            DataFormatter formatter = new DataFormatter();
+            DataFormatter formatter = ExcelImportReaderSupport.usFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             Sheet configSheet = requireSheet(workbook, SHEET_CONFIG);

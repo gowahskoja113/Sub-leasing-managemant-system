@@ -4,16 +4,16 @@ import com.sep490.slms2026.dto.request.AuthRequest;
 import com.sep490.slms2026.dto.request.ChangePasswordRequest;
 import com.sep490.slms2026.dto.response.AuthMeResponse;
 import com.sep490.slms2026.dto.response.AuthResponse;
-import com.sep490.slms2026.entity.Admin;
-import com.sep490.slms2026.entity.OperationManagement;
 import com.sep490.slms2026.entity.Owner;
 import com.sep490.slms2026.entity.User;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.UserStatus;
+import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.repository.UserRepository;
 import com.sep490.slms2026.security.CustomUserDetailsService;
 import com.sep490.slms2026.security.JwtUtil;
 import com.sep490.slms2026.service.AuthService;
+import com.sep490.slms2026.util.PhoneUtils;
 import lombok.AllArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,8 +21,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
+import org.springframework.util.StringUtils;
 
 @Service
 @AllArgsConstructor
@@ -44,18 +43,10 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Số điện thoại này đã được đăng ký!");
         }
 
-        // Xác định Role đăng ký công khai (mặc định cho Khách/Tenant/Owner tùy bạn thiết kế public)
-        Role userRole;
-        try {
-            userRole = Role.valueOf(request.getRole().toUpperCase());
-        } catch (Exception e) {
-            userRole = Role.ROLE_TENANT;
+        Role userRole = Role.ROLE_TENANT;
+        if (request.getRole() != null && !request.getRole().equalsIgnoreCase("ROLE_TENANT")) {
+            throw new RuntimeException("Chỉ được phép đăng ký tài khoản khách thuê (ROLE_TENANT) qua cổng này!");
         }
-
-        // CHẶN: Không cho phép tự đăng ký tài khoản nội bộ qua cổng public này
-//        if (userRole == Role.ROLE_ADMIN || userRole == Role.ROLE_MANAGER) {
-//            throw new RuntimeException("Không có quyền tự đăng ký tài khoản cấp quản trị viên/quản lý!");
-//        }
 
         User user = new User();
         user.setUsername(request.getUsername());
@@ -78,6 +69,17 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(AuthRequest request) {
+        rejectUnactivatedTenantLogin(request.getUsername());
+
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
+
+        if (user.getStatus() == UserStatus.DISABLE) {
+            throw new BusinessException(
+                "Tài khoản đã ngừng hoạt động do hợp đồng thuê đã kết thúc. "
+              + "Vui lòng liên hệ quản lý nếu bạn cần thuê lại.");
+        }
+
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
@@ -86,10 +88,32 @@ public class AuthServiceImpl implements AuthService {
         final String jwt = jwtUtil.generateToken(userDetails);
         String roleName = userDetails.getAuthorities().iterator().next().getAuthority();
 
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy user"));
-
         return new AuthResponse(jwt, userDetails.getUsername(), roleName, user.isFirstLogin());
+    }
+
+    /**
+     * Tenant mới chưa qua OTP + đặt mật khẩu không được login bằng password
+     * (mật khẩu lúc tạo account là random, không phát cho manager/khách).
+     */
+    private void rejectUnactivatedTenantLogin(String usernameOrPhone) {
+        if (!StringUtils.hasText(usernameOrPhone)) {
+            return;
+        }
+        User user = userRepository.findByUsername(usernameOrPhone.trim()).orElse(null);
+        if (user == null) {
+            try {
+                String local = PhoneUtils.normalizeLocal(usernameOrPhone);
+                user = userRepository.findByPhoneNumber(local)
+                        .or(() -> userRepository.findByPhoneNumber(PhoneUtils.toInternational(local)))
+                        .orElse(null);
+            } catch (BusinessException ignored) {
+                return;
+            }
+        }
+        if (user != null && user.getRole() == Role.ROLE_TENANT && user.isFirstLogin()) {
+            throw new BusinessException(
+                    "Tài khoản chưa kích hoạt. Vui lòng dùng chức năng Kích hoạt tài khoản (OTP + tạo mật khẩu).");
+        }
     }
 
     @Override
@@ -117,7 +141,7 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
-            throw new com.sep490.slms2026.exception.BusinessException("Mật khẩu cũ không đúng");
+            throw new BusinessException("Mật khẩu cũ không đúng");
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));

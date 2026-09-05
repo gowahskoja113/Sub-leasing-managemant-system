@@ -11,6 +11,7 @@ import java.util.UUID;
 @Setter
 public class PropertyResponse {
     private Long id;
+    private String propertyCode;
     private String propertyName;
     private String shortAddress;
     private String fullAddress;
@@ -24,8 +25,19 @@ public class PropertyResponse {
     private Boolean hasRenovation;
     private Integer totalFloor;
     private Integer totalRooms;
+    /** Số phòng thật đang có (đếm bản ghi rooms, khác totalRooms khai báo). */
+    private Integer roomCount;
+    /** Phòng AVAILABLE chưa bị HĐ DRAFT/PENDING giữ chỗ. */
+    private Integer availableRooms;
+    private Integer rentedRooms;
+    private Integer maintenanceRooms;
+    /** Phòng còn DRAFT — chưa mở cho thuê. */
+    private Integer notOpenedRooms;
     private String status;
     private BigDecimal price;
+    private BigDecimal listedPrice;
+    private BigDecimal appliedPrice;
+    private Boolean priceLocked;
     private Long createdBy;
     private UUID operationManagerId;
     /** Tên đầy đủ của Operation Manager — null nếu chưa gán */
@@ -46,4 +58,8 @@ public class PropertyResponse {
 
     private BigDecimal electricityUnitPrice;
     private BigDecimal waterUnitPrice;
+
+    /** Ngày HĐ với chủ nhà (InboundContract) — để FE chặn nhập ngày vào ở. */
+    private java.time.LocalDate leaseStartDate;
+    private java.time.LocalDate leaseEndDate;
 }

@@ -7,6 +7,7 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.service.HostPortalService;
+import com.sep490.slms2026.util.DepositLedgerStatusResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,9 +33,13 @@ public class HostPortalServiceImpl implements HostPortalService {
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
+    private final CheckoutRequestRepository checkoutRequestRepository;
+    private final CheckoutSettlementRepository checkoutSettlementRepository;
     private final InboundContractRepository inboundContractRepository;
     private final UserRepository userRepository;
-    private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+    private final NotificationRepository notificationRepository;
+    private final com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
 
     @Override
     @Transactional
@@ -208,23 +213,28 @@ public class HostPortalServiceImpl implements HostPortalService {
 
     @Override
     @Transactional(readOnly = true)
-    public HostReceivablesAgingResponse getReceivablesAging() {
-        YearMonth ym = YearMonth.now();
-        List<HostInvoiceDto> invoices = new ArrayList<>(buildInvoices(ym, null));
+    public HostReceivablesAgingResponse getReceivablesAging(String month) {
+        YearMonth ym = month != null && !month.isBlank() ? parseMonth(month, YearMonth.now()) : YearMonth.now();
+        List<TenantInvoice> dbInvoices = tenantInvoiceRepository.findForManager(
+                null, null, null, com.sep490.slms2026.enums.TenantInvoiceType.RENT, ym.getYear(), ym.getMonthValue());
+
         LocalDate today = LocalDate.now();
 
-        Map<String, List<HostInvoiceDto>> buckets = new LinkedHashMap<>();
+        Map<String, List<TenantInvoice>> buckets = new LinkedHashMap<>();
+        buckets.put("Chưa tới hạn", new ArrayList<>());
         buckets.put("0-30 ngày", new ArrayList<>());
         buckets.put("31-60 ngày", new ArrayList<>());
         buckets.put("61-90 ngày", new ArrayList<>());
         buckets.put(">90 ngày", new ArrayList<>());
 
-        for (HostInvoiceDto invoice : invoices) {
-            if ("PAID".equals(invoice.status())) {
+        for (TenantInvoice invoice : dbInvoices) {
+            if (invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
                 continue;
             }
-            long days = ChronoUnit.DAYS.between(invoice.dueDate(), today);
-            if (days <= 30) {
+            long days = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+            if (days < 0) {
+                buckets.get("Chưa tới hạn").add(invoice);
+            } else if (days <= 30) {
                 buckets.get("0-30 ngày").add(invoice);
             } else if (days <= 60) {
                 buckets.get("31-60 ngày").add(invoice);
@@ -238,22 +248,28 @@ public class HostPortalServiceImpl implements HostPortalService {
         List<HostReceivablesAgingResponse.AgingBucket> agingBuckets = buckets.entrySet().stream()
                 .map(e -> HostReceivablesAgingResponse.AgingBucket.builder()
                         .label(e.getKey())
-                        .amount(e.getValue().stream().map(HostInvoiceDto::amount).reduce(BigDecimal.ZERO, BigDecimal::add))
+                        .amount(e.getValue().stream().map(TenantInvoice::getGrandTotal).reduce(BigDecimal.ZERO, BigDecimal::add))
                         .count(e.getValue().size())
                         .build())
                 .toList();
 
-        List<HostReceivablesAgingResponse.TopDebtor> topDebtors = invoices.stream()
-                .filter(i -> !"PAID".equals(i.status()))
-                .sorted(Comparator.comparing(HostInvoiceDto::amount).reversed())
+        List<HostReceivablesAgingResponse.TopDebtor> topDebtors = dbInvoices.stream()
+                .filter(i -> i.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID)
+                .sorted(Comparator.comparing(TenantInvoice::getGrandTotal).reversed())
                 .limit(10)
-                .map(i -> HostReceivablesAgingResponse.TopDebtor.builder()
-                        .tenantName(i.tenantName())
-                        .propertyName(i.propertyName())
-                        .roomCode(i.roomCode())
-                        .amount(i.amount())
-                        .overdueDays(Math.max(0, ChronoUnit.DAYS.between(i.dueDate(), today)))
-                        .build())
+                .map(i -> {
+                    String tenantName = null;
+                    if (i.getTenantContract().getTenant() != null && i.getTenantContract().getTenant().getUser() != null) {
+                        tenantName = i.getTenantContract().getTenant().getUser().getFullName();
+                    }
+                    return HostReceivablesAgingResponse.TopDebtor.builder()
+                            .tenantName(tenantName)
+                            .propertyName(i.getPropertyName())
+                            .roomCode(i.getRoomNumber())
+                            .amount(i.getGrandTotal())
+                            .overdueDays(Math.max(0, ChronoUnit.DAYS.between(i.getDueDate(), today)))
+                            .build();
+                })
                 .toList();
 
         return HostReceivablesAgingResponse.builder()
@@ -265,26 +281,118 @@ public class HostPortalServiceImpl implements HostPortalService {
     @Override
     @Transactional(readOnly = true)
     public HostDepositsResponse getDeposits(String status) {
-        List<TenantContract> contracts = tenantContractRepository.findByStatus(ContractStatus.ACTIVE);
+        List<TenantContract> contracts = tenantContractRepository.findAll();
+        Map<Long, CheckoutSettlementContext> checkoutByContract = loadCheckoutContext(
+                contracts.stream().map(TenantContract::getId).toList());
+
         List<HostDepositsResponse.DepositItem> items = contracts.stream()
                 .filter(c -> c.getDeposit() != null && c.getDeposit().compareTo(BigDecimal.ZERO) > 0)
-                .map(c -> HostDepositsResponse.DepositItem.builder()
-                        .tenantName(c.getTenant().getUser().getFullName())
-                        .propertyName(c.getProperty().getPropertyName())
-                        .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : "NGUYEN_CAN")
-                        .amount(c.getDeposit())
-                        .heldSince(c.getStartDate())
-                        .status(mapDepositStatus(c.getStatus()))
-                        .build())
-                .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.status()))
+                .map(c -> {
+                    String tenantName = null;
+                    if (c.getTenant() != null && c.getTenant().getUser() != null) {
+                        tenantName = c.getTenant().getUser().getFullName();
+                    }
+                    CheckoutSettlementContext ctx = checkoutByContract.get(c.getId());
+                    CheckoutSettlement settlement = ctx != null ? ctx.settlement() : null;
+                    DepositStatus depositStatus = DepositLedgerStatusResolver.resolve(
+                            c,
+                            settlement,
+                            ctx != null ? ctx.checkoutStatus() : null);
+                    LocalDate heldSince = c.getDepositPaidAt() != null
+                            ? c.getDepositPaidAt().toLocalDate()
+                            : (c.getPaidAt() != null ? c.getPaidAt().toLocalDate() : c.getStartDate());
+                    var builder = HostDepositsResponse.DepositItem.builder()
+                            .contractId(c.getId())
+                            .contractCode(c.getContractCode())
+                            .endDate(c.getEndDate())
+                            .tenantName(tenantName)
+                            .propertyName(c.getProperty().getPropertyName())
+                            .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : "NGUYEN_CAN")
+                            .amount(c.getDeposit())
+                            .heldSince(heldSince)
+                            .status(depositStatus.name())
+                            .checkoutRequestId(ctx != null ? ctx.checkoutRequestId() : null)
+                            .refundAmount(settlement != null ? settlement.getRefundAmount() : null)
+                            .refundedAt(settlement != null && settlement.getRefundPaidAt() != null
+                                    ? settlement.getRefundPaidAt().toLocalDate()
+                                    : null)
+                            .refundBankName(ctx != null && ctx.request() != null ? ctx.request().getRefundBankName() : null)
+                            .refundBankAccount(ctx != null && ctx.request() != null ? ctx.request().getRefundBankAccount() : null)
+                            .refundAccountHolder(ctx != null && ctx.request() != null ? ctx.request().getRefundAccountHolder() : null)
+                            .checkoutNote(ctx != null && ctx.request() != null ? ctx.request().getNote() : null)
+                            .refundConfirmedAt(settlement != null && settlement.getRefundConfirmedAt() != null ? settlement.getRefundConfirmedAt().toLocalDate() : null)
+                            .refundDisputedAt(settlement != null && settlement.getRefundDisputedAt() != null ? settlement.getRefundDisputedAt().toLocalDate() : null)
+                            .refundDisputeReason(settlement != null ? settlement.getRefundDisputeReason() : null)
+                            .refundDisputeResolvedAt(settlement != null && settlement.getRefundDisputeResolvedAt() != null ? settlement.getRefundDisputeResolvedAt().toLocalDate() : null)
+                            .refundDisputeOutcome(settlement != null ? settlement.getRefundDisputeOutcome() : null);
+
+                    List<TenantInvoice> unpaid = tenantInvoiceRepository
+                            .findByTenantContractIdAndStatusNotIn(c.getId(),
+                                    List.of(com.sep490.slms2026.enums.TenantInvoiceStatus.PAID, com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED));
+                    BigDecimal outstanding = unpaid.stream()
+                            .map(TenantInvoice::getGrandTotal)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    return builder
+                            .chargesSettled(outstanding.compareTo(BigDecimal.ZERO) <= 0)
+                            .outstandingAmount(outstanding)
+                            .build();
+                })
+                .filter(item -> status == null || status.isBlank() || status.equalsIgnoreCase(item.getStatus()))
                 .toList();
 
         BigDecimal totalHeld = items.stream()
-                .filter(i -> "HELD".equals(i.status()))
-                .map(HostDepositsResponse.DepositItem::amount)
+                .filter(i -> DepositStatus.HELD.name().equals(i.getStatus()))
+                .map(HostDepositsResponse.DepositItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return HostDepositsResponse.builder().totalHeld(totalHeld).items(items).build();
+    }
+
+    private Map<Long, CheckoutSettlementContext> loadCheckoutContext(List<Long> contractIds) {
+        if (contractIds.isEmpty()) {
+            return Map.of();
+        }
+        List<CheckoutRequest> requests = checkoutRequestRepository.findByTenantContractIdIn(contractIds);
+        List<CheckoutSettlement> settlements = checkoutSettlementRepository.findAllByTenantContractIdIn(contractIds);
+        Map<Long, CheckoutSettlement> settlementByRequestId = settlements.stream()
+                .collect(Collectors.toMap(s -> s.getCheckoutRequest().getId(), s -> s, (a, b) -> a));
+
+        Map<Long, CheckoutSettlementContext> result = new HashMap<>();
+        for (CheckoutRequest request : requests) {
+            Long contractId = request.getTenantContract().getId();
+            CheckoutSettlement settlement = settlementByRequestId.get(request.getId());
+            CheckoutSettlementContext candidate = new CheckoutSettlementContext(
+                    settlement, request.getStatus(), request.getId(), request);
+            result.merge(contractId, candidate, this::preferCheckoutContext);
+        }
+        return result;
+    }
+
+    private CheckoutSettlementContext preferCheckoutContext(CheckoutSettlementContext a,
+                                                            CheckoutSettlementContext b) {
+        if (a.checkoutStatus() == CheckoutRequestStatus.COMPLETED
+                && b.checkoutStatus() != CheckoutRequestStatus.COMPLETED) {
+            return a;
+        }
+        if (b.checkoutStatus() == CheckoutRequestStatus.COMPLETED
+                && a.checkoutStatus() != CheckoutRequestStatus.COMPLETED) {
+            return b;
+        }
+        if (a.settlement() != null && b.settlement() == null) {
+            return a;
+        }
+        if (b.settlement() != null && a.settlement() == null) {
+            return b;
+        }
+        return b;
+    }
+
+    private record CheckoutSettlementContext(
+            CheckoutSettlement settlement,
+            CheckoutRequestStatus checkoutStatus,
+            Long checkoutRequestId,
+            CheckoutRequest request) {
     }
 
     @Override
@@ -469,21 +577,7 @@ public class HostPortalServiceImpl implements HostPortalService {
             throw new BusinessException("Chỉ duyệt hợp đồng đang chờ duyệt giá");
         }
         contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.APPROVED_AWAITING_DEPOSIT);
-        
-        // Notification logic
-        if (contract.getProperty().getManagedBy() != null) {
-            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
-                String token = manager.getPushToken();
-                if (token != null) {
-                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
-                    pushNotificationService.sendPushNotification(token, 
-                            "Host đã duyệt giá hợp đồng " + contract.getContractCode(), 
-                            "Vui lòng tiếp tục thu cọc để hoàn tất hợp đồng.", 
-                            data);
-                }
-            });
-        }
-
+        notifyPriceApprovalResult(contract, true, null);
         return toContractDto(tenantContractRepository.save(contract));
     }
 
@@ -497,22 +591,40 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
         contract.setPriceApprovalStatus(com.sep490.slms2026.enums.PriceApprovalStatus.PRICE_REJECTED);
         contract.setPriceRejectReason(reason);
-        
-        // Notification logic
-        if (contract.getProperty().getManagedBy() != null) {
-            userRepository.findById(contract.getProperty().getManagedBy()).ifPresent(manager -> {
-                String token = manager.getPushToken();
-                if (token != null) {
-                    Map<String, Object> data = Map.of("screen", "ResumeContract", "params", Map.of("contractId", contractId));
-                    pushNotificationService.sendPushNotification(token, 
-                            "Host đã từ chối giá hợp đồng " + contract.getContractCode(), 
-                            "Lý do: " + reason, 
-                            data);
-                }
-            });
-        }
-        
+        notifyPriceApprovalResult(contract, false, reason);
         return toContractDto(tenantContractRepository.save(contract));
+    }
+
+    /**
+     * Manager push khi host duyệt/từ chối giá — type {@code PRICE_APPROVAL_RESULT}.
+     * Không kèm số tiền (chính sách money visibility).
+     */
+    private void notifyPriceApprovalResult(TenantContract contract, boolean approved, String rejectReason) {
+        User manager = contract.getAssignedManager();
+        if (manager == null && contract.getProperty() != null
+                && contract.getProperty().getOperationManagerId() != null) {
+            manager = userRepository.findById(contract.getProperty().getOperationManagerId()).orElse(null);
+        }
+        if (manager == null) {
+            return;
+        }
+        String code = contract.getContractCode() != null ? contract.getContractCode() : ("#" + contract.getId());
+        String title = approved ? "Host đã duyệt giá" : "Host đã từ chối giá";
+        String body = approved
+                ? ("Hợp đồng " + code + " đã được duyệt giá. Tiếp tục thu cọc để hoàn tất.")
+                : ("Hợp đồng " + code + " bị từ chối giá."
+                + (rejectReason != null && !rejectReason.isBlank() ? (" Lý do: " + rejectReason) : ""));
+        notificationRepository.save(Notification.builder()
+                .userId(manager.getId())
+                .title(title)
+                .content(body)
+                .type("PRICE_APPROVAL_RESULT")
+                .build());
+        userPushTokenService.sendToUser(manager.getId(), title, body, Map.of(
+                "screen", "ResumeContract",
+                "params", Map.of("contractId", contract.getId()),
+                "type", "PRICE_APPROVAL_RESULT",
+                "approved", approved));
     }
 
     @Override
@@ -550,6 +662,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .totalRentAmount(request.getMonthlyRent().multiply(BigDecimal.valueOf(months)))
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
+                .contractScanUrl(request.getContractScanUrl())
                 .status(ContractStatus.ACTIVE)
                 .build();
         return toMasterLeaseDto(inboundContractRepository.save(contract));
@@ -573,6 +686,10 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
         if (patch.containsKey("endDate")) {
             contract.setEndDate(LocalDate.parse(patch.get("endDate").toString()));
+        }
+        if (patch.containsKey("contractScanUrl")) {
+            Object url = patch.get("contractScanUrl");
+            contract.setContractScanUrl(url == null ? null : url.toString());
         }
         return toMasterLeaseDto(inboundContractRepository.save(contract));
     }
@@ -599,12 +716,13 @@ public class HostPortalServiceImpl implements HostPortalService {
                     "CONTRACT_PENDING",
                     "Hợp đồng chờ duyệt",
                     "HĐ " + contract.getContractCode() + " — "
-                            + contract.getTenant().getUser().getFullName() + " chờ Host duyệt.",
+                            + resolveTenantDisplayName(contract) + " chờ Host duyệt.",
                     "MEDIUM");
         }
         LocalDate threshold = LocalDate.now().plusDays(EXPIRING_DAYS);
         for (InboundContract lease : inboundContractRepository.findAll()) {
             if (lease.getStatus() == ContractStatus.ACTIVE
+                    && lease.getEndDate() != null
                     && !lease.getEndDate().isAfter(threshold)
                     && lease.getEndDate().isAfter(LocalDate.now())) {
                 ensureNotification(userId, "master-lease-expiring:" + lease.getId(),
@@ -616,20 +734,22 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
     }
 
+    /** HĐ nháp PENDING có thể chưa gắn tenant — dùng draftTenantName. */
+    private static String resolveTenantDisplayName(TenantContract contract) {
+        if (contract.getTenant() != null && contract.getTenant().getUser() != null
+                && contract.getTenant().getUser().getFullName() != null
+                && !contract.getTenant().getUser().getFullName().isBlank()) {
+            return contract.getTenant().getUser().getFullName();
+        }
+        if (contract.getDraftTenantName() != null && !contract.getDraftTenantName().isBlank()) {
+            return contract.getDraftTenantName();
+        }
+        return "khách thuê";
+    }
+
     private void ensureNotification(UUID userId, String dedupeKey, String type,
                                     String title, String message, String priority) {
-        if (hostNotificationRepository.existsByUserIdAndDedupeKey(userId, dedupeKey)) {
-            return;
-        }
-        hostNotificationRepository.save(HostNotification.builder()
-                .userId(userId)
-                .dedupeKey(dedupeKey)
-                .type(type)
-                .title(title)
-                .message(message)
-                .priority(priority)
-                .read(false)
-                .build());
+        hostNotificationRepository.insertIfAbsent(userId, dedupeKey, type, title, message, priority);
     }
 
     private List<HostInvoiceDto> buildInvoices(YearMonth ym, String statusFilter) {
@@ -655,7 +775,7 @@ public class HostPortalServiceImpl implements HostPortalService {
             }
             invoices.add(HostInvoiceDto.builder()
                     .id(contract.getId() + "-" + ym)
-                    .tenantName(contract.getTenant().getUser().getFullName())
+                    .tenantName(resolveTenantDisplayName(contract))
                     .roomCode(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "NGUYEN_CAN")
                     .propertyName(contract.getProperty().getPropertyName())
                     .amount(contract.getRentAmount())
@@ -768,11 +888,13 @@ public class HostPortalServiceImpl implements HostPortalService {
     }
 
     private HostContractDto toContractDto(TenantContract c) {
-        String lesseeName = null;
-        String tenantPhone = null;
-        String tenantCccd = null;
+        String lesseeName = c.getDraftTenantName();
+        String tenantPhone = c.getDraftTenantPhone();
+        String tenantCccd = c.getDraftTenantCccd();
         if (c.getTenant() != null) {
-            tenantCccd = c.getTenant().getCccd();
+            if (c.getTenant().getCccd() != null) {
+                tenantCccd = c.getTenant().getCccd();
+            }
             if (c.getTenant().getUser() != null) {
                 lesseeName = c.getTenant().getUser().getFullName();
                 tenantPhone = c.getTenant().getUser().getPhoneNumber();
@@ -787,7 +909,7 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .tenantCccd(tenantCccd)
                 .propertyName(c.getProperty().getPropertyName())
                 .roomCode(c.getRoom() != null ? c.getRoom().getRoomNumber() : null)
-                .lessorName(c.getProperty().getPropertyName())
+                .lessorName(null)
                 .rentAmount(c.getRentAmount())
                 .deposit(c.getDeposit())
                 .moveInDate(c.getMoveInDate())
@@ -795,6 +917,12 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .endDate(c.getEndDate())
                 .status(c.getStatus().name())
                 .equipmentSnapshot(c.getEquipmentSnapshot())
+                .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
+                .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
+                .onboardedByManagerId(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getId() : null)
+                .onboardedByManagerName(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getFullName() : null)
+                .onboardedByManagerPhone(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getPhoneNumber() : null)
+                .onboardedAt(c.getOnboardedAt())
                 .build();
     }
 
@@ -806,13 +934,12 @@ public class HostPortalServiceImpl implements HostPortalService {
                 .id(String.valueOf(c.getId()))
                 .propertyId(String.valueOf(c.getProperty().getId()))
                 .ownerName(c.getOwnerName())
-                .ownerPhone(null)
+                .contractCode(c.getContractCode())
+                .contractScanUrl(c.getContractScanUrl())
                 .monthlyRent(monthly)
-                .deposit(BigDecimal.ZERO)
-                .paymentDay(1)
+                .totalRentAmount(c.getTotalRentAmount())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
-                .escalationPct(null)
                 .status(resolveMasterLeaseStatus(c))
                 .build();
     }
@@ -840,10 +967,6 @@ public class HostPortalServiceImpl implements HostPortalService {
             case "EXPIRED", "EXPIRING", "ACTIVE" -> ContractStatus.ACTIVE;
             default -> ContractStatus.valueOf(status.toUpperCase());
         };
-    }
-
-    private String mapDepositStatus(ContractStatus status) {
-        return status == ContractStatus.TERMINATED ? "REFUNDED" : "HELD";
     }
 
     private HostExpenseCategory parseExpenseCategoryRequired(String raw) {

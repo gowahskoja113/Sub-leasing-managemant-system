@@ -83,6 +83,7 @@ public class RenovationSessionViewMapper {
                 .id(equipment.getId())
                 .catalogId(equipment.getCatalog().getId())
                 .catalogName(equipment.getCatalog().getName())
+                .qrCode(equipment.getQrCode())
                 .roomId(equipment.getRoom() != null ? equipment.getRoom().getId() : null)
                 .roomNumber(equipment.getRoom() != null ? equipment.getRoom().getRoomNumber() : null)
                 .houseArea(equipment.getHouseArea())

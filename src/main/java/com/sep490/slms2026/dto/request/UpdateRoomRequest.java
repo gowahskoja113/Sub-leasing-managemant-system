@@ -49,4 +49,9 @@ public class UpdateRoomRequest {
 
     private String electricMeterCode;
     private String waterMeterCode;
+
+    private Integer elecIntegerDigits;
+    private Integer elecDecimalDigits;
+    private Integer waterIntegerDigits;
+    private Integer waterDecimalDigits;
 }

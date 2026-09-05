@@ -18,15 +18,22 @@ import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
+import com.sep490.slms2026.service.ContractEquipmentService;
+import com.sep490.slms2026.service.PricingConfigService;
 import com.sep490.slms2026.service.TenantContractDocumentService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.util.AnnualCalendarEscalation;
 import com.sep490.slms2026.util.ContractTemplateConstants;
 import com.sep490.slms2026.util.DocxTemplateRenderer;
 import com.sep490.slms2026.util.DocxToPdfConverter;
+import com.sep490.slms2026.util.RentEscalationSupport;
+import com.sep490.slms2026.util.TenantContractPaymentAmounts;
+import com.sep490.slms2026.util.PaymentBreakdownBuilder;
 import com.sep490.slms2026.util.TenantContractStatusHelper;
 import com.sep490.slms2026.util.VietnameseNumberToWords;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,7 +57,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import com.sep490.slms2026.service.ContractEquipmentService;
 import com.sep490.slms2026.dto.response.TenantContractDetailResponse.EquipmentItem;
 
 @Service
@@ -66,11 +72,14 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     private final ContractLessorProperties lessorProperties;
     private final ContractEquipmentService contractEquipmentService;
     private final TenantOnboardingService tenantOnboardingService;
+    private final PricingConfigService pricingConfigService;
 
     @Override
     @Transactional(readOnly = true)
     public TenantContractDocumentResponse generateAndStore(Long contractId) {
-        return getDocument(contractId);
+        com.sep490.slms2026.security.CustomUserDetails user = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().stream().anyMatch(a -> Role.ROLE_ADMIN.name().equals(a.getAuthority())) ? Role.ROLE_ADMIN.name() : Role.ROLE_MANAGER.name();
+        return getDocument(contractId, user.getId(), role);
     }
 
     @Override
@@ -85,8 +94,9 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     @Override
     @Transactional(readOnly = true)
-    public TenantContractDocumentResponse getDocument(Long contractId) {
+    public TenantContractDocumentResponse getDocument(Long contractId, UUID userId, String roleName) {
         TenantContract contract = loadAndSync(contractId);
+        assertCanView(contract, userId, roleName);
         if (resolveContractFileUrl(contract) == null) {
             throw new BusinessException(
                     "Hợp đồng chưa có file — gọi POST .../draft-document, upload Cloudinary, rồi PUT draftContractFileUrl");
@@ -147,16 +157,27 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
 
     private void assertCanView(TenantContract contract, UUID userId, String roleName) {
         Role role = Role.valueOf(roleName);
-        if (role == Role.ROLE_ADMIN || role == Role.ROLE_MANAGER) {
+        if (role == Role.ROLE_ADMIN) {
+            return;
+        }
+        if (role == Role.ROLE_OWNER) {
+            return;
+        }
+        if (role == Role.ROLE_MANAGER) {
+            UUID opManagerId = contract.getProperty() != null
+                    ? contract.getProperty().getOperationManagerId() : null;
+            if (opManagerId == null || !opManagerId.equals(userId)) {
+                throw new AccessDeniedException("Bạn không quản lý toà nhà của hợp đồng này");
+            }
             return;
         }
         if (role == Role.ROLE_TENANT) {
             if (contract.getTenant() == null || !contract.getTenant().getId().equals(userId)) {
-                throw new BusinessException("Bạn không có quyền xem hợp đồng này");
+                throw new AccessDeniedException("Bạn không có quyền xem hợp đồng này");
             }
             return;
         }
-        throw new BusinessException("Bạn không có quyền xem hợp đồng này");
+        throw new AccessDeniedException("Bạn không có quyền xem hợp đồng này");
     }
 
     /**
@@ -283,6 +304,11 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
         vars.put("depositInWords", VietnameseNumberToWords.convert(contract.getDeposit()));
         vars.put("depositMonths", contract.getDepositMonths() != null
                 ? String.valueOf(contract.getDepositMonths()) : "");
+        vars.put("rentEscalationPercent", contract.getRentEscalationPercent() != null
+                ? contract.getRentEscalationPercent().stripTrailingZeros().toPlainString() : "0");
+        vars.put("rentEscalationType", contract.getRentEscalationType() != null
+                ? contract.getRentEscalationType().name() : "NONE");
+        vars.put("rentEscalationClause", RentEscalationSupport.clauseText(contract));
 
         vars.put("serviceFee", formatMoney(property.getServiceFee()));
         vars.put("electricityUnitPrice", formatMoney(property.getElectricityUnitPrice()));
@@ -369,7 +395,16 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .tenantPermanentAddress(tenant != null ? tenant.getPermanentAddress() : c.getDraftTenantAddress())
                 .contractCode(c.getContractCode())
                 .rentAmount(c.getRentAmount())
+                .rentEscalationType(c.getRentEscalationType() != null ? c.getRentEscalationType().name() : null)
+                .rentEscalationPercent(c.getRentEscalationPercent())
+                .nextEscalationDate(AnnualCalendarEscalation.nextEscalationDate(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
+                .nextEscalationAmount(AnnualCalendarEscalation.nextEscalationAmount(
+                        c, pricingConfigService.current().getEscalationGraceMonths(), LocalDate.now()))
                 .deposit(c.getDeposit())
+                .initialPaymentAmount(TenantContractPaymentAmounts.resolveInitialPaymentAmount(c))
+                .depositPaymentBreakdown(PaymentBreakdownBuilder.forDepositOnboard(c))
+                .firstRentPaymentBreakdown(PaymentBreakdownBuilder.forFirstRentPreview(c))
                 .moveInDate(c.getMoveInDate())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
@@ -399,6 +434,12 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .roomConditionNote(c.getRoomConditionNote())
                 .paymentStatus(c.getPaymentStatus())
                 .payosOrderCode(c.getPayosOrderCode())
+                .depositPaidAt(c.getPaidAt() != null ? c.getPaidAt() : c.getDepositCashManagerConfirmedAt())
+                .depositMethod(c.getPayosOrderCode() != null ? "PAYOS" : (c.getDepositCashManagerConfirmedAt() != null || c.getDepositCashTenantConfirmedAt() != null ? "CASH" : null))
+                .activatedAt(c.getActivatedAt())
+                .tenantOtpVerifiedAt(c.getTenantOtpVerifiedAt())
+                .managerOtpVerifiedAt(c.getManagerOtpVerifiedAt())
+                .confirmRequestedAt(c.getConfirmRequestedAt())
                 .documentUrl(resolveContractFileUrl(c))
                 .documentGeneratedAt(c.getDocumentGeneratedAt())
                 .type(type)
@@ -424,6 +465,10 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .expectedReceptionDate(c.getExpectedReceptionDate())
                 .assignedManagerId(c.getAssignedManager() != null ? c.getAssignedManager().getId() : null)
                 .assignedManagerName(c.getAssignedManager() != null ? c.getAssignedManager().getFullName() : null)
+                .onboardedByManagerId(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getId() : null)
+                .onboardedByManagerName(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getFullName() : null)
+                .onboardedByManagerPhone(c.getOnboardedByManager() != null ? c.getOnboardedByManager().getPhoneNumber() : null)
+                .onboardedAt(c.getOnboardedAt())
                 .householdMembers(c.getHouseholdMembers() != null ? c.getHouseholdMembers().stream()
                         .map(hm -> HouseholdMemberResponse.builder()
                                 .id(hm.getId())

@@ -73,4 +73,8 @@ public class UtilityInvoice implements Serializable {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    /** Lần đầu khách thuê mở hoá đơn trong app (GET chi tiết). */
+    @Column(name = "tenant_viewed_at")
+    private LocalDateTime tenantViewedAt;
 }

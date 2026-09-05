@@ -13,6 +13,9 @@ import java.util.UUID;
 @Setter
 public class PropertyDraftRequest {
 
+    /** Tùy chọn — BE tự sinh nếu bỏ trống. */
+    private String propertyCode;
+
     @NotBlank
     private String propertyName;
 

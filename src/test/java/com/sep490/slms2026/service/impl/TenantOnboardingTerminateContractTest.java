@@ -40,11 +40,15 @@ class TenantOnboardingTerminateContractTest {
   @Mock private PropertyRepository propertyRepository;
   @Mock private RoomRepository roomRepository;
   @Mock private TenantContractRepository tenantContractRepository;
+  @Mock private com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
+  @Mock private com.sep490.slms2026.repository.TenantPaymentRepository tenantPaymentRepository;
   @Mock private com.sep490.slms2026.service.PayosService payosService;
   @Mock private com.sep490.slms2026.service.OtpService otpService;
   @Mock private ContractEquipmentService contractEquipmentService;
   @Mock private com.sep490.slms2026.repository.NotificationRepository notificationRepository;
-  @Mock private com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+  @Mock private com.sep490.slms2026.repository.HostNotificationRepository hostNotificationRepository;
+  @Mock private com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
+  @Mock private com.sep490.slms2026.service.MeterOverrideService meterOverrideService;
 
   @InjectMocks private TenantOnboardingServiceImpl service;
 

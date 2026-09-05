@@ -15,4 +15,10 @@ public interface MeterReadingRepository extends JpaRepository<MeterReading, Long
 
     Optional<MeterReading> findTopByPropertyIdAndRoomIsNullAndUtilityTypeOrderByRecordedAtDesc(
             Long propertyId, UtilityType utilityType);
+
+    Optional<MeterReading> findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType, String period);
+
+    Optional<MeterReading> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+            Long propertyId, UtilityType utilityType, String period);
 }

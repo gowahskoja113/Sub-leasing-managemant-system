@@ -5,26 +5,36 @@ import com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse;
 import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.entity.Equipment;
 import com.sep490.slms2026.entity.EquipmentMaintenanceHistory;
+import com.sep490.slms2026.entity.MaintenanceRequest;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
+import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.EquipmentStatus;
+import com.sep490.slms2026.enums.MaintenanceCategory;
+import com.sep490.slms2026.enums.MaintenanceFlowType;
+import com.sep490.slms2026.enums.MaintenanceStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.EquipmentMaintenanceHistoryRepository;
 import com.sep490.slms2026.repository.EquipmentRepository;
+import com.sep490.slms2026.repository.MaintenanceRequestRepository;
 import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
+import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.enums.ContractStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -34,8 +44,10 @@ public class EquipmentServiceImpl implements EquipmentService {
     private final EquipmentRepository equipmentRepository;
     private final PropertyRepository propertyRepository;
     private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
+    private final MaintenanceRequestRepository maintenanceRequestRepository;
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final PropertyAccessService propertyAccessService;
     private final com.sep490.slms2026.repository.EquipmentCatalogRepository equipmentCatalogRepository;
 
     @Override
@@ -74,6 +86,19 @@ public class EquipmentServiceImpl implements EquipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public EquipmentResponse getEquipmentByIdForCaller(Long id) {
+        Equipment equipment = equipmentRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantCanAccessEquipment(user.getId(), equipment);
+        }
+        return toResponse(equipment);
+    }
+
+    @Override
     @Transactional
     public EquipmentResponse updateEquipment(Long id, EquipmentResponse dto) {
         Equipment equipment = equipmentRepository.findById(id)
@@ -106,8 +131,61 @@ public class EquipmentServiceImpl implements EquipmentService {
     public EquipmentResponse updateEquipmentStatus(Long id, EquipmentStatus status) {
         Equipment equipment = equipmentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + id));
+        propertyAccessService.assertCanManageProperty(equipment.getProperty().getId());
+
+        EquipmentStatus previousStatus = equipment.getStatus();
         equipment.setStatus(status);
+        if (status != previousStatus && (status == EquipmentStatus.MAINTENANCE || status == EquipmentStatus.BROKEN)) {
+            equipment.setLastMaintenanceDate(LocalDateTime.now());
+            equipment.setMaintenanceCount(equipment.getMaintenanceCount() + 1);
+            recordStatusChangeMaintenance(equipment, previousStatus, status);
+        }
+
         return toResponse(equipmentRepository.save(equipment));
+    }
+
+    private void recordStatusChangeMaintenance(Equipment equipment, EquipmentStatus previousStatus, EquipmentStatus newStatus) {
+        resolveActiveContract(equipment).ifPresent(contract -> {
+            String equipmentLabel = equipment.getEquipmentName() != null
+                    ? equipment.getEquipmentName()
+                    : equipment.getCatalog().getName();
+            MaintenanceRequest request = MaintenanceRequest.builder()
+                    .tenant(contract.getTenant())
+                    .property(equipment.getProperty())
+                    .room(equipment.getRoom())
+                    .tenantContract(contract)
+                    .equipmentId(equipment.getId())
+                    .title("Cập nhật trạng thái: " + newStatus.name())
+                    .description("Manager đánh dấu \"" + equipmentLabel + "\" "
+                            + previousStatus.name() + " → " + newStatus.name())
+                    .category(resolveMaintenanceCategory(equipment).name())
+                    .flowType(MaintenanceFlowType.NORMAL_WEAR)
+                    .status(MaintenanceStatus.CLOSED)
+                    .resolvedAt(LocalDateTime.now())
+                    .resolutionNote("Ghi nhận từ cập nhật trạng thái vòng đời thiết bị")
+                    .build();
+            maintenanceRequestRepository.save(request);
+        });
+    }
+
+    private Optional<TenantContract> resolveActiveContract(Equipment equipment) {
+        if (equipment.getRoom() != null) {
+            return tenantContractRepository.findByRoomIdAndStatus(
+                    equipment.getRoom().getId(), ContractStatus.ACTIVE);
+        }
+        return tenantContractRepository.findByPropertyIdAndRoomIsNullAndStatus(
+                equipment.getProperty().getId(), ContractStatus.ACTIVE);
+    }
+
+    private MaintenanceCategory resolveMaintenanceCategory(Equipment equipment) {
+        String category = equipment.getEquipmentCategory();
+        if (category != null) {
+            String normalized = category.trim().toUpperCase();
+            if (normalized.contains("NỘI THẤT") || normalized.contains("NOI THAT") || normalized.contains("FURNITURE")) {
+                return MaintenanceCategory.FURNITURE;
+            }
+        }
+        return MaintenanceCategory.APPLIANCE;
     }
 
     @Override
@@ -117,6 +195,17 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentResponse> getEquipmentsByRoomForCaller(Long roomId) {
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantOwnsRoom(user.getId(), roomId);
+        }
+        return getEquipmentsByRoom(roomId);
     }
 
     @Override
@@ -189,6 +278,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
+                .penaltyFee(equipment.getPenaltyFee())
                 .operationalStatus(opStatus.name())
                 .currentEffective(opStatus == com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
                 .renovationSessionNumber(sessionNumber)
@@ -247,22 +337,32 @@ public class EquipmentServiceImpl implements EquipmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<EquipmentResponse> getEquipmentsForCurrentTenant() {
+    public List<EquipmentResponse> getEquipmentsForCurrentTenant(Long contractId) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
-        com.sep490.slms2026.entity.TenantContract activeContract = tenantContractRepository
-                .findByTenantId(user.getId()).stream()
-                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Không tìm thấy hợp đồng đang hiệu lực"));
+        // Giống dashboard: thiếu contractId khi nhiều HĐ → lấy HĐ ACTIVE mới nhất (FE cũ không gãy / list trống)
+        com.sep490.slms2026.entity.TenantContract activeContract =
+                com.sep490.slms2026.util.TenantActiveContractResolver.resolve(
+                        tenantContractRepository.findByTenantId(user.getId()),
+                        contractId,
+                        true);
 
         Long propertyId = activeContract.getProperty().getId();
         Long roomId = activeContract.getRoom() != null ? activeContract.getRoom().getId() : null;
 
-        return equipmentRepository.findActiveForTenantPlacement(propertyId, roomId)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        List<Equipment> fromPlacement = equipmentRepository.findActiveForTenantPlacement(propertyId, roomId);
+        if (!fromPlacement.isEmpty()) {
+            return fromPlacement.stream().map(this::toResponse).toList();
+        }
+
+        // Fallback: thiết bị gắn trên HĐ (snapshot bàn giao) nếu placement query rỗng
+        if (activeContract.getSelectedEquipments() != null && !activeContract.getSelectedEquipments().isEmpty()) {
+            return activeContract.getSelectedEquipments().stream()
+                    .map(com.sep490.slms2026.entity.TenantContractEquipment::getEquipment)
+                    .filter(e -> e != null)
+                    .map(this::toResponse)
+                    .toList();
+        }
+        return List.of();
     }
 
     @Override
@@ -305,7 +405,25 @@ public class EquipmentServiceImpl implements EquipmentService {
                     return equipment.getProperty().getId().equals(c.getProperty().getId());
                 });
         if (!allowed) {
-            throw new BusinessException("Bạn không có quyền xem thiết bị này");
+            throw new AccessDeniedException("Bạn không có quyền xem thiết bị này");
+        }
+    }
+
+    private void assertTenantOwnsRoom(UUID tenantUserId, Long roomId) {
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy phòng ID=" + roomId));
+        Long propertyId = room.getProperty() != null ? room.getProperty().getId() : null;
+        boolean allowed = tenantContractRepository.findByTenantId(tenantUserId).stream()
+                .filter(c -> c.getStatus() == ContractStatus.ACTIVE)
+                .anyMatch(c -> {
+                    if (c.getRoom() != null) {
+                        return roomId.equals(c.getRoom().getId());
+                    }
+                    return propertyId != null && c.getProperty() != null
+                            && propertyId.equals(c.getProperty().getId());
+                });
+        if (!allowed) {
+            throw new AccessDeniedException("Bạn không có quyền xem thiết bị của phòng này");
         }
     }
 

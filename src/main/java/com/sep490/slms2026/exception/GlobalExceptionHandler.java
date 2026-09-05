@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -24,12 +25,21 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(AccessDeniedException ex) {
-        log.warn("[403] Access denied: {}", ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(
+            AccessDeniedException ex,
+            jakarta.servlet.http.HttpServletRequest request) {
+        String uri = request != null ? request.getMethod() + " " + request.getRequestURI() : "?";
+        String qs = request != null ? request.getQueryString() : null;
+        if (qs != null && !qs.isBlank()) {
+            uri = uri + "?" + qs;
+        }
+        log.warn("[403] Access denied on {}: {}", uri, ex.getMessage());
 
         Map<String, Object> body = new HashMap<>();
         body.put("status", HttpStatus.FORBIDDEN.value());
         body.put("error", "Forbidden");
+        body.put("code", "FORBIDDEN");
+        body.put("path", request != null ? request.getRequestURI() : null);
         body.put("message", ex.getMessage() + " - Kiểm tra lại Role hoặc Vùng quản lý địa lý của tài khoản này!");
 
         return new ResponseEntity<>(body, HttpStatus.FORBIDDEN);
@@ -56,7 +66,7 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         body.put("error", "Internal Server Error");
-        body.put("message", ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
+        body.put("message", "Lỗi hệ thống không xác định");
 
         return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -72,6 +82,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.BAD_REQUEST.value())
                         .error(message)
+                        .code("INVALID_JSON")
+                        .message(message)
                         .build());
     }
 
@@ -85,6 +97,8 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .status(HttpStatus.BAD_REQUEST.value())
                 .error("Validation failed")
+                .code("VALIDATION_FAILED")
+                .message("Dữ liệu gửi lên không hợp lệ, vui lòng kiểm tra lại.")
                 .fieldErrors(fieldErrors)
                 .build();
         return ResponseEntity.badRequest().body(body);
@@ -97,6 +111,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error(ex.getMessage())
+                        .code("NOT_FOUND")
+                        .message(ex.getMessage())
                         .build());
     }
 
@@ -107,6 +123,9 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
                         .error(ex.getMessage())
+                        .code(ex.getCode())
+                        .message(ex.getMessage())
+                        .details(ex.getDetails())
                         .build());
     }
 
@@ -127,6 +146,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.CONFLICT.value())
                         .error(ex.getMessage())
+                        .code("CONFLICT")
+                        .message(ex.getMessage())
                         .build());
     }
 
@@ -139,6 +160,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error("Not Found")
+                        .code("NOT_FOUND")
+                        .message("Route không tồn tại")
                         .build());
     }
 
@@ -151,6 +174,8 @@ public class GlobalExceptionHandler {
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.NOT_FOUND.value())
                         .error("Not Found")
+                        .code("NOT_FOUND")
+                        .message("Route không có handler")
                         .build());
     }
 
@@ -161,7 +186,23 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .error("Internal server error")
+                        .error("Internal Server Error")
+                        .code("INTERNAL_SERVER_ERROR")
+                        .message("Lỗi hệ thống không xác định")
+                        .build());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        String detail = ex.getMostSpecificCause().getMessage();
+        log.warn("Data integrity violation: {}", detail);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.CONFLICT.value())
+                        .error("Còn dữ liệu liên quan chưa xoá được: " + detail)
+                        .code("DATA_INTEGRITY_VIOLATION")
+                        .message("Còn dữ liệu liên quan chưa xoá được: " + detail)
                         .build());
     }
 }

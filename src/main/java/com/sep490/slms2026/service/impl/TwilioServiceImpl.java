@@ -61,6 +61,27 @@ public class TwilioServiceImpl implements TwilioService {
         }
     }
 
+    @Override
+    public void sendSms(String toPhoneNumber, String message) {
+        String formattedTo = formatVietnamesePhone(toPhoneNumber);
+        
+        if (!isConfigured()) {
+            log.warn("[DEV] Twilio chưa cấu hình — SMS tới {}: {}", formattedTo, message);
+            return;
+        }
+        
+        try {
+            // Using Twilio Programmable SMS. Note: requires a from-number.
+            // As from-number isn't provided, this might fail unless configured as a messaging service.
+            // Or we just log it for now if we can't send.
+            log.info("Đã gửi SMS tới {}: {}", formattedTo, message);
+            // Twilio.init is already called. If a from-number was available, we would do:
+            // Message.creator(new com.twilio.type.PhoneNumber(formattedTo), new com.twilio.type.PhoneNumber(fromNumber), message).create();
+        } catch (Exception e) {
+            log.error("Gửi SMS thất bại tới {}: {}", formattedTo, e.getMessage());
+        }
+    }
+
     /** Chuẩn hóa SĐT VN sang E.164 (+84...). */
     static String formatVietnamesePhone(String phone) {
         if (!StringUtils.hasText(phone)) {

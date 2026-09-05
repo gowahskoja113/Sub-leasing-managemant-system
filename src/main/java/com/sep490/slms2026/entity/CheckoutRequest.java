@@ -43,6 +43,10 @@ public class CheckoutRequest implements Serializable {
     @Builder.Default
     private CheckoutRequestStatus status = CheckoutRequestStatus.PENDING;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "origin", length = 32)
+    private com.sep490.slms2026.enums.CheckoutOrigin origin;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -60,4 +64,32 @@ public class CheckoutRequest implements Serializable {
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
+
+    @Column(name = "dispute_count")
+    @Builder.Default
+    private Integer disputeCount = 0;
+
+    @Column(name = "dispute_reason", columnDefinition = "TEXT")
+    private String disputeReason;
+
+    @ElementCollection
+    @CollectionTable(name = "checkout_request_dispute_photos", joinColumns = @JoinColumn(name = "checkout_request_id"))
+    @Column(name = "photo_url")
+    @Builder.Default
+    private java.util.List<String> disputePhotos = new java.util.ArrayList<>();
+
+    @Column(name = "disputed_at")
+    private LocalDateTime disputedAt;
+
+    @Column(name = "refund_bank_name")
+    private String refundBankName;
+
+    @Column(name = "refund_bank_account")
+    private String refundBankAccount;
+
+    @Column(name = "refund_account_holder")
+    private String refundAccountHolder;
+
+    @Column(name = "refund_due_date")
+    private LocalDate refundDueDate;
 }

@@ -31,6 +31,8 @@ public class BulkImportController {
     /**
      * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao). Luôn nguyên căn.
      * dryRun=true: chỉ parse + validate, không ghi DB.
+     * HĐ NORENO sau import được gửi Host (PENDING_HOST_REVIEW) và bắn STOMP
+     * {@code /user/queue/onboarding} event {@code PROPERTY_SUBMITTED_TO_HOST}.
      */
     @PostMapping(value = "/lease-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")
@@ -94,13 +96,16 @@ public class BulkImportController {
      * Import hàng loạt hợp đồng thuê nháp (DRAFT) từ Excel.
      * BĐS phải đã tồn tại — map theo Mã HĐ inbound / Mã BĐS / Tên tòa nhà.
      * File mẫu: docs/SLMS2026_import_tenant_draft_contracts.xlsx
+     * (cột tùy chọn {@code Tăng giá theo năm (%)}: trống = annualIncreasePct cấu hình; 0 = không tăng).
+     * skipInvalidRows=true: import dòng sạch, trả kèm errors (mỗi lỗi có {@code code}) của dòng bỏ.
      */
     @PostMapping(value = "/tenant-draft-contracts-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<BulkImportResponse> importTenantDraftContractsExcel(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
-        return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun));
+            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun,
+            @RequestParam(value = "skipInvalidRows", defaultValue = "false") boolean skipInvalidRows) {
+        return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun, skipInvalidRows));
     }
 
     /**

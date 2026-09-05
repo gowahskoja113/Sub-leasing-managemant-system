@@ -38,55 +38,51 @@ public class UserController {
     // 1. API Lấy toàn bộ danh sách User
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
-    public ResponseEntity<List<User>> getAllUsers() {
-        return ResponseEntity.ok(userService.getAllUsers());
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users.stream().map(this::mapToResponse).toList());
     }
 
     // 2. API Lấy chi tiết User bằng ID
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER', 'USER')")
-    public ResponseEntity<User> getUserById(@PathVariable UUID id) {
-        return ResponseEntity.ok(userService.getUserById(id));
+    public ResponseEntity<UserResponse> getUserById(@PathVariable UUID id) {
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(mapToResponse(user));
     }
 
     // 3. API Tạo mới một User (Admin)
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<User> createUser(@RequestBody User user) {
-        return ResponseEntity.ok(userService.createUser(user));
+    public ResponseEntity<UserResponse> createUser(@RequestBody User user) {
+        return ResponseEntity.ok(mapToResponse(userService.createUser(user)));
     }
 
     // 4. API Chỉnh sửa thông tin cơ bản của User
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<User> updateUser(@PathVariable UUID id, @RequestBody User userDetails) {
-        return ResponseEntity.ok(userService.updateUser(id, userDetails));
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<User> updateUser(@PathVariable UUID id, @RequestBody User user) {
+        return ResponseEntity.ok(userService.updateUser(id, user));
     }
 
-    // 5. API Đặc quyền Admin: Thay đổi trạng thái tài khoản (ACTIVE, INACTIVE, DISABLE)
+    // 5. API Thay đổi trạng thái User (Khóa / Mở khóa)
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<User> changeStatus(@PathVariable UUID id, @RequestParam UserStatus status) {
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<User> changeUserStatus(@PathVariable UUID id, @RequestParam UserStatus status) {
         return ResponseEntity.ok(userService.changeUserStatus(id, status));
     }
 
     @GetMapping("/managers")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     public ResponseEntity<List<UserResponse>> getAllManagers() {
-        // Lấy danh sách entity từ repository
-        List<User> managers = userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE);
+        // Lấy danh sách manager từ service
+        List<User> managers = userService.getAllUsers().stream()
+                .filter(u -> u.getRole() == Role.ROLE_MANAGER && u.getStatus() == UserStatus.ACTIVE)
+                .toList();
 
         // Map sang UserResponse DTO
         List<UserResponse> response = managers.stream()
-                .map(user -> UserResponse.builder()
-                        .id(user.getId())
-                        .username(user.getUsername())
-                        .phoneNumber(user.getPhoneNumber())
-                        .fullName(user.getFullName())
-                        .role(user.getRole())
-                        .status(user.getStatus())
-                        .createAt(user.getCreateAt())
-                        .build())
+                .map(this::mapToResponse)
                 .toList();
 
         return ResponseEntity.ok(response);
@@ -95,5 +91,22 @@ public class UserController {
     @PutMapping("/me")
     public ResponseEntity<AuthMeResponse> updateMyProfile(@RequestBody UpdateProfileRequest request) {
         return ResponseEntity.ok(userService.updateMyProfile(request));
+    }
+
+    private UserResponse mapToResponse(User user) {
+        String cccd = null;
+        if (user.getRole() == Role.ROLE_TENANT && user.getTenantProfile() != null) {
+            cccd = user.getTenantProfile().getCccd();
+        }
+        return UserResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .phoneNumber(user.getPhoneNumber())
+                .fullName(user.getFullName())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .createAt(user.getCreateAt())
+                .cccd(cccd)
+                .build();
     }
 }

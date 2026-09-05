@@ -16,12 +16,18 @@ public class TenantInvoiceResponse {
     private Long id;
     private String code;
     private String type;
+    private String cycleType;
     private String propertyName;
     private String roomNumber;
     private Integer month;
     private Integer year;
     private String billingPeriod;
     private List<TenantInvoiceItemResponse> items;
+    /**
+     * Cách tính tiền (cọc onboard / FIRST pro-rata / REGULAR) — FE UI minh bạch.
+     * Ưu tiên field này + lines[]; items[] vẫn giữ cho list gọn.
+     */
+    private PaymentBreakdownResponse paymentBreakdown;
     private BigDecimal totalAmount;
     private BigDecimal lateFee;
     private BigDecimal grandTotal;
@@ -38,4 +44,19 @@ public class TenantInvoiceResponse {
     private String payosCheckoutUrl;
     private String payosQrCode;
     private Long payosOrderCode;
+    private Boolean autoIssued;
+    private BigDecimal prevReading;
+    private BigDecimal newReading;
+    private String meterImageUrl;
+    private LocalDateTime meterCapturedAt;
+    private String utilityBillImageUrl;
+    private String billingAddress;
+    private String customerCode;
+    private String propertyType;
+    private InvoiceDisputeResponse dispute;
+    /**
+     * true nếu tiền nhà chu kỳ đầu đã thu cùng QR onboard ({@code onboardPaid=true} trong note),
+     * hoặc đây là hoá đơn {@code HD-ONBOARD-*}. FE gắn nhãn "đã thu lúc nhận nhà".
+     */
+    private Boolean onboardPaid;
 }

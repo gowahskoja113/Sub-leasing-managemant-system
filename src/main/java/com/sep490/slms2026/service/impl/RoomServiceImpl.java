@@ -20,6 +20,7 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.repository.RoomRepository;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.service.RoomService;
+import com.sep490.slms2026.service.UnitPriceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class RoomServiceImpl implements RoomService {
     private final EquipmentRepository equipmentRepository;
     private final TenantContractRepository tenantContractRepository;
     private final RoomMapper roomMapper;
+    private final UnitPriceService unitPriceService;
 
     @Override
     @Transactional
@@ -120,6 +122,7 @@ public class RoomServiceImpl implements RoomService {
                     .phone(activeContract.getTenant().getUser().getPhoneNumber())
                     .build());
         }
+        response.setPriceLocked(unitPriceService.isUnitOccupied(room.getProperty().getId(), room.getId()));
         return response;
     }
 
@@ -129,7 +132,13 @@ public class RoomServiceImpl implements RoomService {
         Room room = roomRepository.findByIdAndPropertyIdAndDeletedIsFalse(roomId, propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy phòng ID=" + roomId + " trong tòa nhà ID=" + propertyId));
-        return roomMapper.toResponse(room);
+        TenantContract active = tenantContractRepository
+                .findActiveWithTenantByPropertyId(propertyId)
+                .stream()
+                .filter(c -> c.getRoom() != null && roomId.equals(c.getRoom().getId()))
+                .findFirst()
+                .orElse(null);
+        return enrichRoomResponse(room, active);
     }
 
     @Override
@@ -207,6 +216,10 @@ public class RoomServiceImpl implements RoomService {
         }
 
         roomMapper.updateEntity(request, room);
+        if (room.getPrice() != null && (room.getAppliedPrice() == null
+                || !unitPriceService.isUnitOccupied(propertyId, roomId))) {
+            room.setAppliedPrice(room.getPrice());
+        }
         Room saved = roomRepository.save(room);
         log.info("Đã cập nhật phòng {} (ID={}) cho tòa nhà ID={}", saved.getRoomNumber(), roomId, propertyId);
 

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,10 +26,13 @@ public class AppNotificationServiceImpl implements AppNotificationService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, Pageable pageable) {
+    public Page<NotificationResponse> listNotifications(UUID userId, boolean unreadOnly, List<String> types, Pageable pageable) {
+        if (types != null && types.isEmpty()) {
+            types = null; // empty list means no filter
+        }
         Page<Notification> page = unreadOnly
-                ? notificationRepository.findByUserIdAndReadFalse(userId, pageable)
-                : notificationRepository.findByUserId(userId, pageable);
+                ? notificationRepository.findByUserIdAndReadFalseAndTypeInOrderByIdDesc(userId, types, pageable)
+                : notificationRepository.findByUserIdAndTypeInOrderByIdDesc(userId, types, pageable);
         return page.map(this::toResponse);
     }
 
@@ -58,11 +62,23 @@ public class AppNotificationServiceImpl implements AppNotificationService {
     }
 
     private NotificationResponse toResponse(Notification notification) {
+        Map<String, Object> paramsMap = null;
+        if (notification.getParamsJson() != null && !notification.getParamsJson().isBlank()) {
+            try {
+                paramsMap = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(notification.getParamsJson(), 
+                        new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                // Ignore parse error
+            }
+        }
         return NotificationResponse.builder()
                 .id(notification.getId())
                 .title(notification.getTitle())
                 .content(notification.getContent())
                 .type(notification.getType())
+                .screen(notification.getScreen())
+                .params(paramsMap)
                 .read(notification.isRead())
                 .createdAt(notification.getCreatedAt() != null
                         ? notification.getCreatedAt().format(ISO) : null)

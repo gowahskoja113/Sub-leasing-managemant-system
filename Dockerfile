@@ -11,7 +11,11 @@ WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 
 # Render injects PORT; Spring reads server.port
+# Cấu hình thêm trên server (không có trong image — .dockerignore loại .env):
+#   GEMINI_API_KEY=...   → POST /vision/describe-room
 ENV PORT=8080
+ENV TZ=Asia/Ho_Chi_Minh
 EXPOSE 8080
 
-ENTRYPOINT ["sh", "-c", "java -Dserver.port=${PORT} -jar app.jar"]
+# -Xmx1g: heap cố định trên VPS 4GB; ONNX native memory nằm ngoài heap — đừng tăng quá
+ENTRYPOINT ["sh", "-c", "java -Xmx1g -XX:MaxMetaspaceSize=256m -Duser.timezone=Asia/Ho_Chi_Minh -Dserver.port=${PORT} -jar app.jar"]

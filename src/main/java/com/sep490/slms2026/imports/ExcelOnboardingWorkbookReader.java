@@ -41,7 +41,7 @@ public class ExcelOnboardingWorkbookReader {
             Sheet renovationSheet = requireSheet(workbook, SHEET_RENOVATION);
             Sheet equipmentSheet = requireSheet(workbook, SHEET_EQUIPMENT);
 
-            DataFormatter formatter = new DataFormatter();
+            DataFormatter formatter = ExcelImportReaderSupport.usFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             return OnboardingImportWorkbook.builder()
@@ -244,41 +244,17 @@ public class ExcelOnboardingWorkbookReader {
 
     private Integer readInteger(Row row, Integer columnIndex,
                                 DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
-            return null;
-        }
-        try {
-            return (int) Math.round(Double.parseDouble(raw.replace(",", "")));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return ExcelImportReaderSupport.readInteger(row, columnIndex, formatter, evaluator);
     }
 
     private Double readDouble(Row row, Integer columnIndex,
                               DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Double.parseDouble(raw.replace(",", ""));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return ExcelImportReaderSupport.readDouble(row, columnIndex, formatter, evaluator);
     }
 
     private BigDecimal readDecimal(Row row, Integer columnIndex,
                                    DataFormatter formatter, FormulaEvaluator evaluator) {
-        String raw = readString(row, columnIndex, formatter, evaluator);
-        if (raw.isBlank()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(raw.replace(",", ""));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return ExcelImportReaderSupport.readDecimal(row, columnIndex, formatter, evaluator);
     }
 
     private BigDecimal readDecimalOptional(Row row, Integer columnIndex,

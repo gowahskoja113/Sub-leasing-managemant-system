@@ -8,15 +8,28 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
-    Page<Notification> findByUserIdAndReadFalse(UUID userId, Pageable pageable);
+    Page<Notification> findByUserIdAndReadFalseOrderByIdDesc(UUID userId, Pageable pageable);
 
-    Page<Notification> findByUserId(UUID userId, Pageable pageable);
+    Page<Notification> findByUserIdOrderByIdDesc(UUID userId, Pageable pageable);
+
+    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND (:types IS NULL OR n.type IN :types) ORDER BY n.id DESC")
+    Page<Notification> findByUserIdAndTypeInOrderByIdDesc(@Param("userId") UUID userId, @Param("types") List<String> types, Pageable pageable);
+
+    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND n.read = false AND (:types IS NULL OR n.type IN :types) ORDER BY n.id DESC")
+    Page<Notification> findByUserIdAndReadFalseAndTypeInOrderByIdDesc(@Param("userId") UUID userId, @Param("types") List<String> types, Pageable pageable);
 
     long countByUserIdAndReadFalse(UUID userId);
+
+    boolean existsByUserIdAndTypeAndCreatedAtGreaterThanEqual(UUID userId, String type, java.time.LocalDateTime createdAt);
+
+    boolean existsByUserIdAndDedupeKey(UUID userId, String dedupeKey);
+
+    java.util.Optional<Notification> findByDedupeKey(String dedupeKey);
 
     @Modifying
     @Query("UPDATE Notification n SET n.read = true WHERE n.userId = :userId")

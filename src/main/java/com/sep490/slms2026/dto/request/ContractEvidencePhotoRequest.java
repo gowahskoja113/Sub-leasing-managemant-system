@@ -5,8 +5,8 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 /**
- * Ảnh bằng chứng onboard kèm thời điểm chụp.
- * {@code url} bắt buộc; {@code capturedAt} optional — null thì BE set = thời điểm lưu.
+ * Ảnh bằng chứng onboard.
+ * {@code url} bắt buộc. {@code capturedAt} từ client bị bỏ — BE luôn đóng dấu giờ server lúc lưu.
  */
 @Getter
 @Setter

@@ -1,8 +1,11 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.host.*;
+import com.sep490.slms2026.dto.request.CheckoutRefundRequest;
+import com.sep490.slms2026.dto.response.DepositRefundResponse;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
+import com.sep490.slms2026.service.CheckoutProcessService;
 import com.sep490.slms2026.service.HostPortalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class HostController {
 
     private final HostPortalService hostPortalService;
+    private final CheckoutProcessService checkoutProcessService;
 
     @GetMapping("/notifications")
     public ResponseEntity<Page<HostNotificationDto>> listNotifications(
@@ -45,6 +49,12 @@ public class HostController {
     public ResponseEntity<Void> markAllNotificationsRead() {
         hostPortalService.markAllNotificationsRead(currentUserId());
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/notifications/unread-count")
+    public ResponseEntity<Map<String, Long>> unreadCount() {
+        return ResponseEntity.ok(Map.of("count", 
+                hostPortalService.listNotifications(currentUserId(), true, PageRequest.of(0, 1)).getTotalElements()));
     }
 
     @GetMapping("/dashboard/summary")
@@ -70,13 +80,24 @@ public class HostController {
     }
 
     @GetMapping("/finance/receivables-aging")
-    public ResponseEntity<HostReceivablesAgingResponse> receivablesAging() {
-        return ResponseEntity.ok(hostPortalService.getReceivablesAging());
+    public ResponseEntity<HostReceivablesAgingResponse> receivablesAging(@RequestParam(required = false) String month) {
+        return ResponseEntity.ok(hostPortalService.getReceivablesAging(month));
     }
 
     @GetMapping("/finance/deposits")
     public ResponseEntity<HostDepositsResponse> deposits(@RequestParam(required = false) String status) {
         return ResponseEntity.ok(hostPortalService.getDeposits(status));
+    }
+
+    /**
+     * Chủ nhà đánh dấu đã chuyển hoàn cọc (ngày chuyển + biên lai).
+     * Body giống {@code POST /checkout-requests/{id}/refund}: amount, method, proofUrl, paidAt.
+     */
+    @PostMapping("/finance/deposits/{contractId}/refund")
+    public ResponseEntity<DepositRefundResponse> refundDeposit(
+            @PathVariable Long contractId,
+            @Valid @RequestBody CheckoutRefundRequest request) {
+        return ResponseEntity.ok(checkoutProcessService.refundByContractId(contractId, request));
     }
 
     @GetMapping("/invoices")

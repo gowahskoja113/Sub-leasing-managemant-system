@@ -21,7 +21,7 @@ public class ExcelTenantDraftContractWorkbookReader {
     public TenantDraftContractImportWorkbook read(MultipartFile file) {
         validateExcelFile(file);
         try (Workbook workbook = openWorkbook(file)) {
-            DataFormatter formatter = new DataFormatter();
+            DataFormatter formatter = ExcelImportReaderSupport.usFormatter();
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             Sheet sheet = requireSheet(workbook, SHEET_DRAFT);
             return TenantDraftContractImportWorkbook.builder()
@@ -84,8 +84,28 @@ public class ExcelTenantDraftContractWorkbookReader {
                     .depositMonths(depositMonths)
                     .deposit(deposit)
                     .expectedReceptionDate(readDate(row, headers.get("Ngày đón khách dự kiến"), formatter, evaluator))
+                    .rentEscalationTypeRaw(readOptionalString(row, headers.get("Loại tăng giá"), formatter, evaluator))
+                    .rentEscalationPercent(firstPresentDecimal(row, headers, formatter, evaluator,
+                            "Tăng giá theo năm (%)", "% tăng/năm"))
+                    .rentScheduleRaw(readOptionalString(row, headers.get("Lịch tăng giá"), formatter, evaluator))
                     .build());
         }
         return rows;
+    }
+
+    private static BigDecimal firstPresentDecimal(Row row, Map<String, Integer> headers,
+                                                  DataFormatter formatter, FormulaEvaluator evaluator,
+                                                  String... headerNames) {
+        for (String name : headerNames) {
+            Integer idx = headers.get(name);
+            if (idx == null) {
+                continue;
+            }
+            BigDecimal value = readDecimal(row, idx, formatter, evaluator);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 }

@@ -27,6 +27,10 @@ public class Property implements Serializable {
     @Column(name = "property_name", nullable = false)
     private String propertyName;
 
+    /** Mã nhà cố định — dùng khớp folder zip import hoá đơn, không đổi khi đổi tên. */
+    @Column(name = "property_code", nullable = false, unique = true, length = 32)
+    private String propertyCode;
+
     @Column(nullable = false)
     private String address;
 
@@ -74,14 +78,17 @@ public class Property implements Serializable {
     @Column(name = "operation_manager_id")
     private UUID operationManagerId;
 
-    @Column(name = "managed_by")
-    private UUID managedBy;
 
     @Column(name = "descriptions", nullable = false)
     private String descriptions;
 
+    /** Giá niêm yết nhà nguyên căn (listedPrice). */
     @Column
     private BigDecimal price;
+
+    /** Giá đang áp dụng. Nhà trống = listedPrice. */
+    @Column(name = "applied_price")
+    private BigDecimal appliedPrice;
 
     @Column
     private Double latitude;
@@ -116,6 +123,10 @@ public class Property implements Serializable {
 
     @Column(name = "submitted_to_host_at")
     private LocalDateTime submittedToHostAt;
+
+    /** Thời điểm gán OM và nhà chuyển ACTIVE (manager đã nhận nhà). */
+    @Column(name = "manager_accepted_at")
+    private LocalDateTime managerAcceptedAt;
 
     @Column(name = "host_contingency_percent")
     private BigDecimal hostContingencyPercent;

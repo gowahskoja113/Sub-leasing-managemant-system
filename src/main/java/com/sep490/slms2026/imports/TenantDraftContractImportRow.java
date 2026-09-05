@@ -12,7 +12,7 @@ public class TenantDraftContractImportRow {
 
     private int rowNumber;
 
-    /** Mã HĐ inbound (đợt 1) — ví dụ HD-MTX-01-NORENO-NOFURN */
+    /** Mã HĐ inbound (đợt 1) — ví dụ HD-MTX-01-RENO-WH-FULL */
     private String inboundContractCode;
 
     /** ID BĐS (nếu không dùng mã HĐ inbound) */
@@ -41,4 +41,7 @@ public class TenantDraftContractImportRow {
     private Integer depositMonths;
     private BigDecimal deposit;
     private LocalDate expectedReceptionDate;
+    private String rentEscalationTypeRaw;
+    private BigDecimal rentEscalationPercent;
+    private String rentScheduleRaw;
 }

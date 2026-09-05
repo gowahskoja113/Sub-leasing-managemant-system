@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public interface TenantHandoverService {
 
-    TenantHandoverResponse getHandover(UUID tenantUserId);
+    TenantHandoverResponse getHandover(UUID tenantUserId, Long contractId);
 
-    TenantHandoverResponse acknowledgeHandover(UUID tenantUserId);
+    TenantHandoverResponse acknowledgeHandover(UUID tenantUserId, Long contractId);
 }

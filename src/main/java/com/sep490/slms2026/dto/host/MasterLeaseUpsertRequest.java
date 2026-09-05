@@ -33,4 +33,7 @@ public class MasterLeaseUpsertRequest {
     private LocalDate endDate;
 
     private BigDecimal escalationPct;
+
+    /** File scan HĐ gốc với chủ nhà (Cloudinary/URL). */
+    private String contractScanUrl;
 }

@@ -11,7 +11,10 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Công thức định giá theo docs/PRICING_FORMULA.md — prepaid rent, phân bổ theo m².
+ * Công thức định giá — prepaid rent.
+ * <p>
+ * Nhà nguyên căn: tính trực tiếp revenueTarget.
+ * Theo phòng: tính giống nguyên căn rồi chia đều cho các phòng.
  */
 public final class PricingCalculator {
 
@@ -25,10 +28,7 @@ public final class PricingCalculator {
     @Builder
     public record RoomInput(
             Long roomId,
-            String roomNumber,
-            double area,
-            double qualityFactor,
-            BigDecimal roomEquipmentCost) {
+            String roomNumber) {
     }
 
     @Builder
@@ -69,12 +69,15 @@ public final class PricingCalculator {
             List<RoomResult> rooms) {
     }
 
+    /**
+     * Tính giá theo phòng: cùng công thức nguyên căn, rồi chia đều revenueTarget / số phòng.
+     * Phòng cuối nhận phần còn lại để tránh lệch làm tròn.
+     */
     public static PropertyResult calculate(
             BigDecimal cRent,
             BigDecimal cRenovation,
             BigDecimal cEquipment,
             int contractMonths,
-            Double propertyAreaSize,
             BigDecimal oOperation,
             BigDecimal vRate,
             PricingMode mode,
@@ -82,90 +85,67 @@ public final class PricingCalculator {
             BigDecimal roiExpected,
             List<RoomInput> rooms) {
 
-        validateInputs(contractMonths, mode, pDesired, roiExpected, rooms);
+        validateRoomInputs(contractMonths, mode, pDesired, roiExpected, rooms);
 
-        BigDecimal safeRent = nz(cRent);
-        BigDecimal safeRenovation = nz(cRenovation);
-        BigDecimal safeEquipment = nz(cEquipment);
-        BigDecimal safeOpex = nz(oOperation);
-        BigDecimal safeVRate = vRate != null ? vRate : DEFAULT_V_RATE;
+        PropertyResult whole = calculateWholeHouse(
+                cRent, cRenovation, cEquipment, contractMonths,
+                oOperation, vRate, mode, pDesired, roiExpected);
 
-        BigDecimal capex = safeRent.add(safeRenovation).add(safeEquipment);
-        BigDecimal monthlyRecovery = divideMoney(capex, contractMonths);
-        BigDecimal fixedOpex = safeOpex.add(monthlyRecovery);
+        List<RoomInput> ordered = rooms.stream()
+                .sorted(Comparator.comparing(RoomInput::roomId))
+                .toList();
+        int n = ordered.size();
 
-        BigDecimal revenueMin;
-        BigDecimal revenueTarget;
-        if (mode == PricingMode.FORWARD) {
-            BigDecimal profit = nz(pDesired);
-            revenueMin = fixedOpex.add(profit);
-            revenueTarget = applyVacancyBuffer(revenueMin, safeVRate);
-        } else {
-            BigDecimal roi = nz(roiExpected);
-            BigDecimal years = BigDecimal.valueOf(contractMonths)
-                    .divide(BigDecimal.valueOf(12), RATIO_SCALE, RoundingMode.HALF_UP);
-            BigDecimal totalProfit = capex
-                    .multiply(roi)
-                    .divide(BigDecimal.valueOf(100), RATIO_SCALE, RoundingMode.HALF_UP)
-                    .multiply(years);
-            BigDecimal monthlyGoal = capex.add(totalProfit)
-                    .divide(BigDecimal.valueOf(contractMonths), RATIO_SCALE, RoundingMode.HALF_UP);
-            revenueMin = monthlyGoal.add(safeOpex);
-            revenueTarget = applyVacancyBuffer(revenueMin, safeVRate);
-        }
+        BigDecimal allocatedRent = BigDecimal.ZERO;
+        BigDecimal allocatedRenovation = BigDecimal.ZERO;
+        BigDecimal allocatedEquipment = BigDecimal.ZERO;
+        BigDecimal allocatedOpex = BigDecimal.ZERO;
+        BigDecimal allocatedPrice = BigDecimal.ZERO;
+        BigDecimal allocatedFloor = BigDecimal.ZERO;
 
-        double sumRoomArea = rooms.stream().mapToDouble(RoomInput::area).sum();
-        double commonArea = 0;
-        if (propertyAreaSize != null && propertyAreaSize > sumRoomArea) {
-            commonArea = propertyAreaSize - sumRoomArea;
-        }
-
-        List<WeightedRoom> weightedRooms = new ArrayList<>();
-        double totalWeight = 0;
-        for (RoomInput room : rooms) {
-            double effectiveM2 = room.area() + commonArea * (room.area() / sumRoomArea);
-            double weight = effectiveM2 * room.qualityFactor();
-            totalWeight += weight;
-            weightedRooms.add(new WeightedRoom(room, effectiveM2, weight));
-        }
-
-        BigDecimal assignedEquipment = rooms.stream()
-                .map(r -> nz(r.roomEquipmentCost()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal sharedEquipment = safeEquipment.subtract(assignedEquipment).max(BigDecimal.ZERO);
+        BigDecimal equalRent = equalShare(whole.cRent(), n);
+        BigDecimal equalRenovation = equalShare(whole.cRenovation(), n);
+        BigDecimal equalEquipment = equalShare(whole.cEquipment(), n);
+        BigDecimal equalOpex = equalShare(whole.oOperation(), n);
+        BigDecimal equalPrice = equalShare(whole.revenueTarget(), n);
+        BigDecimal wholeFloor = whole.rooms().getFirst().roomFloor();
+        BigDecimal equalFloor = equalShare(wholeFloor, n);
 
         List<RoomResult> roomResults = new ArrayList<>();
-        BigDecimal allocatedPrice = BigDecimal.ZERO;
+        for (int i = 0; i < n; i++) {
+            RoomInput room = ordered.get(i);
+            boolean last = i == n - 1;
 
-        weightedRooms.sort(Comparator.comparing(w -> w.room().roomId()));
+            BigDecimal rentShare = last ? money(whole.cRent().subtract(allocatedRent)) : equalRent;
+            BigDecimal renovationShare = last
+                    ? money(whole.cRenovation().subtract(allocatedRenovation)) : equalRenovation;
+            BigDecimal equipmentShare = last
+                    ? money(whole.cEquipment().subtract(allocatedEquipment)) : equalEquipment;
+            BigDecimal opexShare = last
+                    ? money(whole.oOperation().subtract(allocatedOpex)) : equalOpex;
+            BigDecimal suggestedPrice = last
+                    ? money(whole.revenueTarget().subtract(allocatedPrice)) : equalPrice;
+            BigDecimal roomFloor = last
+                    ? money(wholeFloor.subtract(allocatedFloor)) : equalFloor;
 
-        for (int i = 0; i < weightedRooms.size(); i++) {
-            WeightedRoom wr = weightedRooms.get(i);
-            BigDecimal weightRatio = ratio(wr.weight(), totalWeight);
-
-            BigDecimal rentShare = money(safeRent.multiply(weightRatio));
-            BigDecimal renovationShare = money(safeRenovation.multiply(weightRatio));
-            BigDecimal equipmentShare = money(nz(wr.room().roomEquipmentCost())
-                    .add(sharedEquipment.multiply(weightRatio)));
             BigDecimal capexShare = rentShare.add(renovationShare).add(equipmentShare);
             BigDecimal monthlyRecoveryRoom = divideMoney(capexShare, contractMonths);
-            BigDecimal opexShare = money(safeOpex.multiply(weightRatio));
-            BigDecimal roomFloor = applyVacancyBuffer(monthlyRecoveryRoom.add(opexShare), safeVRate);
 
-            BigDecimal suggestedPrice;
-            if (i == weightedRooms.size() - 1) {
-                suggestedPrice = money(revenueTarget.subtract(allocatedPrice));
-            } else {
-                suggestedPrice = money(revenueTarget.multiply(weightRatio));
+            if (!last) {
+                allocatedRent = allocatedRent.add(rentShare);
+                allocatedRenovation = allocatedRenovation.add(renovationShare);
+                allocatedEquipment = allocatedEquipment.add(equipmentShare);
+                allocatedOpex = allocatedOpex.add(opexShare);
                 allocatedPrice = allocatedPrice.add(suggestedPrice);
+                allocatedFloor = allocatedFloor.add(roomFloor);
             }
 
             roomResults.add(RoomResult.builder()
-                    .roomId(wr.room().roomId())
-                    .roomNumber(wr.room().roomNumber())
-                    .area(wr.room().area())
-                    .effectiveM2(round2(wr.effectiveM2()))
-                    .weight(round2(wr.weight()))
+                    .roomId(room.roomId())
+                    .roomNumber(room.roomNumber())
+                    .area(0)
+                    .effectiveM2(0)
+                    .weight(1.0)
                     .rentShare(rentShare)
                     .renovationShare(renovationShare)
                     .equipmentShare(equipmentShare)
@@ -178,22 +158,22 @@ public final class PricingCalculator {
         }
 
         return PropertyResult.builder()
-                .cRent(safeRent)
-                .cRenovation(safeRenovation)
-                .cEquipment(safeEquipment)
-                .capex(capex)
-                .contractMonths(contractMonths)
-                .monthlyRecovery(monthlyRecovery)
-                .fixedOpex(fixedOpex)
-                .revenueMin(money(revenueMin))
-                .revenueTarget(money(revenueTarget))
-                .pDesired(pDesired)
-                .roiExpected(roiExpected)
-                .oOperation(safeOpex)
-                .vRate(safeVRate)
-                .mode(mode)
-                .commonAreaM2(round2(commonArea))
-                .totalWeight(round2(totalWeight))
+                .cRent(whole.cRent())
+                .cRenovation(whole.cRenovation())
+                .cEquipment(whole.cEquipment())
+                .capex(whole.capex())
+                .contractMonths(whole.contractMonths())
+                .monthlyRecovery(whole.monthlyRecovery())
+                .fixedOpex(whole.fixedOpex())
+                .revenueMin(whole.revenueMin())
+                .revenueTarget(whole.revenueTarget())
+                .pDesired(whole.pDesired())
+                .roiExpected(whole.roiExpected())
+                .oOperation(whole.oOperation())
+                .vRate(whole.vRate())
+                .mode(whole.mode())
+                .commonAreaM2(0)
+                .totalWeight(n)
                 .rooms(roomResults)
                 .build();
     }
@@ -279,7 +259,7 @@ public final class PricingCalculator {
                 .build();
     }
 
-    private static void validateInputs(
+    private static void validateRoomInputs(
             int contractMonths,
             PricingMode mode,
             BigDecimal pDesired,
@@ -297,28 +277,21 @@ public final class PricingCalculator {
         if (mode == PricingMode.REVERSE && roiExpected == null) {
             throw new BusinessException("Luồng ngược (REVERSE) yêu cầu roiExpected");
         }
-        for (RoomInput room : rooms) {
-            if (room.area() <= 0) {
-                throw new BusinessException(
-                        "Phòng " + room.roomNumber() + " chưa có diện tích (m²) hợp lệ");
-            }
-            if (room.qualityFactor() <= 0) {
-                throw new BusinessException("Hệ số chất lượng phòng phải > 0");
-            }
-        }
     }
 
     private static BigDecimal applyVacancyBuffer(BigDecimal base, BigDecimal vRate) {
-        return money(base.multiply(BigDecimal.ONE.add(vRate)));
+        if (vRate.compareTo(BigDecimal.ONE) >= 0) {
+            throw new BusinessException("Biên dự phòng trống (vRate) phải nhỏ hơn 100%");
+        }
+        return money(base.divide(BigDecimal.ONE.subtract(vRate), MONEY_SCALE, RoundingMode.HALF_UP));
     }
 
     private static BigDecimal divideMoney(BigDecimal value, int divisor) {
         return value.divide(BigDecimal.valueOf(divisor), MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
-    private static BigDecimal ratio(double part, double total) {
-        return BigDecimal.valueOf(part)
-                .divide(BigDecimal.valueOf(total), RATIO_SCALE, RoundingMode.HALF_UP);
+    private static BigDecimal equalShare(BigDecimal total, int n) {
+        return total.divide(BigDecimal.valueOf(n), MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal nz(BigDecimal value) {
@@ -327,12 +300,5 @@ public final class PricingCalculator {
 
     private static BigDecimal money(BigDecimal value) {
         return value.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-    }
-
-    private static double round2(double value) {
-        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
-    }
-
-    private record WeightedRoom(RoomInput room, double effectiveM2, double weight) {
     }
 }

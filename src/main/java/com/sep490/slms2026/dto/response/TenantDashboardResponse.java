@@ -4,14 +4,19 @@ import lombok.Builder;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 @Builder
 public class TenantDashboardResponse {
+    /** HĐ đang chọn (primary) — tương thích FE cũ */
     private RoomSummary room;
     private ContractSummary contract;
     private BuildingSummary building;
     private ActivitySummary summary;
+
+    /** Tất cả HĐ ACTIVE của account (để FE hiện picker khi > 1) */
+    private List<ContractSummary> contracts;
 
     @Data
     @Builder
@@ -32,6 +37,10 @@ public class TenantDashboardResponse {
         private LocalDate endDate;
         private Long daysLeft;
         private String status;
+        private Long propertyId;
+        private String propertyName;
+        private Long roomId;
+        private String roomNumber;
         /** ROOM = thuê theo phòng; WHOLE_HOUSE = thuê nguyên căn (`room_id` null trên HĐ). */
         private String type;
     }

@@ -9,5 +9,9 @@ public interface BulkTenantDraftContractImportService {
      * Import hàng loạt hợp đồng thuê nháp (DRAFT) từ Excel.
      * BĐS phải đã tồn tại (map theo Mã HĐ inbound / Mã BĐS / Tên tòa nhà).
      */
-    BulkImportResponse importWorkbook(MultipartFile file, boolean dryRun);
+    /**
+     * @param skipInvalidRows {@code false} (mặc định): một dòng lỗi → chặn cả file.
+     *                        {@code true}: import dòng sạch, trả kèm {@code errors} của dòng bỏ.
+     */
+    BulkImportResponse importWorkbook(MultipartFile file, boolean dryRun, boolean skipInvalidRows);
 }

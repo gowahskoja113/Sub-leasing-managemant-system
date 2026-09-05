@@ -71,8 +71,18 @@ public class BulkImportSupport {
                                    String contractCode,
                                    String field,
                                    String value) {
+        requireText(errors, sheet, rowNumber, contractCode, field, value, null);
+    }
+
+    public static void requireText(List<BulkImportErrorResponse> errors,
+                                   String sheet,
+                                   int rowNumber,
+                                   String contractCode,
+                                   String field,
+                                   String value,
+                                   String code) {
         if (normalizeOptional(value).isBlank()) {
-            errors.add(error(sheet, rowNumber, contractCode, field, field + " không được để trống"));
+            errors.add(error(sheet, rowNumber, contractCode, field, field + " không được để trống", code));
         }
     }
 
@@ -81,12 +91,22 @@ public class BulkImportSupport {
                                                 String contractCode,
                                                 String field,
                                                 String message) {
+        return error(sheet, rowNumber, contractCode, field, message, null);
+    }
+
+    public static BulkImportErrorResponse error(String sheet,
+                                                int rowNumber,
+                                                String contractCode,
+                                                String field,
+                                                String message,
+                                                String code) {
         return BulkImportErrorResponse.builder()
                 .sheet(sheet)
                 .rowNumber(rowNumber)
                 .contractCode(contractCode)
                 .field(field)
                 .message(message)
+                .code(code)
                 .build();
     }
 

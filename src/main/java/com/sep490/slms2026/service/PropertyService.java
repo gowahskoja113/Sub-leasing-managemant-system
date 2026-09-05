@@ -15,6 +15,9 @@ public interface PropertyService {
 
     Page<PropertyResponse> getAllProperties(Pageable pageable);
 
+    /** @param hasAvailableRooms nếu true — chỉ nhà còn nhận khách mới (phòng trống thật / nguyên căn chưa bị giữ). */
+    Page<PropertyResponse> getAllProperties(Pageable pageable, Boolean hasAvailableRooms);
+
     /** Danh sách BĐS còn cho thuê được (dùng cho màn onboarding đón khách). */
     List<PropertyResponse> getRentableProperties();
 

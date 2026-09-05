@@ -18,11 +18,17 @@ import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ConflictException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
+import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.DepreciationService;
+import com.sep490.slms2026.service.PropertyCodeService;
 import com.sep490.slms2026.service.PropertyDeletionService;
+import com.sep490.slms2026.service.PropertyOccupancyAssembler;
 import com.sep490.slms2026.service.PropertyOnboardingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
+import com.sep490.slms2026.service.UserPushTokenService;
+import com.sep490.slms2026.util.InboundLeaseRules;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +43,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PropertyOnboardingServiceImpl implements PropertyOnboardingService {
@@ -58,6 +65,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final HandoverEquipmentRepository handoverEquipmentRepository;
     private final RenovationSessionViewMapper renovationSessionViewMapper;
     private final TenantOnboardingService tenantOnboardingService;
+    private final ZoneManagerRepository zoneManagerRepository;
+    private final NotificationRepository notificationRepository;
+    private final UserPushTokenService userPushTokenService;
+    private final PropertyOccupancyAssembler propertyOccupancyAssembler;
+    private final PropertyCodeService propertyCodeService;
 
     @Override
     @Transactional
@@ -71,6 +83,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Property property = Property.builder()
                 .propertyName(request.getPropertyName())
+                .propertyCode(propertyCodeService.resolveForCreate(
+                        request.getPropertyCode(), request.getPropertyName()))
                 .address(fullAddress)
                 .zone(zone)
                 .descriptions(request.getDescriptions())
@@ -434,16 +448,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chỉ có thể cải tạo lại khi tòa nhà đang ACTIVE");
         }
 
-        if (Boolean.FALSE.equals(property.getWholeHouse())) {
-            long rentedCount = roomRepository.countByPropertyIdAndStatus(propertyId, RoomStatus.RENTED);
-            if (rentedCount > 0) {
-                throw new BusinessException(
-                        "Còn " + rentedCount + " phòng đang có khách thuê — không thể cải tạo");
-            }
-        }
-
         property.setStatus(PropertyStatus.UNDER_RENOVATION);
         property.setRenovationCompleted(false);
+        property.setHasRenovation(true);
 
         int nextSessionNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId) + 1;
         renovationSessionRepository.save(RenovationSession.builder()
@@ -498,7 +505,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     "Chỉ có thể xác nhận hoàn thành khi nhà đang PENDING_EQUIPMENT_INSTALLATION hoặc UNDER_RENOVATION (cải tạo lại)");
         }
 
-        return mapPropertyResponse(propertyRepository.save(property), extractShortAddress(property));
+        Property saved = propertyRepository.save(property);
+        // Giống hostConfirm / assignOperationManager: ACTIVE thì mở phòng DRAFT.
+        openDraftRoomsIfActive(saved);
+        return mapPropertyResponse(saved, extractShortAddress(saved));
     }
 
     @Override
@@ -524,6 +534,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
     @Override
     @Transactional
+    public OnboardingSummaryResponse submitToHost(Long propertyId, String realtimeSource) {
+        return submitToHost(propertyId);
+    }
+
+    @Override
+    @Transactional
     public PropertyActivationResponse hostConfirm(Long propertyId, HostConfirmRequest request) {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tòa nhà ID=" + propertyId));
@@ -539,8 +555,27 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Chưa có kết quả tính giá — admin phải gửi host trước");
         }
 
+        InboundContract inboundLease = inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(propertyId)
+                .orElse(null);
+        LocalDate today = LocalDate.now();
+        InboundLeaseRules.assertLeaseNotExpired(today, inboundLease);
+
+        // Phải có QL khu vực TRƯỚC khi ghi gì — giá đã gồm lương QL; duyệt xong không tính lại.
+        Zone zone = property.getZone();
+        ZoneManager zoneManager = zoneManagerRepository.findById(zone.getId())
+                .orElseThrow(() -> new BusinessException(
+                        "ZONE_HAS_NO_MANAGER",
+                        "Khu vực " + zone.getName() + " chưa có quản lý vận hành. "
+                                + "Gán quản lý cho khu vực trước khi duyệt giá — giá thuê phải gồm lương "
+                                + "quản lý, duyệt xong không tính lại được."));
+
         property.setHostContingencyPercent(request.getContingencyPercent());
-        property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+        property.setOperationManagerId(zoneManager.getManagerId());
+        property.setStatus(PropertyStatus.ACTIVE);
+        if (property.getManagerAcceptedAt() == null) {
+            property.setManagerAcceptedAt(LocalDateTime.now());
+        }
+        notifyPropertyAssigned(property, zoneManager.getManagerId());
 
         PropertyActivationResponse response;
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
@@ -549,6 +584,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             response = confirmPerRoom(property, propertyId, request);
         }
 
+        // Gán QL theo khu vực đi tắt — không qua assignOperationManager — nên kích hoạt phòng tại đây.
+        applySkippedRooms(response, openDraftRoomsIfActive(property));
+
+        applyInboundLeaseWarnings(response, inboundLease, today);
         return response;
     }
 
@@ -568,35 +607,81 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         UUID managerId = request.getOperationManagerId();
         validateOperationManager(managerId);
+        upsertZoneManager(property, managerId);
 
         if (property.getStatus() == PropertyStatus.ACTIVE || property.getStatus() == PropertyStatus.RENTED) {
             if (!managerId.equals(property.getOperationManagerId())) {
                 property.setOperationManagerId(managerId);
-                property.setManagedBy(managerId);
                 propertyRepository.save(property);
                 // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
                 tenantOnboardingService.reassignManagerForProperty(propertyId, managerId);
             }
+            // Heal phòng kẹt DRAFT trên nhà đã ACTIVE (vd. duyệt trước khi có kích hoạt phòng).
+            RoomActivationResult activation = openDraftRoomsIfActive(property);
             if (Boolean.TRUE.equals(property.getWholeHouse())) {
                 return buildWholeHouseActivationResponse(property, propertyId);
             }
-            return buildActivePerRoomActivationResponse(property, propertyId);
+            PropertyActivationResponse response = buildActivePerRoomActivationResponse(property, propertyId);
+            applySkippedRooms(response, activation);
+            return response;
         }
 
         property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
         property.setStatus(PropertyStatus.ACTIVE);
+        if (property.getManagerAcceptedAt() == null) {
+            property.setManagerAcceptedAt(java.time.LocalDateTime.now());
+        }
         propertyRepository.save(property);
+        notifyPropertyAssigned(property, managerId);
 
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
-            for (Room room : draftRooms) {
-                room.setStatus(RoomStatus.AVAILABLE);
-            }
-            roomRepository.saveAll(draftRooms);
+            openDraftRoomsIfActive(property);
             return buildWholeHouseActivationResponse(property, propertyId);
         }
         return activatePerRoom(property, propertyId, managerId);
+    }
+
+    private static final List<PropertyStatus> ZONE_MANAGER_PROPERTY_STATUSES = List.of(
+            PropertyStatus.PENDING_OPERATION_MANAGER,
+            PropertyStatus.ACTIVE,
+            PropertyStatus.RENTED,
+            PropertyStatus.MAINTENANCE,
+            PropertyStatus.INACTIVE
+    );
+
+    @Override
+    @Transactional
+    public int applyZoneOperationManager(UUID zoneId, UUID managerId) {
+        List<Property> properties = propertyRepository.findByZone_IdAndStatusIn(zoneId, ZONE_MANAGER_PROPERTY_STATUSES);
+        AssignOperationManagerRequest request = AssignOperationManagerRequest.builder()
+                .operationManagerId(managerId)
+                .build();
+        for (Property property : properties) {
+            if (property.getStatus() == PropertyStatus.MAINTENANCE
+                    || property.getStatus() == PropertyStatus.INACTIVE) {
+                property.setOperationManagerId(managerId);
+                propertyRepository.save(property);
+                continue;
+            }
+            assignOperationManager(property.getId(), request);
+        }
+        return properties.size();
+    }
+
+    @Override
+    @Transactional
+    public int releaseZoneOperationManager(UUID zoneId) {
+        List<Property> properties = propertyRepository.findByZone_IdAndStatusIn(zoneId, ZONE_MANAGER_PROPERTY_STATUSES);
+        for (Property property : properties) {
+            property.setOperationManagerId(null);
+            if (property.getStatus() == PropertyStatus.ACTIVE) {
+                property.setStatus(PropertyStatus.PENDING_OPERATION_MANAGER);
+                property.setManagerAcceptedAt(null);
+                revertAvailableRoomsToDraft(property.getId());
+            }
+        }
+        propertyRepository.saveAll(properties);
+        return properties.size();
     }
 
     @Override
@@ -619,7 +704,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         property.setOperationManagerId(managerId);
-        property.setManagedBy(managerId);
+        upsertZoneManager(property, managerId);
         PropertyResponse response = mapPropertyResponse(
                 propertyRepository.save(property), extractShortAddress(property));
         // Cascade: đổi quản lý nhà → gán lại toàn bộ HĐ chưa kết thúc + notify
@@ -768,18 +853,23 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         BigDecimal finalPrice = resolveFinalPrice(
                 request.getPropertyPrice(),
-                depreciation.getSuggestedMinPrice(),
+                depreciation.getRoomFloor(),
                 request.getContingencyPercent());
 
         property.setPrice(finalPrice);
+        property.setAppliedPrice(finalPrice);
         propertyRepository.save(property);
+
+        if (property.getStatus() == PropertyStatus.ACTIVE) {
+            activateDraftRooms(propertyId);
+        }
 
         return PropertyActivationResponse.builder()
                 .propertyId(propertyId)
                 .pricingScope(PricingScope.WHOLE_HOUSE)
                 .propertyStatus(property.getStatus())
                 .propertyPrice(finalPrice)
-                .adminSuggestedPrice(depreciation.getSuggestedMinPrice())
+                .adminSuggestedPrice(depreciation.getRoomFloor())
                 .hostContingencyPercent(request.getContingencyPercent())
                 .build();
     }
@@ -798,8 +888,6 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         Map<Long, HostConfirmRequest.RoomPriceConfirm> priceByRoomId = request.getRoomPrices().stream()
                 .collect(Collectors.toMap(HostConfirmRequest.RoomPriceConfirm::getRoomId, Function.identity()));
 
-        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = new ArrayList<>();
-
         for (Room room : draftRooms) {
             HostConfirmRequest.RoomPriceConfirm priceConfirm = priceByRoomId.get(room.getId());
             if (priceConfirm == null) {
@@ -812,30 +900,43 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
             BigDecimal finalPrice = resolveFinalPrice(
                     priceConfirm.getPrice(),
-                    roomDepreciation.getSuggestedMinPrice(),
+                    roomDepreciation.getRoomFloor(),
                     request.getContingencyPercent());
 
             room.setPrice(finalPrice);
-
-            activatedRooms.add(PropertyActivationResponse.ActivatedRoom.builder()
-                    .roomId(room.getId())
-                    .roomNumber(room.getRoomNumber())
-                    .price(finalPrice)
-                    .adminSuggestedPrice(roomDepreciation.getSuggestedMinPrice())
-                    .status(room.getStatus())
-                    .build());
+            room.setAppliedPrice(finalPrice);
         }
 
         propertyRepository.save(property);
         roomRepository.saveAll(draftRooms);
 
-        return PropertyActivationResponse.builder()
+        // hostConfirm tự gán QL → ACTIVE: kích hoạt phòng tại đây (không còn bước assignOperationManager).
+        RoomActivationResult activation = openDraftRoomsIfActive(property);
+
+        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = draftRooms.stream()
+                .map(room -> {
+                    BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
+                            .map(DepreciationResult::getRoomFloor)
+                            .orElse(null);
+                    return PropertyActivationResponse.ActivatedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .price(room.getPrice())
+                            .adminSuggestedPrice(adminSuggested)
+                            .status(room.getStatus())
+                            .build();
+                })
+                .toList();
+
+        PropertyActivationResponse response = PropertyActivationResponse.builder()
                 .propertyId(propertyId)
                 .pricingScope(PricingScope.ROOM)
                 .propertyStatus(property.getStatus())
                 .hostContingencyPercent(request.getContingencyPercent())
                 .rooms(activatedRooms)
                 .build();
+        applySkippedRooms(response, activation);
+        return response;
     }
 
     private PropertyActivationResponse buildWholeHouseActivationResponse(Property property, Long propertyId) {
@@ -847,7 +948,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .pricingScope(PricingScope.WHOLE_HOUSE)
                 .propertyStatus(property.getStatus())
                 .propertyPrice(property.getPrice())
-                .adminSuggestedPrice(depreciation.getSuggestedMinPrice())
+                .adminSuggestedPrice(depreciation.getRoomFloor())
                 .hostContingencyPercent(property.getHostContingencyPercent())
                 .operationManagerId(property.getOperationManagerId())
                 .operationManagerName(resolveOperationManagerName(property.getOperationManagerId()))
@@ -858,7 +959,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         List<PropertyActivationResponse.ActivatedRoom> rooms = roomRepository.findByPropertyId(propertyId).stream()
                 .map(room -> {
                     BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
-                            .map(DepreciationResult::getSuggestedMinPrice)
+                            .map(DepreciationResult::getRoomFloor)
                             .orElse(null);
                     return PropertyActivationResponse.ActivatedRoom.builder()
                             .roomId(room.getId())
@@ -882,30 +983,21 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     }
 
     private PropertyActivationResponse activatePerRoom(Property property, Long propertyId, UUID managerId) {
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
-        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = new ArrayList<>();
-
-        for (Room room : draftRooms) {
-            if (room.getPrice() == null) {
-                throw new BusinessException("Phòng " + room.getRoomNumber() + " chưa có giá — host phải xác nhận giá trước");
-            }
-
-            DepreciationResult roomDepreciation = depreciationResultRepository.findByRoomId(room.getId())
-                    .orElseThrow(() -> new BusinessException(
-                            "Phòng " + room.getRoomNumber() + " chưa có kết quả tính giá"));
-
-            room.setStatus(RoomStatus.AVAILABLE);
-
-            activatedRooms.add(PropertyActivationResponse.ActivatedRoom.builder()
-                    .roomId(room.getId())
-                    .roomNumber(room.getRoomNumber())
-                    .price(room.getPrice())
-                    .adminSuggestedPrice(roomDepreciation.getSuggestedMinPrice())
-                    .status(room.getStatus())
-                    .build());
-        }
-
-        roomRepository.saveAll(draftRooms);
+        List<Room> activated = activateDraftRoomsPerRoom(propertyId, false).activated();
+        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = activated.stream()
+                .map(room -> {
+                    BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
+                            .map(DepreciationResult::getRoomFloor)
+                            .orElse(null);
+                    return PropertyActivationResponse.ActivatedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .price(room.getPrice())
+                            .adminSuggestedPrice(adminSuggested)
+                            .status(room.getStatus())
+                            .build();
+                })
+                .toList();
 
         return PropertyActivationResponse.builder()
                 .propertyId(propertyId)
@@ -916,6 +1008,114 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .operationManagerName(resolveOperationManagerName(managerId))
                 .rooms(activatedRooms)
                 .build();
+    }
+
+    /**
+     * Một chỗ mở phòng DRAFT khi nhà đã ACTIVE (hostConfirm / assign / cải tạo / gán khu vực).
+     */
+    private RoomActivationResult openDraftRoomsIfActive(Property property) {
+        if (property == null || property.getStatus() != PropertyStatus.ACTIVE) {
+            return RoomActivationResult.empty();
+        }
+        Long propertyId = property.getId();
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            activateDraftRooms(propertyId);
+            return RoomActivationResult.empty();
+        }
+        return activateDraftRoomsPerRoom(propertyId, true);
+    }
+
+    /** Gỡ khai thác: phòng trống AVAILABLE → DRAFT. Không đụng phòng đang thuê / bảo trì. */
+    private void revertAvailableRoomsToDraft(Long propertyId) {
+        List<Room> available = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.AVAILABLE);
+        if (available.isEmpty()) {
+            return;
+        }
+        available.forEach(room -> room.setStatus(RoomStatus.DRAFT));
+        roomRepository.saveAll(available);
+    }
+
+    /** Đưa mọi phòng DRAFT sang AVAILABLE (nhà nguyên căn — không bắt giá từng phòng). */
+    private void activateDraftRooms(Long propertyId) {
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+        if (draftRooms.isEmpty()) {
+            return;
+        }
+        draftRooms.forEach(r -> r.setStatus(RoomStatus.AVAILABLE));
+        roomRepository.saveAll(draftRooms);
+    }
+
+    /**
+     * Đưa phòng DRAFT sang AVAILABLE khi nhà chia phòng bắt đầu khai thác.
+     *
+     * @param soft true = bỏ qua phòng thiếu giá/DepreciationResult (log.warn + skipped);
+     *             false = ném BusinessException (luồng gán QL cũ).
+     */
+    private RoomActivationResult activateDraftRoomsPerRoom(Long propertyId, boolean soft) {
+        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+        if (draftRooms.isEmpty()) {
+            return RoomActivationResult.empty();
+        }
+
+        List<Room> activated = new ArrayList<>();
+        List<PropertyActivationResponse.SkippedRoom> skipped = new ArrayList<>();
+        for (Room room : draftRooms) {
+            if (room.getPrice() == null) {
+                String reason = "Chưa có giá";
+                if (soft) {
+                    log.warn("Bỏ qua kích hoạt phòng {} (propertyId={}): {}",
+                            room.getRoomNumber(), propertyId, reason);
+                    skipped.add(PropertyActivationResponse.SkippedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .reason(reason)
+                            .build());
+                    continue;
+                }
+                throw new BusinessException(
+                        "Phòng " + room.getRoomNumber() + " chưa có giá — host phải xác nhận giá trước");
+            }
+
+            if (depreciationResultRepository.findByRoomId(room.getId()).isEmpty()) {
+                String reason = "Chưa có kết quả tính giá";
+                if (soft) {
+                    log.warn("Bỏ qua kích hoạt phòng {} (propertyId={}): {}",
+                            room.getRoomNumber(), propertyId, reason);
+                    skipped.add(PropertyActivationResponse.SkippedRoom.builder()
+                            .roomId(room.getId())
+                            .roomNumber(room.getRoomNumber())
+                            .reason(reason)
+                            .build());
+                    continue;
+                }
+                throw new BusinessException(
+                        "Phòng " + room.getRoomNumber() + " chưa có kết quả tính giá");
+            }
+
+            room.setStatus(RoomStatus.AVAILABLE);
+            activated.add(room);
+        }
+
+        if (!activated.isEmpty()) {
+            roomRepository.saveAll(activated);
+        }
+        return new RoomActivationResult(activated, skipped);
+    }
+
+    private void applySkippedRooms(PropertyActivationResponse response, RoomActivationResult activation) {
+        if (response == null || activation == null || activation.skipped().isEmpty()) {
+            return;
+        }
+        response.setSkippedRoomCount(activation.skipped().size());
+        response.setSkippedRooms(activation.skipped());
+    }
+
+    private record RoomActivationResult(
+            List<Room> activated,
+            List<PropertyActivationResponse.SkippedRoom> skipped) {
+        static RoomActivationResult empty() {
+            return new RoomActivationResult(List.of(), List.of());
+        }
     }
 
     private BigDecimal resolveFinalPrice(BigDecimal override,
@@ -1182,6 +1382,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private PropertyResponse mapPropertyResponse(Property property, String shortAddress) {
         PropertyResponse response = new PropertyResponse();
         response.setId(property.getId());
+        response.setPropertyCode(property.getPropertyCode());
         response.setPropertyName(property.getPropertyName());
         response.setShortAddress(shortAddress);
         response.setFullAddress(property.getAddress());
@@ -1203,7 +1404,25 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
+            response.setLeaseStartDate(lease.getStartDate());
+            response.setLeaseEndDate(lease.getEndDate());
+        });
+        propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(property.getId()));
         return response;
+    }
+
+    private void applyInboundLeaseWarnings(PropertyActivationResponse response,
+                                           InboundContract lease,
+                                           LocalDate today) {
+        if (response == null || lease == null) {
+            return;
+        }
+        response.setLeaseStartDate(lease.getStartDate());
+        response.setLeaseEndDate(lease.getEndDate());
+        response.setLeaseNotStartedWarning(
+                lease.getStartDate() != null && lease.getStartDate().isAfter(today));
+        response.setShortExploitationWarning(InboundLeaseRules.isShortExploitation(today, lease));
     }
 
     private String resolveOperationManagerName(UUID operationManagerId) {
@@ -1239,4 +1458,45 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new ConflictException("Địa chỉ này đã được sử dụng cho một tòa nhà khác");
         }
     }
+
+    /** Gán nhà lẻ cũng ghi zone_managers — một khu vực một quản lý, để hostConfirm tự gán được. */
+    private void upsertZoneManager(Property property, UUID managerId) {
+        if (property.getZone() == null || managerId == null) {
+            return;
+        }
+        UUID zoneId = property.getZone().getId();
+        ZoneManager existing = zoneManagerRepository.findById(zoneId).orElse(null);
+        ZoneManager zm = existing != null ? existing : new ZoneManager();
+        zm.setZoneId(zoneId);
+        zm.setManagerId(managerId);
+        zm.setAssignedBy(SecurityUtils.requireCurrentUser().getId());
+        zm.setAssignedAt(LocalDateTime.now());
+        zoneManagerRepository.save(zm);
+    }
+
+    private void notifyPropertyAssigned(Property property, UUID managerId) {
+        if (managerId == null) {
+            return;
+        }
+        String zoneName = property.getZone() != null ? property.getZone().getName() : "khu vực";
+        String title = "Bạn được giao một căn nhà mới";
+        String body = "Nhà " + property.getPropertyName() + " (" + zoneName
+                + ") đã được đưa vào khai thác và giao cho bạn phụ trách.";
+
+        notificationRepository.save(Notification.builder()
+                .userId(managerId)
+                .title(title)
+                .content(body)
+                .type("PROPERTY_ASSIGNED")
+                .screen("PropertyDetail")
+                .paramsJson("{\"propertyId\":" + property.getId() + "}")
+                .read(false)
+                .build());
+
+        userPushTokenService.sendToUser(managerId, title, body, Map.of(
+                "screen", "PropertyDetail",
+                "params", Map.of("propertyId", property.getId()),
+                "type", "PROPERTY_ASSIGNED"));
+    }
 }
+

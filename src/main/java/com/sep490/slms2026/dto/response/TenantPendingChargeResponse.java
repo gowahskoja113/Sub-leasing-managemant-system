@@ -19,6 +19,7 @@ public class TenantPendingChargeResponse {
     private BigDecimal amount;
     private String category;
     private String note;
+    private Long maintenanceRequestId;
     private String status;
     private LocalDateTime createdAt;
 }

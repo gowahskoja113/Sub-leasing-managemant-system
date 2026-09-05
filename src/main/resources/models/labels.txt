@@ -1,0 +1,30 @@
+# 21 lớp — khớp thứ tự khi train/export ONNX (index 0..20).
+# Nhãn tiếng Anh thường, trùng FE equipmentPhoto.ts (CLASSES / NON_EQUIPMENT / INDOOR_ISH).
+# Dòng # và trống bị bỏ qua khi nạp.
+
+# --- 14 thiết bị ---
+air conditioner
+refrigerator
+washing machine
+water heater
+television
+electric fan
+stove
+bed
+wardrobe
+table
+curtain
+toilet
+light fixture
+door
+
+# --- 1 bối cảnh trong nhà (luật 4 validateEquipmentPhoto) ---
+furniture
+
+# --- 6 lớp chặn (chống gian lận) ---
+hand
+person
+food
+plant
+animal
+screenshot

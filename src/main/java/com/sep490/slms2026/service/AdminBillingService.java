@@ -7,7 +7,9 @@ import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
+import com.sep490.slms2026.dto.response.AdminDepositDto;
+
 public interface AdminBillingService {
-    Page<AdminInvoiceDto> getAdminInvoices(String month, String hostId, String status, String keyword, Pageable pageable);
     List<AdminHostDto> getAdminHosts();
+    Page<AdminDepositDto> getAdminDeposits(String status, Pageable pageable);
 }

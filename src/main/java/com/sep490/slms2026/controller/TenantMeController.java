@@ -68,8 +68,9 @@ public class TenantMeController {
 
     @GetMapping("/equipments")
     @PreAuthorize("hasRole('TENANT')")
-    public ResponseEntity<List<EquipmentResponse>> myEquipments() {
-        return ResponseEntity.ok(equipmentService.getEquipmentsForCurrentTenant());
+    public ResponseEntity<List<EquipmentResponse>> myEquipments(
+            @RequestParam(required = false) Long contractId) {
+        return ResponseEntity.ok(equipmentService.getEquipmentsForCurrentTenant(contractId));
     }
 
     private static UUID currentUserId() {

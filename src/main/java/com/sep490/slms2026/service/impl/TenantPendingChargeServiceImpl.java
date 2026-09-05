@@ -13,6 +13,7 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.TenantContractRepository;
 import com.sep490.slms2026.repository.TenantInvoiceRepository;
 import com.sep490.slms2026.repository.TenantPendingChargeRepository;
+import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.TenantPendingChargeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
     private final TenantPendingChargeRepository pendingChargeRepository;
     private final TenantInvoiceRepository tenantInvoiceRepository;
     private final TenantContractRepository tenantContractRepository;
+    private final PayosService payosService;
 
     @Override
     public List<TenantPendingChargeResponse> getPendingChargesForManager(UUID managerId, boolean isAdmin, Long propertyId, String status) {
@@ -106,6 +108,56 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
         return toInvoiceResponse(savedInvoice);
     }
 
+    @Override
+    @Transactional
+    public TenantInvoiceResponse createAndIssueMaintenanceCharge(
+            TenantContract contract,
+            BigDecimal amount,
+            Long maintenanceRequestId,
+            String note) {
+        if (contract == null) {
+            throw new BusinessException("Không tìm thấy hợp đồng để tạo khoản bồi thường");
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Số tiền bồi thường phải lớn hơn 0");
+        }
+
+        TenantPendingCharge charge = TenantPendingCharge.builder()
+                .tenantContract(contract)
+                .amount(amount)
+                .category("MAINTENANCE")
+                .note(note)
+                .maintenanceRequestId(maintenanceRequestId)
+                .status("PENDING")
+                .createdAt(LocalDateTime.now())
+                .build();
+        charge = pendingChargeRepository.save(charge);
+
+        IssueInvoiceRequest issueRequest = new IssueInvoiceRequest();
+        issueRequest.setChargeIds(List.of(charge.getId()));
+        issueRequest.setNote(note);
+        issueRequest.setDueDate(LocalDate.now().plusDays(7));
+
+        TenantInvoiceResponse invoiceResponse = issueInvoiceFromCharges(contract.getId(), issueRequest);
+
+        TenantInvoice invoice = tenantInvoiceRepository.findById(invoiceResponse.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found after issue"));
+        if (payosService.isConfigured()) {
+            try {
+                long orderCode = System.currentTimeMillis();
+                PayosService.PaymentLink link = payosService.createPaymentLink(
+                        orderCode, invoice.getGrandTotal().longValue(), invoice.getCode());
+                invoice.setPayosOrderCode(orderCode);
+                invoice.setPayosCheckoutUrl(link.checkoutUrl);
+                invoice.setPayosQrCode(link.qrCode);
+                invoice = tenantInvoiceRepository.save(invoice);
+            } catch (Exception e) {
+                log.warn("PayOS link failed for maintenance invoice {}: {}", invoice.getCode(), e.getMessage());
+            }
+        }
+        return toInvoiceResponse(invoice);
+    }
+
     private TenantPendingChargeResponse toResponse(TenantPendingCharge charge) {
         return TenantPendingChargeResponse.builder()
                 .id(charge.getId())
@@ -114,6 +166,7 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
                 .amount(charge.getAmount())
                 .category(charge.getCategory())
                 .note(charge.getNote())
+                .maintenanceRequestId(charge.getMaintenanceRequestId())
                 .status(charge.getStatus())
                 .createdAt(charge.getCreatedAt())
                 .build();
@@ -129,7 +182,6 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
                 .month(invoice.getBillingMonth())
                 .year(invoice.getBillingYear())
                 .billingPeriod(invoice.getBillingPeriod())
-
                 .totalAmount(invoice.getTotalAmount())
                 .lateFee(invoice.getLateFee())
                 .grandTotal(invoice.getGrandTotal())
@@ -137,6 +189,9 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
                 .dueDate(invoice.getDueDate())
                 .createdAt(invoice.getCreatedAt())
                 .paidAt(invoice.getPaidAt())
+                .payosCheckoutUrl(invoice.getPayosCheckoutUrl())
+                .payosQrCode(invoice.getPayosQrCode())
+                .payosOrderCode(invoice.getPayosOrderCode())
                 .build();
     }
 }

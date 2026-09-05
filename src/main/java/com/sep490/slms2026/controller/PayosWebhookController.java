@@ -1,6 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
@@ -9,11 +10,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
  * Webhook PayOS gọi về khi có biến động thanh toán. Endpoint này PUBLIC (không JWT)
  * — bảo mật bằng chữ ký HMAC trong payload.
+ *
+ * Body dùng Map (không inject {@code JsonNode} trực tiếp) vì Spring Boot 4 / Jackson 3
+ * không deserialize {@code com.fasterxml.jackson.databind.JsonNode} an toàn → 500.
  */
 @Slf4j
 @RestController
@@ -23,11 +28,15 @@ public class PayosWebhookController {
 
     private final PayosService payosService;
     private final TenantOnboardingService tenantOnboardingService;
-    private final com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+    private final TenantBillingService tenantBillingService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/webhook")
-    public ResponseEntity<Map<String, Object>> handleWebhook(@RequestBody JsonNode payload) {
+    public ResponseEntity<Map<String, Object>> handleWebhook(
+            @RequestBody(required = false) Map<String, Object> body) {
         try {
+            JsonNode payload = objectMapper.valueToTree(
+                    body != null ? body : Collections.emptyMap());
             JsonNode data = payload.path("data");
             String signature = payload.path("signature").asText(null);
 

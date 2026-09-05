@@ -3,6 +3,8 @@ package com.sep490.slms2026.dto.request;
 import com.sep490.slms2026.enums.PricingMode;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -10,7 +12,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.util.Map;
 
 @Getter
 @Setter
@@ -41,6 +42,8 @@ public class CalculateDepreciationRequest {
     @DecimalMin(value = "0")
     private BigDecimal vRate;
 
-    /** Hệ số chất lượng theo roomId. Mặc định 1.0 cho mọi phòng. */
-    private Map<Long, BigDecimal> roomQualityFactors;
+    /** Số tháng cuối kỳ không tính doanh thu. null = dùng mặc định hệ thống / cấu hình. */
+    @Min(0)
+    @Max(12)
+    private Integer handoverBufferMonths;
 }

@@ -37,6 +37,10 @@ public class TenantPendingCharge implements Serializable {
     @Column(columnDefinition = "TEXT")
     private String note;
 
+    /** Tham chiếu ticket bảo trì (nullable — charge có thể không gắn maintenance). */
+    @Column(name = "maintenance_request_id")
+    private Long maintenanceRequestId;
+
     @Column(nullable = false)
     @Builder.Default
     private String status = "PENDING";

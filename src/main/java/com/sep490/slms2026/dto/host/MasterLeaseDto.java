@@ -10,13 +10,12 @@ public record MasterLeaseDto(
         String id,
         String propertyId,
         String ownerName,
-        String ownerPhone,
+        String contractCode,
+        String contractScanUrl,
         BigDecimal monthlyRent,
-        BigDecimal deposit,
-        Integer paymentDay,
+        BigDecimal totalRentAmount,
         LocalDate startDate,
         LocalDate endDate,
-        BigDecimal escalationPct,
         String status
 ) {
 }
