@@ -148,6 +148,7 @@ public class TenantDashboardService {
                 .roomId(room != null ? room.getId() : null)
                 .roomNumber(room != null ? room.getRoomNumber()
                         : (property != null ? property.getPropertyName() : null))
+                .type(room != null ? "ROOM" : "WHOLE_HOUSE")
                 .build();
     }
 }

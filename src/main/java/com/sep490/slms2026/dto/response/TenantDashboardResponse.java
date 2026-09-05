@@ -41,6 +41,8 @@ public class TenantDashboardResponse {
         private String propertyName;
         private Long roomId;
         private String roomNumber;
+        /** ROOM = thuê theo phòng; WHOLE_HOUSE = thuê nguyên căn (`room_id` null trên HĐ). */
+        private String type;
     }
 
     @Data
