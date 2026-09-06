@@ -219,9 +219,10 @@ public class BillingCronServiceImpl implements BillingCronService {
                                 "🔴 Hợp đồng có thể bị chấm dứt",
                                 String.format("Tiền phòng %s %sđ đã quá hạn %d ngày. Quản lý đã được quyền đề nghị chấm dứt hợp đồng. Thanh toán ngay để giữ hợp đồng.",
                                     period, formattedAmount, overdueDays));
-                            notifyManagerAndHostsOverdue(invoice, period, formattedAmount, overdueDays);
-                            invoice.getTenantContract().setTerminationProposed(true);
-                            tenantContractRepository.save(invoice.getTenantContract());
+                            notifyManagerAndHostsOverdue(invoice, period, formattedAmount, overdueDays, "RENT");
+                            proposeContractTermination(invoice.getTenantContract(),
+                                    "Quá hạn tiền nhà — hoá đơn " + invoice.getCode()
+                                            + " quá hạn " + overdueDays + " ngày");
                         } else if (finalOverdueDaysThreshold > 0
                                 && overdueDays >= finalOverdueDaysThreshold) {
                             sendNotification(invoice, "BILLING_OVERDUE",
@@ -268,9 +269,10 @@ public class BillingCronServiceImpl implements BillingCronService {
                             "🔴 Hợp đồng có thể bị chấm dứt",
                             String.format("Tiền phòng %s %sđ đã quá hạn %d ngày. Quản lý đã được quyền đề nghị chấm dứt hợp đồng. Thanh toán ngay để giữ hợp đồng.",
                                 period, formattedAmount, overdueDays));
-                        notifyManagerAndHostsOverdue(invoice, period, formattedAmount, overdueDays);
-                        invoice.getTenantContract().setTerminationProposed(true);
-                        tenantContractRepository.save(invoice.getTenantContract());
+                        notifyManagerAndHostsOverdue(invoice, period, formattedAmount, overdueDays, "RENT");
+                        proposeContractTermination(invoice.getTenantContract(),
+                                "Quá hạn tiền nhà — hoá đơn " + invoice.getCode()
+                                        + " quá hạn " + overdueDays + " ngày");
                         invoice.setLastReminderDate(today);
                         stateChanged = true;
                         reminded++;
@@ -278,15 +280,33 @@ public class BillingCronServiceImpl implements BillingCronService {
                 }
             } else {
                 if (invoice.getStatus() == TenantInvoiceStatus.OVERDUE) {
-                    // Case C: Renotify every 7 days
-                    if (invoice.getLastReminderDate() == null ||
+                    long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+
+                    // MAINTENANCE: quá hạn đủ ngày → đề xuất chấm dứt (cùng cơ chế rent, không tự huỷ)
+                    if (invoice.getInvoiceType() == TenantInvoiceType.MAINTENANCE
+                            && overdueDays >= terminationAfterDays
+                            && invoice.getTenantContract() != null
+                            && !Boolean.TRUE.equals(invoice.getTenantContract().getTerminationProposed())) {
+                        String formattedAmount = formatCurrency(invoice.getGrandTotal());
+                        sendNotification(invoice, "BILLING_OVERDUE",
+                                "🔴 Hợp đồng có thể bị chấm dứt",
+                                String.format(
+                                        "Phí bảo trì %sđ (%s) đã quá hạn %d ngày. Quản lý đã được quyền đề nghị chấm dứt hợp đồng. Thanh toán ngay để giữ hợp đồng.",
+                                        formattedAmount, invoice.getCode(), overdueDays));
+                        notifyManagerAndHostsOverdue(invoice, "phí bảo trì", formattedAmount, overdueDays, "MAINTENANCE");
+                        proposeContractTermination(invoice.getTenantContract(),
+                                "Quá hạn phí bảo trì — hoá đơn " + invoice.getCode()
+                                        + " quá hạn " + overdueDays + " ngày");
+                        invoice.setLastReminderDate(today);
+                        stateChanged = true;
+                        reminded++;
+                    } else if (invoice.getLastReminderDate() == null ||
                             ChronoUnit.DAYS.between(invoice.getLastReminderDate(), today) >= overdueRenotifyDays) {
-                        
-                        long overdueDays = ChronoUnit.DAYS.between(invoice.getDueDate(), today);
+                        // Case C: Renotify every 7 days
                         String title = "Hóa đơn quá hạn";
                         String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Tổng phải trả %sđ. Vui lòng thanh toán ngay. (#%d)",
                                 invoice.getCode(), overdueDays, formatCurrency(invoice.getGrandTotal()), invoice.getId());
-                        
+
                         sendNotification(invoice, "BILLING_OVERDUE", title, content);
                         invoice.setLastReminderDate(today);
                         stateChanged = true;
@@ -296,32 +316,49 @@ public class BillingCronServiceImpl implements BillingCronService {
                     if (daysUntilDue < 0) {
                         // Case B: Overdue
                         invoice.setStatus(TenantInvoiceStatus.OVERDUE);
-                        
+
                         // Apply late fee if not applied yet
                         if (invoice.getLateFee() == null || invoice.getLateFee().compareTo(BigDecimal.ZERO) == 0) {
                             BigDecimal lateFee = invoice.getTotalAmount()
                                     .multiply(BigDecimal.valueOf(lateFeePercent))
                                     .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN);
-                            
+
                             // Round to thousands (nghìn đồng)
                             long lateFeeLong = (lateFee.longValue() / 1000) * 1000;
                             BigDecimal roundedLateFee = BigDecimal.valueOf(lateFeeLong);
-                            
+
                             invoice.setLateFee(roundedLateFee);
                             invoice.setGrandTotal(invoice.getTotalAmount().add(roundedLateFee));
-                            
+
                             // Clear PayOS fields to force generating new QR with updated grandTotal
                             invoice.setPayosOrderCode(null);
                             invoice.setPayosCheckoutUrl(null);
                             invoice.setPayosQrCode(null);
                         }
-                        
+
                         long overdueDays = -daysUntilDue;
-                        String title = "Hóa đơn quá hạn";
-                        String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Phí trễ hạn %sđ đã được cộng, tổng phải trả %sđ. (#%d)",
-                                invoice.getCode(), overdueDays, formatCurrency(invoice.getLateFee()), formatCurrency(invoice.getGrandTotal()), invoice.getId());
-                        
-                        sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        String formattedAmount = formatCurrency(invoice.getGrandTotal());
+
+                        if (invoice.getInvoiceType() == TenantInvoiceType.MAINTENANCE
+                                && overdueDays >= terminationAfterDays
+                                && invoice.getTenantContract() != null
+                                && !Boolean.TRUE.equals(invoice.getTenantContract().getTerminationProposed())) {
+                            sendNotification(invoice, "BILLING_OVERDUE",
+                                    "🔴 Hợp đồng có thể bị chấm dứt",
+                                    String.format(
+                                            "Phí bảo trì %sđ (%s) đã quá hạn %d ngày. Quản lý đã được quyền đề nghị chấm dứt hợp đồng. Thanh toán ngay để giữ hợp đồng. Phí trễ hạn %sđ đã được cộng.",
+                                            formattedAmount, invoice.getCode(), overdueDays,
+                                            formatCurrency(invoice.getLateFee())));
+                            notifyManagerAndHostsOverdue(invoice, "phí bảo trì", formattedAmount, overdueDays, "MAINTENANCE");
+                            proposeContractTermination(invoice.getTenantContract(),
+                                    "Quá hạn phí bảo trì — hoá đơn " + invoice.getCode()
+                                            + " quá hạn " + overdueDays + " ngày");
+                        } else {
+                            String title = "Hóa đơn quá hạn";
+                            String content = String.format("Hóa đơn %s đã quá hạn %d ngày. Phí trễ hạn %sđ đã được cộng, tổng phải trả %sđ. (#%d)",
+                                    invoice.getCode(), overdueDays, formatCurrency(invoice.getLateFee()), formattedAmount, invoice.getId());
+                            sendNotification(invoice, "BILLING_OVERDUE", title, content);
+                        }
                         invoice.setLastReminderDate(today);
                         stateChanged = true;
                         overdueMarked++;
@@ -331,7 +368,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                         String period = invoice.getBillingPeriod() != null ? invoice.getBillingPeriod() : "";
                         String content = String.format("Hóa đơn %s (%s) %sđ đến hạn ngày %s. Vui lòng thanh toán đúng hạn. (#%d)",
                                 invoice.getCode(), period, formatCurrency(invoice.getGrandTotal()), invoice.getDueDate().format(formatter), invoice.getId());
-                        
+
                         sendNotification(invoice, "BILLING_REMINDER", title, content);
                         invoice.setLastReminderDate(today);
                         stateChanged = true;
@@ -666,7 +703,21 @@ public class BillingCronServiceImpl implements BillingCronService {
         return null;
     }
 
-    private void notifyManagerAndHostsOverdue(TenantInvoice invoice, String period, String formattedAmount, long overdueDays) {
+    private void proposeContractTermination(TenantContract contract, String reason) {
+        if (contract == null) {
+            return;
+        }
+        contract.setTerminationProposed(true);
+        if (contract.getTerminationReason() == null || contract.getTerminationReason().isBlank()) {
+            contract.setTerminationReason(reason);
+        }
+        tenantContractRepository.save(contract);
+    }
+
+    private void notifyManagerAndHostsOverdue(
+            TenantInvoice invoice, String period, String formattedAmount, long overdueDays, String overdueKind) {
+        boolean maintenance = "MAINTENANCE".equals(overdueKind);
+        String kindLabel = maintenance ? "phí bảo trì" : "tiền phòng";
         UUID managerId = resolvePropertyManagerId(invoice);
         if (managerId != null) {
             String tenantName = invoice.getTenantContract().getTenant() != null
@@ -676,16 +727,18 @@ public class BillingCronServiceImpl implements BillingCronService {
             String roomStr = invoice.getTenantContract().getRoom() != null
                     ? invoice.getTenantContract().getRoom().getRoomNumber()
                     : "Nguyên căn";
-            String title = String.format("⛔ Quá hạn tiền phòng %d ngày — được quyền chấm dứt hợp đồng", overdueDays);
+            String title = String.format("⛔ Quá hạn %s %d ngày — được quyền chấm dứt hợp đồng", kindLabel, overdueDays);
             // Không lộ số tiền cho quản lý (cùng chính sách PAYMENT_RECEIVED_MANAGER)
             String content = String.format(
-                    "%s · Phòng %s chưa thanh toán tiền phòng %s. Hợp đồng đã bị gắn cờ đề nghị chấm dứt.",
-                    tenantName, roomStr, period);
-            String dedupeKey = "RENT_OVERDUE_MANAGER:" + invoice.getId() + ":" + todayVn().format(DAY_KEY);
-            sendNotificationWithPush(managerId, title, content, "RENT_OVERDUE_MANAGER", "RentInvoice",
+                    "%s · Phòng %s chưa thanh toán %s %s. Hợp đồng đã bị gắn cờ đề nghị chấm dứt.",
+                    tenantName, roomStr, kindLabel, period);
+            String notifType = maintenance ? "MAINTENANCE_OVERDUE_MANAGER" : "RENT_OVERDUE_MANAGER";
+            String dedupeKey = (maintenance ? "MAINT_OVERDUE_MANAGER:" : "RENT_OVERDUE_MANAGER:")
+                    + invoice.getId() + ":" + todayVn().format(DAY_KEY);
+            sendNotificationWithPush(managerId, title, content, notifType, "RentInvoice",
                     dedupeKey, Map.of("invoiceId", invoice.getId()));
         }
-        
+
         List<com.sep490.slms2026.entity.User> hosts = userRepository.findByRoleAndStatus(com.sep490.slms2026.enums.Role.ROLE_OWNER, com.sep490.slms2026.enums.UserStatus.ACTIVE);
         for (com.sep490.slms2026.entity.User host : hosts) {
             String tenantName = invoice.getTenantContract().getTenant() != null
@@ -694,24 +747,25 @@ public class BillingCronServiceImpl implements BillingCronService {
                     : "Khách";
             String roomStr = invoice.getTenantContract().getRoom() != null ? invoice.getTenantContract().getRoom().getRoomNumber() : "nguyên căn";
             String propertyName = invoice.getTenantContract().getProperty().getPropertyName();
-            String title = String.format("⛔ Khách thuê quá hạn tiền phòng %d ngày", overdueDays);
-            String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán tiền phòng %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.", 
-                    tenantName, roomStr, propertyName, period);
-            sendNotificationWithPush(host.getId(), title, content, "RENT_OVERDUE_HOST", "RentInvoice",
-                    "RENT_OVERDUE_HOST:" + invoice.getId() + ":" + host.getId(),
+            String title = String.format("⛔ Khách thuê quá hạn %s %d ngày", kindLabel, overdueDays);
+            String content = String.format("Khách %s (Phòng %s, nhà %s) quá hạn thanh toán %s %s. Quản lý đã nhận được thông báo đề nghị chấm dứt hợp đồng.",
+                    tenantName, roomStr, propertyName, kindLabel, period);
+            String notifType = maintenance ? "MAINTENANCE_OVERDUE_HOST" : "RENT_OVERDUE_HOST";
+            sendNotificationWithPush(host.getId(), title, content, notifType, "RentInvoice",
+                    (maintenance ? "MAINT_OVERDUE_HOST:" : "RENT_OVERDUE_HOST:") + invoice.getId() + ":" + host.getId(),
                     Map.of("invoiceId", invoice.getId()));
-            
+
             try {
                 hostNotificationRepository.insertIfAbsent(
-                    host.getId(), 
-                    "rent-overdue:" + invoice.getId(), 
-                    "RENT_OVERDUE_HOST", 
-                    title, 
-                    content, 
+                    host.getId(),
+                    (maintenance ? "maint-overdue:" : "rent-overdue:") + invoice.getId(),
+                    notifType,
+                    title,
+                    content,
                     "HIGH"
                 );
             } catch (Exception e) {
-                log.error("Failed to insert host notification for rent overdue", e);
+                log.error("Failed to insert host notification for {} overdue", kindLabel, e);
             }
         }
     }

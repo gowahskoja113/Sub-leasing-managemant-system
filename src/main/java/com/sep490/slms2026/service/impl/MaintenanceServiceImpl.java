@@ -137,8 +137,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         validateNoPurchaseIntent(title, request.getDescription());
 
         Long equipmentId = request.getEquipmentId();
+        Equipment equipment = null;
         if (equipmentId != null) {
-            Equipment equipment = equipmentRepository.findById(equipmentId)
+            equipment = equipmentRepository.findById(equipmentId)
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị"));
             boolean matches = equipment.getProperty() != null
                     && equipment.getProperty().getId().equals(property.getId())
@@ -198,9 +199,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 : "Khách thuê tạo yêu cầu, hẹn xem " + request.getVisitAppointmentAt();
         addTimeline(req, null, MaintenanceStatus.OPEN, timelineNote);
 
-        String locationLabel = room != null
-                ? "phòng " + room.getRoomNumber()
-                : "nguyên căn " + property.getPropertyName();
+        String locationLabel;
+        if (room != null) {
+            locationLabel = "phòng " + room.getRoomNumber();
+        } else if (equipment != null && equipment.getRoom() != null) {
+            locationLabel = "phòng " + equipment.getRoom().getRoomNumber();
+        } else {
+            locationLabel = "nguyên căn " + property.getPropertyName();
+        }
         notifyPropertyManager(req,
                 "Yêu cầu bảo trì mới",
                 "Khách thuê " + user.getFullName() + ": \"" + title + "\" — "
@@ -645,6 +651,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         applyInvoiceOnComplete(req, request);
 
+        boolean chargeToTenant = managerRepairFault
+                || Boolean.TRUE.equals(request.getChargeToTenant());
+        boolean needsReplacement = Boolean.TRUE.equals(request.getEquipmentNeedsReplacement());
+        if (needsReplacement) {
+            applyEquipmentReplacementOnComplete(req, request, chargeToTenant);
+        }
+
         MaintenanceStatus old = req.getStatus();
         req.setResolutionNote(trimToNull(request.getResolutionNote()));
         req.setRepairDescription(trimToNull(request.getRepairDescription()));
@@ -655,15 +668,25 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         restoreRoomStatus(req);
 
         TenantInvoiceResponse issuedInvoice = null;
-        if (managerRepairFault) {
-            issuedInvoice = issueMaintenanceCharge(req, req.getInvoiceAmount());
+        if (chargeToTenant) {
+            BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
+            issuedInvoice = issueMaintenanceCharge(req, chargeAmount);
         }
 
         String note = request.getRepairDescription() != null
                 ? "Manager hoàn tất sửa chữa: " + request.getRepairDescription()
                 : "Manager hoàn tất sửa chữa";
+        if (needsReplacement) {
+            note += " (thiết bị thay mới"
+                    + (req.getEstimatedDamageAmount() != null
+                    ? ", đền " + req.getEstimatedDamageAmount() + "đ" : "")
+                    + ")";
+        }
+        if (Boolean.TRUE.equals(request.getChargeToTenant()) && normalFlow) {
+            note += " — thu phí tenant (Luồng A)";
+        }
         addTimeline(req, old, MaintenanceStatus.CLOSED, note);
-        notifyTenantOnComplete(req, managerRepairFault);
+        notifyTenantOnComplete(req, chargeToTenant);
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
 
         MaintenanceRequestResponse response = convertToResponse(req);
@@ -1120,6 +1143,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     private ManagerAvailabilitySlotResponse toAvailabilitySlot(
             MaintenanceRequest r, String type, LocalDateTime start, LocalDateTime end) {
+        String roomNumber = r.getRoom() != null ? r.getRoom().getRoomNumber() : null;
+        if (roomNumber == null && r.getEquipmentId() != null) {
+            roomNumber = equipmentRepository.findById(r.getEquipmentId())
+                    .map(eq -> eq.getRoom() != null ? eq.getRoom().getRoomNumber() : null)
+                    .orElse(null);
+        }
         return ManagerAvailabilitySlotResponse.builder()
                 .requestId(r.getId())
                 .requestCode("M-" + r.getId())
@@ -1127,7 +1156,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .start(start)
                 .end(end)
                 .propertyName(r.getProperty() != null ? r.getProperty().getPropertyName() : null)
-                .roomNumber(r.getRoom() != null ? r.getRoom().getRoomNumber() : null)
+                .roomNumber(roomNumber)
                 .build();
     }
 
@@ -1149,6 +1178,62 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setInvoiceDate(request.getInvoiceDate());
         req.setInvoiceAmount(request.getInvoiceAmount());
         req.setRepairDescription(request.getRepairDescription().trim());
+    }
+
+    /**
+     * Thiết bị phải thay mới: ghi estimatedDamageAmount (penaltyFee hoặc số manager ghi đè),
+     * cập nhật lại đúng 1 bản ghi Equipment (không tạo mới).
+     */
+    private void applyEquipmentReplacementOnComplete(
+            MaintenanceRequest req, MaintenanceCompleteRequest request, boolean chargeToTenant) {
+        if (req.getEquipmentId() == null) {
+            throw new BusinessException("Phiếu không gắn thiết bị — không thể đánh dấu thay mới");
+        }
+        Equipment equipment = equipmentRepository.findById(req.getEquipmentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị"));
+
+        BigDecimal damageAmount = request.getEstimatedDamageAmount();
+        if (damageAmount == null) {
+            damageAmount = equipment.getPenaltyFee();
+        }
+        if (chargeToTenant) {
+            if (damageAmount == null || damageAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(
+                        "Thiết bị chưa có mức đền bù (penaltyFee) — nhập estimatedDamageAmount khi complete");
+            }
+            req.setEstimatedDamageAmount(damageAmount);
+        } else if (damageAmount != null && damageAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Công ty chịu — vẫn lưu số tham khảo nếu có
+            req.setEstimatedDamageAmount(damageAmount);
+        }
+
+        LocalDateTime now = LocalDateTime.now(VN_ZONE);
+        equipment.setLastMaintenanceDate(now);
+        equipment.setInstallationDate(now.toLocalDate());
+        equipment.setStatus(EquipmentStatus.NEW);
+        equipment.setRecommendReplacement(false);
+        equipment.setMaintenanceCount(equipment.getMaintenanceCount() + 1);
+        String replaceNote = "Thay mới sau bảo trì #" + req.getId() + " (" + now.toLocalDate() + ")";
+        if (isBlank(equipment.getNote())) {
+            equipment.setNote(replaceNote);
+        } else {
+            equipment.setNote(equipment.getNote().trim() + " | " + replaceNote);
+        }
+        equipmentRepository.save(equipment);
+    }
+
+    private BigDecimal resolveMaintenanceChargeAmount(MaintenanceRequest req, boolean needsReplacement) {
+        if (needsReplacement) {
+            if (req.getEstimatedDamageAmount() == null
+                    || req.getEstimatedDamageAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException("estimatedDamageAmount phải lớn hơn 0 khi thay thiết bị và thu phí tenant");
+            }
+            return req.getEstimatedDamageAmount();
+        }
+        if (req.getInvoiceAmount() == null || req.getInvoiceAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("invoiceAmount phải lớn hơn 0 để tạo hoá đơn bồi thường");
+        }
+        return req.getInvoiceAmount();
     }
 
     private void createOutstandingDamageRecord(MaintenanceRequest req) {
@@ -1386,17 +1471,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getRepairDescription() != null) {
             body.append(" Mô tả: ").append(req.getRepairDescription()).append('.');
         }
-        if (tenantCharge) {
-            body.append(" Có khoản thanh toán ").append(req.getInvoiceAmount()).append("đ cần thanh toán.");
+        BigDecimal chargeDisplay = req.getEstimatedDamageAmount() != null
+                ? req.getEstimatedDamageAmount()
+                : req.getInvoiceAmount();
+        if (tenantCharge && chargeDisplay != null) {
+            body.append(" Có khoản thanh toán ").append(chargeDisplay).append("đ cần thanh toán.");
         } else if (req.getInvoiceAmount() != null) {
             body.append(" Chi phí tham khảo: ").append(req.getInvoiceAmount()).append("đ (chủ nhà chi trả).");
         }
         body.append(" Nếu chưa hài lòng, tạo yêu cầu mới trong app.");
         notifyTenant(req, "Bảo trì đã hoàn tất — " + req.getTitle(), body.toString(), "MAINTENANCE_COMPLETED");
-        if (tenantCharge) {
+        if (tenantCharge && chargeDisplay != null) {
             notifyTenant(req,
                     "Đã phát hành hóa đơn sửa chữa",
-                    "Yêu cầu #" + req.getId() + " — khoản " + req.getInvoiceAmount() + "đ cần thanh toán.",
+                    "Yêu cầu #" + req.getId() + " — khoản " + chargeDisplay + "đ cần thanh toán trong "
+                            + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày.",
                     "MAINTENANCE_CHARGE_ISSUED");
         }
     }
@@ -1543,6 +1632,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getStatus() == MaintenanceStatus.OUTSTANDING_DAMAGE) {
             return MaintenanceBillingHint.DEPOSIT_DEDUCTION_PENDING;
         }
+        if (req.getStatus() == MaintenanceStatus.CLOSED
+                && hasMaintenanceCharge(req.getId())) {
+            return MaintenanceBillingHint.TENANT_CHARGE_PENDING;
+        }
         if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
                 && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR
                 && req.getStatus() == MaintenanceStatus.CLOSED) {
@@ -1557,6 +1650,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             return MaintenanceBillingHint.DEPOSIT_DEDUCTION_PENDING;
         }
         return MaintenanceBillingHint.NONE;
+    }
+
+    private boolean hasMaintenanceCharge(Long requestId) {
+        return !tenantPendingChargeRepository
+                .findByMaintenanceRequestIdOrderByCreatedAtDesc(requestId)
+                .isEmpty();
     }
 
     private OutstandingDamageResponse toOutstandingDamageResponse(OutstandingDamageRecord r) {
@@ -1745,6 +1844,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
                 res.setEquipmentId(eq.getId());
                 res.setEquipmentName(eq.getCatalog() != null ? eq.getCatalog().getName() : null);
+                // Nhà nguyên căn: ưu tiên phòng của thiết bị (phòng hợp đồng thường null)
+                if (eq.getRoom() != null && req.getRoom() == null) {
+                    res.setRoomId(eq.getRoom().getId());
+                    res.setRoomName(eq.getRoom().getRoomNumber());
+                }
             });
         }
         if (req.getAdminReviewedBy() != null) {

@@ -136,7 +136,7 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
         IssueInvoiceRequest issueRequest = new IssueInvoiceRequest();
         issueRequest.setChargeIds(List.of(charge.getId()));
         issueRequest.setNote(note);
-        issueRequest.setDueDate(LocalDate.now().plusDays(7));
+        issueRequest.setDueDate(LocalDate.now().plusDays(MAINTENANCE_CHARGE_DUE_DAYS));
 
         TenantInvoiceResponse invoiceResponse = issueInvoiceFromCharges(contract.getId(), issueRequest);
 

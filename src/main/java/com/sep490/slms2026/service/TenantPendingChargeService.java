@@ -16,10 +16,14 @@ public interface TenantPendingChargeService {
 
     /**
      * Tạo 1 TenantPendingCharge gắn ticket bảo trì rồi issue hoá đơn MAINTENANCE + QR PayOS.
+     * Hạn thanh toán mặc định {@link #MAINTENANCE_CHARGE_DUE_DAYS} ngày.
      */
     TenantInvoiceResponse createAndIssueMaintenanceCharge(
             TenantContract contract,
             BigDecimal amount,
             Long maintenanceRequestId,
             String note);
+
+    /** Số ngày hạn thanh toán hoá đơn bồi thường bảo trì (tenant tự trả). */
+    int MAINTENANCE_CHARGE_DUE_DAYS = 3;
 }
