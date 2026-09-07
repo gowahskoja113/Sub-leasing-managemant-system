@@ -55,6 +55,9 @@ public interface MaintenanceService {
 
     MaintenanceRequestResponse uploadPhotos(Long id, List<MultipartFile> files, String type);
 
+    /** Xoá 1 ảnh đã upload (CSV + photo history) khi phiếu còn mở. */
+    MaintenanceRequestResponse deletePhoto(Long id, String type, String url);
+
     List<OutstandingDamageResponse> getOutstandingDamages(Long propertyId, Long tenantContractId);
 
     /** Tenant/manager đổi lịch hẹn xem (OPEN, chưa xác nhận có mặt, còn trước ngày hẹn). */

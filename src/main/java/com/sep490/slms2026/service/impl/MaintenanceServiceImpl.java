@@ -777,6 +777,45 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     @Override
+    @Transactional
+    public MaintenanceRequestResponse deletePhoto(Long id, String type, String url) {
+        MaintenanceRequest req = findActive(id);
+        if (req.getStatus() == MaintenanceStatus.CLOSED || req.getStatus() == MaintenanceStatus.CANCELLED) {
+            throw new BusinessException("Không thể xoá ảnh khi phiếu đã đóng hoặc đã huỷ");
+        }
+        assertCanUploadPhotos(req, type);
+
+        String trimmedUrl = trimToNull(url);
+        if (trimmedUrl == null) {
+            throw new BusinessException("url ảnh không được để trống");
+        }
+
+        MaintenancePhotoType photoType = parsePhotoType(type);
+        boolean removedFromCsv = false;
+        switch (photoType) {
+            case BEFORE -> removedFromCsv = removeCsvUrl(req, "before", trimmedUrl);
+            case AFTER -> removedFromCsv = removeCsvUrl(req, "after", trimmedUrl);
+            case INVOICE -> removedFromCsv = removeCsvUrl(req, "invoice", trimmedUrl);
+            case FAULT_EVIDENCE, SELF_REPAIR -> { /* chỉ có history */ }
+        }
+
+        List<MaintenanceImage> historyRows = maintenanceImageRepository
+                .findByMaintenanceRequestIdAndImageUrlAndType(req.getId(), trimmedUrl, photoType);
+        boolean removedFromHistory = !historyRows.isEmpty();
+        if (removedFromHistory) {
+            maintenanceImageRepository.deleteByMaintenanceRequestIdAndImageUrlAndType(
+                    req.getId(), trimmedUrl, photoType);
+        }
+
+        if (!removedFromCsv && !removedFromHistory) {
+            throw new ResourceNotFoundException("Không tìm thấy ảnh cần xoá với type=" + photoType);
+        }
+
+        repository.save(req);
+        return convertToResponse(req);
+    }
+
+    @Override
     public List<OutstandingDamageResponse> getOutstandingDamages(Long propertyId, Long tenantContractId) {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         String role = user.getAuthorities().iterator().next().getAuthority();
@@ -1239,7 +1278,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     || req.getEstimatedDamageAmount().compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException("estimatedDamageAmount phải lớn hơn 0 khi thay thiết bị và thu phí tenant");
             }
-            return req.getEstimatedDamageAmount();
+            BigDecimal total = req.getEstimatedDamageAmount();
+            if (req.getInvoiceAmount() != null && req.getInvoiceAmount().compareTo(BigDecimal.ZERO) > 0) {
+                total = total.add(req.getInvoiceAmount());
+            }
+            return total;
         }
         if (req.getInvoiceAmount() == null || req.getInvoiceAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("invoiceAmount phải lớn hơn 0 để tạo hoá đơn bồi thường");
@@ -1587,6 +1630,52 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 req.setInvoiceImageUrls(isBlank(existing) ? joined : existing + "," + joined);
             }
         }
+    }
+
+    /** @return true nếu đã gỡ được ít nhất 1 URL khỏi cột CSV tương ứng */
+    private boolean removeCsvUrl(MaintenanceRequest req, String field, String url) {
+        return switch (field) {
+            case "after" -> {
+                String existing = req.getAfterImageUrls();
+                String updated = removeUrlFromCsv(existing, url);
+                boolean changed = !Objects.equals(updated, existing);
+                if (changed) {
+                    req.setAfterImageUrls(updated);
+                }
+                yield changed;
+            }
+            case "before" -> {
+                String existing = req.getBeforeImageUrls();
+                String updated = removeUrlFromCsv(existing, url);
+                boolean changed = !Objects.equals(updated, existing);
+                if (changed) {
+                    req.setBeforeImageUrls(updated);
+                }
+                yield changed;
+            }
+            case "invoice" -> {
+                String existing = req.getInvoiceImageUrls();
+                String updated = removeUrlFromCsv(existing, url);
+                boolean changed = !Objects.equals(updated, existing);
+                if (changed) {
+                    req.setInvoiceImageUrls(updated);
+                }
+                yield changed;
+            }
+            default -> false;
+        };
+    }
+
+    private static String removeUrlFromCsv(String csv, String url) {
+        if (isBlank(csv) || url == null) {
+            return csv;
+        }
+        List<String> urls = new ArrayList<>(splitCsv(csv));
+        boolean removed = urls.removeIf(u -> u.equals(url));
+        if (!removed) {
+            return csv;
+        }
+        return urls.isEmpty() ? null : String.join(",", urls);
     }
 
     private void appendPhotoHistory(MaintenanceRequest req, MaintenancePhotoType type, List<String> urls) {

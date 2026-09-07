@@ -191,4 +191,13 @@ public class MaintenanceController {
             @RequestParam("type") String type) {
         return maintenanceService.uploadPhotos(id, files, type);
     }
+
+    @DeleteMapping("/{id}/photos")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    public MaintenanceRequestResponse deletePhoto(
+            @PathVariable Long id,
+            @RequestParam("type") String type,
+            @RequestParam("url") String url) {
+        return maintenanceService.deletePhoto(id, type, url);
+    }
 }
