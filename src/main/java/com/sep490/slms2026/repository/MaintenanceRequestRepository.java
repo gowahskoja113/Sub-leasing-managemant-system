@@ -104,6 +104,10 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     boolean existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
             Long roomId, List<MaintenanceStatus> excludedStatuses, Long excludedId);
 
+    /** Phiếu đang mở (không CLOSED/CANCELLED/OUTSTANDING_DAMAGE) cho cùng thiết bị — chống tạo trùng. */
+    java.util.Optional<MaintenanceRequest> findFirstByEquipmentIdAndStatusNotInAndDeletedFalseOrderByIdDesc(
+            Long equipmentId, List<MaintenanceStatus> excludedStatuses);
+
     /** Phiếu OPEN còn lịch xem active hoặc REPAIR_SCHEDULED còn lịch sửa — để chống trùng / calendar. */
     @Query("""
             SELECT r FROM MaintenanceRequest r

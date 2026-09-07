@@ -147,6 +147,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             if (!matches) {
                 throw new BusinessException("Thiết bị không thuộc phòng/nhà bạn đang báo sự cố");
             }
+            repository.findFirstByEquipmentIdAndStatusNotInAndDeletedFalseOrderByIdDesc(
+                            equipmentId,
+                            List.of(MaintenanceStatus.CLOSED, MaintenanceStatus.CANCELLED,
+                                    MaintenanceStatus.OUTSTANDING_DAMAGE))
+                    .ifPresent(existing -> {
+                        throw new BusinessException(
+                                "DUPLICATE_EQUIPMENT_TICKET",
+                                "Thiết bị này đang có phiếu bảo trì #" + existing.getId()
+                                        + " chưa xử lý xong. Vui lòng chờ phiếu cũ hoàn tất hoặc bị hủy trước khi báo lại.",
+                                Map.of("existingRequestId", existing.getId()));
+                    });
         }
 
         String category = resolveCreateCategory(equipmentId, request.getCategory());

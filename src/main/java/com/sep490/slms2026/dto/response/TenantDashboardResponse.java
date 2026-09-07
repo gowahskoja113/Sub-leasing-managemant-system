@@ -34,6 +34,8 @@ public class TenantDashboardResponse {
         private Long id;
         private String code;
         private LocalDate startDate;
+        /** Ngày khách thực sự dọn vào ở (có thể khác startDate). */
+        private LocalDate moveInDate;
         private LocalDate endDate;
         private Long daysLeft;
         private String status;

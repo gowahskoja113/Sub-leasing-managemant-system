@@ -140,6 +140,7 @@ public class TenantDashboardService {
                 .id(c.getId())
                 .code(c.getContractCode())
                 .startDate(c.getStartDate())
+                .moveInDate(c.getMoveInDate())
                 .endDate(c.getEndDate())
                 .daysLeft(daysLeft)
                 .status(c.getStatus().name())
