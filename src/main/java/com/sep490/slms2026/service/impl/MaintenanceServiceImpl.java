@@ -660,11 +660,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Bắt buộc phải có ảnh hóa đơn (INVOICE)");
         }
 
-        applyInvoiceOnComplete(req, request);
-
         boolean chargeToTenant = managerRepairFault
                 || Boolean.TRUE.equals(request.getChargeToTenant());
         boolean needsReplacement = Boolean.TRUE.equals(request.getEquipmentNeedsReplacement());
+
+        applyInvoiceOnComplete(req, request, needsReplacement);
+
         if (needsReplacement) {
             applyEquipmentReplacementOnComplete(req, request, chargeToTenant);
         }
@@ -1210,14 +1211,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .build();
     }
 
-    private void applyInvoiceOnComplete(MaintenanceRequest req, MaintenanceCompleteRequest request) {
+    private void applyInvoiceOnComplete(
+            MaintenanceRequest req, MaintenanceCompleteRequest request, boolean needsReplacement) {
         if (isBlank(request.getInvoiceVendor())) {
             throw new BusinessException("invoiceVendor là bắt buộc");
         }
         if (request.getInvoiceDate() == null) {
             throw new BusinessException("invoiceDate là bắt buộc");
         }
-        if (request.getInvoiceAmount() == null || request.getInvoiceAmount().compareTo(BigDecimal.ZERO) <= 0) {
+        boolean hasAmount = request.getInvoiceAmount() != null
+                && request.getInvoiceAmount().compareTo(BigDecimal.ZERO) > 0;
+        if (!needsReplacement && !hasAmount) {
             throw new BusinessException("invoiceAmount phải lớn hơn 0");
         }
         if (isBlank(request.getRepairDescription())) {
