@@ -27,6 +27,7 @@ import com.sep490.slms2026.service.PropertyOnboardingService;
 import com.sep490.slms2026.service.TenantOnboardingService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.InboundLeaseRules;
+import com.sep490.slms2026.util.UtilityCustomerCodeHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -96,6 +97,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .imageUrls(request.getImageUrls())
                 .status(PropertyStatus.DRAFT)
                 .build();
+
+        applyUtilityCustomerCodes(property, request.getElectricityCustomerCode(),
+                request.getWaterCustomerCode(), null);
 
         return mapPropertyResponse(propertyRepository.save(property), shortAddress);
     }
@@ -1404,12 +1408,50 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         response.setRenovationCompleted(property.isRenovationCompleted());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        response.setElectricityCustomerCode(property.getElectricityCustomerCode());
+        response.setWaterCustomerCode(property.getWaterCustomerCode());
         inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
             response.setLeaseStartDate(lease.getStartDate());
             response.setLeaseEndDate(lease.getEndDate());
         });
         propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(property.getId()));
         return response;
+    }
+
+    private void applyUtilityCustomerCodes(Property property,
+                                           String electricityRaw,
+                                           String waterRaw,
+                                           Long excludePropertyId) {
+        String electricity = UtilityCustomerCodeHelper.normalize(electricityRaw);
+        String water = UtilityCustomerCodeHelper.normalize(waterRaw);
+        if (electricity != null && electricity.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            throw new ConflictException("Mã khách hàng điện tối đa "
+                    + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+        }
+        if (water != null && water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            throw new ConflictException("Mã khách hàng nước tối đa "
+                    + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+        }
+        if (electricity != null) {
+            boolean taken = excludePropertyId == null
+                    ? propertyRepository.existsByElectricityCustomerCodeIgnoreCase(electricity)
+                    : propertyRepository.existsByElectricityCustomerCodeIgnoreCaseAndIdNot(
+                            electricity, excludePropertyId);
+            if (taken) {
+                throw new ConflictException("Mã khách hàng điện \"" + electricity + "\" đã được sử dụng");
+            }
+        }
+        if (water != null) {
+            boolean taken = excludePropertyId == null
+                    ? propertyRepository.existsByWaterCustomerCodeIgnoreCase(water)
+                    : propertyRepository.existsByWaterCustomerCodeIgnoreCaseAndIdNot(
+                            water, excludePropertyId);
+            if (taken) {
+                throw new ConflictException("Mã khách hàng nước \"" + water + "\" đã được sử dụng");
+            }
+        }
+        property.setElectricityCustomerCode(electricity);
+        property.setWaterCustomerCode(water);
     }
 
     private void applyInboundLeaseWarnings(PropertyActivationResponse response,

@@ -19,6 +19,7 @@ import com.sep490.slms2026.service.PropertyDeletionService;
 import com.sep490.slms2026.service.PropertyOccupancyAssembler;
 import com.sep490.slms2026.service.PropertyService;
 import com.sep490.slms2026.exception.ConflictException;
+import com.sep490.slms2026.util.UtilityCustomerCodeHelper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -81,6 +82,9 @@ public class PropertyServiceImpl implements PropertyService {
         if (request.getWholeHouse() != null) {
             property.setWholeHouse(request.getWholeHouse());
         }
+
+        applyUtilityCustomerCodes(property, request.getElectricityCustomerCode(),
+                request.getWaterCustomerCode(), null);
 
         property.setStatus(PropertyStatus.DRAFT);
         Property saved = propertyRepository.save(property);
@@ -214,6 +218,16 @@ public class PropertyServiceImpl implements PropertyService {
             }
         }
 
+        if (request.getElectricityCustomerCode() != null || request.getWaterCustomerCode() != null) {
+            String electricityRaw = request.getElectricityCustomerCode() != null
+                    ? request.getElectricityCustomerCode()
+                    : property.getElectricityCustomerCode();
+            String waterRaw = request.getWaterCustomerCode() != null
+                    ? request.getWaterCustomerCode()
+                    : property.getWaterCustomerCode();
+            applyUtilityCustomerCodes(property, electricityRaw, waterRaw, id);
+        }
+
         Property updated = propertyRepository.save(property);
         PropertyResponse response = mapToResponse(updated, shortAddress);
         propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(id));
@@ -281,11 +295,49 @@ public class PropertyServiceImpl implements PropertyService {
         response.setImageUrls(property.getImageUrls());
         response.setElectricityUnitPrice(property.getElectricityUnitPrice());
         response.setWaterUnitPrice(property.getWaterUnitPrice());
+        response.setElectricityCustomerCode(property.getElectricityCustomerCode());
+        response.setWaterCustomerCode(property.getWaterCustomerCode());
         inboundContractRepository.findFirstByPropertyIdOrderByIdDesc(property.getId()).ifPresent(lease -> {
             response.setLeaseStartDate(lease.getStartDate());
             response.setLeaseEndDate(lease.getEndDate());
         });
         return response;
+    }
+
+    private void applyUtilityCustomerCodes(Property property,
+                                           String electricityRaw,
+                                           String waterRaw,
+                                           Long excludePropertyId) {
+        String electricity = UtilityCustomerCodeHelper.normalize(electricityRaw);
+        String water = UtilityCustomerCodeHelper.normalize(waterRaw);
+        if (electricity != null && electricity.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            throw new ConflictException("Mã khách hàng điện tối đa "
+                    + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+        }
+        if (water != null && water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            throw new ConflictException("Mã khách hàng nước tối đa "
+                    + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+        }
+        if (electricity != null) {
+            boolean taken = excludePropertyId == null
+                    ? propertyRepository.existsByElectricityCustomerCodeIgnoreCase(electricity)
+                    : propertyRepository.existsByElectricityCustomerCodeIgnoreCaseAndIdNot(
+                            electricity, excludePropertyId);
+            if (taken) {
+                throw new ConflictException("Mã khách hàng điện \"" + electricity + "\" đã được sử dụng");
+            }
+        }
+        if (water != null) {
+            boolean taken = excludePropertyId == null
+                    ? propertyRepository.existsByWaterCustomerCodeIgnoreCase(water)
+                    : propertyRepository.existsByWaterCustomerCodeIgnoreCaseAndIdNot(
+                            water, excludePropertyId);
+            if (taken) {
+                throw new ConflictException("Mã khách hàng nước \"" + water + "\" đã được sử dụng");
+            }
+        }
+        property.setElectricityCustomerCode(electricity);
+        property.setWaterCustomerCode(water);
     }
 
     private String resolveOperationManagerName(java.util.UUID operationManagerId) {

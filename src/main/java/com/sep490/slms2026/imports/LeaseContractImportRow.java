@@ -26,4 +26,8 @@ public class LeaseContractImportRow {
     private LocalDate startDate;
     private LocalDate endDate;
     private String descriptions;
+    /** Mã KH điện — cột tùy chọn trên sheet Hop_Dong_Thue. */
+    private String electricityCustomerCode;
+    /** Mã KH nước — cột tùy chọn trên sheet Hop_Dong_Thue. */
+    private String waterCustomerCode;
 }

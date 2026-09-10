@@ -15,6 +15,7 @@ import com.sep490.slms2026.repository.PropertyRepository;
 import com.sep490.slms2026.service.BulkLeaseImportService;
 import com.sep490.slms2026.service.InboundContractService;
 import com.sep490.slms2026.service.PropertyOnboardingService;
+import com.sep490.slms2026.util.UtilityCustomerCodeHelper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -113,6 +114,8 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         draftRequest.setWidth(leaseRow.getWidth());
         draftRequest.setTotalFloor(leaseRow.getTotalFloor());
         draftRequest.setTotalRooms(leaseRow.getTotalRooms());
+        draftRequest.setElectricityCustomerCode(leaseRow.getElectricityCustomerCode());
+        draftRequest.setWaterCustomerCode(leaseRow.getWaterCustomerCode());
 
         var propertyResponse = propertyOnboardingService.createDraft(draftRequest);
         Long propertyId = propertyResponse.getId();
@@ -187,10 +190,12 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         }
 
         Set<String> contractCodes = new HashSet<>();
+        Set<String> electricityCodes = new HashSet<>();
+        Set<String> waterCodes = new HashSet<>();
         Map<String, LeaseContractImportRow> leaseByCode = new LinkedHashMap<>();
 
         for (LeaseContractImportRow row : workbook.getLeaseContracts()) {
-            validateLeaseRow(row, contractCodes, skippedContracts, errors);
+            validateLeaseRow(row, contractCodes, electricityCodes, waterCodes, skippedContracts, errors);
             leaseByCode.put(row.getContractCode(), row);
         }
 
@@ -206,6 +211,8 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
 
     private void validateLeaseRow(LeaseContractImportRow row,
                                   Set<String> contractCodes,
+                                  Set<String> electricityCodes,
+                                  Set<String> waterCodes,
                                   Map<String, String> skippedContracts,
                                   List<BulkImportErrorResponse> errors) {
         boolean willSkip = skippedContracts.containsKey(normalizeOptional(row.getContractCode()));
@@ -268,11 +275,45 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
                     "Ngày kết thúc phải sau ngày bắt đầu"));
         }
 
+        validateUtilityCustomerCodes(row, electricityCodes, waterCodes, errors);
+
         try {
             zoneImportResolver.resolveDistrictZone(row.getProvince(), row.getDistrict());
         } catch (IllegalArgumentException ex) {
             errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
                     "Quận/Huyện / Tỉnh/Thành phố", ex.getMessage()));
+        }
+    }
+
+    private void validateUtilityCustomerCodes(LeaseContractImportRow row,
+                                              Set<String> electricityCodes,
+                                              Set<String> waterCodes,
+                                              List<BulkImportErrorResponse> errors) {
+        String electricity = UtilityCustomerCodeHelper.normalize(row.getElectricityCustomerCode());
+        String water = UtilityCustomerCodeHelper.normalize(row.getWaterCustomerCode());
+        if (electricity != null) {
+            if (electricity.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng điện", "Tối đa 64 ký tự"));
+            } else if (!electricityCodes.add(electricity)) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng điện", "Mã bị trùng trong file"));
+            } else if (propertyRepository.existsByElectricityCustomerCodeIgnoreCase(electricity)) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng điện", "Mã đã tồn tại trên nhà khác"));
+            }
+        }
+        if (water != null) {
+            if (water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng nước", "Tối đa 64 ký tự"));
+            } else if (!waterCodes.add(water)) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng nước", "Mã bị trùng trong file"));
+            } else if (propertyRepository.existsByWaterCustomerCodeIgnoreCase(water)) {
+                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                        "Mã khách hàng nước", "Mã đã tồn tại trên nhà khác"));
+            }
         }
     }
 

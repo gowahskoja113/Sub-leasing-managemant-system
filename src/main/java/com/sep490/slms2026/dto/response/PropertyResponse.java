@@ -59,6 +59,12 @@ public class PropertyResponse {
     private BigDecimal electricityUnitPrice;
     private BigDecimal waterUnitPrice;
 
+    /** Mã khách hàng điện — đối chiếu khi import hoá đơn điện. */
+    private String electricityCustomerCode;
+
+    /** Mã khách hàng nước — đối chiếu khi import hoá đơn nước. */
+    private String waterCustomerCode;
+
     /** Ngày HĐ với chủ nhà (InboundContract) — để FE chặn nhập ngày vào ở. */
     private java.time.LocalDate leaseStartDate;
     private java.time.LocalDate leaseEndDate;

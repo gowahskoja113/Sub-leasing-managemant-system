@@ -24,4 +24,10 @@ public class PropertyCreateRequest {
     private Long createdBy;
 
     private List<String> imageUrls;
+
+    /** Mã khách hàng điện (tùy chọn). */
+    private String electricityCustomerCode;
+
+    /** Mã khách hàng nước (tùy chọn). */
+    private String waterCustomerCode;
 }

@@ -41,4 +41,10 @@ public class PropertyDraftRequest {
     private Integer totalRooms;
 
     private List<String> imageUrls;
+
+    /** Mã khách hàng điện (tùy chọn) — dùng verify khi import hoá đơn. */
+    private String electricityCustomerCode;
+
+    /** Mã khách hàng nước (tùy chọn) — dùng verify khi import hoá đơn. */
+    private String waterCustomerCode;
 }

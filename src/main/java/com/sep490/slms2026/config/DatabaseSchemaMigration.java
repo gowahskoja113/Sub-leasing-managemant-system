@@ -149,6 +149,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureNotificationDedupeKey();
         ensureInvoiceDisputesTable();
         ensurePropertyCodeColumn();
+        ensureUtilityCustomerCodeColumns();
         ensureMaintenanceAdminReviewColumns();
         ensureMaintenanceAppointmentColumns();
         ensureUtilityInvoiceTenantViewedAtColumn();
@@ -1675,6 +1676,32 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_property_code ON properties (property_code)");
         } catch (Exception e) {
             log.warn("Could not create unique index on properties.property_code: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Mã KH điện/nước — nullable để nhà cũ không bắt buộc; unique khi đã có giá trị.
+     */
+    private void ensureUtilityCustomerCodeColumns() {
+        addColumnIfNotExists("properties", "electricity_customer_code", "VARCHAR(64)");
+        addColumnIfNotExists("properties", "water_customer_code", "VARCHAR(64)");
+        try {
+            jdbcTemplate.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_electricity_customer_code
+                    ON properties (electricity_customer_code)
+                    WHERE electricity_customer_code IS NOT NULL
+                    """);
+        } catch (Exception e) {
+            log.warn("Could not create unique index on properties.electricity_customer_code: {}", e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_water_customer_code
+                    ON properties (water_customer_code)
+                    WHERE water_customer_code IS NOT NULL
+                    """);
+        } catch (Exception e) {
+            log.warn("Could not create unique index on properties.water_customer_code: {}", e.getMessage());
         }
     }
 

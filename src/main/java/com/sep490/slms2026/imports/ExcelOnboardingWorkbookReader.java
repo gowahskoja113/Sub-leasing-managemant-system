@@ -102,6 +102,10 @@ public class ExcelOnboardingWorkbookReader {
                     .startDate(readDate(row, headers.get("Ngày bắt đầu"), formatter, evaluator))
                     .endDate(readDate(row, headers.get("Ngày kết thúc"), formatter, evaluator))
                     .descriptions(readString(row, headers.get("Mô tả chi tiết"), formatter, evaluator))
+                    .electricityCustomerCode(readOptionalString(
+                            row, headers.get("Mã khách hàng điện"), formatter, evaluator))
+                    .waterCustomerCode(readOptionalString(
+                            row, headers.get("Mã khách hàng nước"), formatter, evaluator))
                     .build());
         }
         return rows;

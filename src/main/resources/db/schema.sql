@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS properties (
     longitude                       DOUBLE PRECISION,
     electricity_unit_price          NUMERIC(19, 2),
     water_unit_price                NUMERIC(19, 2),
+    electricity_customer_code       VARCHAR(64),
+    water_customer_code             VARCHAR(64),
     deposit_months                  INTEGER,
     service_fee                     NUMERIC(19, 2),
     renovation_start_date           DATE,

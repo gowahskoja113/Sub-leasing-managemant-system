@@ -104,6 +104,14 @@ public class Property implements Serializable {
     @Column(name = "water_unit_price")
     private BigDecimal waterUnitPrice;
 
+    /** Mã khách hàng điện (EVN) — đối chiếu khi import hoá đơn điện */
+    @Column(name = "electricity_customer_code", length = 64)
+    private String electricityCustomerCode;
+
+    /** Mã khách hàng nước — đối chiếu khi import hoá đơn nước */
+    @Column(name = "water_customer_code", length = 64)
+    private String waterCustomerCode;
+
     /** Số tháng tiền cọc mặc định (1 hoặc 2) */
     @Column(name = "deposit_months")
     private Integer depositMonths;
