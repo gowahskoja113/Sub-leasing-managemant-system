@@ -35,7 +35,7 @@ public class OcrController {
     @PostMapping("/evn-bill")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<OcrUtilityBillResponse> readUtilityBill(@Valid @RequestBody OcrMeterRequest request) {
-        return ResponseEntity.ok(ocrService.readUtilityBill(request.getImageUrl()));
+        return ResponseEntity.ok(ocrService.readUtilityBill(request.getImageUrl(), request.getType()));
     }
 }
 

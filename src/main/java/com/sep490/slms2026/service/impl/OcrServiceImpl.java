@@ -128,11 +128,16 @@ public class OcrServiceImpl implements OcrService {
 
     @Override
     public OcrUtilityBillResponse readUtilityBill(String imageUrl) {
+        return readUtilityBill(imageUrl, null);
+    }
+
+    @Override
+    public OcrUtilityBillResponse readUtilityBill(String imageUrl, String billType) {
         String text = fetchOcrText(imageUrl);
         List<String> numbers = extractNumbers(text);
 
         BigDecimal totalQuantity = findLabeledNumber(text, numbers,
-                "kwh", "điện năng", "tiêu thụ", "sản lượng");
+                "kwh", "điện năng", "tiêu thụ", "sản lượng", "m3", "m³", "khối");
         BigDecimal totalAmount = findLabeledNumber(text, numbers,
                 "tổng tiền", "thanh toán", "số tiền", "phải thu");
 
@@ -142,10 +147,14 @@ public class OcrServiceImpl implements OcrService {
             billingPeriod = periodMatcher.group(1).trim();
         }
 
+        boolean water = billType != null && billType.trim().equalsIgnoreCase("WATER");
+
         String customerCode = null;
-        Matcher codeMatcher = CUSTOMER_CODE_PATTERN.matcher(text);
-        if (codeMatcher.find()) {
-            customerCode = codeMatcher.group(1).trim();
+        if (!water) {
+            Matcher codeMatcher = CUSTOMER_CODE_PATTERN.matcher(text);
+            if (codeMatcher.find()) {
+                customerCode = codeMatcher.group(1).trim();
+            }
         }
 
         BigDecimal prevReading = findLabeledNumber(text, numbers,
@@ -155,6 +164,10 @@ public class OcrServiceImpl implements OcrService {
                 "chỉ số mới", "chi so moi", "cs mới", "cs moi", "kỳ này", "ky nay",
                 "cuối kỳ", "cuoi ky", "chỉ số cuối", "chi so cuoi");
 
+        List<String> fieldsToConfirm = water
+                ? List.of("prevReading", "newReading")
+                : List.of("customerCode", "prevReading", "newReading");
+
         return OcrUtilityBillResponse.builder()
                 .totalQuantity(totalQuantity)
                 .totalAmount(totalAmount)
@@ -162,7 +175,7 @@ public class OcrServiceImpl implements OcrService {
                 .customerCode(customerCode)
                 .prevReading(prevReading)
                 .newReading(newReading)
-                .fieldsToConfirm(List.of("customerCode", "prevReading", "newReading"))
+                .fieldsToConfirm(fieldsToConfirm)
                 .rawText(text)
                 .build();
     }

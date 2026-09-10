@@ -1432,24 +1432,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new ConflictException("Mã khách hàng nước tối đa "
                     + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
         }
-        if (electricity != null) {
-            boolean taken = excludePropertyId == null
-                    ? propertyRepository.existsByElectricityCustomerCodeIgnoreCase(electricity)
-                    : propertyRepository.existsByElectricityCustomerCodeIgnoreCaseAndIdNot(
-                            electricity, excludePropertyId);
-            if (taken) {
-                throw new ConflictException("Mã khách hàng điện \"" + electricity + "\" đã được sử dụng");
-            }
-        }
-        if (water != null) {
-            boolean taken = excludePropertyId == null
-                    ? propertyRepository.existsByWaterCustomerCodeIgnoreCase(water)
-                    : propertyRepository.existsByWaterCustomerCodeIgnoreCaseAndIdNot(
-                            water, excludePropertyId);
-            if (taken) {
-                throw new ConflictException("Mã khách hàng nước \"" + water + "\" đã được sử dụng");
-            }
-        }
+        // Cho phép nhiều nhà chung một mã KH.
         property.setElectricityCustomerCode(electricity);
         property.setWaterCustomerCode(water);
     }

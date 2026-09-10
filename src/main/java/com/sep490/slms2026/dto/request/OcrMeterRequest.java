@@ -12,4 +12,10 @@ public class OcrMeterRequest {
 
     @NotBlank(message = "Thiếu URL ảnh đồng hồ")
     private String imageUrl;
+
+    /**
+     * ELECTRIC | WATER — hoá đơn nước không trả/không bắt mã khách hàng.
+     * Bỏ trống → mặc định ELECTRIC (giữ tương thích EVN).
+     */
+    private String type;
 }

@@ -477,29 +477,19 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                                               List<BulkImportErrorResponse> errors) {
         String electricity = UtilityCustomerCodeHelper.normalize(row.getElectricityCustomerCode());
         String water = UtilityCustomerCodeHelper.normalize(row.getWaterCustomerCode());
+        if (electricity != null && electricity.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                    "Mã khách hàng điện", "Tối đa 64 ký tự"));
+        }
+        if (water != null && water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+            errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
+                    "Mã khách hàng nước", "Tối đa 64 ký tự"));
+        }
         if (electricity != null) {
-            if (electricity.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng điện", "Tối đa 64 ký tự"));
-            } else if (!electricityCodes.add(electricity)) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng điện", "Mã bị trùng trong file"));
-            } else if (propertyRepository.existsByElectricityCustomerCodeIgnoreCase(electricity)) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng điện", "Mã đã tồn tại trên nhà khác"));
-            }
+            electricityCodes.add(electricity);
         }
         if (water != null) {
-            if (water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng nước", "Tối đa 64 ký tự"));
-            } else if (!waterCodes.add(water)) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng nước", "Mã bị trùng trong file"));
-            } else if (propertyRepository.existsByWaterCustomerCodeIgnoreCase(water)) {
-                errors.add(error(SHEET_LEASE, row.getRowNumber(), row.getContractCode(),
-                        "Mã khách hàng nước", "Mã đã tồn tại trên nhà khác"));
-            }
+            waterCodes.add(water);
         }
     }
 

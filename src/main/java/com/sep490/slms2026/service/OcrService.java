@@ -7,7 +7,10 @@ public interface OcrService {
     /** Đọc chỉ số đồng hồ điện/nước từ ảnh (Cloudinary URL) bằng OCR.space. */
     OcrMeterResponse readMeter(String imageUrl);
 
-    /** Đọc hóa đơn EVN tổng từ ảnh — trả tổng kWh, tổng tiền, kỳ thanh toán. */
+    /** Đọc hóa đơn EVN/nước từ ảnh — truyền type WATER để bỏ mã khách hàng. */
     OcrUtilityBillResponse readUtilityBill(String imageUrl);
+
+    /** @param billType ELECTRIC hoặc WATER (null = ELECTRIC). */
+    OcrUtilityBillResponse readUtilityBill(String imageUrl, String billType);
 }
 

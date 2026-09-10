@@ -1682,7 +1682,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     /**
-     * Mã KH điện/nước — nullable để nhà cũ không bắt buộc; unique khi đã có giá trị.
+     * Mã KH điện/nước — nullable; nhiều nhà được phép chung một mã (vd. cùng sổ EVN test).
      * Chuẩn hoá bỏ space/dấu → lưu dạng alphanumeric lowercase.
      */
     private void ensureUtilityCustomerCodeColumns() {
@@ -1690,22 +1690,11 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("properties", "water_customer_code", "VARCHAR(64)");
         backfillNormalizedUtilityCustomerCodes();
         try {
-            jdbcTemplate.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_electricity_customer_code
-                    ON properties (electricity_customer_code)
-                    WHERE electricity_customer_code IS NOT NULL
-                    """);
+            jdbcTemplate.execute("DROP INDEX IF EXISTS uq_properties_electricity_customer_code");
+            jdbcTemplate.execute("DROP INDEX IF EXISTS uq_properties_water_customer_code");
+            log.info("Dropped unique indexes on utility customer codes (shared codes allowed)");
         } catch (Exception e) {
-            log.warn("Could not create unique index on properties.electricity_customer_code: {}", e.getMessage());
-        }
-        try {
-            jdbcTemplate.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_water_customer_code
-                    ON properties (water_customer_code)
-                    WHERE water_customer_code IS NOT NULL
-                    """);
-        } catch (Exception e) {
-            log.warn("Could not create unique index on properties.water_customer_code: {}", e.getMessage());
+            log.warn("Could not drop unique indexes on utility customer codes: {}", e.getMessage());
         }
     }
 
@@ -1718,8 +1707,6 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     WHERE electricity_customer_code IS NOT NULL OR water_customer_code IS NOT NULL
                     ORDER BY id
                     """);
-            Set<String> usedElec = new HashSet<>();
-            Set<String> usedWater = new HashSet<>();
             int updated = 0;
             for (Map<String, Object> row : rows) {
                 Long id = ((Number) row.get("id")).longValue();
@@ -1729,21 +1716,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                         ? row.get("water_customer_code").toString() : null;
                 String elec = UtilityCustomerCodeHelper.normalize(elecRaw);
                 String water = UtilityCustomerCodeHelper.normalize(waterRaw);
-
-                if (elec != null && !usedElec.add(elec)) {
-                    log.warn("Property {} electricity_customer_code collision after normalize '{}', clearing",
-                            id, elec);
-                    elec = null;
-                }
-                if (water != null && !usedWater.add(water)) {
-                    log.warn("Property {} water_customer_code collision after normalize '{}', clearing",
-                            id, water);
-                    water = null;
-                }
-
-                boolean elecChanged = !Objects.equals(elecRaw, elec);
-                boolean waterChanged = !Objects.equals(waterRaw, water);
-                if (!elecChanged && !waterChanged) {
+                if (Objects.equals(elecRaw, elec) && Objects.equals(waterRaw, water)) {
                     continue;
                 }
                 jdbcTemplate.update("""
