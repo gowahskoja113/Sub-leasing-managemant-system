@@ -51,7 +51,7 @@ public class UtilityInvoice implements Serializable {
     @Column(name = "consumption", nullable = false, precision = 19, scale = 4)
     private BigDecimal consumption;
 
-    @Column(name = "unit_price", nullable = false, precision = 19, scale = 4)
+    @Column(name = "unit_price", nullable = false, precision = 19, scale = 8)
     private BigDecimal unitPrice;
 
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)

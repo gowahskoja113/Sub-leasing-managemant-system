@@ -118,15 +118,25 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+        HttpStatus status = isConflictCode(ex.getCode())
+                ? HttpStatus.CONFLICT
+                : HttpStatus.UNPROCESSABLE_ENTITY;
+        return ResponseEntity.status(status)
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
-                        .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                        .status(status.value())
                         .error(ex.getMessage())
                         .code(ex.getCode())
                         .message(ex.getMessage())
                         .details(ex.getDetails())
                         .build());
+    }
+
+    private static boolean isConflictCode(String code) {
+        return "READING_ALREADY_ISSUED".equals(code)
+                || "UTILITY_BILL_ALREADY_EXISTS".equals(code)
+                || "EVN_BILL_ALREADY_EXISTS".equals(code)
+                || "INVOICE_ALREADY_EXISTS".equals(code);
     }
 
     @ExceptionHandler(BulkImportValidationException.class)

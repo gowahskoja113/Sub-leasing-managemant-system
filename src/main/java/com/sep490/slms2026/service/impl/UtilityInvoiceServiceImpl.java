@@ -54,6 +54,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -113,7 +114,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
         validateBillingPeriodLock(propertyId, roomId, request.getBillingPeriod(), utilityType, contract);
 
-        UtilityInvoiceResponse response = createAndSend(property, room, contract, utilityType, request, true);
+        UtilityInvoiceResponse response = createAndSend(property, room, contract, utilityType, request, true, false, null);
         reconcileIfComplete(property.getId(), request.getBillingPeriod(), utilityType);
         return response;
     }
@@ -143,7 +144,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
         validateBillingPeriodLock(propertyId, null, request.getBillingPeriod(), utilityType, contract);
 
-        return createAndSend(property, null, contract, utilityType, request, true);
+        return createAndSend(property, null, contract, utilityType, request, true, false, null);
     }
 
     @Override
@@ -205,8 +206,244 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .build();
         validateInvoiceAmounts(request);
         validateBillingPeriodLock(property.getId(), null, request.getBillingPeriod(), bill.getType(), contract);
-        return createAndSend(property, null, contract, bill.getType(), request, false);
+        return createAndSend(property, null, contract, bill.getType(), request, false, false, null);
     }
+
+    @Override
+    @Transactional
+    public int issueElectricFromSavedReadings(UtilityBill bill) {
+        Property property = bill.getProperty();
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            return 0;
+        }
+        if (bill.getType() != UtilityType.ELECTRIC) {
+            return 0;
+        }
+        YearMonth month = YearMonth.of(bill.getYear(), bill.getMonth());
+        String normalized = ContractBillingCalendar.normalizePeriod(month);
+
+        List<MeterReading> pending = loadUnissuedReadings(property.getId(), normalized);
+        if (pending.isEmpty()) {
+            notifyManagerAutoIssued(property, bill, 0, eligibleElectricRoomCount(property.getId(), month));
+            return 0;
+        }
+
+        BigDecimal unitPrice = bill.getUnitPrice();
+        List<PendingIssue> toIssue = new java.util.ArrayList<>();
+        for (MeterReading reading : pending) {
+            Long roomId = reading.getRoom() != null ? reading.getRoom().getId() : null;
+            if (roomId == null) {
+                continue;
+            }
+            BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
+            BigDecimal consumption = reading.getReading().subtract(prev);
+            if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            toIssue.add(new PendingIssue(reading, consumption));
+        }
+
+        assertBatchRoomSumWithinBill(property.getId(), bill, normalized, toIssue);
+
+        int issued = 0;
+        for (PendingIssue item : toIssue) {
+            issueOneFromReading(bill, property, item.reading(), item.consumption(), unitPrice);
+            issued++;
+        }
+
+        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
+        int eligible = eligibleElectricRoomCount(property.getId(), month);
+        notifyManagerAutoIssued(property, bill, issued, eligible);
+        return issued;
+    }
+
+    @Override
+    @Transactional
+    public UtilityInvoiceResponse issueElectricFromSavedReading(UtilityBill bill, Long meterReadingId) {
+        Property property = bill.getProperty();
+        MeterReading reading = meterReadingRepository.findById(meterReadingId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Không tìm thấy bản chốt chỉ số ID=" + meterReadingId));
+        if (reading.getUtilityInvoiceId() != null) {
+            return toResponse(utilityInvoiceRepository.findById(reading.getUtilityInvoiceId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hoá đơn liên kết")));
+        }
+        if (reading.getRoom() == null) {
+            throw new BusinessException("INVALID_READING", "Bản chốt không gắn phòng.");
+        }
+        BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
+        BigDecimal consumption = reading.getReading().subtract(prev);
+        if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("INVALID_READING", "Chỉ số mới phải lớn hơn chỉ số cũ.");
+        }
+
+        YearMonth month = YearMonth.of(bill.getYear(), bill.getMonth());
+        String normalized = ContractBillingCalendar.normalizePeriod(month);
+        assertRoomSumWithinBill(property.getId(), reading.getRoom().getId(), normalized,
+                UtilityType.ELECTRIC, consumption);
+
+        UtilityInvoiceResponse response = issueOneFromReading(
+                bill, property, reading, consumption, bill.getUnitPrice());
+        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
+
+        int eligible = eligibleElectricRoomCount(property.getId(), month);
+        long done = utilityInvoiceRepository.countDistinctRoomsInvoiced(
+                property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
+        notifyManagerAutoIssued(property, bill, (int) done, eligible);
+        return response;
+    }
+
+    private UtilityInvoiceResponse issueOneFromReading(
+            UtilityBill bill,
+            Property property,
+            MeterReading reading,
+            BigDecimal consumption,
+            BigDecimal unitPrice) {
+        Room room = reading.getRoom();
+        TenantContract contract = tenantContractRepository
+                .findByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException("NO_ACTIVE_CONTRACT",
+                        "Phòng " + room.getRoomNumber() + " không có hợp đồng ACTIVE."));
+
+        BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
+        BigDecimal amount = consumption.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
+
+        CreateUtilityInvoiceRequest request = CreateUtilityInvoiceRequest.builder()
+                .type(UtilityTypeMapper.toApi(UtilityType.ELECTRIC))
+                .billingPeriod(bill.getBillingPeriod())
+                .prevReading(prev)
+                .newReading(reading.getReading())
+                .consumption(consumption)
+                .unitPrice(unitPrice)
+                .amount(amount)
+                .meterImageUrl(reading.getImageUrl())
+                .build();
+        validateInvoiceAmounts(request);
+        validateBillingPeriodLock(property.getId(), room.getId(), request.getBillingPeriod(),
+                UtilityType.ELECTRIC, contract);
+
+        return createAndSend(property, room, contract, UtilityType.ELECTRIC, request,
+                false, true, reading.getId());
+    }
+
+    private void assertBatchRoomSumWithinBill(
+            Long propertyId, UtilityBill bill, String normalizedPeriod, List<PendingIssue> toIssue) {
+        if (bill.getTotalQuantity() == null) {
+            return;
+        }
+        RoomUtilitySumSnapshot existingSnap = sumActiveRoomConsumptions(
+                propertyId, bill.getBillingPeriod(), UtilityType.ELECTRIC, null);
+        if ((existingSnap.getSum() == null || existingSnap.getSum().compareTo(BigDecimal.ZERO) == 0)
+                && !Objects.equals(bill.getBillingPeriod(), normalizedPeriod)) {
+            RoomUtilitySumSnapshot alt = sumActiveRoomConsumptions(
+                    propertyId, normalizedPeriod, UtilityType.ELECTRIC, null);
+            if (alt.getSum() != null && alt.getSum().compareTo(BigDecimal.ZERO) > 0) {
+                existingSnap = alt;
+            }
+        }
+
+        BigDecimal existing = existingSnap.getSum() != null ? existingSnap.getSum() : BigDecimal.ZERO;
+        BigDecimal incoming = toIssue.stream()
+                .map(PendingIssue::consumption)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sum = existing.add(incoming);
+        BigDecimal total = BigDecimal.valueOf(bill.getTotalQuantity());
+        BigDecimal tolerance = BigDecimal.valueOf(roomSumTolerancePercent)
+                .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+        BigDecimal cap = total.multiply(BigDecimal.ONE.add(tolerance));
+        if (sum.compareTo(cap) <= 0) {
+            return;
+        }
+
+        List<Map<String, Object>> roomDetails = new java.util.ArrayList<>();
+        for (RoomUtilitySumSnapshot.RoomLine line : existingSnap.getRooms()) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("roomId", line.getRoomId());
+            row.put("roomNumber", line.getRoomNumber());
+            row.put("consumption", line.getConsumption());
+            roomDetails.add(row);
+        }
+        for (PendingIssue item : toIssue) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("roomId", item.reading().getRoom() != null ? item.reading().getRoom().getId() : null);
+            row.put("roomNumber", item.reading().getRoom() != null
+                    ? item.reading().getRoom().getRoomNumber() : null);
+            row.put("consumption", item.consumption());
+            row.put("note", "bản chốt chưa phát hành");
+            roomDetails.add(row);
+        }
+        Map<String, Object> details = new HashMap<>();
+        details.put("sum", sum);
+        details.put("billTotal", total);
+        details.put("cap", cap);
+        details.put("tolerancePercent", roomSumTolerancePercent);
+        details.put("rooms", roomDetails);
+        throw new BusinessException("ROOM_SUM_EXCEEDS_BILL", String.format(
+                "Tổng tiêu thụ các phòng (%s) vượt quá giấy nhà nước (%s, trần cho phép %s). "
+                        + "Không phát hành phòng nào — kiểm lại chỉ số các phòng nghi đọc nhầm.",
+                fmtQty(sum), fmtQty(total), fmtQty(cap)),
+                details);
+    }
+
+    private List<MeterReading> loadUnissuedReadings(Long propertyId, String normalizedPeriod) {
+        List<MeterReading> result = new java.util.ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        YearMonth ym = YearMonth.parse(normalizedPeriod);
+        for (String alias : List.of(normalizedPeriod,
+                String.format("%02d/%d", ym.getMonthValue(), ym.getYear()))) {
+            for (MeterReading r : meterReadingRepository
+                    .findByPropertyIdAndUtilityTypeAndPeriodAndUtilityInvoiceIdIsNull(
+                            propertyId, UtilityType.ELECTRIC, alias)) {
+                if (r.getId() != null && seen.add(r.getId())) {
+                    result.add(r);
+                }
+            }
+        }
+        return result;
+    }
+
+    private int eligibleElectricRoomCount(Long propertyId, YearMonth month) {
+        return meterReadingService.listEligibleForPeriod(
+                propertyId, ContractBillingCalendar.normalizePeriod(month), UtilityType.ELECTRIC).size();
+    }
+
+    private void notifyManagerAutoIssued(Property property, UtilityBill bill, int issued, int eligible) {
+        UUID managerId = property.getOperationManagerId();
+        if (managerId == null) {
+            return;
+        }
+        int total = Math.max(eligible, issued);
+        String periodLabel = String.format("%02d/%d", bill.getMonth(), bill.getYear());
+        String isoPeriod = ContractBillingCalendar.normalizePeriod(YearMonth.of(bill.getYear(), bill.getMonth()));
+        String title = "Đã phát hành hoá đơn điện kỳ " + periodLabel;
+        String content = String.format("Đã phát hành hoá đơn điện kỳ %s cho %d/%d phòng nhà %s",
+                periodLabel, issued, total,
+                property.getPropertyName() != null ? property.getPropertyName() : ("#" + property.getId()));
+        String paramsJson = "{\"propertyId\":" + property.getId()
+                + ",\"tab\":\"electricity\",\"period\":\"" + isoPeriod + "\"}";
+        String dedupeKey = "utility-auto-issued-mgr:" + bill.getId() + ":" + issued;
+        if (!notificationRepository.existsByUserIdAndDedupeKey(managerId, dedupeKey)) {
+            notificationRepository.save(Notification.builder()
+                    .userId(managerId)
+                    .title(title)
+                    .content(content)
+                    .type("UTILITY_INVOICE_AUTO_ISSUED_MANAGER")
+                    .screen("UtilityBilling")
+                    .paramsJson(paramsJson)
+                    .dedupeKey(dedupeKey)
+                    .read(false)
+                    .build());
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("type", "UTILITY_INVOICE_AUTO_ISSUED_MANAGER");
+        data.put("screen", "UtilityBilling");
+        data.put("propertyId", property.getId());
+        data.put("period", isoPeriod);
+        data.put("tab", "electricity");
+        userPushTokenService.sendToUser(managerId, title, content, data);
+    }
+
+    private record PendingIssue(MeterReading reading, BigDecimal consumption) {}
 
     /**
      * Chỉ số cũ trên hoá đơn khách: dùng mốc đón khách nếu khách dọn vào trong kỳ giấy,
@@ -247,8 +484,29 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
      * Không chặn phát hành khi có hao hụt.
      */
     private void reconcileIfComplete(Long propertyId, String period, UtilityType type) {
-        // Cùng tập phòng với listPending (HĐ ACTIVE, bỏ khách sau deadline); chốt khi mọi phòng đó đã có HĐ.
-        var eligible = meterReadingService.listEligibleForPeriod(propertyId, period, type);
+        YearMonth month = ContractBillingCalendar.parsePeriod(period).orElse(null);
+        UtilityBill bill = null;
+        if (month != null) {
+            bill = utilityBillRepository
+                    .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+                            propertyId,
+                            month.getMonthValue(),
+                            month.getYear(),
+                            type,
+                            UtilityBillStatus.PUBLISHED)
+                    .orElse(null);
+        }
+        if (bill == null || bill.getTotalQuantity() == null) {
+            return;
+        }
+        // Nhà nguyên căn đã chốt trong createFromWholeHouseBill — không đụng.
+        if (Boolean.TRUE.equals(bill.getProperty().getWholeHouse())) {
+            return;
+        }
+
+        String eligiblePeriod = ContractBillingCalendar.normalizePeriod(
+                YearMonth.of(bill.getYear(), bill.getMonth()));
+        var eligible = meterReadingService.listEligibleForPeriod(propertyId, eligiblePeriod, type);
         if (eligible.isEmpty()) {
             return;
         }
@@ -257,32 +515,13 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
 
-        RoomUtilitySumSnapshot snapshot = sumActiveRoomConsumptions(propertyId, period, type, null);
+        RoomUtilitySumSnapshot snapshot = sumActiveRoomConsumptions(
+                propertyId, bill.getBillingPeriod(), type, null);
         Set<Long> invoicedRoomIds = snapshot.getRooms().stream()
                 .map(RoomUtilitySumSnapshot.RoomLine::getRoomId)
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
         if (!invoicedRoomIds.containsAll(eligibleRoomIds)) {
-            return;
-        }
-
-        YearMonth month = ContractBillingCalendar.parsePeriod(period).orElse(null);
-        if (month == null) {
-            return;
-        }
-        UtilityBill bill = utilityBillRepository
-                .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
-                        propertyId,
-                        month.getMonthValue(),
-                        month.getYear(),
-                        type,
-                        UtilityBillStatus.PUBLISHED)
-                .orElse(null);
-        if (bill == null || bill.getTotalQuantity() == null) {
-            return;
-        }
-        // Nhà nguyên căn đã chốt trong createFromWholeHouseBill — không đụng.
-        if (bill.getReadingDeadline() == null) {
             return;
         }
 
@@ -317,7 +556,8 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             return;
         }
 
-        RoomUtilitySumSnapshot othersSnap = sumActiveRoomConsumptions(propertyId, period, type, roomId);
+        RoomUtilitySumSnapshot othersSnap = sumActiveRoomConsumptions(
+                propertyId, bill.getBillingPeriod(), type, roomId);
         BigDecimal others = othersSnap.getSum() != null ? othersSnap.getSum() : BigDecimal.ZERO;
         BigDecimal total = BigDecimal.valueOf(bill.getTotalQuantity());
         BigDecimal tolerance = BigDecimal.valueOf(roomSumTolerancePercent)
@@ -529,7 +769,9 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             TenantContract contract,
             UtilityType utilityType,
             CreateUtilityInvoiceRequest request,
-            boolean requireMeterPhoto) {
+            boolean requireMeterPhoto,
+            boolean autoIssued,
+            Long existingReadingId) {
 
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         LocalDateTime now = LocalDateTime.now();
@@ -555,39 +797,87 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .createdAt(now)
                 .build());
 
-        meterReadingRepository.save(MeterReading.builder()
-                .property(property)
-                .room(room)
-                .utilityType(utilityType)
-                .period(request.getBillingPeriod())
-                .reading(request.getNewReading())
-                .imageUrl(request.getMeterImageUrl())
-                .recordedAt(now)
-                .recordedBy(user.getId())
-                .build());
+        if (existingReadingId != null) {
+            meterReadingRepository.findById(existingReadingId).ifPresent(reading -> {
+                reading.setUtilityInvoiceId(invoice.getId());
+                reading.setPrevReading(request.getPrevReading());
+                reading.setReading(request.getNewReading());
+                if (request.getMeterImageUrl() != null && !request.getMeterImageUrl().isBlank()) {
+                    reading.setImageUrl(request.getMeterImageUrl());
+                }
+                meterReadingRepository.save(reading);
+            });
+        } else {
+            YearMonth ym = ContractBillingCalendar.parsePeriod(request.getBillingPeriod()).orElse(null);
+            String normalizedPeriod = ym != null
+                    ? ContractBillingCalendar.normalizePeriod(ym)
+                    : request.getBillingPeriod();
+            Long roomId = room != null ? room.getId() : null;
+            MeterReading existing = findExistingReading(
+                    property.getId(), roomId, utilityType, normalizedPeriod).orElse(null);
+            if (existing != null) {
+                existing.setReading(request.getNewReading());
+                existing.setPrevReading(request.getPrevReading());
+                existing.setImageUrl(request.getMeterImageUrl());
+                existing.setPeriod(normalizedPeriod);
+                existing.setUtilityInvoiceId(invoice.getId());
+                existing.setRecordedAt(now);
+                existing.setRecordedBy(user.getId());
+                meterReadingRepository.save(existing);
+            } else {
+                meterReadingRepository.save(MeterReading.builder()
+                        .property(property)
+                        .room(room)
+                        .utilityType(utilityType)
+                        .period(normalizedPeriod)
+                        .prevReading(request.getPrevReading())
+                        .reading(request.getNewReading())
+                        .imageUrl(request.getMeterImageUrl())
+                        .recordedAt(now)
+                        .recordedBy(user.getId())
+                        .utilityInvoiceId(invoice.getId())
+                        .build());
+            }
+        }
 
         if (contract != null) {
             tenantBillingService.createFromUtilityInvoice(invoice, contract);
             invoiceDisputeService.attachReplacementIfPresent(invoice);
-            
+
             if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
                 java.util.UUID tenantId = contract.getTenant().getUser().getId();
                 String typeStr = utilityType == UtilityType.ELECTRIC ? "Điện" : "Nước";
-                String title = "Hoá đơn " + typeStr + " mới";
-                boolean adminIssued = Boolean.TRUE.equals(property.getWholeHouse()) && room == null;
-                String content = adminIssued
-                        ? String.format("Admin vừa phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                                typeStr, request.getBillingPeriod(), request.getAmount().longValue())
-                        : String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                                typeStr, request.getBillingPeriod(), request.getAmount().longValue());
-                
+                String notifType = autoIssued ? "UTILITY_INVOICE_AUTO_ISSUED" : "UTILITY_INVOICE_CREATED";
+                String title;
+                String content;
+                if (autoIssued) {
+                    String periodLabel = request.getBillingPeriod();
+                    YearMonth ym = ContractBillingCalendar.parsePeriod(request.getBillingPeriod()).orElse(null);
+                    if (ym != null) {
+                        periodLabel = String.format("%02d/%d", ym.getMonthValue(), ym.getYear());
+                    }
+                    title = "Hoá đơn điện kỳ " + periodLabel;
+                    content = String.format("Hoá đơn điện kỳ %s · %s kWh · %sđ",
+                            periodLabel,
+                            formatQty(request.getConsumption()),
+                            formatCurrency(request.getAmount()));
+                } else {
+                    title = "Hoá đơn " + typeStr + " mới";
+                    boolean adminIssued = Boolean.TRUE.equals(property.getWholeHouse()) && room == null;
+                    content = adminIssued
+                            ? String.format("Admin vừa phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue())
+                            : String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
+                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue());
+                }
+
                 String dedupeKey = "utility-invoice:" + invoice.getId() + ":created";
                 if (!notificationRepository.existsByUserIdAndDedupeKey(tenantId, dedupeKey)) {
                     Notification notification = Notification.builder()
                             .userId(tenantId)
                             .title(title)
                             .content(content)
-                            .type("UTILITY_INVOICE_CREATED")
+                            .type(notifType)
                             .screen("InvoiceList")
                             .paramsJson("{\"invoiceId\": " + invoice.getId() + "}")
                             .dedupeKey(dedupeKey)
@@ -598,7 +888,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
                 Map<String, Object> data = new HashMap<>();
                 data.put("screen", "InvoiceList");
-                data.put("type", "UTILITY_INVOICE_CREATED");
+                data.put("type", notifType);
                 data.put("invoiceId", invoice.getId());
                 userPushTokenService.sendToUser(tenantId, title, content, data);
             }
@@ -610,6 +900,36 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             response.setTenantPhone(contract.getTenant().getUser().getPhoneNumber());
         }
         return response;
+    }
+
+    private Optional<MeterReading> findExistingReading(
+            Long propertyId, Long roomId, UtilityType type, String period) {
+        if (roomId == null) {
+            return meterReadingRepository
+                    .findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                            propertyId, type, period);
+        }
+        return meterReadingRepository
+                .findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                        propertyId, roomId, type, period);
+    }
+
+    private static String formatQty(BigDecimal value) {
+        if (value == null) {
+            return "0";
+        }
+        BigDecimal stripped = value.stripTrailingZeros();
+        if (stripped.scale() <= 0) {
+            return stripped.toBigInteger().toString();
+        }
+        return stripped.toPlainString();
+    }
+
+    private static String formatCurrency(BigDecimal value) {
+        if (value == null) {
+            return "0";
+        }
+        return String.format("%,d", value.setScale(0, RoundingMode.HALF_UP).longValue()).replace(',', '.');
     }
 
     private void ensureMeterPhotoOrOverride(

@@ -21,6 +21,18 @@ public interface UtilityInvoiceService {
      */
     UtilityInvoiceResponse createFromWholeHouseBill(UtilityBill bill, BigDecimal prevReading, BigDecimal newReading);
 
+    /**
+     * Nhà chia phòng — điện: phát hành từ mọi bản chốt chỉ số chưa có invoiceId.
+     * Vượt ROOM_SUM_EXCEEDS_BILL → không phát hành phòng nào.
+     * Phòng chưa chốt → bỏ qua, không chặn các phòng khác.
+     */
+    int issueElectricFromSavedReadings(UtilityBill bill);
+
+    /**
+     * Phát hành một phòng từ bản chốt đã lưu (sau khi admin đã có EVN, quản lý chốt muộn).
+     */
+    UtilityInvoiceResponse issueElectricFromSavedReading(UtilityBill bill, Long meterReadingId);
+
     UtilityInvoiceHistoryResponse listInvoices(Long propertyId, String period, String type);
 
     /**

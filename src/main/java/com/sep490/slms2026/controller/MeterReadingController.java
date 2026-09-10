@@ -1,8 +1,11 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.CreateMeterReadingRequest;
+import com.sep490.slms2026.dto.request.SaveMeterReadingRequest;
 import com.sep490.slms2026.dto.response.MeterReadingResponse;
 import com.sep490.slms2026.dto.response.PendingMeterReadingItem;
+import com.sep490.slms2026.dto.response.SavedMeterReadingItem;
+import com.sep490.slms2026.dto.response.SavedMeterReadingListResponse;
 import com.sep490.slms2026.service.MeterReadingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,23 @@ public class MeterReadingController {
     public ResponseEntity<List<PendingMeterReadingItem>> listPending(
             @RequestParam(required = false) String period) {
         return ResponseEntity.ok(meterReadingService.listPending(period));
+    }
+
+    @GetMapping("/api/v1/manager/meter-readings")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<SavedMeterReadingListResponse> listSaved(
+            @RequestParam Long propertyId,
+            @RequestParam String period,
+            @RequestParam String utilityType) {
+        return ResponseEntity.ok(meterReadingService.listSavedForPeriod(propertyId, period, utilityType));
+    }
+
+    @PostMapping("/api/v1/manager/meter-readings")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<SavedMeterReadingItem> saveLocked(
+            @Valid @RequestBody SaveMeterReadingRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(meterReadingService.saveLockedReading(request));
     }
 
     @GetMapping("/api/v1/properties/{propertyId}/rooms/{roomId}/meter-readings/latest")

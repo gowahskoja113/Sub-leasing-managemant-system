@@ -40,6 +40,10 @@ public class MeterReading implements Serializable {
     @Column(name = "reading", nullable = false, precision = 19, scale = 4)
     private BigDecimal reading;
 
+    /** Chỉ số đầu kỳ (prev) lúc quản lý chốt — dùng khi auto-phát hành. */
+    @Column(name = "prev_reading", precision = 19, scale = 4)
+    private BigDecimal prevReading;
+
     @Column(name = "image_url")
     private String imageUrl;
 
@@ -48,4 +52,8 @@ public class MeterReading implements Serializable {
 
     @Column(name = "recorded_by")
     private UUID recordedBy;
+
+    /** Liên kết hoá đơn tiện ích khi đã phát hành; null = mới chốt, chưa ra hoá đơn. */
+    @Column(name = "utility_invoice_id")
+    private Long utilityInvoiceId;
 }

@@ -646,7 +646,7 @@ CREATE TABLE IF NOT EXISTS utility_invoices (
     prev_reading        NUMERIC(19, 4) NOT NULL,
     new_reading         NUMERIC(19, 4) NOT NULL,
     consumption         NUMERIC(19, 4) NOT NULL,
-    unit_price          NUMERIC(19, 4) NOT NULL,
+    unit_price          NUMERIC(19, 8) NOT NULL,
     amount              NUMERIC(19, 2) NOT NULL,
     meter_image_url     VARCHAR(255),
     status              VARCHAR(50) NOT NULL,
@@ -681,15 +681,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_disputes_active
     WHERE status <> 'WITHDRAWN';
 
 CREATE TABLE IF NOT EXISTS meter_readings (
-    id            BIGSERIAL PRIMARY KEY,
-    property_id   BIGINT NOT NULL REFERENCES properties(id),
-    room_id       BIGINT REFERENCES rooms(id),
-    utility_type  VARCHAR(50) NOT NULL,
-    period        VARCHAR(255) NOT NULL,
-    reading       NUMERIC(19, 4) NOT NULL,
-    image_url     VARCHAR(255),
-    recorded_at   TIMESTAMP NOT NULL,
-    recorded_by   UUID
+    id                  BIGSERIAL PRIMARY KEY,
+    property_id         BIGINT NOT NULL REFERENCES properties(id),
+    room_id             BIGINT REFERENCES rooms(id),
+    utility_type        VARCHAR(50) NOT NULL,
+    period              VARCHAR(255) NOT NULL,
+    reading             NUMERIC(19, 4) NOT NULL,
+    prev_reading        NUMERIC(19, 4),
+    image_url           VARCHAR(255),
+    recorded_at         TIMESTAMP NOT NULL,
+    recorded_by         UUID,
+    utility_invoice_id  BIGINT REFERENCES utility_invoices(id)
 );
 
 CREATE TABLE IF NOT EXISTS monthly_readings (

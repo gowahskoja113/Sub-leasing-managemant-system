@@ -5,6 +5,7 @@ import com.sep490.slms2026.enums.UtilityType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -20,5 +21,8 @@ public interface MeterReadingRepository extends JpaRepository<MeterReading, Long
             Long propertyId, Long roomId, UtilityType utilityType, String period);
 
     Optional<MeterReading> findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+            Long propertyId, UtilityType utilityType, String period);
+
+    List<MeterReading> findByPropertyIdAndUtilityTypeAndPeriodAndUtilityInvoiceIdIsNull(
             Long propertyId, UtilityType utilityType, String period);
 }

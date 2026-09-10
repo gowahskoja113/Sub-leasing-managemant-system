@@ -152,6 +152,41 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceAdminReviewColumns();
         ensureMaintenanceAppointmentColumns();
         ensureUtilityInvoiceTenantViewedAtColumn();
+        ensureMeterReadingLockColumns();
+    }
+
+    /**
+     * Chốt chỉ số cuối tháng (điện): prev_reading + utility_invoice_id, unique theo kỳ.
+     */
+    private void ensureMeterReadingLockColumns() {
+        addColumnIfNotExists("meter_readings", "prev_reading", "NUMERIC(19, 4)");
+        addColumnIfNotExists("meter_readings", "utility_invoice_id", "BIGINT");
+        try {
+            jdbcTemplate.execute("""
+                    ALTER TABLE utility_invoices ALTER COLUMN unit_price TYPE NUMERIC(19, 8)
+                    """);
+        } catch (Exception e) {
+            log.debug("utility_invoices.unit_price widen: {}", e.getMessage());
+        }
+        try {
+            // Giữ bản ghi mới nhất khi trùng (property, room, type, period).
+            jdbcTemplate.execute("""
+                    DELETE FROM meter_readings a
+                    USING meter_readings b
+                    WHERE a.id < b.id
+                      AND a.property_id = b.property_id
+                      AND COALESCE(a.room_id, 0) = COALESCE(b.room_id, 0)
+                      AND a.utility_type = b.utility_type
+                      AND a.period = b.period
+                    """);
+            jdbcTemplate.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_meter_readings_prop_room_type_period
+                    ON meter_readings (property_id, COALESCE(room_id, 0), utility_type, period)
+                    """);
+            log.info("Ensured unique index uq_meter_readings_prop_room_type_period");
+        } catch (Exception e) {
+            log.warn("Could not ensure meter_readings unique index: {}", e.getMessage());
+        }
     }
 
     /**

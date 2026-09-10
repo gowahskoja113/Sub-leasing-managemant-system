@@ -1,8 +1,11 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.CreateMeterReadingRequest;
+import com.sep490.slms2026.dto.request.SaveMeterReadingRequest;
 import com.sep490.slms2026.dto.response.MeterReadingResponse;
 import com.sep490.slms2026.dto.response.PendingMeterReadingItem;
+import com.sep490.slms2026.dto.response.SavedMeterReadingItem;
+import com.sep490.slms2026.dto.response.SavedMeterReadingListResponse;
 import com.sep490.slms2026.enums.UtilityType;
 
 import java.util.List;
@@ -16,16 +19,22 @@ public interface MeterReadingService {
     List<PendingMeterReadingItem> listPending(String period);
 
     /**
-     * Phòng còn thiếu ảnh công tơ cho (property, period, type) — cùng điều kiện {@link #listPending}.
+     * Phòng còn thiếu ảnh công tơ / chỉ số cho (property, period, type).
      * Không lọc theo user hiện tại (dùng nội bộ để chốt đối soát).
      */
     List<PendingMeterReadingItem> listPendingFor(Long propertyId, String period, UtilityType type);
 
     /**
-     * Phòng có HĐ ACTIVE cần đọc kỳ này (cùng filter {@link #listPending}, chưa trừ ảnh).
+     * Phòng có HĐ ACTIVE cần đọc kỳ này (cùng filter {@link #listPending}, chưa trừ ảnh/chỉ số).
      * Dùng để biết tập phòng phải có hoá đơn trước khi chốt đối soát.
      */
     List<PendingMeterReadingItem> listEligibleForPeriod(Long propertyId, String period, UtilityType type);
 
     boolean hasPhoto(Long propertyId, Long roomId, UtilityType type, String period);
+
+    /** Danh sách phòng ACTIVE + chỉ số đã chốt (kể cả chưa chốt → newReading null). */
+    SavedMeterReadingListResponse listSavedForPeriod(Long propertyId, String period, String utilityType);
+
+    /** Upsert chỉ số đã chốt; nếu đã có hoá đơn EVN kỳ đó thì auto-phát hành ngay. */
+    SavedMeterReadingItem saveLockedReading(SaveMeterReadingRequest request);
 }

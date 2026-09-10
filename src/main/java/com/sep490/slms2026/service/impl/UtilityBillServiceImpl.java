@@ -122,16 +122,21 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 .status(UtilityBillStatus.PUBLISHED)
                 .createdBy(user.getId())
                 .createdAt(LocalDateTime.now())
-                // Ghi chú: readingDeadline = null với nguyên căn chỉ áp dụng cho HÓA ĐƠN HẰNG THÁNG
-                // (vì admin nhập trực tiếp từ hoá đơn EVN). Đối với trả phòng, quản lý VẪN PHẢI chụp đồng hồ.
-                .readingDeadline(wholeHouse ? null : today)
+                // Nguyên căn: null. Nước chia phòng: hôm nay. Điện chia phòng: null (chốt cuối tháng).
+                .readingDeadline(wholeHouse || type == UtilityType.ELECTRIC ? null : today)
                 .build();
 
         utilityBillRepository.save(bill);
         if (wholeHouse) {
             utilityInvoiceService.createFromWholeHouseBill(bill, request.getPrevReading(), request.getNewReading());
+            notifyManagerBillPublished(property, bill);
+        } else if (type == UtilityType.ELECTRIC) {
+            // Điện chia phòng: chốt số cuối tháng trước — auto phát hành từ bản chốt đã lưu.
+            // Không đặt readingDeadline (không nhắc chụp theo ngày phát hành EVN).
+            utilityInvoiceService.issueElectricFromSavedReadings(bill);
+        } else {
+            notifyManagerBillPublished(property, bill);
         }
-        notifyManagerBillPublished(property, bill);
 
         return toResponse(bill, user.getUsername());
     }

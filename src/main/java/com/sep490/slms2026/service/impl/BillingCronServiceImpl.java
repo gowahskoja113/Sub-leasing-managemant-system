@@ -918,34 +918,34 @@ public class BillingCronServiceImpl implements BillingCronService {
 
     int remindPendingMeterReadings(LocalDate today) {
         YearMonth currentMonth = YearMonth.from(today);
-        String period = ContractBillingCalendar.normalizePeriod(currentMonth);
+        LocalDate currentMonthEnd = currentMonth.atEndOfMonth();
+        // Ngày cuối tháng → kỳ hiện tại; các ngày khác → kỳ tháng trước (vừa khép, còn phòng chưa chốt).
+        YearMonth lockPeriod = today.equals(currentMonthEnd)
+                ? currentMonth
+                : currentMonth.minusMonths(1);
+        LocalDate meterDue = lockPeriod.atEndOfMonth();
+        if (today.isBefore(meterDue)) {
+            return 0;
+        }
+        String period = ContractBillingCalendar.normalizePeriod(lockPeriod);
         List<TenantContract> activeContracts =
                 tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
-        
+
         Map<UUID, List<TenantContract>> managerMissing = new HashMap<>();
-        Map<UUID, LocalDate> managerMeterDue = new HashMap<>();
 
         for (TenantContract contract : activeContracts) {
-            if (contract.getProperty() == null) {
+            if (contract.getProperty() == null || contract.getRoom() == null) {
                 continue;
             }
-            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
-            LocalDate remindDate = ContractBillingCalendar.meterRemindDate(
-                    currentMonth, billingDay,
-                    rentReminderLeadDaysValue,
-                    meterReminderLeadDaysValue);
-            LocalDate meterDue = ContractBillingCalendar.meterDueDate(
-                    currentMonth, billingDay, rentReminderLeadDaysValue);
-            if (today.isBefore(remindDate) || today.isAfter(meterDue)) {
+            if (Boolean.TRUE.equals(contract.getProperty().getWholeHouse())) {
                 continue;
             }
-            if (!hasMissingMeterPhoto(contract, period)) {
+            if (hasLockedElectricReading(contract.getProperty().getId(), contract.getRoom().getId(), period)) {
                 continue;
             }
             UUID managerId = contract.getProperty().getOperationManagerId();
             if (managerId != null) {
                 managerMissing.computeIfAbsent(managerId, k -> new ArrayList<>()).add(contract);
-                managerMeterDue.put(managerId, meterDue);
             }
         }
 
@@ -959,49 +959,32 @@ public class BillingCronServiceImpl implements BillingCronService {
             }
 
             List<TenantContract> contracts = entry.getValue();
-            LocalDate meterDue = managerMeterDue.get(managerId);
-
-            int totalMissingMeters = 0;
             Map<String, Integer> propertyRoomsCount = new LinkedHashMap<>();
-            Map<String, Boolean> propertyWholeHouse = new HashMap<>();
-
             for (TenantContract c : contracts) {
-                Long pId = c.getProperty().getId();
-                Long rId = c.getRoom() != null ? c.getRoom().getId() : null;
-                boolean missingElec = !hasMeterPhoto(pId, rId, UtilityType.ELECTRIC, period);
-                boolean missingWater = !hasMeterPhoto(pId, rId, UtilityType.WATER, period);
-                
-                if (missingElec) totalMissingMeters++;
-                if (missingWater) totalMissingMeters++;
-
                 String propName = c.getProperty().getPropertyName();
                 propertyRoomsCount.put(propName, propertyRoomsCount.getOrDefault(propName, 0) + 1);
-                if (rId == null) {
-                    propertyWholeHouse.put(propName, true);
-                }
             }
 
+            int totalMissing = contracts.size();
             StringBuilder summary = new StringBuilder();
             int i = 0;
             for (Map.Entry<String, Integer> pEntry : propertyRoomsCount.entrySet()) {
-                if (i > 0) summary.append(", ");
-                String propName = pEntry.getKey();
-                int count = pEntry.getValue();
-                boolean isWholeHouse = propertyWholeHouse.getOrDefault(propName, false);
-                
-                if (isWholeHouse) {
-                    summary.append(propName).append(" (nguyên căn)");
-                } else {
-                    summary.append(propName).append(" (").append(count).append(" phòng)");
+                if (i > 0) {
+                    summary.append(", ");
                 }
+                summary.append(pEntry.getKey()).append(" (").append(pEntry.getValue()).append(" phòng)");
                 i++;
             }
 
-            String title = String.format("📸 Còn %d công tơ chưa chụp", totalMissingMeters);
-            String content = String.format("%s. Hạn ghi điện: %s.",
-                    summary.toString(), meterDue.format(DateTimeFormatter.ofPattern("dd/MM")));
+            String title = today.equals(meterDue)
+                    ? "📸 Hôm nay phải chốt chỉ số điện"
+                    : String.format("📸 Còn %d phòng chưa chốt chỉ số điện", totalMissing);
+            String content = String.format("%s. Kỳ %s — hạn chốt: %s.",
+                    summary,
+                    period,
+                    meterDue.format(DateTimeFormatter.ofPattern("dd/MM")));
             String paramsJson = "{\"period\":\"" + period + "\"}";
-            
+
             notificationRepository.save(Notification.builder()
                     .userId(managerId)
                     .title(title)
@@ -1011,7 +994,7 @@ public class BillingCronServiceImpl implements BillingCronService {
                     .paramsJson(paramsJson)
                     .read(false)
                     .build());
-            
+
             userPushTokenService.sendToUser(managerId, title, content, Map.of(
                     "type", "METER_READING_DUE",
                     "screen", "MeterReadingPending",
@@ -1021,20 +1004,11 @@ public class BillingCronServiceImpl implements BillingCronService {
         return reminded;
     }
 
-    private boolean hasMissingMeterPhoto(TenantContract contract, String period) {
-        Long propertyId = contract.getProperty().getId();
-        Long roomId = contract.getRoom() != null ? contract.getRoom().getId() : null;
-        return !hasMeterPhoto(propertyId, roomId, UtilityType.ELECTRIC, period)
-                || !hasMeterPhoto(propertyId, roomId, UtilityType.WATER, period);
-    }
-
-    private boolean hasMeterPhoto(Long propertyId, Long roomId, UtilityType type, String period) {
-        Optional<MeterReading> reading = roomId == null
-                ? meterReadingRepository.findTopByPropertyIdAndRoomIsNullAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
-                        propertyId, type, period)
-                : meterReadingRepository.findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
-                        propertyId, roomId, type, period);
-        return reading.filter(r -> r.getImageUrl() != null && !r.getImageUrl().isBlank()).isPresent();
+    private boolean hasLockedElectricReading(Long propertyId, Long roomId, String period) {
+        Optional<MeterReading> reading = meterReadingRepository
+                .findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
+                        propertyId, roomId, UtilityType.ELECTRIC, period);
+        return reading.isPresent();
     }
 }
 
