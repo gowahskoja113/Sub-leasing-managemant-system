@@ -42,4 +42,16 @@ public class CreateUtilityBillRequest {
 
     /** Chỉ số mới in trên giấy EVN/nước — bắt buộc với nhà nguyên căn. */
     private BigDecimal newReading;
+
+    /**
+     * Mã khách hàng trên giấy (EVN/nước) — sau bước confirm OCR trên FE.
+     * BE đối chiếu với mã đã lưu trên property khi property đã có mã tương ứng.
+     */
+    private String customerCode;
+
+    /**
+     * true = admin đã confirm/sửa 3 field OCR (mã KH, chỉ số cũ, chỉ số mới) trước khi publish.
+     * Không bỏ qua đối chiếu mã KH — chỉ đánh dấu đã qua bước review.
+     */
+    private Boolean ocrConfirmed;
 }

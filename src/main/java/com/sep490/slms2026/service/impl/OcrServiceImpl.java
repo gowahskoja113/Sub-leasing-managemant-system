@@ -35,6 +35,11 @@ public class OcrServiceImpl implements OcrService {
     private static final Pattern PERIOD_PATTERN = Pattern.compile(
             "(\\d{1,2}[/.]\\d{1,2}\\s*[–\\-]\\s*\\d{1,2}[/.]\\d{2,4})",
             Pattern.CASE_INSENSITIVE);
+    /** Mã khách hàng EVN/nước — dãy chữ số (thường 11–13) sau nhãn. */
+    private static final Pattern CUSTOMER_CODE_PATTERN = Pattern.compile(
+            "(?:mã\\s*khách\\s*hàng|ma\\s*khach\\s*hang|customer\\s*id|customer\\s*code|"
+                    + "mã\\s*kh|ma\\s*kh|mã\\s*điện\\s*lực|mã\\s*khách)\\s*[:.#\\-]?\\s*([A-Za-z0-9]{6,20})",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     @Value("${ocr.space.base-url}")
     private String baseUrl;
@@ -137,10 +142,27 @@ public class OcrServiceImpl implements OcrService {
             billingPeriod = periodMatcher.group(1).trim();
         }
 
+        String customerCode = null;
+        Matcher codeMatcher = CUSTOMER_CODE_PATTERN.matcher(text);
+        if (codeMatcher.find()) {
+            customerCode = codeMatcher.group(1).trim();
+        }
+
+        BigDecimal prevReading = findLabeledNumber(text, numbers,
+                "chỉ số cũ", "chi so cu", "cs cũ", "cs cu", "kỳ trước", "ky truoc",
+                "đầu kỳ", "dau ky", "chỉ số đầu", "chi so dau");
+        BigDecimal newReading = findLabeledNumber(text, numbers,
+                "chỉ số mới", "chi so moi", "cs mới", "cs moi", "kỳ này", "ky nay",
+                "cuối kỳ", "cuoi ky", "chỉ số cuối", "chi so cuoi");
+
         return OcrUtilityBillResponse.builder()
                 .totalQuantity(totalQuantity)
                 .totalAmount(totalAmount)
                 .billingPeriod(billingPeriod)
+                .customerCode(customerCode)
+                .prevReading(prevReading)
+                .newReading(newReading)
+                .fieldsToConfirm(List.of("customerCode", "prevReading", "newReading"))
                 .rawText(text)
                 .build();
     }

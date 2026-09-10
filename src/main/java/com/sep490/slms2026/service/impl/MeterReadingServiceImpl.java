@@ -16,6 +16,7 @@ import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.Role;
 import com.sep490.slms2026.enums.RoomStatus;
 import com.sep490.slms2026.enums.UtilityBillStatus;
+import com.sep490.slms2026.enums.UtilityInvoiceStatus;
 import com.sep490.slms2026.enums.UtilityType;
 import com.sep490.slms2026.exception.BusinessException;
 import com.sep490.slms2026.exception.ResourceNotFoundException;
@@ -279,19 +280,24 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                     .build());
         }
 
-        // Điện: nếu admin đã đẩy EVN kỳ này → phát hành ngay cho phòng này.
-        if (utilityType == UtilityType.ELECTRIC && saved.getUtilityInvoiceId() == null) {
+        // Điện / nước: nếu admin đã publish giấy → phát hành ngay cho phòng vừa chốt.
+        if (saved.getUtilityInvoiceId() == null && !Boolean.TRUE.equals(property.getWholeHouse())) {
             final Long readingId = saved.getId();
-            utilityBillRepository
-                    .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
-                            propertyId, month.getMonthValue(), month.getYear(),
-                            UtilityType.ELECTRIC, UtilityBillStatus.PUBLISHED)
-                    .ifPresent(bill -> {
-                        if (!Boolean.TRUE.equals(property.getWholeHouse())) {
-                            utilityInvoiceService.issueElectricFromSavedReading(bill, readingId);
-                        }
-                    });
-            // reload sau auto-issue
+            if (utilityType == UtilityType.ELECTRIC) {
+                utilityBillRepository
+                        .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
+                                propertyId, month.getMonthValue(), month.getYear(),
+                                UtilityType.ELECTRIC, UtilityBillStatus.PUBLISHED)
+                        .ifPresent(bill -> utilityInvoiceService.issueElectricFromSavedReading(bill, readingId));
+            } else if (utilityType == UtilityType.WATER) {
+                // Nước: không ghép theo period — lấy hoá đơn PUBLISHED mới nhất còn dùng được.
+                utilityBillRepository
+                        .findByPropertyIdAndTypeAndStatusOrderByCreatedAtDesc(
+                                propertyId, UtilityType.WATER, UtilityBillStatus.PUBLISHED)
+                        .stream()
+                        .findFirst()
+                        .ifPresent(bill -> utilityInvoiceService.issueWaterFromSavedReading(bill, readingId));
+            }
             saved = meterReadingRepository.findById(readingId).orElse(saved);
         }
 
@@ -311,13 +317,10 @@ public class MeterReadingServiceImpl implements MeterReadingService {
 
         List<PendingMeterReadingItem> items = new ArrayList<>();
 
-        // NƯỚC: giữ luồng cũ — theo hoá đơn đã publish + readingDeadline.
-        List<UtilityBill> waterBills = utilityBillRepository.findPublishedByPeriodWithReadingDeadline(
-                month.getMonthValue(), month.getYear(), UtilityBillStatus.PUBLISHED);
+        // NƯỚC: sau khi admin đã phát hành hoá đơn — liệt kê phòng chưa chốt (không cần readingDeadline).
+        List<UtilityBill> waterBills = utilityBillRepository.findPublishedSharedHouseByPeriodAndType(
+                month.getMonthValue(), month.getYear(), UtilityType.WATER, UtilityBillStatus.PUBLISHED);
         for (UtilityBill bill : waterBills) {
-            if (bill.getType() != UtilityType.WATER) {
-                continue;
-            }
             Property property = bill.getProperty();
             if (property == null) {
                 continue;
@@ -325,7 +328,7 @@ public class MeterReadingServiceImpl implements MeterReadingService {
             if (!admin && !user.getId().equals(property.getOperationManagerId())) {
                 continue;
             }
-            items.addAll(collectPendingForBill(bill, property, UtilityType.WATER, normalized, true));
+            items.addAll(collectPendingForWaterBill(bill, property, normalized, true));
         }
 
         // ĐIỆN: ngày cuối tháng, không cần hoá đơn EVN; hasReading = đã có bản chốt.
@@ -385,6 +388,9 @@ public class MeterReadingServiceImpl implements MeterReadingService {
         if (billProperty == null) {
             return List.of();
         }
+        if (resolvedType == UtilityType.WATER) {
+            return collectPendingForWaterBill(bill, billProperty, normalized, onlyMissing);
+        }
         return collectPendingForBill(bill, billProperty, resolvedType, normalized, onlyMissing);
     }
 
@@ -424,6 +430,56 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                     .meterDueDate(meterDueDate)
                     .hasReading(hasReading)
                     .hasPhoto(hasPhoto)
+                    .build());
+        }
+        return items;
+    }
+
+    /**
+     * Nước sau publish: phòng chưa chốt = chưa có bản WATER chưa phát hành và chưa có hoá đơn kỳ bill.
+     * Không phụ thuộc readingDeadline / không nhắc trước khi chưa có giấy.
+     */
+    private List<PendingMeterReadingItem> collectPendingForWaterBill(
+            UtilityBill bill,
+            Property property,
+            String normalizedPeriod,
+            boolean onlyMissingReading) {
+        if (Boolean.TRUE.equals(property.getWholeHouse())) {
+            return List.of();
+        }
+        List<PendingMeterReadingItem> items = new ArrayList<>();
+        for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(property.getId())) {
+            if (contract.getRoom() == null) {
+                continue;
+            }
+            Long roomId = contract.getRoom().getId();
+            boolean hasUnissued = !meterReadingRepository
+                    .findByPropertyIdAndRoomIdAndUtilityTypeAndUtilityInvoiceIdIsNull(
+                            property.getId(), roomId, UtilityType.WATER)
+                    .isEmpty();
+            boolean hasInvoice = !utilityInvoiceRepository.findByFilters(
+                    property.getId(), bill.getBillingPeriod(), UtilityType.WATER).stream()
+                    .filter(i -> i.getRoom() != null && roomId.equals(i.getRoom().getId()))
+                    .filter(i -> i.getStatus() != UtilityInvoiceStatus.CANCELLED)
+                    .toList()
+                    .isEmpty();
+            boolean hasReading = hasUnissued || hasInvoice;
+            if (onlyMissingReading && hasReading) {
+                continue;
+            }
+            int billingDay = ContractBillingCalendar.billingDayOfMonth(contract);
+            items.add(PendingMeterReadingItem.builder()
+                    .propertyId(property.getId())
+                    .propertyName(property.getPropertyName())
+                    .roomId(roomId)
+                    .roomNumber(contract.getRoom().getRoomNumber())
+                    .contractId(contract.getId())
+                    .utilityType(UtilityTypeMapper.toApi(UtilityType.WATER))
+                    .period(normalizedPeriod)
+                    .billingDay(billingDay)
+                    .meterDueDate(null)
+                    .hasReading(hasReading)
+                    .hasPhoto(hasUnissued || hasInvoice)
                     .build());
         }
         return items;

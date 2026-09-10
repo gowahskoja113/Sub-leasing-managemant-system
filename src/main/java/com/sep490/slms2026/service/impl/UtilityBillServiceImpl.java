@@ -26,6 +26,7 @@ import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.service.UtilityBillService;
 import com.sep490.slms2026.service.UtilityInvoiceService;
+import com.sep490.slms2026.util.UtilityCustomerCodeHelper;
 import com.sep490.slms2026.util.UtilityTypeMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +89,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy toà nhà ID: " + propertyId));
 
+        assertCustomerCodeMatches(property, type, request.getCustomerCode());
+
         Optional<UtilityBill> existing = utilityBillRepository.findByPropertyIdAndMonthAndYearAndTypeAndStatus(
                 propertyId, month, year, type, UtilityBillStatus.PUBLISHED);
         if (existing.isPresent()) {
@@ -108,7 +111,6 @@ public class UtilityBillServiceImpl implements UtilityBillService {
         BigDecimal unitPrice = request.getTotalAmount().divide(
                 new BigDecimal(totalQuantity), UNIT_PRICE_SCALE, RoundingMode.HALF_UP);
 
-        LocalDate today = LocalDate.now(VN);
         UtilityBill bill = UtilityBill.builder()
                 .property(property)
                 .type(type)
@@ -122,8 +124,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
                 .status(UtilityBillStatus.PUBLISHED)
                 .createdBy(user.getId())
                 .createdAt(LocalDateTime.now())
-                // Nguyên căn: null. Nước chia phòng: hôm nay. Điện chia phòng: null (chốt cuối tháng).
-                .readingDeadline(wholeHouse || type == UtilityType.ELECTRIC ? null : today)
+                // Chia phòng điện/nước: không đặt hạn chụp theo ngày phát hành giấy.
+                .readingDeadline(null)
                 .build();
 
         utilityBillRepository.save(bill);
@@ -131,14 +133,49 @@ public class UtilityBillServiceImpl implements UtilityBillService {
             utilityInvoiceService.createFromWholeHouseBill(bill, request.getPrevReading(), request.getNewReading());
             notifyManagerBillPublished(property, bill);
         } else if (type == UtilityType.ELECTRIC) {
-            // Điện chia phòng: chốt số cuối tháng trước — auto phát hành từ bản chốt đã lưu.
-            // Không đặt readingDeadline (không nhắc chụp theo ngày phát hành EVN).
             utilityInvoiceService.issueElectricFromSavedReadings(bill);
+        } else if (type == UtilityType.WATER) {
+            utilityInvoiceService.issueWaterFromSavedReadings(bill);
         } else {
             notifyManagerBillPublished(property, bill);
         }
 
         return toResponse(bill, user.getUsername());
+    }
+
+    /**
+     * Khi property đã lưu mã KH điện/nước: bắt buộc mã trên giấy khớp (normalize).
+     * OCR sai → FE sửa trên form confirm (customerCode / prevReading / newReading) rồi gửi lại —
+     * không phải lỗi chết luồng.
+     */
+    private void assertCustomerCodeMatches(Property property, UtilityType type, String billCustomerCode) {
+        String expected = type == UtilityType.WATER
+                ? property.getWaterCustomerCode()
+                : property.getElectricityCustomerCode();
+        expected = UtilityCustomerCodeHelper.normalize(expected);
+        if (expected == null) {
+            return;
+        }
+        String typeLabel = type == UtilityType.WATER ? "nước" : "điện";
+        String actual = UtilityCustomerCodeHelper.normalize(billCustomerCode);
+        java.util.Map<String, Object> details = new java.util.HashMap<>();
+        details.put("expectedCustomerCode", expected);
+        details.put("actualCustomerCode", actual);
+        details.put("fieldsToConfirm", java.util.List.of("customerCode", "prevReading", "newReading"));
+        details.put("hint", "Sửa mã khách hàng (và chỉ số cũ/mới nếu cần) rồi gửi lại — không cần quét lại.");
+
+        if (actual == null) {
+            throw new BusinessException("CUSTOMER_CODE_REQUIRED",
+                    "Nhà này đã có mã khách hàng " + typeLabel
+                            + " — vui lòng confirm mã trên giấy hoá đơn để đối chiếu.",
+                    details);
+        }
+        if (!expected.equals(actual)) {
+            throw new BusinessException("CUSTOMER_CODE_MISMATCH",
+                    "Mã khách hàng trên hoá đơn (\"" + actual + "\") không khớp mã đã lưu (\""
+                            + expected + "\"). Confirm lại mã đúng rồi gửi tiếp.",
+                    details);
+        }
     }
 
     private void validateWholeHouseReadings(CreateUtilityBillRequest request) {

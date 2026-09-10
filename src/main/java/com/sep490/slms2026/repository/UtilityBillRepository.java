@@ -27,6 +27,24 @@ public interface UtilityBillRepository extends JpaRepository<UtilityBill, Long> 
     Optional<UtilityBill> findByPropertyIdAndMonthAndYearAndTypeAndStatus(
             Long propertyId, Integer month, Integer year, UtilityType type, UtilityBillStatus status);
 
+    List<UtilityBill> findByPropertyIdAndTypeAndStatusOrderByCreatedAtDesc(
+            Long propertyId, UtilityType type, UtilityBillStatus status);
+
+    @Query("""
+            SELECT b FROM UtilityBill b
+            JOIN FETCH b.property p
+            WHERE b.month = :month
+              AND b.year = :year
+              AND b.type = :type
+              AND b.status = :status
+              AND (p.wholeHouse IS NULL OR p.wholeHouse = false)
+            """)
+    List<UtilityBill> findPublishedSharedHouseByPeriodAndType(
+            @Param("month") int month,
+            @Param("year") int year,
+            @Param("type") UtilityType type,
+            @Param("status") UtilityBillStatus status);
+
     @Query("""
             SELECT b FROM UtilityBill b
             WHERE b.property.id = :propertyId

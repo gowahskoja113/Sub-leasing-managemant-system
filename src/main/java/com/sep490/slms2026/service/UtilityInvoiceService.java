@@ -33,6 +33,16 @@ public interface UtilityInvoiceService {
      */
     UtilityInvoiceResponse issueElectricFromSavedReading(UtilityBill bill, Long meterReadingId);
 
+    /**
+     * Nhà chia phòng — nước: phát hành từ mọi bản chốt WATER chưa có invoiceId (không lọc theo period).
+     */
+    int issueWaterFromSavedReadings(UtilityBill bill);
+
+    /**
+     * Phát hành một phòng nước từ bản chốt đã lưu (chốt muộn sau khi admin đã publish).
+     */
+    UtilityInvoiceResponse issueWaterFromSavedReading(UtilityBill bill, Long meterReadingId);
+
     UtilityInvoiceHistoryResponse listInvoices(Long propertyId, String period, String type);
 
     /**
