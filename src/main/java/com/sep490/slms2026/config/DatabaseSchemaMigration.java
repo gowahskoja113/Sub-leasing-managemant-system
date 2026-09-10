@@ -11,9 +11,11 @@ import org.springframework.stereotype.Component;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.sep490.slms2026.util.PropertyCodeHelper;
+import com.sep490.slms2026.util.UtilityCustomerCodeHelper;
 
 @Slf4j
 @Component
@@ -1681,10 +1683,12 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
 
     /**
      * Mã KH điện/nước — nullable để nhà cũ không bắt buộc; unique khi đã có giá trị.
+     * Chuẩn hoá bỏ space/dấu → lưu dạng alphanumeric lowercase.
      */
     private void ensureUtilityCustomerCodeColumns() {
         addColumnIfNotExists("properties", "electricity_customer_code", "VARCHAR(64)");
         addColumnIfNotExists("properties", "water_customer_code", "VARCHAR(64)");
+        backfillNormalizedUtilityCustomerCodes();
         try {
             jdbcTemplate.execute("""
                     CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_electricity_customer_code
@@ -1702,6 +1706,58 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                     """);
         } catch (Exception e) {
             log.warn("Could not create unique index on properties.water_customer_code: {}", e.getMessage());
+        }
+    }
+
+    /** Đưa mã đã lưu về dạng normalize mới (bỏ space/dấu). */
+    private void backfillNormalizedUtilityCustomerCodes() {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+                    SELECT id, electricity_customer_code, water_customer_code
+                    FROM properties
+                    WHERE electricity_customer_code IS NOT NULL OR water_customer_code IS NOT NULL
+                    ORDER BY id
+                    """);
+            Set<String> usedElec = new HashSet<>();
+            Set<String> usedWater = new HashSet<>();
+            int updated = 0;
+            for (Map<String, Object> row : rows) {
+                Long id = ((Number) row.get("id")).longValue();
+                String elecRaw = row.get("electricity_customer_code") != null
+                        ? row.get("electricity_customer_code").toString() : null;
+                String waterRaw = row.get("water_customer_code") != null
+                        ? row.get("water_customer_code").toString() : null;
+                String elec = UtilityCustomerCodeHelper.normalize(elecRaw);
+                String water = UtilityCustomerCodeHelper.normalize(waterRaw);
+
+                if (elec != null && !usedElec.add(elec)) {
+                    log.warn("Property {} electricity_customer_code collision after normalize '{}', clearing",
+                            id, elec);
+                    elec = null;
+                }
+                if (water != null && !usedWater.add(water)) {
+                    log.warn("Property {} water_customer_code collision after normalize '{}', clearing",
+                            id, water);
+                    water = null;
+                }
+
+                boolean elecChanged = !Objects.equals(elecRaw, elec);
+                boolean waterChanged = !Objects.equals(waterRaw, water);
+                if (!elecChanged && !waterChanged) {
+                    continue;
+                }
+                jdbcTemplate.update("""
+                        UPDATE properties
+                        SET electricity_customer_code = ?, water_customer_code = ?
+                        WHERE id = ?
+                        """, elec, water, id);
+                updated++;
+            }
+            if (updated > 0) {
+                log.info("Normalized utility customer codes on {} properties", updated);
+            }
+        } catch (Exception e) {
+            log.warn("Could not backfill normalized utility customer codes: {}", e.getMessage());
         }
     }
 
