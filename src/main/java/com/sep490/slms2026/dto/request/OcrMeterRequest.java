@@ -14,8 +14,8 @@ public class OcrMeterRequest {
     private String imageUrl;
 
     /**
-     * ELECTRIC | WATER — hoá đơn nước không trả/không bắt mã khách hàng.
-     * Bỏ trống → mặc định ELECTRIC (giữ tương thích EVN).
+     * ELECTRIC | WATER — tuỳ chọn; mặc định ELECTRIC.
+     * Cả hai loại đều có thể trả customerCode (SDB / mã KH).
      */
     private String type;
 }

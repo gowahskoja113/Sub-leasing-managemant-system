@@ -187,12 +187,16 @@ public class MeterReadingServiceImpl implements MeterReadingService {
         Property property = loadProperty(propertyId);
 
         List<SavedMeterReadingItem> items = new ArrayList<>();
+        LocalDate periodEnd = month.atEndOfMonth();
         for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(propertyId)) {
             if (Boolean.TRUE.equals(property.getWholeHouse())) {
                 if (contract.getRoom() != null) {
                     continue;
                 }
             } else if (contract.getRoom() == null) {
+                continue;
+            }
+            if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
                 continue;
             }
             items.add(toSavedItem(property, contract, utilityType, month, normalized));
@@ -222,6 +226,11 @@ public class MeterReadingServiceImpl implements MeterReadingService {
         if (contract == null) {
             throw new BusinessException("NO_ACTIVE_CONTRACT",
                     "Không có hợp đồng ACTIVE cho phòng/nhà này.");
+        }
+        LocalDate periodEnd = month.atEndOfMonth();
+        if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
+            throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
+                    "Hợp đồng bắt đầu sau kỳ " + normalized + " — không được chốt chỉ số kỳ này.");
         }
 
         if (request.getNewReading().compareTo(request.getPrevReading()) <= 0) {
@@ -448,8 +457,12 @@ public class MeterReadingServiceImpl implements MeterReadingService {
             return List.of();
         }
         List<PendingMeterReadingItem> items = new ArrayList<>();
+        LocalDate periodEnd = YearMonth.of(bill.getYear(), bill.getMonth()).atEndOfMonth();
         for (TenantContract contract : tenantContractRepository.findActiveWithTenantByPropertyId(property.getId())) {
             if (contract.getRoom() == null) {
+                continue;
+            }
+            if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
                 continue;
             }
             Long roomId = contract.getRoom().getId();
@@ -477,7 +490,7 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                     .utilityType(UtilityTypeMapper.toApi(UtilityType.WATER))
                     .period(normalizedPeriod)
                     .billingDay(billingDay)
-                    .meterDueDate(null)
+                    .meterDueDate(periodEnd)
                     .hasReading(hasReading)
                     .hasPhoto(hasUnissued || hasInvoice)
                     .build());

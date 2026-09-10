@@ -44,6 +44,7 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
     private static final String SHEET_EQUIPMENT = "3. Phan_Bo_Thiet_Bi";
     private static final String IMPORT_STATUS_IMPORTED = "IMPORTED";
     private static final String IMPORT_STATUS_SKIPPED = "SKIPPED";
+    private static final String IMPORT_STATUS_CODES_UPDATED = "CODES_UPDATED";
     private static final String SKIP_REASON_DUPLICATE_CONTRACT = "Mã hợp đồng đã tồn tại — bỏ qua";
     private static final String SKIP_REASON_DUPLICATE_ADDRESS = "Địa chỉ đã được dùng cho tòa nhà khác — bỏ qua";
     private static final String SKIP_REASON_DUPLICATE_ADDRESS_IN_FILE = "Địa chỉ bị trùng trong file — bỏ qua";
@@ -97,10 +98,14 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         for (LeaseContractImportRow leaseRow : workbook.getLeaseContracts()) {
             String contractCode = leaseRow.getContractCode();
             if (skippedContracts.containsKey(contractCode)) {
-                results.add(buildSkippedResult(
-                        contractCode,
-                        skippedContracts.get(contractCode),
-                        tryBuildFullAddress(leaseRow)));
+                BulkImportContractResultResponse codeUpdate =
+                        tryUpdateCustomerCodesOnExisting(leaseRow, skippedContracts.get(contractCode));
+                results.add(codeUpdate != null
+                        ? codeUpdate
+                        : buildSkippedResult(
+                                contractCode,
+                                skippedContracts.get(contractCode),
+                                tryBuildFullAddress(leaseRow)));
                 continue;
             }
 
@@ -336,6 +341,43 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
                 .contractCode(contractCode)
                 .message(message)
                 .build();
+    }
+
+    /** Nhà đã tồn tại: chỉ ghi đè mã KH điện/nước từ Excel. */
+    private BulkImportContractResultResponse tryUpdateCustomerCodesOnExisting(
+            LeaseContractImportRow row, String skipReason) {
+        boolean hasElec = row.getElectricityCustomerCode() != null
+                && !row.getElectricityCustomerCode().isBlank();
+        boolean hasWater = row.getWaterCustomerCode() != null
+                && !row.getWaterCustomerCode().isBlank();
+        if (!hasElec && !hasWater) {
+            return null;
+        }
+        return inboundContractRepository.findByContractCode(row.getContractCode())
+                .map(ic -> {
+                    Property property = ic.getProperty();
+                    if (property == null) {
+                        return null;
+                    }
+                    if (hasElec) {
+                        property.setElectricityCustomerCode(
+                                UtilityCustomerCodeHelper.normalize(row.getElectricityCustomerCode()));
+                    }
+                    if (hasWater) {
+                        property.setWaterCustomerCode(
+                                UtilityCustomerCodeHelper.normalize(row.getWaterCustomerCode()));
+                    }
+                    propertyRepository.save(property);
+                    return BulkImportContractResultResponse.builder()
+                            .importStatus(IMPORT_STATUS_CODES_UPDATED)
+                            .contractCode(row.getContractCode())
+                            .propertyId(property.getId())
+                            .propertyName(property.getPropertyName())
+                            .finalStatus(property.getStatus() != null ? property.getStatus().name() : null)
+                            .message("Đã cập nhật mã KH điện/nước (nhà đã tồn tại — " + skipReason + ")")
+                            .build();
+                })
+                .orElse(null);
     }
 
     private List<BulkImportErrorResponse> validate(OnboardingImportWorkbook workbook,

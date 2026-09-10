@@ -15,6 +15,8 @@ public class BulkImportSupport {
 
     public static final String IMPORT_STATUS_IMPORTED = "IMPORTED";
     public static final String IMPORT_STATUS_SKIPPED = "SKIPPED";
+    /** Nhà đã tồn tại — chỉ ghi đè mã KH điện/nước từ Excel. */
+    public static final String IMPORT_STATUS_CODES_UPDATED = "CODES_UPDATED";
     public static final String SKIP_REASON_DUPLICATE_CONTRACT = "Mã hợp đồng đã tồn tại — bỏ qua";
     public static final String SKIP_REASON_DUPLICATE_ADDRESS = "Địa chỉ đã được dùng cho tòa nhà khác — bỏ qua";
     public static final String SKIP_REASON_DUPLICATE_ADDRESS_IN_FILE = "Địa chỉ bị trùng trong file — bỏ qua";

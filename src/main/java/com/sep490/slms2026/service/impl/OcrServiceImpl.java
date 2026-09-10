@@ -35,10 +35,11 @@ public class OcrServiceImpl implements OcrService {
     private static final Pattern PERIOD_PATTERN = Pattern.compile(
             "(\\d{1,2}[/.]\\d{1,2}\\s*[–\\-]\\s*\\d{1,2}[/.]\\d{2,4})",
             Pattern.CASE_INSENSITIVE);
-    /** Mã khách hàng EVN/nước — dãy chữ số (thường 11–13) sau nhãn. */
+    /** Mã KH EVN / số danh bộ nước — bắt buộc ký tự đầu là chữ số (tránh nhầm MLT: TA4...). */
     private static final Pattern CUSTOMER_CODE_PATTERN = Pattern.compile(
-            "(?:mã\\s*khách\\s*hàng|ma\\s*khach\\s*hang|customer\\s*id|customer\\s*code|"
-                    + "mã\\s*kh|ma\\s*kh|mã\\s*điện\\s*lực|mã\\s*khách)\\s*[:.#\\-]?\\s*([A-Za-z0-9]{6,20})",
+            "(?:sdb|danh\\s*b[oộả]|mã\\s*khách\\s*hàng|ma\\s*khach\\s*hang|mã\\s*kh|ma\\s*kh|"
+                    + "customer\\s*id|customer\\s*code|mã\\s*điện\\s*lực|mã\\s*khách)"
+                    + "\\s*[:.#\\-]?\\s*([0-9][A-Za-z0-9\\s.\\-]{5,24})",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     @Value("${ocr.space.base-url}")
@@ -147,13 +148,12 @@ public class OcrServiceImpl implements OcrService {
             billingPeriod = periodMatcher.group(1).trim();
         }
 
-        boolean water = billType != null && billType.trim().equalsIgnoreCase("WATER");
-
         String customerCode = null;
-        if (!water) {
-            Matcher codeMatcher = CUSTOMER_CODE_PATTERN.matcher(text);
-            if (codeMatcher.find()) {
-                customerCode = codeMatcher.group(1).trim();
+        Matcher codeMatcher = CUSTOMER_CODE_PATTERN.matcher(text);
+        if (codeMatcher.find()) {
+            customerCode = codeMatcher.group(1).replaceAll("[^A-Za-z0-9]", "").trim();
+            if (customerCode.isEmpty()) {
+                customerCode = null;
             }
         }
 
@@ -164,9 +164,7 @@ public class OcrServiceImpl implements OcrService {
                 "chỉ số mới", "chi so moi", "cs mới", "cs moi", "kỳ này", "ky nay",
                 "cuối kỳ", "cuoi ky", "chỉ số cuối", "chi so cuoi");
 
-        List<String> fieldsToConfirm = water
-                ? List.of("prevReading", "newReading")
-                : List.of("customerCode", "prevReading", "newReading");
+        List<String> fieldsToConfirm = List.of("customerCode", "prevReading", "newReading");
 
         return OcrUtilityBillResponse.builder()
                 .totalQuantity(totalQuantity)

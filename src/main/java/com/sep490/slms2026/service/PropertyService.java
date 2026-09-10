@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service;
 
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
+import com.sep490.slms2026.dto.request.UpdateUtilityCustomerCodesRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,9 @@ public interface PropertyService {
     List<PropertyResponse> getRentableProperties();
 
     PropertyResponse updateProperty(Long id, PropertyCreateRequest request);
+
+    /** Chỉ cập nhật mã KH điện/nước — dùng khi nhà đã tồn tại. */
+    PropertyResponse updateUtilityCustomerCodes(Long id, UpdateUtilityCustomerCodesRequest request);
 
     void deleteProperty(Long id);
 }

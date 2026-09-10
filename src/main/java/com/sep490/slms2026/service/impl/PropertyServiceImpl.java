@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
+import com.sep490.slms2026.dto.request.UpdateUtilityCustomerCodesRequest;
 import com.sep490.slms2026.dto.response.HandoverEquipmentResponse;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.entity.Property;
@@ -230,6 +231,37 @@ public class PropertyServiceImpl implements PropertyService {
 
         Property updated = propertyRepository.save(property);
         PropertyResponse response = mapToResponse(updated, shortAddress);
+        propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(id));
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public PropertyResponse updateUtilityCustomerCodes(Long id, UpdateUtilityCustomerCodesRequest request) {
+        Property property = propertyRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy tài sản với ID: " + id));
+
+        if (request.getElectricityCustomerCode() != null) {
+            String elec = UtilityCustomerCodeHelper.normalize(request.getElectricityCustomerCode());
+            if (elec != null && elec.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+                throw new ConflictException("Mã khách hàng điện tối đa "
+                        + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+            }
+            property.setElectricityCustomerCode(elec);
+        }
+        if (request.getWaterCustomerCode() != null) {
+            String water = UtilityCustomerCodeHelper.normalize(request.getWaterCustomerCode());
+            if (water != null && water.length() > UtilityCustomerCodeHelper.MAX_LENGTH) {
+                throw new ConflictException("Mã khách hàng nước tối đa "
+                        + UtilityCustomerCodeHelper.MAX_LENGTH + " ký tự");
+            }
+            property.setWaterCustomerCode(water);
+        }
+
+        Property saved = propertyRepository.save(property);
+        String zoneFullName = buildZoneFullName(saved.getZone());
+        String shortAddress = saved.getAddress().replace(", " + zoneFullName, "");
+        PropertyResponse response = mapToResponse(saved, shortAddress);
         propertyOccupancyAssembler.apply(response, propertyOccupancyAssembler.loadOne(id));
         return response;
     }

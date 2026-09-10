@@ -47,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.HashMap;
@@ -229,10 +230,17 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
 
         BigDecimal unitPrice = bill.getUnitPrice();
+        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
         List<PendingIssue> toIssue = new java.util.ArrayList<>();
         for (MeterReading reading : pending) {
             Long roomId = reading.getRoom() != null ? reading.getRoom().getId() : null;
             if (roomId == null) {
+                continue;
+            }
+            TenantContract contract = tenantContractRepository
+                    .findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
+                    .orElse(null);
+            if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
                 continue;
             }
             BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
@@ -271,6 +279,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         if (reading.getRoom() == null) {
             throw new BusinessException("INVALID_READING", "Bản chốt không gắn phòng.");
         }
+        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
+        TenantContract active = tenantContractRepository
+                .findByRoomIdAndStatus(reading.getRoom().getId(), ContractStatus.ACTIVE)
+                .orElse(null);
+        if (!ContractBillingCalendar.isContractInPeriod(active, periodEnd)) {
+            throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
+                    "Hợp đồng bắt đầu sau kỳ hoá đơn — không phát hành.");
+        }
         BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
         BigDecimal consumption = reading.getReading().subtract(prev);
         if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
@@ -305,8 +321,9 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
 
         List<MeterReading> pending = loadUnissuedWaterReadings(property.getId());
+        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
         if (pending.isEmpty()) {
-            notifyManagerAutoIssued(property, bill, 0, eligibleWaterRoomCount(property.getId()));
+            notifyManagerAutoIssued(property, bill, 0, eligibleWaterRoomCount(property.getId(), periodEnd));
             return 0;
         }
 
@@ -315,6 +332,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         for (MeterReading reading : pending) {
             Long roomId = reading.getRoom() != null ? reading.getRoom().getId() : null;
             if (roomId == null) {
+                continue;
+            }
+            TenantContract contract = tenantContractRepository
+                    .findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
+                    .orElse(null);
+            if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
                 continue;
             }
             BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
@@ -334,7 +357,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
 
         reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
-        int eligible = eligibleWaterRoomCount(property.getId());
+        int eligible = eligibleWaterRoomCount(property.getId(), periodEnd);
         notifyManagerAutoIssued(property, bill, issued, eligible);
         return issued;
     }
@@ -353,6 +376,14 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         if (reading.getRoom() == null) {
             throw new BusinessException("INVALID_READING", "Bản chốt không gắn phòng.");
         }
+        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
+        TenantContract active = tenantContractRepository
+                .findByRoomIdAndStatus(reading.getRoom().getId(), ContractStatus.ACTIVE)
+                .orElse(null);
+        if (!ContractBillingCalendar.isContractInPeriod(active, periodEnd)) {
+            throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
+                    "Hợp đồng bắt đầu sau kỳ hoá đơn — không phát hành.");
+        }
         BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
         BigDecimal consumption = reading.getReading().subtract(prev);
         if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
@@ -366,7 +397,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 bill, property, reading, consumption, bill.getUnitPrice(), UtilityType.WATER);
         reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
 
-        int eligible = eligibleWaterRoomCount(property.getId());
+        int eligible = eligibleWaterRoomCount(property.getId(), periodEnd);
         long done = utilityInvoiceRepository.countDistinctRoomsInvoiced(
                 property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
         notifyManagerAutoIssued(property, bill, (int) done, eligible);
@@ -385,6 +416,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 .findByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException("NO_ACTIVE_CONTRACT",
                         "Phòng " + room.getRoomNumber() + " không có hợp đồng ACTIVE."));
+        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
+        if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
+            throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
+                    "Hợp đồng phòng " + room.getRoomNumber()
+                            + " bắt đầu sau kỳ hoá đơn — không phát hành.");
+        }
 
         BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
         BigDecimal amount = consumption.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
@@ -543,9 +580,10 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 propertyId, ContractBillingCalendar.normalizePeriod(month), UtilityType.ELECTRIC).size();
     }
 
-    private int eligibleWaterRoomCount(Long propertyId) {
+    private int eligibleWaterRoomCount(Long propertyId, LocalDate periodEnd) {
         return (int) tenantContractRepository.findActiveWithTenantByPropertyId(propertyId).stream()
                 .filter(c -> c.getRoom() != null)
+                .filter(c -> ContractBillingCalendar.isContractInPeriod(c, periodEnd))
                 .count();
     }
 

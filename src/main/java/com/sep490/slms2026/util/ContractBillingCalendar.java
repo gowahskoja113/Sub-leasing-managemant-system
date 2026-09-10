@@ -102,6 +102,35 @@ public final class ContractBillingCalendar {
         return month == null ? null : month.toString();
     }
 
+    /**
+     * Hợp đồng bắt đầu sau ngày cuối kỳ → không thuộc kỳ đó
+     * (không chốt số / không liệt kê / không phát hành hoá đơn).
+     */
+    public static boolean isContractInPeriod(LocalDate contractStart, LocalDate periodEnd) {
+        if (contractStart == null || periodEnd == null) {
+            return true;
+        }
+        return !contractStart.isAfter(periodEnd);
+    }
+
+    public static boolean isContractInPeriod(TenantContract contract, LocalDate periodEnd) {
+        if (contract == null) {
+            return false;
+        }
+        return isContractInPeriod(contract.getStartDate(), periodEnd);
+    }
+
+    public static LocalDate periodEnd(YearMonth month) {
+        return month == null ? null : month.atEndOfMonth();
+    }
+
+    public static LocalDate periodEnd(Integer year, Integer month) {
+        if (year == null || month == null) {
+            return null;
+        }
+        return YearMonth.of(year, month).atEndOfMonth();
+    }
+
     public static Optional<YearMonth> parsePeriod(String raw) {
         if (raw == null || raw.isBlank()) {
             return Optional.empty();

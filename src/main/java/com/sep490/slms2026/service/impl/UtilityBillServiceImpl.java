@@ -144,17 +144,18 @@ public class UtilityBillServiceImpl implements UtilityBillService {
     }
 
     /**
-     * Chỉ đối chiếu mã KH điện. Hoá đơn nước không bắt quét/confirm mã khách hàng.
-     * OCR sai → FE sửa customerCode (điện) rồi gửi lại.
+     * Đối chiếu mã KH điện/nước đã lưu trên property với mã trên giấy (đã normalize).
+     * OCR sai → FE sửa customerCode rồi gửi lại.
      */
     private void assertCustomerCodeMatches(Property property, UtilityType type, String billCustomerCode) {
-        if (type == UtilityType.WATER) {
-            return;
-        }
-        String expected = UtilityCustomerCodeHelper.normalize(property.getElectricityCustomerCode());
+        String expected = type == UtilityType.WATER
+                ? property.getWaterCustomerCode()
+                : property.getElectricityCustomerCode();
+        expected = UtilityCustomerCodeHelper.normalize(expected);
         if (expected == null) {
             return;
         }
+        String typeLabel = type == UtilityType.WATER ? "nước" : "điện";
         String actual = UtilityCustomerCodeHelper.normalize(billCustomerCode);
         java.util.Map<String, Object> details = new java.util.HashMap<>();
         details.put("expectedCustomerCode", expected);
@@ -164,7 +165,8 @@ public class UtilityBillServiceImpl implements UtilityBillService {
 
         if (actual == null) {
             throw new BusinessException("CUSTOMER_CODE_REQUIRED",
-                    "Nhà này đã có mã khách hàng điện — vui lòng confirm mã trên giấy hoá đơn để đối chiếu.",
+                    "Nhà này đã có mã khách hàng " + typeLabel
+                            + " — vui lòng confirm mã trên giấy hoá đơn để đối chiếu.",
                     details);
         }
         if (!expected.equals(actual)) {

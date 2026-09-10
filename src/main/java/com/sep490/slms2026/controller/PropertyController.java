@@ -1,6 +1,7 @@
 package com.sep490.slms2026.controller;
 
 import com.sep490.slms2026.dto.request.PropertyCreateRequest;
+import com.sep490.slms2026.dto.request.UpdateUtilityCustomerCodesRequest;
 import com.sep490.slms2026.dto.response.PropertyResponse;
 import com.sep490.slms2026.service.PropertyService;
 import com.sep490.slms2026.service.UnitPriceService;
@@ -73,6 +74,18 @@ public class PropertyController {
             @PathVariable Long id,
             @RequestBody PropertyCreateRequest request) {
         return ResponseEntity.ok(propertyService.updateProperty(id, request));
+    }
+
+    /**
+     * PATCH /api/v1/properties/{id}/utility-customer-codes
+     * Chỉ sửa mã KH điện/nước của nhà đã tồn tại.
+     */
+    @PatchMapping("/{id}/utility-customer-codes")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<PropertyResponse> updateUtilityCustomerCodes(
+            @PathVariable Long id,
+            @RequestBody UpdateUtilityCustomerCodesRequest request) {
+        return ResponseEntity.ok(propertyService.updateUtilityCustomerCodes(id, request));
     }
 
     @DeleteMapping("/{id}")

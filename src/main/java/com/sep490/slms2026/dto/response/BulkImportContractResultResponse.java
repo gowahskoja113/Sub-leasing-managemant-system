@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 @Builder
 public class BulkImportContractResultResponse {
 
-    /** IMPORTED = tạo mới thành công; SKIPPED = mã HĐ đã có trong hệ thống, bỏ qua */
+    /** IMPORTED = tạo mới; SKIPPED = bỏ qua; CODES_UPDATED = chỉ cập nhật mã KH */
     private String importStatus;
     private String contractCode;
     private Long propertyId;
