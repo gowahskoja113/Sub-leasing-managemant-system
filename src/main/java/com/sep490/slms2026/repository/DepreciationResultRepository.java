@@ -20,6 +20,9 @@ public interface DepreciationResultRepository extends JpaRepository<Depreciation
     @Query("SELECT d FROM DepreciationResult d WHERE d.room.id = :roomId AND d.supersededAt IS NULL")
     Optional<DepreciationResult> findByRoomId(@Param("roomId") Long roomId);
 
+    @Query("SELECT d FROM DepreciationResult d WHERE d.inboundContract.property.id = :propertyId AND d.pricingVersion = :version")
+    List<DepreciationResult> findByPropertyIdAndPricingVersion(@Param("propertyId") Long propertyId, @Param("version") Integer version);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM DepreciationResult d WHERE d.inboundContract.property.id = :propertyId")
     void deleteByPropertyId(@Param("propertyId") Long propertyId);
