@@ -5,5 +5,5 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface BulkRenovationSupplementImportService {
 
-    BulkImportResponse importSupplementWorkbook(MultipartFile file, boolean dryRun);
+    BulkImportResponse importSupplementWorkbook(Long propertyId, MultipartFile file, boolean dryRun);
 }

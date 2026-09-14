@@ -13,6 +13,7 @@ import java.time.LocalDate;
 @Builder
 public class PricingCapitalItemResponse {
     private Long id;
+    private Long sourceId;
     private String itemName;
     private Integer pricingVersion;
     private PricingCapitalItemKind kind;

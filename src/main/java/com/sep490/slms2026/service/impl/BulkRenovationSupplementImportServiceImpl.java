@@ -44,10 +44,10 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
 
     @Override
     @Transactional
-    public BulkImportResponse importSupplementWorkbook(MultipartFile file, boolean dryRun) {
+    public BulkImportResponse importSupplementWorkbook(Long propertyId, MultipartFile file, boolean dryRun) {
         RenovationSupplementImportWorkbook workbook = workbookReader.read(file);
         Set<String> contractCodes = collectContractCodes(workbook);
-        List<BulkImportErrorResponse> errors = validate(workbook, contractCodes);
+        List<BulkImportErrorResponse> errors = validate(propertyId, workbook, contractCodes);
 
         if (!errors.isEmpty()) {
             throw new BulkImportValidationException("File Excel có lỗi validation", errors);
@@ -154,7 +154,8 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
         return codes;
     }
 
-    private List<BulkImportErrorResponse> validate(RenovationSupplementImportWorkbook workbook,
+    private List<BulkImportErrorResponse> validate(Long requiredPropertyId,
+                                                   RenovationSupplementImportWorkbook workbook,
                                                    Set<String> contractCodes) {
         List<BulkImportErrorResponse> errors = new ArrayList<>();
 
@@ -175,6 +176,12 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
             Property property = inboundContractRepository.findByContractCode(code)
                     .orElseThrow().getProperty();
             Long propertyId = property.getId();
+
+            if (!propertyId.equals(requiredPropertyId)) {
+                errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
+                        "Mã hợp đồng trong file không thuộc về bất động sản đang chọn (ID=" + requiredPropertyId + ")"));
+                continue;
+            }
 
             if (!renovationPhaseSupport.isSupplementRenovationPhase(propertyId)) {
                 errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
