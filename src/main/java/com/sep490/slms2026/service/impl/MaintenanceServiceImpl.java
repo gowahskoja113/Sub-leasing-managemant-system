@@ -337,10 +337,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getChargeInvoiceId() != null) {
             TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
                     .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
-            // TODO: temporarily bypass payment check
-            // if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
-            //     throw new BusinessException("Cần tenant thanh toán trước khi bắt đầu sửa.");
-            // }
+            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán trước khi bắt đầu sửa.");
+            }
         }
 
         if (repairAt != null || Boolean.TRUE.equals(request.getNeedsOffSiteInspection())) {
@@ -699,13 +698,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getChargeInvoiceId() != null) {
             TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
                     .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
-            // TODO: temporarily bypass payment check
-            // if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
-            //     throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
-            // }
+            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
+            }
         } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
-            // TODO: temporarily bypass payment check
-            // throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bàn giao.");
+            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bàn giao.");
         }
 
         if (request != null && request.getHandoverImages() != null && !request.getHandoverImages().isEmpty()) {
