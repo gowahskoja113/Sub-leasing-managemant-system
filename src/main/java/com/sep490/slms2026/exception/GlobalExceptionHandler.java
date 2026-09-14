@@ -206,13 +206,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         String detail = ex.getMostSpecificCause().getMessage();
         log.warn("Data integrity violation: {}", detail);
+
+        String uiMessage = "Dữ liệu không hợp lệ với ràng buộc của hệ thống";
+        if (detail != null && detail.toLowerCase().contains("foreign key constraint")) {
+            uiMessage = "Còn dữ liệu liên quan chưa xoá được";
+        }
+
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.builder()
                         .timestamp(LocalDateTime.now())
                         .status(HttpStatus.CONFLICT.value())
-                        .error("Còn dữ liệu liên quan chưa xoá được: " + detail)
+                        .error(uiMessage)
                         .code("DATA_INTEGRITY_VIOLATION")
-                        .message("Còn dữ liệu liên quan chưa xoá được: " + detail)
+                        .message(uiMessage)
                         .build());
     }
 }
