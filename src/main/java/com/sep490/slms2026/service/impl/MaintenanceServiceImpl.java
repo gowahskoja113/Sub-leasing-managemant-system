@@ -415,20 +415,31 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                             + ". Nếu không sửa, chi phí ước tính "
                             + request.getEstimatedDamageAmount() + "đ sẽ được trừ khi checkout.",
                     "MAINTENANCE_SELF_REPAIR_ASSIGNED");
-        } else if (request.getRepairAppointmentAt() != null) {
-            throw new BusinessException("Cần tenant đồng ý báo giá trước khi đặt lịch sửa. Vui lòng gửi báo giá trước.");
         } else {
-            req.setStatus(MaintenanceStatus.TENANT_FAULT);
-            if (request.getEstimatedDamageAmount() != null) {
-                req.setEstimatedDamageAmount(request.getEstimatedDamageAmount());
+            if (request.getRepairAppointmentAt() != null) {
+                req.setRepairAppointmentAt(request.getRepairAppointmentAt());
+                req.setStatus(MaintenanceStatus.REPAIR_SCHEDULED);
+                repository.save(req);
+                addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED,
+                        "Manager xác định lỗi tenant — hẹn sửa lúc " + request.getRepairAppointmentAt());
+                notifyTenant(req,
+                        "Lịch hẹn sửa chữa (Lỗi do khách thuê)",
+                        "Lý do: " + req.getFaultReason() + ". Quản lý hẹn sửa lúc " + request.getRepairAppointmentAt(),
+                        "MAINTENANCE_REPAIR_SCHEDULED");
+            } else {
+                req.setStatus(MaintenanceStatus.TENANT_FAULT);
+                if (request.getEstimatedDamageAmount() != null) {
+                    req.setEstimatedDamageAmount(request.getEstimatedDamageAmount());
+                }
+                repository.save(req);
+                addTimeline(req, old, MaintenanceStatus.TENANT_FAULT,
+                        "Manager xác định lỗi tenant — cần hẹn lịch sửa");
+                notifyTenant(req,
+                        "Yêu cầu bảo trì — lỗi do khách thuê",
+                        "Lý do: " + req.getFaultReason() + ". Manager sẽ sửa hộ. "
+                                + "Bạn sẽ nhận hóa đơn thanh toán sau khi hoàn tất.",
+                        "MAINTENANCE_TENANT_FAULT");
             }
-            repository.save(req);
-            addTimeline(req, old, MaintenanceStatus.TENANT_FAULT,
-                    "Manager xác định lỗi tenant — chờ gửi báo giá");
-            notifyTenant(req,
-                    "Yêu cầu bảo trì — lỗi do khách thuê",
-                    "Lý do: " + req.getFaultReason() + ". Quản lý sẽ gửi báo giá chi tiết sớm.",
-                    "MAINTENANCE_TENANT_FAULT");
         }
 
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_REJECT_FAULT);
@@ -530,106 +541,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 "MAINTENANCE_ADMIN_REVIEWED");
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_ADMIN_REVIEWED);
         return convertToResponse(req);
-    }
-
-    @Override
-    @Transactional
-    public MaintenanceRequestResponse sendQuote(Long id, MaintenanceQuoteRequest request) {
-        MaintenanceRequest req = findActive(id);
-        requireManagerAccess(req);
-
-        if (req.getStatus() != MaintenanceStatus.TENANT_FAULT) {
-            throw new BusinessException("Chỉ gửi báo giá khi yêu cầu đang ở trạng thái TENANT_FAULT (lỗi do khách thuê).");
-        }
-
-        if (request == null || request.getQuotedRepairCost() == null) {
-            throw new BusinessException("Bắt buộc phải có chi phí sửa chữa báo giá (quotedRepairCost)");
-        }
-
-        req.setQuotedRepairCost(request.getQuotedRepairCost());
-        req.setQuoteSentAt(LocalDateTime.now());
-        
-        // Reset approval/rejection state in case this is a re-quote
-        req.setQuoteApprovedAt(null);
-        req.setQuoteRejectedAt(null);
-        req.setQuoteResponseNote(null);
-
-        // Calculate resolution type based on remaining depreciated value vs repair cost
-        BigDecimal remainingValue = remainingDepreciatedValue(req.getEquipment(), LocalDate.now());
-        if (remainingValue == null) {
-            req.setDamageResolutionType(DamageResolutionType.REPAIR);
-            req.setEstimatedDamageAmount(request.getQuotedRepairCost());
-        } else {
-            if (remainingValue.compareTo(request.getQuotedRepairCost()) > 0) {
-                req.setDamageResolutionType(DamageResolutionType.REPAIR);
-                req.setEstimatedDamageAmount(request.getQuotedRepairCost());
-            } else {
-                req.setDamageResolutionType(DamageResolutionType.REPLACE);
-                req.setEstimatedDamageAmount(remainingValue);
-            }
-        }
-
-        repository.save(req);
-        addTimeline(req, req.getStatus(), req.getStatus(), "Manager gửi báo giá sửa chữa: " + request.getQuotedRepairCost() + "đ");
-        notifyTenant(req,
-                "Báo giá sửa chữa bảo trì",
-                "Quản lý đã gửi báo giá sửa chữa cho yêu cầu #" + req.getId() + ". Vui lòng kiểm tra và xác nhận.",
-                "MAINTENANCE_QUOTE_SENT");
-        
-        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_SCHEDULE_CHANGED);
-        return convertToResponse(req);
-    }
-
-    @Override
-    @Transactional
-    public MaintenanceRequestResponse respondQuote(Long id, MaintenanceQuoteResponseRequest request) {
-        MaintenanceRequest req = findActive(id);
-        requireTenantOwner(req);
-
-        if (req.getStatus() != MaintenanceStatus.TENANT_FAULT || req.getQuoteSentAt() == null) {
-            throw new BusinessException("Yêu cầu không trong trạng thái chờ duyệt báo giá.");
-        }
-
-        if (req.getQuoteApprovedAt() != null || req.getQuoteRejectedAt() != null) {
-            throw new BusinessException("Báo giá này đã được phản hồi.");
-        }
-
-        if (request == null || request.getApproved() == null) {
-            throw new BusinessException("Bắt buộc phải có trạng thái duyệt báo giá (approved)");
-        }
-
-        req.setQuoteResponseNote(trimToNull(request.getNote()));
-        if (request.getApproved()) {
-            req.setQuoteApprovedAt(LocalDateTime.now());
-            addTimeline(req, req.getStatus(), req.getStatus(), "Khách thuê đồng ý báo giá sửa chữa" + (req.getQuoteResponseNote() != null ? ": " + req.getQuoteResponseNote() : ""));
-            notifyPropertyManager(req,
-                    "Khách thuê đồng ý báo giá",
-                    "Khách thuê đã đồng ý báo giá cho yêu cầu #" + req.getId() + ". Vui lòng xếp lịch sửa chữa.",
-                    "MAINTENANCE_QUOTE_APPROVED");
-        } else {
-            req.setQuoteRejectedAt(LocalDateTime.now());
-            addTimeline(req, req.getStatus(), req.getStatus(), "Khách thuê từ chối báo giá sửa chữa" + (req.getQuoteResponseNote() != null ? ": " + req.getQuoteResponseNote() : ""));
-            notifyPropertyManager(req,
-                    "Khách thuê từ chối báo giá",
-                    "Khách thuê đã từ chối báo giá cho yêu cầu #" + req.getId() + ". Vui lòng kiểm tra lại.",
-                    "MAINTENANCE_QUOTE_REJECTED");
-        }
-
-        repository.save(req);
-        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_SCHEDULE_CHANGED);
-        return convertToResponse(req);
-    }
-
-    private BigDecimal remainingDepreciatedValue(Equipment eq, LocalDate today) {
-        if (eq == null || eq.getExpectedLifespanMonths() == null || eq.getInstallationDate() == null
-                || eq.getPrice() == null) {
-            return null; // fallback về penaltyFee/logic bảo hành cũ
-        }
-        long monthsUsed = java.time.temporal.ChronoUnit.MONTHS.between(eq.getInstallationDate(), today);
-        long totalMonths = eq.getExpectedLifespanMonths();
-        if (totalMonths <= 0) return BigDecimal.ZERO;
-        double remainRatio = Math.max(0, (totalMonths - monthsUsed) / (double) totalMonths);
-        return eq.getPrice().multiply(BigDecimal.valueOf(remainRatio));
     }
 
     @Override
@@ -748,19 +659,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         applyInvoiceOnComplete(req, request, needsReplacement);
 
-        if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getQuoteApprovedAt() != null) {
-            boolean quoteWasReplace = req.getDamageResolutionType() == DamageResolutionType.REPLACE;
-            if (needsReplacement != quoteWasReplace) {
-                throw new BusinessException("Hình thức xử lý (thay mới/sửa chữa) không khớp với báo giá đã duyệt. Vui lòng gửi báo giá mới.");
-            }
-            BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
-            BigDecimal approvedAmount = req.getEstimatedDamageAmount();
-            if (approvedAmount == null || chargeAmount.compareTo(approvedAmount) != 0) {
-                throw new BusinessException(String.format(
-                        "Số tiền thu (%,.0fđ) không khớp với báo giá đã duyệt (%,.0fđ). Vui lòng gửi báo giá mới.",
-                        chargeAmount, approvedAmount != null ? approvedAmount : BigDecimal.ZERO));
-            }
-        }
+
 
         if (needsReplacement) {
             applyEquipmentReplacementOnComplete(req, request, chargeToTenant);
@@ -1039,11 +938,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.REPAIR_SCHEDULED);
 
-        if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR
-                && req.getQuoteApprovedAt() == null) {
-            throw new BusinessException("Cần tenant đồng ý báo giá trước khi đặt lịch sửa.");
-        }
 
         if (req.getRepairAppointmentAt() == null) {
             throw new BusinessException("Phiếu này không có lịch sửa để đổi");
@@ -1076,11 +970,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.REPAIR_SCHEDULED);
 
-        if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR
-                && req.getQuoteApprovedAt() == null) {
-            throw new BusinessException("Cần tenant đồng ý báo giá trước khi bắt đầu sửa chữa.");
-        }
 
         MaintenanceStatus old = req.getStatus();
         MaintenanceStatus next = req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
@@ -2011,10 +1900,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .faultResolutionPath(req.getFaultResolutionPath())
                 .selfRepairDeadline(req.getSelfRepairDeadline())
                 .estimatedDamageAmount(req.getEstimatedDamageAmount())
-                .quotedRepairCost(req.getQuotedRepairCost())
-                .quoteApprovedAt(req.getQuoteApprovedAt())
-                .quoteRejectedAt(req.getQuoteRejectedAt())
-                .damageResolutionType(req.getDamageResolutionType())
                 .adminReviewedAt(req.getAdminReviewedAt())
                 .adminReviewedBy(req.getAdminReviewedBy())
                 .adminApproved(req.getAdminApproved())
