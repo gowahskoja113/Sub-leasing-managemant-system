@@ -100,6 +100,8 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
 
     List<MaintenanceRequest> findByStatusAndSelfRepairDeadlineBeforeAndDeletedFalse(
             MaintenanceStatus status, LocalDate deadline);
+            
+    List<MaintenanceRequest> findByStatusAndDeletedFalse(MaintenanceStatus status);
 
     boolean existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
             Long roomId, List<MaintenanceStatus> excludedStatuses, Long excludedId);

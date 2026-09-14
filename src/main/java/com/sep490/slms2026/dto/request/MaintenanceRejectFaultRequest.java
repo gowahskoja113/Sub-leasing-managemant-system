@@ -20,4 +20,6 @@ public class MaintenanceRejectFaultRequest {
      * Nếu có → REPAIR_SCHEDULED thay vì TENANT_FAULT ngay.
      */
     private LocalDateTime repairAppointmentAt;
+
+    private Boolean needsOffSiteInspection;
 }

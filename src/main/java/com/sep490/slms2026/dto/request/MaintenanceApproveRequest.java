@@ -34,4 +34,7 @@ public class MaintenanceApproveRequest {
      * Tùy chọn — nếu có → chuyển REPAIR_SCHEDULED thay vì sửa ngay (IN_REPAIR).
      */
     private LocalDateTime repairAppointmentAt;
+
+    private Boolean needsOffSiteInspection;
 }
+
