@@ -158,6 +158,34 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceAppointmentColumns();
         ensureUtilityInvoiceTenantViewedAtColumn();
         ensureMeterReadingLockColumns();
+
+        syncEnumCheck("room_price_history", "change_type", "room_price_history_change_type_check",
+                com.sep490.slms2026.enums.RoomPriceChangeType.values());
+        syncEnumCheck("pricing_capital_items", "kind", "pricing_capital_items_kind_check",
+                com.sep490.slms2026.enums.PricingCapitalItemKind.values());
+        syncEnumCheck("maintenance_requests", "fault_resolution_path", "maintenance_requests_fault_resolution_path_check",
+                com.sep490.slms2026.enums.FaultResolutionPath.values());
+        syncEnumCheck("maintenance_requests", "status", "maintenance_requests_status_check",
+                com.sep490.slms2026.enums.MaintenanceStatus.values());
+    }
+
+    private void syncEnumCheck(String table, String column, String constraint, Enum<?>[] values) {
+        try {
+            Boolean tableExists = jdbcTemplate.queryForObject(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?)",
+                    Boolean.class, table);
+            if (!Boolean.TRUE.equals(tableExists)) return;
+
+            String allowed = java.util.Arrays.stream(values)
+                    .map(v -> "'" + v.name() + "'")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraint);
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD CONSTRAINT " + constraint
+                    + " CHECK (" + column + " IN (" + allowed + "))");
+            log.info("Synced constraint {} on {}.{} with enum values", constraint, table, column);
+        } catch (Exception e) {
+            log.warn("Could not sync constraint {} on {}.{}: {}", constraint, table, column, e.getMessage());
+        }
     }
 
     /**
