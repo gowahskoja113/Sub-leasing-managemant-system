@@ -22,6 +22,8 @@ public interface UnitPriceService {
 
     void applyContractRent(TenantContract contract, RoomPriceChangeType changeType, String reason);
 
+    void recordOnboardingPriceChange(Long propertyId, Long roomId, RoomPriceChangeType type, BigDecimal oldPrice, BigDecimal newPrice, String reason);
+
     void revertToListedPrice(TenantContract contract);
 
     int applyDueEscalations();

@@ -10,12 +10,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * Công thức định giá — prepaid rent.
- * <p>
- * Nhà nguyên căn: tính trực tiếp revenueTarget.
- * Theo phòng: tính giống nguyên căn rồi chia đều cho các phòng.
- */
 public final class PricingCalculator {
 
     public static final BigDecimal DEFAULT_V_RATE = new BigDecimal("0.10");
@@ -28,7 +22,10 @@ public final class PricingCalculator {
     @Builder
     public record RoomInput(
             Long roomId,
-            String roomNumber) {
+            String roomNumber,
+            BigDecimal monthlyRecoveryPrivate,
+            BigDecimal repairReservePrivate,
+            BigDecimal capexPrivate) {
     }
 
     @Builder
@@ -38,9 +35,6 @@ public final class PricingCalculator {
             double area,
             double effectiveM2,
             double weight,
-            BigDecimal rentShare,
-            BigDecimal renovationShare,
-            BigDecimal equipmentShare,
             BigDecimal capexShare,
             BigDecimal monthlyRecovery,
             BigDecimal opexShare,
@@ -50,12 +44,10 @@ public final class PricingCalculator {
 
     @Builder
     public record PropertyResult(
-            BigDecimal cRent,
-            BigDecimal cRenovation,
-            BigDecimal cEquipment,
             BigDecimal capex,
             int contractMonths,
             BigDecimal monthlyRecovery,
+            BigDecimal repairReserve,
             BigDecimal fixedOpex,
             BigDecimal revenueMin,
             BigDecimal revenueTarget,
@@ -69,14 +61,10 @@ public final class PricingCalculator {
             List<RoomResult> rooms) {
     }
 
-    /**
-     * Tính giá theo phòng: cùng công thức nguyên căn, rồi chia đều revenueTarget / số phòng.
-     * Phòng cuối nhận phần còn lại để tránh lệch làm tròn.
-     */
     public static PropertyResult calculate(
-            BigDecimal cRent,
-            BigDecimal cRenovation,
-            BigDecimal cEquipment,
+            BigDecimal capexCommon,
+            BigDecimal monthlyRecoveryCommon,
+            BigDecimal repairReserveCommon,
             int contractMonths,
             BigDecimal oOperation,
             BigDecimal vRate,
@@ -87,58 +75,82 @@ public final class PricingCalculator {
 
         validateRoomInputs(contractMonths, mode, pDesired, roiExpected, rooms);
 
-        PropertyResult whole = calculateWholeHouse(
-                cRent, cRenovation, cEquipment, contractMonths,
-                oOperation, vRate, mode, pDesired, roiExpected);
-
         List<RoomInput> ordered = rooms.stream()
                 .sorted(Comparator.comparing(RoomInput::roomId))
                 .toList();
         int n = ordered.size();
 
-        BigDecimal allocatedRent = BigDecimal.ZERO;
-        BigDecimal allocatedRenovation = BigDecimal.ZERO;
-        BigDecimal allocatedEquipment = BigDecimal.ZERO;
-        BigDecimal allocatedOpex = BigDecimal.ZERO;
-        BigDecimal allocatedPrice = BigDecimal.ZERO;
-        BigDecimal allocatedFloor = BigDecimal.ZERO;
+        BigDecimal safeOpex = nz(oOperation);
+        BigDecimal safeVRate = vRate != null ? vRate : DEFAULT_V_RATE;
 
-        BigDecimal equalRent = equalShare(whole.cRent(), n);
-        BigDecimal equalRenovation = equalShare(whole.cRenovation(), n);
-        BigDecimal equalEquipment = equalShare(whole.cEquipment(), n);
-        BigDecimal equalOpex = equalShare(whole.oOperation(), n);
-        BigDecimal equalPrice = equalShare(whole.revenueTarget(), n);
-        BigDecimal wholeFloor = whole.rooms().getFirst().roomFloor();
-        BigDecimal equalFloor = equalShare(wholeFloor, n);
+        BigDecimal equalMonthlyRecoveryCommon = equalShare(nz(monthlyRecoveryCommon), n);
+        BigDecimal equalRepairReserveCommon = equalShare(nz(repairReserveCommon), n);
+        BigDecimal equalOpex = equalShare(safeOpex, n);
+        BigDecimal equalCapexCommon = equalShare(nz(capexCommon), n);
+
+        BigDecimal allocatedMonthlyRecoveryCommon = BigDecimal.ZERO;
+        BigDecimal allocatedRepairReserveCommon = BigDecimal.ZERO;
+        BigDecimal allocatedOpex = BigDecimal.ZERO;
+        BigDecimal allocatedCapexCommon = BigDecimal.ZERO;
+
+        BigDecimal totalCapex = nz(capexCommon);
+        BigDecimal totalMonthlyRecovery = nz(monthlyRecoveryCommon);
+        BigDecimal totalRepairReserve = nz(repairReserveCommon);
+
+        for (RoomInput r : ordered) {
+            totalCapex = totalCapex.add(nz(r.capexPrivate()));
+            totalMonthlyRecovery = totalMonthlyRecovery.add(nz(r.monthlyRecoveryPrivate()));
+            totalRepairReserve = totalRepairReserve.add(nz(r.repairReservePrivate()));
+        }
+
+        BigDecimal totalRevenueMin = BigDecimal.ZERO;
+        BigDecimal totalRevenueTarget = BigDecimal.ZERO;
 
         List<RoomResult> roomResults = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             RoomInput room = ordered.get(i);
             boolean last = i == n - 1;
 
-            BigDecimal rentShare = last ? money(whole.cRent().subtract(allocatedRent)) : equalRent;
-            BigDecimal renovationShare = last
-                    ? money(whole.cRenovation().subtract(allocatedRenovation)) : equalRenovation;
-            BigDecimal equipmentShare = last
-                    ? money(whole.cEquipment().subtract(allocatedEquipment)) : equalEquipment;
-            BigDecimal opexShare = last
-                    ? money(whole.oOperation().subtract(allocatedOpex)) : equalOpex;
-            BigDecimal suggestedPrice = last
-                    ? money(whole.revenueTarget().subtract(allocatedPrice)) : equalPrice;
-            BigDecimal roomFloor = last
-                    ? money(wholeFloor.subtract(allocatedFloor)) : equalFloor;
-
-            BigDecimal capexShare = rentShare.add(renovationShare).add(equipmentShare);
-            BigDecimal monthlyRecoveryRoom = divideMoney(capexShare, contractMonths);
+            BigDecimal opexShare = last ? money(safeOpex.subtract(allocatedOpex)) : equalOpex;
+            BigDecimal monthlyRecCommonShare = last ? money(nz(monthlyRecoveryCommon).subtract(allocatedMonthlyRecoveryCommon)) : equalMonthlyRecoveryCommon;
+            BigDecimal repairResCommonShare = last ? money(nz(repairReserveCommon).subtract(allocatedRepairReserveCommon)) : equalRepairReserveCommon;
+            BigDecimal capexCommonShare = last ? money(nz(capexCommon).subtract(allocatedCapexCommon)) : equalCapexCommon;
 
             if (!last) {
-                allocatedRent = allocatedRent.add(rentShare);
-                allocatedRenovation = allocatedRenovation.add(renovationShare);
-                allocatedEquipment = allocatedEquipment.add(equipmentShare);
                 allocatedOpex = allocatedOpex.add(opexShare);
-                allocatedPrice = allocatedPrice.add(suggestedPrice);
-                allocatedFloor = allocatedFloor.add(roomFloor);
+                allocatedMonthlyRecoveryCommon = allocatedMonthlyRecoveryCommon.add(monthlyRecCommonShare);
+                allocatedRepairReserveCommon = allocatedRepairReserveCommon.add(repairResCommonShare);
+                allocatedCapexCommon = allocatedCapexCommon.add(capexCommonShare);
             }
+
+            BigDecimal roomMonthlyRecovery = monthlyRecCommonShare.add(nz(room.monthlyRecoveryPrivate()));
+            BigDecimal roomRepairReserve = repairResCommonShare.add(nz(room.repairReservePrivate()));
+            BigDecimal roomCapex = capexCommonShare.add(nz(room.capexPrivate()));
+            
+            BigDecimal roomFixedOpex = roomMonthlyRecovery.add(roomRepairReserve).add(opexShare);
+            BigDecimal roomFloor = applyVacancyBuffer(roomFixedOpex, safeVRate);
+
+            BigDecimal roomRevenueMin;
+            BigDecimal roomRevenueTarget;
+
+            if (mode == PricingMode.FORWARD) {
+                BigDecimal pDesiredShare = equalShare(nz(pDesired), n);
+                if (last) {
+                    pDesiredShare = nz(pDesired).subtract(equalShare(nz(pDesired), n).multiply(BigDecimal.valueOf(n - 1)));
+                }
+                roomRevenueMin = roomFixedOpex.add(pDesiredShare);
+                roomRevenueTarget = applyVacancyBuffer(roomRevenueMin, safeVRate);
+            } else {
+                BigDecimal roi = nz(roiExpected);
+                BigDecimal years = BigDecimal.valueOf(contractMonths).divide(BigDecimal.valueOf(12), RATIO_SCALE, RoundingMode.HALF_UP);
+                BigDecimal totalProfitRoom = roomCapex.multiply(roi).divide(BigDecimal.valueOf(100), RATIO_SCALE, RoundingMode.HALF_UP).multiply(years);
+                BigDecimal monthlyProfitRoom = totalProfitRoom.divide(BigDecimal.valueOf(contractMonths), RATIO_SCALE, RoundingMode.HALF_UP);
+                roomRevenueMin = roomFixedOpex.add(monthlyProfitRoom);
+                roomRevenueTarget = applyVacancyBuffer(roomRevenueMin, safeVRate);
+            }
+
+            totalRevenueMin = totalRevenueMin.add(roomRevenueMin);
+            totalRevenueTarget = totalRevenueTarget.add(roomRevenueTarget);
 
             roomResults.add(RoomResult.builder()
                     .roomId(room.roomId())
@@ -146,32 +158,27 @@ public final class PricingCalculator {
                     .area(0)
                     .effectiveM2(0)
                     .weight(1.0)
-                    .rentShare(rentShare)
-                    .renovationShare(renovationShare)
-                    .equipmentShare(equipmentShare)
-                    .capexShare(capexShare)
-                    .monthlyRecovery(monthlyRecoveryRoom)
+                    .capexShare(roomCapex)
+                    .monthlyRecovery(roomMonthlyRecovery)
                     .opexShare(opexShare)
-                    .roomFloor(roomFloor)
-                    .suggestedPrice(suggestedPrice)
+                    .roomFloor(money(roomFloor))
+                    .suggestedPrice(money(roomRevenueTarget))
                     .build());
         }
 
         return PropertyResult.builder()
-                .cRent(whole.cRent())
-                .cRenovation(whole.cRenovation())
-                .cEquipment(whole.cEquipment())
-                .capex(whole.capex())
-                .contractMonths(whole.contractMonths())
-                .monthlyRecovery(whole.monthlyRecovery())
-                .fixedOpex(whole.fixedOpex())
-                .revenueMin(whole.revenueMin())
-                .revenueTarget(whole.revenueTarget())
-                .pDesired(whole.pDesired())
-                .roiExpected(whole.roiExpected())
-                .oOperation(whole.oOperation())
-                .vRate(whole.vRate())
-                .mode(whole.mode())
+                .capex(totalCapex)
+                .contractMonths(contractMonths)
+                .monthlyRecovery(totalMonthlyRecovery)
+                .repairReserve(totalRepairReserve)
+                .fixedOpex(totalMonthlyRecovery.add(totalRepairReserve).add(safeOpex))
+                .revenueMin(money(totalRevenueMin))
+                .revenueTarget(money(totalRevenueTarget))
+                .pDesired(pDesired)
+                .roiExpected(roiExpected)
+                .oOperation(safeOpex)
+                .vRate(safeVRate)
+                .mode(mode)
                 .commonAreaM2(0)
                 .totalWeight(n)
                 .rooms(roomResults)
@@ -179,9 +186,9 @@ public final class PricingCalculator {
     }
 
     public static PropertyResult calculateWholeHouse(
-            BigDecimal cRent,
-            BigDecimal cRenovation,
-            BigDecimal cEquipment,
+            BigDecimal capex,
+            BigDecimal monthlyRecovery,
+            BigDecimal repairReserve,
             int contractMonths,
             BigDecimal oOperation,
             BigDecimal vRate,
@@ -199,16 +206,14 @@ public final class PricingCalculator {
             throw new BusinessException("Luồng ngược (REVERSE) yêu cầu roiExpected");
         }
 
-        BigDecimal safeRent = nz(cRent);
-        BigDecimal safeRenovation = nz(cRenovation);
-        BigDecimal safeEquipment = nz(cEquipment);
         BigDecimal safeOpex = nz(oOperation);
         BigDecimal safeVRate = vRate != null ? vRate : DEFAULT_V_RATE;
+        BigDecimal safeCapex = nz(capex);
+        BigDecimal safeMonthlyRecovery = nz(monthlyRecovery);
+        BigDecimal safeRepairReserve = nz(repairReserve);
 
-        BigDecimal capex = safeRent.add(safeRenovation).add(safeEquipment);
-        BigDecimal monthlyRecovery = divideMoney(capex, contractMonths);
-        BigDecimal fixedOpex = safeOpex.add(monthlyRecovery);
-        BigDecimal floorPrice = applyVacancyBuffer(monthlyRecovery.add(safeOpex), safeVRate);
+        BigDecimal fixedOpex = safeMonthlyRecovery.add(safeRepairReserve).add(safeOpex);
+        BigDecimal floorPrice = applyVacancyBuffer(fixedOpex, safeVRate);
 
         BigDecimal revenueMin;
         BigDecimal revenueTarget;
@@ -219,23 +224,21 @@ public final class PricingCalculator {
             BigDecimal roi = nz(roiExpected);
             BigDecimal years = BigDecimal.valueOf(contractMonths)
                     .divide(BigDecimal.valueOf(12), RATIO_SCALE, RoundingMode.HALF_UP);
-            BigDecimal totalProfit = capex
+            BigDecimal totalProfit = safeCapex
                     .multiply(roi)
                     .divide(BigDecimal.valueOf(100), RATIO_SCALE, RoundingMode.HALF_UP)
                     .multiply(years);
-            BigDecimal monthlyGoal = capex.add(totalProfit)
+            BigDecimal monthlyProfit = totalProfit
                     .divide(BigDecimal.valueOf(contractMonths), RATIO_SCALE, RoundingMode.HALF_UP);
-            revenueMin = monthlyGoal.add(safeOpex);
+            revenueMin = fixedOpex.add(monthlyProfit);
             revenueTarget = applyVacancyBuffer(revenueMin, safeVRate);
         }
 
         return PropertyResult.builder()
-                .cRent(safeRent)
-                .cRenovation(safeRenovation)
-                .cEquipment(safeEquipment)
-                .capex(capex)
+                .capex(safeCapex)
                 .contractMonths(contractMonths)
-                .monthlyRecovery(monthlyRecovery)
+                .monthlyRecovery(safeMonthlyRecovery)
+                .repairReserve(safeRepairReserve)
                 .fixedOpex(fixedOpex)
                 .revenueMin(money(revenueMin))
                 .revenueTarget(money(revenueTarget))
@@ -247,11 +250,8 @@ public final class PricingCalculator {
                 .commonAreaM2(0)
                 .totalWeight(0)
                 .rooms(List.of(RoomResult.builder()
-                        .rentShare(safeRent)
-                        .renovationShare(safeRenovation)
-                        .equipmentShare(safeEquipment)
-                        .capexShare(capex)
-                        .monthlyRecovery(monthlyRecovery)
+                        .capexShare(safeCapex)
+                        .monthlyRecovery(safeMonthlyRecovery)
                         .opexShare(safeOpex)
                         .roomFloor(floorPrice)
                         .suggestedPrice(money(revenueTarget))
@@ -284,10 +284,6 @@ public final class PricingCalculator {
             throw new BusinessException("Biên dự phòng trống (vRate) phải nhỏ hơn 100%");
         }
         return money(base.divide(BigDecimal.ONE.subtract(vRate), MONEY_SCALE, RoundingMode.HALF_UP));
-    }
-
-    private static BigDecimal divideMoney(BigDecimal value, int divisor) {
-        return value.divide(BigDecimal.valueOf(divisor), MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal equalShare(BigDecimal total, int n) {

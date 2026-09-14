@@ -417,15 +417,21 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "MAINTENANCE_SELF_REPAIR_ASSIGNED");
         } else {
             if (request.getRepairAppointmentAt() != null) {
+                UUID managerId = requireManagerId(req);
+                validateAndAssertSlotAvailable(managerId, request.getRepairAppointmentAt(), REPAIR_SLOT_MINUTES, req.getId());
+                if (request.getEstimatedDamageAmount() != null) {
+                    req.setEstimatedDamageAmount(request.getEstimatedDamageAmount());
+                }
                 req.setRepairAppointmentAt(request.getRepairAppointmentAt());
                 req.setStatus(MaintenanceStatus.REPAIR_SCHEDULED);
                 repository.save(req);
                 addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED,
                         "Manager xác định lỗi tenant — hẹn sửa lúc " + request.getRepairAppointmentAt());
                 notifyTenant(req,
-                        "Lịch hẹn sửa chữa (Lỗi do khách thuê)",
+                        "Yêu cầu bảo trì — lỗi do khách thuê",
                         "Lý do: " + req.getFaultReason() + ". Quản lý hẹn sửa lúc " + request.getRepairAppointmentAt(),
-                        "MAINTENANCE_REPAIR_SCHEDULED");
+                        "MAINTENANCE_TENANT_FAULT");
+                realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_SCHEDULE_CHANGED);
             } else {
                 req.setStatus(MaintenanceStatus.TENANT_FAULT);
                 if (request.getEstimatedDamageAmount() != null) {

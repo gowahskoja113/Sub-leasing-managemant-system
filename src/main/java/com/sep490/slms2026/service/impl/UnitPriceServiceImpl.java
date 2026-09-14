@@ -142,6 +142,13 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     }
 
     @Override
+    @Transactional
+    public void recordOnboardingPriceChange(Long propertyId, Long roomId, RoomPriceChangeType type, BigDecimal oldPrice, BigDecimal newPrice, String reason) {
+        Actor actor = currentActor();
+        recordHistory(propertyId, roomId, type, oldPrice, newPrice, null, reason, actor);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<RoomPriceHistoryResponse> getPriceHistory(Long propertyId, Long roomId) {
         requireProperty(propertyId);
@@ -767,6 +774,7 @@ public class UnitPriceServiceImpl implements UnitPriceService {
             case TU_DONG -> "TỰ ĐỘNG";
             case HOST_DOI -> "HOST ĐỔI";
             case ANNUAL_INCREASE -> "TĂNG GIÁ NĂM";
+            case CAI_TAO_BO_SUNG -> "CẢI TẠO BỔ SUNG";
         };
     }
 

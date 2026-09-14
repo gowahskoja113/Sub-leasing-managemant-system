@@ -49,4 +49,11 @@ public class DepreciationCalculationResponse {
 
     private DepreciationResultResponse wholeHouseResult;
     private List<DepreciationResultResponse> roomResults;
+
+    // ===== Bổ sung theo Yêu cầu 2026-09-14 =====
+    private List<PricingCapitalItemResponse> capitalItems;
+    private BigDecimal repairReservePerMonth;
+    private CompanyAbsorbedResponse companyAbsorbed;
+    private BigDecimal previousFloor;
+    private BigDecimal newFloor;
 }

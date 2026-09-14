@@ -133,4 +133,11 @@ public class Equipment implements Serializable {
 
     @Column(name = "qr_code", unique = true)
     private String qrCode;
+
+    // --- New fields for Replacement Logic ---
+    @Column(name = "replaced_equipment_id")
+    private Long replacedEquipmentId;
+
+    @Column(name = "replaced_equipment_price", precision = 19, scale = 2)
+    private java.math.BigDecimal replacedEquipmentPrice;
 }
