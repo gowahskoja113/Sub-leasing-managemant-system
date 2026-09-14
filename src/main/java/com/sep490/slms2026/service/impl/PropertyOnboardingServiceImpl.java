@@ -71,6 +71,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
     private final UserPushTokenService userPushTokenService;
     private final PropertyOccupancyAssembler propertyOccupancyAssembler;
     private final PropertyCodeService propertyCodeService;
+    private final com.sep490.slms2026.service.UnitPriceService unitPriceService;
 
     @Override
     @Transactional
@@ -295,9 +296,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Room room = resolveRoomForAssignment(property, propertyId, request.getRoomId(), request.getHouseArea());
 
+        List<Equipment> replacedEquipments = new java.util.ArrayList<>();
         if (request.getSource() == EquipmentSource.PURCHASED
                 && importAction == EquipmentImportAction.THAY_THE) {
-            disableReplacedPurchasedEquipment(propertyId, request.getCatalogId(),
+            replacedEquipments = disableReplacedPurchasedEquipment(propertyId, request.getCatalogId(),
                     request.getRoomId(), request.getHouseArea(), request.getQuantity());
         }
 
@@ -307,7 +309,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         Equipment lastSaved = null;
         for (int i = 0; i < request.getQuantity(); i++) {
-            lastSaved = equipmentRepository.save(Equipment.builder()
+            Equipment.EquipmentBuilder builder = Equipment.builder()
                     .property(property)
                     .room(room)
                     .catalog(catalog)
@@ -322,13 +324,20 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .warrantyMonths(request.getWarrantyMonths())
                     .warrantyStartDate(request.getWarrantyStartDate())
                     .warrantyEndDate(request.getWarrantyEndDate())
-                    .penaltyFee(request.getPenaltyFee())
-                    .build());
+                    .penaltyFee(request.getPenaltyFee());
+
+            if (i < replacedEquipments.size()) {
+                Equipment replaced = replacedEquipments.get(i);
+                builder.replacedEquipmentId(replaced.getId());
+                builder.replacedEquipmentPrice(replaced.getPrice());
+            }
+
+            lastSaved = equipmentRepository.save(builder.build());
         }
         return toEquipmentResponse(lastSaved);
     }
 
-    private void disableReplacedPurchasedEquipment(Long propertyId,
+    private List<Equipment> disableReplacedPurchasedEquipment(Long propertyId,
                                                    Long catalogId,
                                                    Long roomId,
                                                    HouseArea houseArea,
@@ -341,12 +350,14 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                             + quantity + ", hiện có " + activeAtPlacement.size() + ")");
         }
         LocalDateTime now = LocalDateTime.now();
+        List<Equipment> replaced = new java.util.ArrayList<>();
         for (int i = 0; i < quantity; i++) {
             Equipment existing = activeAtPlacement.get(i);
             existing.setOperationalStatus(EquipmentOperationalStatus.DISABLED);
             existing.setDisabledAt(now);
-            equipmentRepository.save(existing);
+            replaced.add(equipmentRepository.save(existing));
         }
+        return replaced;
     }
 
     private BigDecimal resolvePurchasedUnitPrice(AssignEquipmentRequest request) {
@@ -456,7 +467,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         property.setRenovationCompleted(false);
         property.setHasRenovation(true);
 
-        int nextSessionNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId) + 1;
+        int nextSessionNumber = Math.max(renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId) + 1, 2);
         renovationSessionRepository.save(RenovationSession.builder()
                 .property(property)
                 .sessionNumber(nextSessionNumber)
@@ -860,9 +871,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 depreciation.getRoomFloor(),
                 request.getContingencyPercent());
 
+        BigDecimal oldPrice = property.getPrice();
         property.setPrice(finalPrice);
         property.setAppliedPrice(finalPrice);
         propertyRepository.save(property);
+
+        if (oldPrice != null && oldPrice.compareTo(finalPrice) != 0) {
+            com.sep490.slms2026.enums.RoomPriceChangeType type = 
+                (property.getStatus() == PropertyStatus.RENOVATION_COMPLETED || property.getStatus() == PropertyStatus.UNDER_RENOVATION)
+                ? com.sep490.slms2026.enums.RoomPriceChangeType.CAI_TAO_BO_SUNG
+                : com.sep490.slms2026.enums.RoomPriceChangeType.HOST_DOI;
+            unitPriceService.recordOnboardingPriceChange(propertyId, null, type, oldPrice, finalPrice, "Duyệt giá mới");
+        }
 
         if (property.getStatus() == PropertyStatus.ACTIVE) {
             activateDraftRooms(propertyId);
@@ -907,8 +927,17 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     roomDepreciation.getRoomFloor(),
                     request.getContingencyPercent());
 
+            BigDecimal oldPrice = room.getPrice();
             room.setPrice(finalPrice);
             room.setAppliedPrice(finalPrice);
+
+            if (oldPrice != null && oldPrice.compareTo(finalPrice) != 0) {
+                com.sep490.slms2026.enums.RoomPriceChangeType type = 
+                    (property.getStatus() == PropertyStatus.RENOVATION_COMPLETED || property.getStatus() == PropertyStatus.UNDER_RENOVATION)
+                    ? com.sep490.slms2026.enums.RoomPriceChangeType.CAI_TAO_BO_SUNG
+                    : com.sep490.slms2026.enums.RoomPriceChangeType.HOST_DOI;
+                unitPriceService.recordOnboardingPriceChange(propertyId, room.getId(), type, oldPrice, finalPrice, "Duyệt giá mới");
+            }
         }
 
         propertyRepository.save(property);

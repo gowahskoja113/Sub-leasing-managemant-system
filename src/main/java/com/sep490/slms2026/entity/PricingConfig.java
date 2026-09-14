@@ -62,6 +62,10 @@ public class PricingConfig {
     @Column(name = "handover_buffer_months", nullable = false)
     private int handoverBufferMonths;
 
+    /** Tỷ lệ dự phòng sửa chữa sau bảo hành (%/năm). */
+    @Column(name = "repair_reserve_pct_per_year", precision = 19, scale = 4, nullable = false, columnDefinition = "NUMERIC(19,4) DEFAULT 10")
+    private BigDecimal repairReservePctPerYear;
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
@@ -81,6 +85,7 @@ public class PricingConfig {
                 .newYearPriceLeadMonths(2)
                 .vRatePct(new BigDecimal("10"))
                 .handoverBufferMonths(1)
+                .repairReservePctPerYear(new BigDecimal("10"))
                 .updatedAt(LocalDateTime.now())
                 .build();
     }

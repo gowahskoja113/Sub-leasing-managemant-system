@@ -5,6 +5,8 @@ public enum RoomPriceChangeType {
     DIEU_KHOAN_HD,
     TU_DONG,
     HOST_DOI,
+    /** Cải tạo bổ sung. */
+    CAI_TAO_BO_SUNG,
     /** Tăng giá niêm yết / áp dụng theo kỳ 01/01. */
     ANNUAL_INCREASE
 }

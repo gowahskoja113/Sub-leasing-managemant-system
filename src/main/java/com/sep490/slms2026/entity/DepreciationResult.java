@@ -66,4 +66,10 @@ public class DepreciationResult {
 
     @Column(name = "calculated_at", nullable = false)
     private LocalDateTime calculatedAt;
+
+    @Column(name = "pricing_version", nullable = false)
+    private Integer pricingVersion;
+
+    @Column(name = "superseded_at")
+    private LocalDateTime supersededAt;
 }
