@@ -760,6 +760,8 @@ public class BulkOnboardingImportServiceImpl implements BulkOnboardingImportServ
         } else {
             request.setPrice(BigDecimal.ZERO);
         }
+        request.setWarrantyMonths(row.getWarrantyMonths());
+        request.setPenaltyFee(row.getPenaltyFee());
         return request;
     }
 

@@ -18,5 +18,7 @@ public class EquipmentImportRow {
     private String statusRaw;
     private Integer quantity;
     private BigDecimal price;
+    private Integer warrantyMonths;
+    private BigDecimal penaltyFee;
     private String note;
 }
