@@ -131,6 +131,9 @@ public class Equipment implements Serializable {
     @Builder.Default
     private Boolean recommendReplacement = false;
 
+    @Column(name = "expected_lifespan_months")
+    private Integer expectedLifespanMonths;
+
     @Column(name = "qr_code", unique = true)
     private String qrCode;
 }

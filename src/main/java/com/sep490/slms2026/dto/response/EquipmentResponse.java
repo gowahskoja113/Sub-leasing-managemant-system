@@ -43,6 +43,9 @@ public class EquipmentResponse {
     /** Mức phạt cố định (VNĐ) khi hết bảo hành. */
     private java.math.BigDecimal penaltyFee;
 
+    private Integer expectedLifespanMonths;
+    private java.math.BigDecimal currentDepreciatedValue;
+
     /** ACTIVE | DISABLED — áp dụng cho các thiết bị vận hành */
     private String operationalStatus;
     private boolean currentEffective;
