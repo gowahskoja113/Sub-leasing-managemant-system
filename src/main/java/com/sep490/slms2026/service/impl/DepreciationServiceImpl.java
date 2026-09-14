@@ -152,35 +152,60 @@ public class DepreciationServiceImpl implements DepreciationService {
             List<PricingCapitalItem> existingItems = pricingCapitalItemRepository.findByPropertyIdAndPricingVersion(property.getId(), currentVersion - 1);
             
             if (existingItems.isEmpty()) {
+                int oldContractMonths = contractMonths;
+                LocalDate oldStartDate = rentableFrom;
+                List<DepreciationResult> oldResults = depreciationResultRepository.findByPropertyIdAndPricingVersion(property.getId(), currentVersion - 1);
+                if (!oldResults.isEmpty()) {
+                    DepreciationResult oldResult = oldResults.get(0);
+                    if (oldResult.getContractMonths() != null) {
+                        oldContractMonths = oldResult.getContractMonths();
+                    }
+                    if (oldResult.getCalculatedAt() != null) {
+                        oldStartDate = oldResult.getCalculatedAt().toLocalDate();
+                    }
+                }
+
                 existingItems.add(PricingCapitalItem.builder()
                         .propertyId(property.getId())
                         .pricingVersion(currentVersion - 1)
                         .kind(PricingCapitalItemKind.RENT)
                         .amount(contract.getTotalRentAmount())
-                        .startDate(rentableFrom)
-                        .months(contractMonths)
-                        .monthlyAmount(divideMoney(contract.getTotalRentAmount(), contractMonths))
+                        .startDate(oldStartDate)
+                        .months(oldContractMonths)
+                        .monthlyAmount(divideMoney(contract.getTotalRentAmount(), oldContractMonths))
                         .createdAt(LocalDateTime.now())
                         .build());
 
                 List<RenovationLine> lines = renovationLineRepository.findByPropertyId(property.getId());
                 for (RenovationLine line : lines) {
-                    if (line.getSession() != null) continue;
+                    if (line.getSession() != null && line.getSession().getSessionNumber() >= currentVersion) continue;
                     existingItems.add(PricingCapitalItem.builder()
                             .propertyId(property.getId())
                             .pricingVersion(currentVersion - 1)
                             .kind(PricingCapitalItemKind.RENOVATION)
                             .sourceId(line.getId())
                             .amount(line.getCost())
-                            .startDate(rentableFrom)
-                            .months(contractMonths)
-                            .monthlyAmount(divideMoney(line.getCost(), contractMonths))
+                            .startDate(oldStartDate)
+                            .months(oldContractMonths)
+                            .monthlyAmount(divideMoney(line.getCost(), oldContractMonths))
                             .createdAt(LocalDateTime.now())
                             .build());
                 }
 
+                List<Long> replacedInCurrentSession = new ArrayList<>();
+                if (currentSession != null) {
+                    replacedInCurrentSession = equipmentRepository.findByRenovationSessionIdOrderByIdAsc(currentSession.getId()).stream()
+                        .filter(e -> e.getReplacedEquipmentId() != null)
+                        .map(Equipment::getReplacedEquipmentId)
+                        .toList();
+                }
+                
+                final List<Long> replacedIds = replacedInCurrentSession;
                 List<Equipment> equipments = equipmentRepository.findByPropertyId(property.getId()).stream()
-                        .filter(e -> e.getSource() == EquipmentSource.PURCHASED && e.getRenovationSession() == null)
+                        .filter(e -> e.getSource() == EquipmentSource.PURCHASED
+                                && (e.getRenovationSession() == null || e.getRenovationSession().getSessionNumber() < currentVersion)
+                                && (e.getOperationalStatus() == EquipmentOperationalStatus.ACTIVE
+                                    || replacedIds.contains(e.getId())))
                         .toList();
 
                 for (Equipment eq : equipments) {
@@ -192,9 +217,9 @@ public class DepreciationServiceImpl implements DepreciationService {
                             .roomId(eq.getRoom() != null ? eq.getRoom().getId() : null)
                             .houseArea(eq.getHouseArea() != null ? true : null)
                             .amount(eq.getPrice())
-                            .startDate(rentableFrom)
-                            .months(contractMonths)
-                            .monthlyAmount(divideMoney(eq.getPrice(), contractMonths))
+                            .startDate(oldStartDate)
+                            .months(oldContractMonths)
+                            .monthlyAmount(divideMoney(eq.getPrice(), oldContractMonths))
                             .createdAt(LocalDateTime.now())
                             .build());
                 }
@@ -322,7 +347,7 @@ public class DepreciationServiceImpl implements DepreciationService {
                 buildResult(contract, null, room, result, contractMonths, currentVersion));
 
         return buildPropertyResponse(property.getId(), PricingScope.WHOLE_HOUSE, result,
-                List.of(toResponse(saved, PricingScope.WHOLE_HOUSE)), null, window, items, totalRepairReserve, calculateCompanyAbsorbed(property, currentSession, List.of(room), null));
+                List.of(toResponse(saved, PricingScope.WHOLE_HOUSE)), null, window, items, totalRepairReserve, calculateCompanyAbsorbed(property, currentSession, List.of(room), null), currentVersion);
     }
 
     private DepreciationCalculationResponse calculatePerRoom(
@@ -368,7 +393,7 @@ public class DepreciationServiceImpl implements DepreciationService {
         BigDecimal totalRepairReserve = result.repairReserve();
         CompanyAbsorbedResponse absorbed = calculateCompanyAbsorbed(property, currentSession, result.rooms(), rooms);
 
-        return buildPropertyResponse(property.getId(), PricingScope.ROOM, result, roomResults, null, window, items, totalRepairReserve, absorbed);
+        return buildPropertyResponse(property.getId(), PricingScope.ROOM, result, roomResults, null, window, items, totalRepairReserve, absorbed, currentVersion);
     }
 
     private CompanyAbsorbedResponse calculateCompanyAbsorbed(Property property, RenovationSession currentSession, List<RoomResult> results, List<Room> rooms) {
@@ -421,11 +446,34 @@ public class DepreciationServiceImpl implements DepreciationService {
     private DepreciationCalculationResponse buildPropertyResponse(
             Long propertyId, PricingScope scope, PropertyResult result,
             List<DepreciationResultResponse> roomResults, DepreciationResultResponse wholeHouseResult,
-            RevenueWindow window, List<PricingCapitalItem> items, BigDecimal repairReservePerMonth, CompanyAbsorbedResponse companyAbsorbed) {
+            RevenueWindow window, List<PricingCapitalItem> items, BigDecimal repairReservePerMonth, CompanyAbsorbedResponse companyAbsorbed, int currentVersion) {
 
         BigDecimal cRent = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.RENT).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal cRenovation = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.RENOVATION).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal cEquipment = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.EQUIPMENT || i.getKind() == PricingCapitalItemKind.EQUIPMENT_UPGRADE).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal previousFloor = BigDecimal.ZERO;
+        if (currentVersion > 1) {
+            List<DepreciationResult> oldResults = depreciationResultRepository.findByPropertyIdAndPricingVersion(propertyId, currentVersion - 1);
+            for (DepreciationResult r : oldResults) {
+                if (r.getRoomFloor() != null) {
+                    previousFloor = previousFloor.add(r.getRoomFloor());
+                }
+            }
+        }
+        
+        BigDecimal newFloor = BigDecimal.ZERO;
+        if (scope == PricingScope.WHOLE_HOUSE) {
+            newFloor = wholeHouseResult != null && wholeHouseResult.getRoomFloor() != null 
+                    ? wholeHouseResult.getRoomFloor() 
+                    : (roomResults != null && !roomResults.isEmpty() && roomResults.getFirst().getRoomFloor() != null ? roomResults.getFirst().getRoomFloor() : BigDecimal.ZERO);
+        } else if (roomResults != null) {
+            for (DepreciationResultResponse r : roomResults) {
+                if (r.getRoomFloor() != null) {
+                    newFloor = newFloor.add(r.getRoomFloor());
+                }
+            }
+        }
 
         DepreciationCalculationResponse.DepreciationCalculationResponseBuilder builder =
                 DepreciationCalculationResponse.builder()
@@ -450,8 +498,8 @@ public class DepreciationServiceImpl implements DepreciationService {
                         .roomCount(roomResults != null ? roomResults.size() : null)
                         .repairReservePerMonth(repairReservePerMonth)
                         .companyAbsorbed(companyAbsorbed)
-                        .previousFloor(BigDecimal.ZERO) // We could fetch maxVersion-1 and set this if needed
-                        .newFloor(roomResults != null && !roomResults.isEmpty() ? roomResults.getFirst().getRoomFloor() : BigDecimal.ZERO);
+                        .previousFloor(previousFloor)
+                        .newFloor(newFloor);
 
         List<PricingCapitalItemResponse> capitalItemResponses = items.stream().map(i -> {
             String itemName = "Vốn";
@@ -670,20 +718,6 @@ public class DepreciationServiceImpl implements DepreciationService {
     @Override
     @Transactional(readOnly = true)
     public PricingReconciliationResponse reconcile(Long propertyId, YearMonth month, BigDecimal oOperation, BigDecimal pDesired, BigDecimal vRate) {
-        // Mock reconcile since it is out of scope and not affected largely
-        return PricingReconciliationResponse.builder()
-                .propertyId(propertyId)
-                .month(month)
-                .actualRevenue(BigDecimal.valueOf(15000000))
-                .occupancyRate(BigDecimal.valueOf(85))
-                .actualProfit(BigDecimal.valueOf(5000000))
-                .actualCashFlow(BigDecimal.valueOf(4000000))
-                .fixedOpex(oOperation != null ? oOperation : BigDecimal.valueOf(1000000))
-                .revenueTarget(BigDecimal.valueOf(18000000))
-                .revenueTargetAtOccupancy(BigDecimal.valueOf(15300000))
-                .pDesired(pDesired != null ? pDesired : BigDecimal.valueOf(3000000))
-                .profitTargetMet(true)
-                .revenueTargetMet(true)
-                .build();
+        throw new BusinessException("Tính năng đang được phát triển.");
     }
 }

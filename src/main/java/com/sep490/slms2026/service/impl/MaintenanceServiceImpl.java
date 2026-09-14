@@ -71,6 +71,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final TenantPendingChargeService tenantPendingChargeService;
     private final RealtimeEventService realtimeEventService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.maintenance.bypass-payment-check:true}")
+    private boolean bypassPaymentCheck;
+
     @Override
     public Page<MaintenanceRequestResponse> getRequests(
             String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable) {
@@ -334,7 +337,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setDamageCause(DamageCause.WEAR);
         req.setAcknowledgedAt(LocalDateTime.now());
 
-        if (req.getChargeInvoiceId() != null) {
+        if (!bypassPaymentCheck && req.getChargeInvoiceId() != null) {
             TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
                     .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
             if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
@@ -695,14 +698,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Chỉ có thể bàn giao khi phiếu đang ở REPAIR_SCHEDULED");
         }
 
-        if (req.getChargeInvoiceId() != null) {
-            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
-                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
-            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
-                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
+        if (!bypassPaymentCheck) {
+            if (req.getChargeInvoiceId() != null) {
+                TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                        .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+                if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                    throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
+                }
+            } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
+                throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bàn giao.");
             }
-        } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
-            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bàn giao.");
         }
 
         if (request != null && request.getHandoverImages() != null && !request.getHandoverImages().isEmpty()) {
@@ -743,14 +748,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                             + req.getStatus());
         }
 
-        if (managerRepairFault && req.getChargeInvoiceId() != null) {
-            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
-                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
-            if (invoice.getStatus() != TenantInvoiceStatus.PAID) {
-                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi hoàn tất.");
+        if (!bypassPaymentCheck) {
+            if (managerRepairFault && req.getChargeInvoiceId() != null) {
+                TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                        .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+                if (invoice.getStatus() != TenantInvoiceStatus.PAID) {
+                    throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi hoàn tất.");
+                }
+            } else if (managerRepairFault && req.getChargeInvoiceId() == null) {
+                throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi hoàn tất.");
             }
-        } else if (managerRepairFault && req.getChargeInvoiceId() == null) {
-            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi hoàn tất.");
         }
 
         if (request.getAfterImages() != null && !request.getAfterImages().isEmpty()) {
@@ -1126,14 +1133,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceRequest req = findActive(id);
         requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.REPAIR_SCHEDULED);
-        if (req.getChargeInvoiceId() != null) {
-            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
-                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
-            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
-                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
+        
+        if (!bypassPaymentCheck) {
+            if (req.getChargeInvoiceId() != null) {
+                TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                        .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+                if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                    throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
+                }
+            } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
+                throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
             }
-        } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
-            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
         }
 
 

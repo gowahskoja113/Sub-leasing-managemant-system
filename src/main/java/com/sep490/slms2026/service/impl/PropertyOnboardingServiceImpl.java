@@ -873,12 +873,22 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
         BigDecimal oldPrice = property.getPrice();
         property.setPrice(finalPrice);
-        property.setAppliedPrice(finalPrice);
+        
+        Room wholeHouseRoom = roomRepository.findByPropertyIdAndDeletedIsFalse(propertyId).stream().findFirst().orElse(null);
+        if (wholeHouseRoom != null) {
+            if (wholeHouseRoom.getStatus() == RoomStatus.DRAFT || wholeHouseRoom.getStatus() == RoomStatus.AVAILABLE) {
+                property.setAppliedPrice(finalPrice);
+            }
+        } else {
+            property.setAppliedPrice(finalPrice);
+        }
+        
         propertyRepository.save(property);
 
         if (oldPrice != null && oldPrice.compareTo(finalPrice) != 0) {
+            Integer maxVersion = depreciationResultRepository.findMaxPricingVersionByPropertyId(propertyId);
             com.sep490.slms2026.enums.RoomPriceChangeType type = 
-                (property.getStatus() == PropertyStatus.RENOVATION_COMPLETED || property.getStatus() == PropertyStatus.UNDER_RENOVATION)
+                (maxVersion != null && maxVersion > 1)
                 ? com.sep490.slms2026.enums.RoomPriceChangeType.CAI_TAO_BO_SUNG
                 : com.sep490.slms2026.enums.RoomPriceChangeType.HOST_DOI;
             unitPriceService.recordOnboardingPriceChange(propertyId, null, type, oldPrice, finalPrice, "Duyệt giá mới");
@@ -908,7 +918,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Phải gửi giá từng phòng");
         }
 
-        List<Room> allRooms = roomRepository.findByPropertyId(propertyId);
+        List<Room> allRooms = roomRepository.findByPropertyIdAndDeletedIsFalse(propertyId);
         Map<Long, HostConfirmRequest.RoomPriceConfirm> priceByRoomId = request.getRoomPrices().stream()
                 .collect(Collectors.toMap(HostConfirmRequest.RoomPriceConfirm::getRoomId, Function.identity()));
 
@@ -935,8 +945,9 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             }
 
             if (oldPrice != null && oldPrice.compareTo(finalPrice) != 0) {
+                Integer maxVersion = depreciationResultRepository.findMaxPricingVersionByPropertyId(propertyId);
                 com.sep490.slms2026.enums.RoomPriceChangeType type = 
-                    (property.getStatus() == PropertyStatus.RENOVATION_COMPLETED || property.getStatus() == PropertyStatus.UNDER_RENOVATION)
+                    (maxVersion != null && maxVersion > 1)
                     ? com.sep490.slms2026.enums.RoomPriceChangeType.CAI_TAO_BO_SUNG
                     : com.sep490.slms2026.enums.RoomPriceChangeType.HOST_DOI;
                 unitPriceService.recordOnboardingPriceChange(propertyId, room.getId(), type, oldPrice, finalPrice, "Duyệt giá mới");
