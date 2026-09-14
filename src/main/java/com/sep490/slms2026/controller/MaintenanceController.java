@@ -148,6 +148,22 @@ public class MaintenanceController {
         return maintenanceService.complete(id, request != null ? request : new MaintenanceCompleteRequest());
     }
 
+    @PutMapping("/{id}/charge")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public MaintenanceRequestResponse chargeBeforeRepair(
+            @PathVariable Long id,
+            @Valid @RequestBody MaintenanceChargeRequest request) {
+        return maintenanceService.chargeBeforeRepair(id, request);
+    }
+
+    @PutMapping("/{id}/handover")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public MaintenanceRequestResponse handover(
+            @PathVariable Long id,
+            @Valid @RequestBody MaintenanceHandoverRequest request) {
+        return maintenanceService.handover(id, request);
+    }
+
     @PutMapping("/{id}/reschedule-visit")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
     public MaintenanceRequestResponse rescheduleVisit(

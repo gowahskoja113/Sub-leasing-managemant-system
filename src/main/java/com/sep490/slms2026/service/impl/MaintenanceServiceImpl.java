@@ -58,6 +58,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final MaintenanceImageRepository maintenanceImageRepository;
     private final OutstandingDamageRecordRepository outstandingDamageRecordRepository;
     private final TenantPendingChargeRepository tenantPendingChargeRepository;
+    private final TenantInvoiceRepository tenantInvoiceRepository;
     private final PropertyImageStorage imageStorage;
     private final RoomRepository roomRepository;
     private final PropertyRepository propertyRepository;
@@ -333,14 +334,24 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setDamageCause(DamageCause.WEAR);
         req.setAcknowledgedAt(LocalDateTime.now());
 
-        if (repairAt != null) {
-            UUID managerId = requireManagerId(req);
-            validateAndAssertSlotAvailable(managerId, repairAt, REPAIR_SLOT_MINUTES, req.getId());
-            req.setRepairAppointmentAt(repairAt);
+        if (req.getChargeInvoiceId() != null) {
+            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán trước khi bắt đầu sửa.");
+            }
+        }
+
+        if (repairAt != null || Boolean.TRUE.equals(request.getNeedsOffSiteInspection())) {
+            if (repairAt != null) {
+                UUID managerId = requireManagerId(req);
+                validateAndAssertSlotAvailable(managerId, repairAt, REPAIR_SLOT_MINUTES, req.getId());
+                req.setRepairAppointmentAt(repairAt);
+            }
             req.setStatus(MaintenanceStatus.REPAIR_SCHEDULED);
             repository.save(req);
-            addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED,
-                    "Manager duyệt [" + category + "], đặt lịch sửa " + repairAt);
+            String note = repairAt != null ? "Manager duyệt [" + category + "], đặt lịch sửa " + repairAt : "Manager đánh dấu mang đi kiểm tra thêm";
+            addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED, note);
             notifyTenant(req,
                     "Yêu cầu bảo trì đã được duyệt — đã đặt lịch sửa",
                     "Yêu cầu #" + req.getId() + " \"" + req.getTitle()
@@ -416,17 +427,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                             + request.getEstimatedDamageAmount() + "đ sẽ được trừ khi checkout.",
                     "MAINTENANCE_SELF_REPAIR_ASSIGNED");
         } else {
-            if (request.getRepairAppointmentAt() != null) {
-                UUID managerId = requireManagerId(req);
-                validateAndAssertSlotAvailable(managerId, request.getRepairAppointmentAt(), REPAIR_SLOT_MINUTES, req.getId());
+            if (request.getRepairAppointmentAt() != null || Boolean.TRUE.equals(request.getNeedsOffSiteInspection())) {
+                if (request.getRepairAppointmentAt() != null) {
+                    UUID managerId = requireManagerId(req);
+                    validateAndAssertSlotAvailable(managerId, request.getRepairAppointmentAt(), REPAIR_SLOT_MINUTES, req.getId());
+                    req.setRepairAppointmentAt(request.getRepairAppointmentAt());
+                }
                 if (request.getEstimatedDamageAmount() != null) {
                     req.setEstimatedDamageAmount(request.getEstimatedDamageAmount());
                 }
-                req.setRepairAppointmentAt(request.getRepairAppointmentAt());
                 req.setStatus(MaintenanceStatus.REPAIR_SCHEDULED);
                 repository.save(req);
-                addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED,
-                        "Manager xác định lỗi tenant — hẹn sửa lúc " + request.getRepairAppointmentAt());
+                String note = request.getRepairAppointmentAt() != null ? "Manager xác định lỗi tenant — hẹn sửa lúc " + request.getRepairAppointmentAt() : "Manager đánh dấu mang thiết bị đi kiểm tra thêm";
+                addTimeline(req, old, MaintenanceStatus.REPAIR_SCHEDULED, note);
                 notifyTenant(req,
                         "Yêu cầu bảo trì — lỗi do khách thuê",
                         "Lý do: " + req.getFaultReason() + ". Quản lý hẹn sửa lúc " + request.getRepairAppointmentAt(),
@@ -630,6 +643,91 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     @Transactional
+    public MaintenanceRequestResponse chargeBeforeRepair(Long id, MaintenanceChargeRequest request) {
+        MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
+
+        if (req.getChargeInvoiceId() != null) {
+            throw new BusinessException("Đã tạo hoá đơn thu phí trước đó");
+        }
+
+        if (isBlank(request.getInvoiceVendor())) {
+            throw new BusinessException("invoiceVendor là bắt buộc");
+        }
+        if (request.getInvoiceDate() == null) {
+            throw new BusinessException("invoiceDate là bắt buộc");
+        }
+        boolean hasAmount = request.getInvoiceAmount() != null
+                && request.getInvoiceAmount().compareTo(BigDecimal.ZERO) > 0;
+        boolean needsReplacement = Boolean.TRUE.equals(request.getEquipmentNeedsReplacement());
+        if (!needsReplacement && !hasAmount) {
+            throw new BusinessException("invoiceAmount phải lớn hơn 0");
+        }
+
+        req.setInvoiceVendor(request.getInvoiceVendor().trim());
+        req.setInvoiceNumber(trimToNull(request.getInvoiceNumber()));
+        req.setInvoiceDate(request.getInvoiceDate());
+        req.setInvoiceAmount(request.getInvoiceAmount());
+
+        if (request.getDamageCause() != null) {
+            req.setDamageCause(request.getDamageCause());
+        }
+
+        BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
+        TenantInvoiceResponse issuedInvoice = issueMaintenanceCharge(req, chargeAmount);
+        req.setChargeInvoiceId(issuedInvoice.getId());
+
+        repository.save(req);
+        addTimeline(req, req.getStatus(), req.getStatus(), "Manager nhập chi phí dự kiến, tạo hoá đơn tạm tính (chờ thanh toán)");
+        
+        MaintenanceRequestResponse response = convertToResponse(req);
+        response.setIssuedInvoice(issuedInvoice);
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public MaintenanceRequestResponse handover(Long id, MaintenanceHandoverRequest request) {
+        MaintenanceRequest req = findActive(id);
+        requireManagerAccess(req);
+
+        if (req.getStatus() != MaintenanceStatus.REPAIR_SCHEDULED && req.getStatus() != MaintenanceStatus.IN_REPAIR) {
+            throw new BusinessException("Chỉ có thể bàn giao khi phiếu đang ở REPAIR_SCHEDULED hoặc IN_REPAIR");
+        }
+
+        if (req.getChargeInvoiceId() != null) {
+            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
+            }
+        }
+
+        if (request != null && request.getHandoverImages() != null && !request.getHandoverImages().isEmpty()) {
+            appendCsv(req, "after", request.getHandoverImages());
+            appendPhotoHistory(req, MaintenancePhotoType.AFTER, request.getHandoverImages());
+        }
+
+        if (isBlank(req.getAfterImageUrls())) {
+            throw new BusinessException("Bắt buộc phải có ảnh bàn giao (AFTER)");
+        }
+
+        MaintenanceStatus old = req.getStatus();
+        req.setStatus(MaintenanceStatus.CLOSED);
+        req.setDoneAt(LocalDateTime.now());
+        req.setResolvedAt(LocalDateTime.now());
+        repository.save(req);
+        restoreRoomStatus(req);
+
+        addTimeline(req, old, MaintenanceStatus.CLOSED, "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra");
+        notifyTenantOnComplete(req, false);
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
+
+        return convertToResponse(req);
+    }
+
+    @Override
+    @Transactional
     public MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request) {
         MaintenanceRequest req = findActive(id);
         requireManagerAccess(req);
@@ -655,15 +753,22 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (isBlank(req.getAfterImageUrls())) {
             throw new BusinessException("Bắt buộc phải có ảnh sau sửa chữa (AFTER)");
         }
-        if (isBlank(req.getInvoiceImageUrls())) {
-            throw new BusinessException("Bắt buộc phải có ảnh hóa đơn (INVOICE)");
-        }
 
         boolean chargeToTenant = managerRepairFault
                 || Boolean.TRUE.equals(request.getChargeToTenant());
         boolean needsReplacement = Boolean.TRUE.equals(request.getEquipmentNeedsReplacement());
 
-        applyInvoiceOnComplete(req, request, needsReplacement);
+        if (req.getChargeInvoiceId() == null) {
+            if (isBlank(req.getInvoiceImageUrls())) {
+                throw new BusinessException("Bắt buộc phải có ảnh hóa đơn (INVOICE)");
+            }
+            applyInvoiceOnComplete(req, request, needsReplacement);
+        } else {
+            // Already charged, just set repairDescription if present
+            if (request.getRepairDescription() != null) {
+                req.setRepairDescription(trimToNull(request.getRepairDescription()));
+            }
+        }
 
 
 
@@ -681,7 +786,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         restoreRoomStatus(req);
 
         TenantInvoiceResponse issuedInvoice = null;
-        if (chargeToTenant) {
+        if (chargeToTenant && req.getChargeInvoiceId() == null) {
             BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
             issuedInvoice = issueMaintenanceCharge(req, chargeAmount);
         }
@@ -698,8 +803,15 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (Boolean.TRUE.equals(request.getChargeToTenant()) && normalFlow) {
             note += " — thu phí tenant (Luồng A)";
         }
+        if (req.getChargeInvoiceId() != null) {
+            note += " — đã thanh toán trước khi sửa/bàn giao";
+        }
         addTimeline(req, old, MaintenanceStatus.CLOSED, note);
-        notifyTenantOnComplete(req, chargeToTenant);
+        if (req.getChargeInvoiceId() == null) {
+            notifyTenantOnComplete(req, chargeToTenant);
+        } else {
+            notifyTenantOnComplete(req, false); // Already paid
+        }
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
 
         MaintenanceRequestResponse response = convertToResponse(req);
@@ -875,6 +987,32 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 count++;
             }
         }
+
+        // Luồng thanh toán trước khi bàn giao: Quá hạn 3 ngày chưa thanh toán
+        LocalDateTime deadline = LocalDateTime.now(VN_ZONE).minusDays(3);
+        List<MaintenanceRequest> handoverOverdue = repository.findByStatusAndDeletedFalse(MaintenanceStatus.REPAIR_SCHEDULED).stream()
+                .filter(r -> r.getRepairAppointmentAt() != null && r.getRepairAppointmentAt().isBefore(deadline))
+                .filter(r -> r.getChargeInvoiceId() != null)
+                .toList();
+
+        for (MaintenanceRequest req : handoverOverdue) {
+            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId()).orElse(null);
+            if (invoice != null && invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                MaintenanceStatus old = req.getStatus();
+                req.setStatus(MaintenanceStatus.OUTSTANDING_DAMAGE);
+                repository.save(req);
+                createOutstandingDamageRecord(req);
+                addTimeline(req, old, MaintenanceStatus.OUTSTANDING_DAMAGE,
+                        "Quá hạn bàn giao chưa thanh toán — ghi nhận thiệt hại chờ checkout");
+                notifyTenant(req,
+                        "Quá hạn thanh toán phí sửa chữa",
+                        "Yêu cầu #" + req.getId() + " — chi phí "
+                                + req.getInvoiceAmount() + "đ sẽ được xử lý khi checkout.",
+                        "MAINTENANCE_SELF_REPAIR_OVERDUE"); // Reuse email type
+                count++;
+            }
+        }
+        
         return count;
     }
 
@@ -945,10 +1083,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         requireStatus(req, MaintenanceStatus.REPAIR_SCHEDULED);
 
 
-        if (req.getRepairAppointmentAt() == null) {
-            throw new BusinessException("Phiếu này không có lịch sửa để đổi");
+        if (req.getRepairAppointmentAt() != null) {
+            assertStillBeforeAppointmentDay(req.getRepairAppointmentAt());
         }
-        assertStillBeforeAppointmentDay(req.getRepairAppointmentAt());
         if (request == null || request.getRepairAppointmentAt() == null) {
             throw new BusinessException("repairAppointmentAt là bắt buộc");
         }
@@ -959,8 +1096,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         LocalDateTime previous = req.getRepairAppointmentAt();
         req.setRepairAppointmentAt(request.getRepairAppointmentAt());
         repository.save(req);
-        addTimeline(req, MaintenanceStatus.REPAIR_SCHEDULED, MaintenanceStatus.REPAIR_SCHEDULED,
-                "Đổi lịch sửa: " + previous + " → " + request.getRepairAppointmentAt());
+        String note = previous != null 
+                ? "Đổi lịch sửa: " + previous + " → " + request.getRepairAppointmentAt()
+                : "Đặt lịch sửa/bàn giao sau kiểm tra: " + request.getRepairAppointmentAt();
+        addTimeline(req, MaintenanceStatus.REPAIR_SCHEDULED, MaintenanceStatus.REPAIR_SCHEDULED, note);
         notifyTenant(req,
                 "Đổi lịch sửa bảo trì",
                 "Yêu cầu #" + req.getId() + " đổi lịch sửa sang " + request.getRepairAppointmentAt(),

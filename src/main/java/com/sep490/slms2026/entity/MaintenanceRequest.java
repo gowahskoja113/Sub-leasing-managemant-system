@@ -152,6 +152,9 @@ public class MaintenanceRequest implements Serializable {
     @Column(name = "admin_review_note", columnDefinition = "TEXT")
     private String adminReviewNote;
 
+    @Column(name = "charge_invoice_id")
+    private Long chargeInvoiceId;
+
     @Column(name = "equipment_id")
     private Long equipmentId;
 

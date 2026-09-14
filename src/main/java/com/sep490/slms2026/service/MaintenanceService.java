@@ -51,6 +51,12 @@ public interface MaintenanceService {
     /** Manager hoàn tất → CLOSED + notify. */
     MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request);
 
+    /** Tạo hoá đơn thanh toán bảo trì trước khi sửa (Luồng A & B) */
+    MaintenanceRequestResponse chargeBeforeRepair(Long id, MaintenanceChargeRequest request);
+
+    /** Bàn giao thiết bị sau khi đi bảo trì (Luồng B) */
+    MaintenanceRequestResponse handover(Long id, MaintenanceHandoverRequest request);
+
     MaintenanceRequestResponse cancel(Long id, String reason);
 
     MaintenanceRequestResponse uploadPhotos(Long id, List<MultipartFile> files, String type);
