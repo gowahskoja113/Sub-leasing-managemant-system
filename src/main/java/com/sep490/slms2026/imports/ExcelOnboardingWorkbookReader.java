@@ -149,7 +149,8 @@ public class ExcelOnboardingWorkbookReader {
         Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
         requireHeaders(headers, SHEET_EQUIPMENT,
                 "Mã hợp đồng thuê", "Tên Catalog thiết bị", "Nguồn gốc thiết bị",
-                "Trạng thái thiết bị", "Số lượng", "Đơn giá (VNĐ)");
+                "Trạng thái thiết bị", "Số lượng", "Đơn giá (VNĐ)",
+                "Số tháng bảo hành", "Giá phạt hết bảo hành (VNĐ)");
 
         List<EquipmentImportRow> rows = new ArrayList<>();
         int lastRow = sheet.getLastRowNum();
@@ -174,6 +175,8 @@ public class ExcelOnboardingWorkbookReader {
                     .statusRaw(readString(row, headers.get("Trạng thái thiết bị"), formatter, evaluator))
                     .quantity(readInteger(row, headers.get("Số lượng"), formatter, evaluator))
                     .price(readDecimal(row, headers.get("Đơn giá (VNĐ)"), formatter, evaluator))
+                    .warrantyMonths(readInteger(row, headers.get("Số tháng bảo hành"), formatter, evaluator))
+                    .penaltyFee(readDecimalOptional(row, headers.get("Giá phạt hết bảo hành (VNĐ)"), formatter, evaluator))
                     .note(readOptionalString(row, headers.get("Ghi chú lắp đặt"), formatter, evaluator))
                     .build());
         }

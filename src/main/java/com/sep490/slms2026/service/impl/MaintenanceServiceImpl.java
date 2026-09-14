@@ -748,6 +748,20 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         applyInvoiceOnComplete(req, request, needsReplacement);
 
+        if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getQuoteApprovedAt() != null) {
+            boolean quoteWasReplace = req.getDamageResolutionType() == DamageResolutionType.REPLACE;
+            if (needsReplacement != quoteWasReplace) {
+                throw new BusinessException("Hình thức xử lý (thay mới/sửa chữa) không khớp với báo giá đã duyệt. Vui lòng gửi báo giá mới.");
+            }
+            BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
+            BigDecimal approvedAmount = req.getEstimatedDamageAmount();
+            if (approvedAmount == null || chargeAmount.compareTo(approvedAmount) != 0) {
+                throw new BusinessException(String.format(
+                        "Số tiền thu (%,.0fđ) không khớp với báo giá đã duyệt (%,.0fđ). Vui lòng gửi báo giá mới.",
+                        chargeAmount, approvedAmount != null ? approvedAmount : BigDecimal.ZERO));
+            }
+        }
+
         if (needsReplacement) {
             applyEquipmentReplacementOnComplete(req, request, chargeToTenant);
         }
