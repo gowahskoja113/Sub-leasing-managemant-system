@@ -43,6 +43,8 @@ public class AssignEquipmentRequest {
 
     private Integer warrantyMonths;
 
+    private Integer expectedLifespanMonths;
+
     private java.time.LocalDate warrantyStartDate;
 
     private java.time.LocalDate warrantyEndDate;

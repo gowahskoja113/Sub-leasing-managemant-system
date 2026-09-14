@@ -320,6 +320,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                     .price(unitPrice)
                     .note(request.getNote())
                     .warrantyMonths(request.getWarrantyMonths())
+                    .expectedLifespanMonths(request.getExpectedLifespanMonths())
                     .warrantyStartDate(request.getWarrantyStartDate())
                     .warrantyEndDate(request.getWarrantyEndDate())
                     .penaltyFee(request.getPenaltyFee())
@@ -1317,6 +1318,18 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 ? equipment.getRenovationSession().getSessionNumber() : null;
         EquipmentOperationalStatus opStatus = equipment.getOperationalStatus() != null
                 ? equipment.getOperationalStatus() : EquipmentOperationalStatus.ACTIVE;
+        java.math.BigDecimal depreciatedValue = null;
+        if (equipment.getExpectedLifespanMonths() != null && equipment.getInstallationDate() != null && equipment.getPrice() != null) {
+            long monthsUsed = java.time.temporal.ChronoUnit.MONTHS.between(equipment.getInstallationDate(), java.time.LocalDate.now());
+            long totalMonths = equipment.getExpectedLifespanMonths();
+            if (totalMonths > 0) {
+                double remainRatio = Math.max(0, (totalMonths - monthsUsed) / (double) totalMonths);
+                depreciatedValue = equipment.getPrice().multiply(java.math.BigDecimal.valueOf(remainRatio));
+            } else {
+                depreciatedValue = java.math.BigDecimal.ZERO;
+            }
+        }
+
         return EquipmentResponse.builder()
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
@@ -1338,6 +1351,8 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                 .maintenanceCount(equipment.getMaintenanceCount())
                 .lastMaintenanceDate(equipment.getLastMaintenanceDate())
                 .warrantyMonths(equipment.getWarrantyMonths())
+                .expectedLifespanMonths(equipment.getExpectedLifespanMonths())
+                .currentDepreciatedValue(depreciatedValue)
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
                 .penaltyFee(equipment.getPenaltyFee())

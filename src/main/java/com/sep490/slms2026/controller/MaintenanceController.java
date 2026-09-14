@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -110,6 +111,22 @@ public class MaintenanceController {
             @PathVariable Long id,
             @RequestBody MaintenanceAdminReviewRequest request) {
         return maintenanceService.adminReviewFault(id, request);
+    }
+
+    @PutMapping("/{id}/quote")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse sendQuote(
+            @PathVariable Long id,
+            @Valid @RequestBody MaintenanceQuoteRequest request) {
+        return maintenanceService.sendQuote(id, request);
+    }
+
+    @PutMapping("/{id}/quote-response")
+    @PreAuthorize("hasRole('TENANT')")
+    public MaintenanceRequestResponse respondQuote(
+            @PathVariable Long id,
+            @Valid @RequestBody MaintenanceQuoteResponseRequest request) {
+        return maintenanceService.respondQuote(id, request);
     }
 
     @PutMapping(value = "/{id}/submit-self-repair", consumes = MediaType.APPLICATION_JSON_VALUE)

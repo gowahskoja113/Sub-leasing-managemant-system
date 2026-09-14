@@ -389,6 +389,7 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
         request.setPrice(row.getPrice());
         request.setNote(row.getNote());
         request.setWarrantyMonths(row.getWarrantyMonths());
+        request.setExpectedLifespanMonths(row.getExpectedLifespanMonths());
         request.setWarrantyStartDate(row.getWarrantyStartDate());
         request.setWarrantyEndDate(row.getWarrantyEndDate());
         request.setPenaltyFee(row.getPenaltyFee());
