@@ -113,22 +113,6 @@ public class MaintenanceController {
         return maintenanceService.adminReviewFault(id, request);
     }
 
-    @PutMapping("/{id}/quote")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse sendQuote(
-            @PathVariable Long id,
-            @Valid @RequestBody MaintenanceQuoteRequest request) {
-        return maintenanceService.sendQuote(id, request);
-    }
-
-    @PutMapping("/{id}/quote-response")
-    @PreAuthorize("hasRole('TENANT')")
-    public MaintenanceRequestResponse respondQuote(
-            @PathVariable Long id,
-            @Valid @RequestBody MaintenanceQuoteResponseRequest request) {
-        return maintenanceService.respondQuote(id, request);
-    }
-
     @PutMapping(value = "/{id}/submit-self-repair", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasRole('TENANT')")
     public MaintenanceRequestResponse submitSelfRepairJson(

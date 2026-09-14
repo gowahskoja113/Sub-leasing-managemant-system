@@ -41,10 +41,6 @@ public interface MaintenanceService {
     /** Admin duyệt / không duyệt báo lỗi do khách. */
     MaintenanceRequestResponse adminReviewFault(Long id, MaintenanceAdminReviewRequest request);
 
-    MaintenanceRequestResponse sendQuote(Long id, MaintenanceQuoteRequest request);
-
-    MaintenanceRequestResponse respondQuote(Long id, MaintenanceQuoteResponseRequest request);
-
     /** Tenant upload bằng chứng đã tự sửa. */
     MaintenanceRequestResponse submitSelfRepair(Long id, MaintenanceSubmitSelfRepairRequest request,
                                                 List<MultipartFile> files);

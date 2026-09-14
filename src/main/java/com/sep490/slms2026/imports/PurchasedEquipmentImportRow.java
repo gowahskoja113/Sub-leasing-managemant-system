@@ -19,7 +19,6 @@ public class PurchasedEquipmentImportRow {
     private Integer quantity;
     private BigDecimal price;
     private Integer warrantyMonths;
-    private Integer expectedLifespanMonths;
     private LocalDate warrantyStartDate;
     private LocalDate warrantyEndDate;
     /** Mức phạt cố định (VNĐ) khi hết bảo hành — không tính từ đơn giá. */

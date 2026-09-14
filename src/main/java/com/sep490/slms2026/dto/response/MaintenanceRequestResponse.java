@@ -62,11 +62,6 @@ public class MaintenanceRequestResponse {
     private LocalDate selfRepairDeadline;
     private BigDecimal estimatedDamageAmount;
 
-    private BigDecimal quotedRepairCost;
-    private LocalDateTime quoteApprovedAt;
-    private LocalDateTime quoteRejectedAt;
-    private DamageResolutionType damageResolutionType;
-
     private LocalDateTime adminReviewedAt;
     private UUID adminReviewedBy;
     private String adminReviewedByName;

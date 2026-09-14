@@ -139,7 +139,7 @@ public class ExcelRenovationImportWorkbookReader {
         Map<String, Integer> headers = readHeaders(sheet, formatter, evaluator);
         requireHeaders(headers, SHEET_PURCHASED,
                 "Mã hợp đồng thuê", "Tên Catalog thiết bị", "Trạng thái thiết bị",
-                "Số lượng", "Đơn giá (VNĐ)", "Số tháng bảo hành", "Số tháng sử dụng dự kiến",
+                "Số lượng", "Đơn giá (VNĐ)", "Số tháng bảo hành",
                 "Ngày bắt đầu bảo hành", "Ngày hết bảo hành",
                 "Giá phạt hết bảo hành (VNĐ)");
 
@@ -163,7 +163,6 @@ public class ExcelRenovationImportWorkbookReader {
                     .quantity(readInteger(row, headers.get("Số lượng"), formatter, evaluator))
                     .price(readDecimal(row, headers.get("Đơn giá (VNĐ)"), formatter, evaluator))
                     .warrantyMonths(readInteger(row, headers.get("Số tháng bảo hành"), formatter, evaluator))
-                    .expectedLifespanMonths(readInteger(row, headers.get("Số tháng sử dụng dự kiến"), formatter, evaluator))
                     .warrantyStartDate(readDate(row, headers.get("Ngày bắt đầu bảo hành"), formatter, evaluator))
                     .warrantyEndDate(readDate(row, headers.get("Ngày hết bảo hành"), formatter, evaluator))
                     .penaltyFee(readDecimal(row, headers.get("Giá phạt hết bảo hành (VNĐ)"), formatter, evaluator))

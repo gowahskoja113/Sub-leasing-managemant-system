@@ -152,25 +152,6 @@ public class MaintenanceRequest implements Serializable {
     @Column(name = "admin_review_note", columnDefinition = "TEXT")
     private String adminReviewNote;
 
-    @Column(name = "quoted_repair_cost")
-    private BigDecimal quotedRepairCost;
-
-    @Column(name = "quote_sent_at")
-    private LocalDateTime quoteSentAt;
-
-    @Column(name = "quote_approved_at")
-    private LocalDateTime quoteApprovedAt;
-
-    @Column(name = "quote_rejected_at")
-    private LocalDateTime quoteRejectedAt;
-
-    @Column(name = "quote_response_note", columnDefinition = "TEXT")
-    private String quoteResponseNote;
-
-    @Column(name = "damage_resolution_type")
-    @Enumerated(EnumType.STRING)
-    private DamageResolutionType damageResolutionType;
-
     @Column(name = "equipment_id")
     private Long equipmentId;
 
