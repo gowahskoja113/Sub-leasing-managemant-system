@@ -69,6 +69,7 @@ public class MaintenanceRequestResponse {
     private String adminReviewNote;
 
     private TenantInvoiceResponse issuedInvoice;
+    private Long chargeInvoiceId;
 
     private List<String> beforeImages;
     private List<String> afterImages;

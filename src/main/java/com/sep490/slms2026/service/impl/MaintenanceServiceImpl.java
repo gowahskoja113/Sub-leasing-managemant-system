@@ -692,8 +692,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceRequest req = findActive(id);
         requireManagerAccess(req);
 
-        if (req.getStatus() != MaintenanceStatus.REPAIR_SCHEDULED && req.getStatus() != MaintenanceStatus.IN_REPAIR) {
-            throw new BusinessException("Chỉ có thể bàn giao khi phiếu đang ở REPAIR_SCHEDULED hoặc IN_REPAIR");
+        if (req.getStatus() != MaintenanceStatus.REPAIR_SCHEDULED) {
+            throw new BusinessException("Chỉ có thể bàn giao khi phiếu đang ở REPAIR_SCHEDULED");
         }
 
         if (req.getChargeInvoiceId() != null) {
@@ -744,6 +744,16 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException(
                     "Yêu cầu phải ở trạng thái IN_REPAIR hoặc TENANT_FAULT (manager sửa hộ). Hiện tại: "
                             + req.getStatus());
+        }
+
+        if (managerRepairFault && req.getChargeInvoiceId() != null) {
+            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+            if (invoice.getStatus() != TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi hoàn tất.");
+            }
+        } else if (managerRepairFault && req.getChargeInvoiceId() == null) {
+            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi hoàn tất.");
         }
 
         if (request.getAfterImages() != null && !request.getAfterImages().isEmpty()) {
@@ -2063,6 +2073,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .adminReviewedBy(req.getAdminReviewedBy())
                 .adminApproved(req.getAdminApproved())
                 .adminReviewNote(req.getAdminReviewNote())
+                .chargeInvoiceId(req.getChargeInvoiceId())
                 .beforeImages(before)
                 .afterImages(after)
                 .invoiceImages(invoice)
