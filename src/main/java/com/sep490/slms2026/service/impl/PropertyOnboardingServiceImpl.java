@@ -908,11 +908,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             throw new BusinessException("Phải gửi giá từng phòng");
         }
 
-        List<Room> draftRooms = roomRepository.findByPropertyIdAndStatus(propertyId, RoomStatus.DRAFT);
+        List<Room> allRooms = roomRepository.findByPropertyId(propertyId);
         Map<Long, HostConfirmRequest.RoomPriceConfirm> priceByRoomId = request.getRoomPrices().stream()
                 .collect(Collectors.toMap(HostConfirmRequest.RoomPriceConfirm::getRoomId, Function.identity()));
 
-        for (Room room : draftRooms) {
+        for (Room room : allRooms) {
             HostConfirmRequest.RoomPriceConfirm priceConfirm = priceByRoomId.get(room.getId());
             if (priceConfirm == null) {
                 throw new BusinessException("Thiếu giá cho phòng ID=" + room.getId());
@@ -929,7 +929,10 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
 
             BigDecimal oldPrice = room.getPrice();
             room.setPrice(finalPrice);
-            room.setAppliedPrice(finalPrice);
+            
+            if (room.getStatus() == RoomStatus.DRAFT || room.getStatus() == RoomStatus.AVAILABLE) {
+                room.setAppliedPrice(finalPrice);
+            }
 
             if (oldPrice != null && oldPrice.compareTo(finalPrice) != 0) {
                 com.sep490.slms2026.enums.RoomPriceChangeType type = 
@@ -941,12 +944,12 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
 
         propertyRepository.save(property);
-        roomRepository.saveAll(draftRooms);
+        roomRepository.saveAll(allRooms);
 
         // hostConfirm tự gán QL → ACTIVE: kích hoạt phòng tại đây (không còn bước assignOperationManager).
         RoomActivationResult activation = openDraftRoomsIfActive(property);
 
-        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = draftRooms.stream()
+        List<PropertyActivationResponse.ActivatedRoom> activatedRooms = allRooms.stream()
                 .map(room -> {
                     BigDecimal adminSuggested = depreciationResultRepository.findByRoomId(room.getId())
                             .map(DepreciationResult::getRoomFloor)

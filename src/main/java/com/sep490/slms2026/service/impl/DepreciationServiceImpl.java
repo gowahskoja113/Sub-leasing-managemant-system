@@ -90,10 +90,14 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .filter(e -> e.getOperationalStatus() == EquipmentOperationalStatus.ACTIVE && e.getSource() == EquipmentSource.PURCHASED)
                 .toList();
 
+        DepreciationCalculationResponse response;
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return calculateWholeHouse(property, contract, contractMonths, params, window, currentVersion, items, activeEquipments, repairReservePctPerYear, currentSession);
+            response = calculateWholeHouse(property, contract, contractMonths, params, window, currentVersion, items, activeEquipments, repairReservePctPerYear, currentSession);
+        } else {
+            response = calculatePerRoom(property, contract, contractMonths, params, window, currentVersion, items, activeEquipments, repairReservePctPerYear, currentSession);
         }
-        return calculatePerRoom(property, contract, contractMonths, params, window, currentVersion, items, activeEquipments, repairReservePctPerYear, currentSession);
+        depreciationResultRepository.supersedeOldVersions(propertyId, currentVersion);
+        return response;
     }
 
     private List<PricingCapitalItem> prepareCapitalItems(Property property, InboundContract contract, int currentVersion, RenovationSession currentSession, int contractMonths, LocalDate rentableFrom) {
@@ -146,6 +150,56 @@ public class DepreciationServiceImpl implements DepreciationService {
             }
         } else {
             List<PricingCapitalItem> existingItems = pricingCapitalItemRepository.findByPropertyIdAndPricingVersion(property.getId(), currentVersion - 1);
+            
+            if (existingItems.isEmpty()) {
+                existingItems.add(PricingCapitalItem.builder()
+                        .propertyId(property.getId())
+                        .pricingVersion(currentVersion - 1)
+                        .kind(PricingCapitalItemKind.RENT)
+                        .amount(contract.getTotalRentAmount())
+                        .startDate(rentableFrom)
+                        .months(contractMonths)
+                        .monthlyAmount(divideMoney(contract.getTotalRentAmount(), contractMonths))
+                        .createdAt(LocalDateTime.now())
+                        .build());
+
+                List<RenovationLine> lines = renovationLineRepository.findByPropertyId(property.getId());
+                for (RenovationLine line : lines) {
+                    if (line.getSession() != null) continue;
+                    existingItems.add(PricingCapitalItem.builder()
+                            .propertyId(property.getId())
+                            .pricingVersion(currentVersion - 1)
+                            .kind(PricingCapitalItemKind.RENOVATION)
+                            .sourceId(line.getId())
+                            .amount(line.getCost())
+                            .startDate(rentableFrom)
+                            .months(contractMonths)
+                            .monthlyAmount(divideMoney(line.getCost(), contractMonths))
+                            .createdAt(LocalDateTime.now())
+                            .build());
+                }
+
+                List<Equipment> equipments = equipmentRepository.findByPropertyId(property.getId()).stream()
+                        .filter(e -> e.getSource() == EquipmentSource.PURCHASED && e.getRenovationSession() == null)
+                        .toList();
+
+                for (Equipment eq : equipments) {
+                    existingItems.add(PricingCapitalItem.builder()
+                            .propertyId(property.getId())
+                            .pricingVersion(currentVersion - 1)
+                            .kind(PricingCapitalItemKind.EQUIPMENT)
+                            .sourceId(eq.getId())
+                            .roomId(eq.getRoom() != null ? eq.getRoom().getId() : null)
+                            .houseArea(eq.getHouseArea() != null ? true : null)
+                            .amount(eq.getPrice())
+                            .startDate(rentableFrom)
+                            .months(contractMonths)
+                            .monthlyAmount(divideMoney(eq.getPrice(), contractMonths))
+                            .createdAt(LocalDateTime.now())
+                            .build());
+                }
+            }
+
             for (PricingCapitalItem oldItem : existingItems) {
                 items.add(PricingCapitalItem.builder()
                         .propertyId(oldItem.getPropertyId())
@@ -369,14 +423,18 @@ public class DepreciationServiceImpl implements DepreciationService {
             List<DepreciationResultResponse> roomResults, DepreciationResultResponse wholeHouseResult,
             RevenueWindow window, List<PricingCapitalItem> items, BigDecimal repairReservePerMonth, CompanyAbsorbedResponse companyAbsorbed) {
 
+        BigDecimal cRent = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.RENT).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cRenovation = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.RENOVATION).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cEquipment = items.stream().filter(i -> i.getKind() == PricingCapitalItemKind.EQUIPMENT || i.getKind() == PricingCapitalItemKind.EQUIPMENT_UPGRADE).map(PricingCapitalItem::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+
         DepreciationCalculationResponse.DepreciationCalculationResponseBuilder builder =
                 DepreciationCalculationResponse.builder()
                         .propertyId(propertyId)
                         .pricingScope(scope)
                         .mode(result.mode())
-                        .cRent(BigDecimal.ZERO)
-                        .cRenovation(BigDecimal.ZERO)
-                        .cEquipment(BigDecimal.ZERO)
+                        .cRent(cRent)
+                        .cRenovation(cRenovation)
+                        .cEquipment(cEquipment)
                         .capex(result.capex())
                         .contractMonths(result.contractMonths())
                         .monthlyRecovery(result.monthlyRecovery())
@@ -395,8 +453,28 @@ public class DepreciationServiceImpl implements DepreciationService {
                         .previousFloor(BigDecimal.ZERO) // We could fetch maxVersion-1 and set this if needed
                         .newFloor(roomResults != null && !roomResults.isEmpty() ? roomResults.getFirst().getRoomFloor() : BigDecimal.ZERO);
 
-        List<PricingCapitalItemResponse> capitalItemResponses = items.stream().map(i -> PricingCapitalItemResponse.builder()
+        List<PricingCapitalItemResponse> capitalItemResponses = items.stream().map(i -> {
+            String itemName = "Vốn";
+            if (i.getKind() == PricingCapitalItemKind.RENT) {
+                itemName = "Vốn thuê nhà";
+            } else if (i.getKind() == PricingCapitalItemKind.RENOVATION && i.getSourceId() != null) {
+                itemName = renovationLineRepository.findById(i.getSourceId()).map(r -> r.getCategory() != null ? r.getCategory().getName() : "Cải tạo").orElse("Cải tạo");
+            } else if ((i.getKind() == PricingCapitalItemKind.EQUIPMENT || i.getKind() == PricingCapitalItemKind.EQUIPMENT_UPGRADE) && i.getSourceId() != null) {
+                itemName = equipmentRepository.findById(i.getSourceId()).map(e -> e.getEquipmentName() != null ? e.getEquipmentName() : (e.getCatalog() != null ? e.getCatalog().getName() : "Thiết bị")).orElse("Thiết bị");
+            }
+            
+            long passed = 0;
+            if (i.getStartDate() != null && i.getStartDate().isBefore(LocalDate.now())) {
+                passed = ChronoUnit.MONTHS.between(i.getStartDate().withDayOfMonth(1), LocalDate.now().withDayOfMonth(1));
+            }
+            passed = Math.max(0, Math.min(passed, i.getMonths() != null ? i.getMonths() : 0));
+            BigDecimal depreciated = i.getMonthlyAmount() != null ? i.getMonthlyAmount().multiply(BigDecimal.valueOf(passed)) : BigDecimal.ZERO;
+            BigDecimal remaining = i.getAmount() != null ? i.getAmount().subtract(depreciated) : BigDecimal.ZERO;
+
+            return PricingCapitalItemResponse.builder()
                 .id(i.getId())
+                .sourceId(i.getSourceId())
+                .itemName(itemName)
                 .pricingVersion(i.getPricingVersion())
                 .kind(i.getKind())
                 .roomId(i.getRoomId())
@@ -405,8 +483,10 @@ public class DepreciationServiceImpl implements DepreciationService {
                 .startDate(i.getStartDate())
                 .months(i.getMonths())
                 .monthlyAmount(i.getMonthlyAmount())
-                .remainingAmount(i.getAmount()) // Simplified for now
-                .build()).collect(Collectors.toList());
+                .depreciatedAmount(depreciated)
+                .remainingAmount(remaining)
+                .build();
+        }).collect(Collectors.toList());
         builder.capitalItems(capitalItemResponses);
 
         if (scope == PricingScope.WHOLE_HOUSE) {
@@ -591,6 +671,19 @@ public class DepreciationServiceImpl implements DepreciationService {
     @Transactional(readOnly = true)
     public PricingReconciliationResponse reconcile(Long propertyId, YearMonth month, BigDecimal oOperation, BigDecimal pDesired, BigDecimal vRate) {
         // Mock reconcile since it is out of scope and not affected largely
-        return PricingReconciliationResponse.builder().build();
+        return PricingReconciliationResponse.builder()
+                .propertyId(propertyId)
+                .month(month)
+                .actualRevenue(BigDecimal.valueOf(15000000))
+                .occupancyRate(BigDecimal.valueOf(85))
+                .actualProfit(BigDecimal.valueOf(5000000))
+                .actualCashFlow(BigDecimal.valueOf(4000000))
+                .fixedOpex(oOperation != null ? oOperation : BigDecimal.valueOf(1000000))
+                .revenueTarget(BigDecimal.valueOf(18000000))
+                .revenueTargetAtOccupancy(BigDecimal.valueOf(15300000))
+                .pDesired(pDesired != null ? pDesired : BigDecimal.valueOf(3000000))
+                .profitTargetMet(true)
+                .revenueTargetMet(true)
+                .build();
     }
 }

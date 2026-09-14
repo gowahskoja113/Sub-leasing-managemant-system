@@ -61,9 +61,10 @@ public class BulkImportController {
     @PostMapping(value = "/renovation-supplement-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BulkImportResponse> importRenovationSupplementExcel(
+            @RequestParam("propertyId") Long propertyId,
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
-        return ResponseEntity.ok(bulkRenovationSupplementImportService.importSupplementWorkbook(file, dryRun));
+        return ResponseEntity.ok(bulkRenovationSupplementImportService.importSupplementWorkbook(propertyId, file, dryRun));
     }
 
     /**
