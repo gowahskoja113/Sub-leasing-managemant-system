@@ -27,11 +27,13 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        addColumnIfNotExists("depreciation_results", "pricing_version", "INTEGER DEFAULT 1");
         addColumnIfNotExists(
                 "equipment_manifests",
                 "source",
                 "VARCHAR(50) NOT NULL DEFAULT 'INITIAL_HANDOVER'");
         dropColumnIfExists("depreciation_results", "base_rent");
+
         dropColumnIfExists("depreciation_results", "original_deposit");
         dropColumnIfExists("depreciation_results", "monthly_operating_cost");
         dropColumnIfExists("inbound_contracts", "base_rent_price");

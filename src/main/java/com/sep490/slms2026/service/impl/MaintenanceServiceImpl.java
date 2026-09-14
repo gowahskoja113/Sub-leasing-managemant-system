@@ -701,6 +701,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
                 throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bàn giao.");
             }
+        } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
+            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bàn giao.");
         }
 
         if (request != null && request.getHandoverImages() != null && !request.getHandoverImages().isEmpty()) {
@@ -1114,6 +1116,15 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceRequest req = findActive(id);
         requireManagerAccess(req);
         requireStatus(req, MaintenanceStatus.REPAIR_SCHEDULED);
+        if (req.getChargeInvoiceId() != null) {
+            TenantInvoice invoice = tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy hoá đơn thu phí"));
+            if (invoice.getStatus() != com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
+                throw new BusinessException("Cần tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
+            }
+        } else if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR) {
+            throw new BusinessException("Cần báo giá và tenant thanh toán hoá đơn trước khi bắt đầu sửa chữa.");
+        }
 
 
         MaintenanceStatus old = req.getStatus();
@@ -2123,9 +2134,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
      * luôn trả issuedInvoice trên GET (không chỉ ngay sau complete()).
      */
     private void attachIssuedInvoiceIfPending(MaintenanceRequest req, MaintenanceRequestResponse res) {
-        if (res.getBillingHint() != MaintenanceBillingHint.TENANT_CHARGE_PENDING) {
-            return;
-        }
         List<TenantPendingCharge> charges =
                 tenantPendingChargeRepository.findByMaintenanceRequestIdWithInvoice(req.getId());
         for (TenantPendingCharge charge : charges) {

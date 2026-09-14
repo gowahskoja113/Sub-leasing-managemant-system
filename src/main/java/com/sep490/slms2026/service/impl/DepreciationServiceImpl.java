@@ -60,18 +60,15 @@ public class DepreciationServiceImpl implements DepreciationService {
         Integer maxVersion = depreciationResultRepository.findMaxPricingVersionByPropertyId(propertyId);
         int currentVersion;
 
+        int maxSessionNumber = renovationSessionRepository.findMaxSessionNumberByPropertyId(propertyId);
         RenovationSession currentSession = renovationSessionRepository
-                .findTopByPropertyIdAndEndDateIsNullOrderBySessionNumberDesc(propertyId)
+                .findByPropertyIdAndSessionNumber(propertyId, maxSessionNumber)
                 .orElse(null);
 
         if (maxVersion == null) {
             currentVersion = 1;
         } else {
-            if (currentSession != null) {
-                currentVersion = Math.max(maxVersion, currentSession.getSessionNumber());
-            } else {
-                currentVersion = maxVersion;
-            }
+            currentVersion = Math.max(maxVersion, maxSessionNumber);
         }
 
         depreciationResultRepository.deleteByPropertyIdAndPricingVersion(propertyId, currentVersion);
