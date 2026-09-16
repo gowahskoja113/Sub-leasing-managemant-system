@@ -1389,6 +1389,33 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setEstimatedDamageAmount(request.getEstimatedDamageAmount());
             req.setInvoiceAmount(request.getQuotedRepairAmount());
             req.setEquipmentReplacementFlagged(true);
+
+            // Đánh dấu thiết bị + báo admin ngay lúc chẩn đoán — không đợi charge/complete/handover
+            String equipmentLabel = "Thiết bị";
+            if (req.getEquipmentId() != null) {
+                Optional<Equipment> equipmentOpt = equipmentRepository.findById(req.getEquipmentId());
+                if (equipmentOpt.isPresent()) {
+                    Equipment eq = equipmentOpt.get();
+                    eq.setStatus(EquipmentStatus.BROKEN);
+                    eq.setRecommendReplacement(true);
+                    equipmentRepository.save(eq);
+                    if (!isBlank(eq.getEquipmentName())) {
+                        equipmentLabel = eq.getEquipmentName();
+                    }
+                }
+            }
+            String roomLabel = req.getRoom() != null && !isBlank(req.getRoom().getRoomNumber())
+                    ? "phòng " + req.getRoom().getRoomNumber()
+                    : "không rõ phòng";
+            String propertyLabel = req.getProperty() != null && !isBlank(req.getProperty().getPropertyName())
+                    ? req.getProperty().getPropertyName()
+                    : "không rõ tòa";
+            notifyAdmins(req,
+                    "Thiết bị cần thay mới",
+                    equipmentLabel + " — " + roomLabel + ", " + propertyLabel
+                            + " đã được xác định cần thay mới (phiếu bảo trì #" + req.getId() + "). "
+                            + "Chuẩn bị mở đợt cải tạo bổ sung khi có thiết bị mới.",
+                    "EQUIPMENT_NEEDS_REPLACEMENT");
             return;
         }
 

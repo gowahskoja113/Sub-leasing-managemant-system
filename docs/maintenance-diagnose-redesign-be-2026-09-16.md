@@ -137,6 +137,7 @@ Khi `equipmentNeedsReplacement=true` + `WEAR` (hoặc TENANT_MISUSE + absorbed):
 - `billingHint` khi CLOSED + absorbed → `HOST_PAID`.
 - `charge()` / `complete()`: **không đổi** — `resolveMaintenanceChargeAmount()` đã đúng (`estimatedDamageAmount` + `invoiceAmount` tuỳ chọn khi replacement). FE chỉ cần đọc `equipmentReplacementFlagged`.
 - `handover()`: khi `equipmentReplacementFlagged=true`, BE tự gọi `applyEquipmentReplacementOnComplete()` (đọc cờ từ diagnose, không cần field thêm trên `MaintenanceHandoverRequest`).
+- Ngay lúc `diagnose(equipmentNeedsReplacement=true)`: set `Equipment.status=BROKEN`, `recommendReplacement=true`, và `notifyAdmins` type `EQUIPMENT_NEEDS_REPLACEMENT` (không đợi charge/complete). Khi `complete()`/`handover()` thay xong → `status=NEW`, `recommendReplacement=false` như cũ. Ticket huỷ sau đó **giữ** `BROKEN` (admin tự xử lý).
 
 ---
 
