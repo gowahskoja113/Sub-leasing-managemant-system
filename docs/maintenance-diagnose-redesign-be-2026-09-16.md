@@ -136,6 +136,7 @@ Khi `equipmentNeedsReplacement=true` + `WEAR` (hoặc TENANT_MISUSE + absorbed):
 - `complete` không lập hoá đơn thu khách khi `companyAbsorbedFault`.
 - `billingHint` khi CLOSED + absorbed → `HOST_PAID`.
 - `charge()` / `complete()`: **không đổi** — `resolveMaintenanceChargeAmount()` đã đúng (`estimatedDamageAmount` + `invoiceAmount` tuỳ chọn khi replacement). FE chỉ cần đọc `equipmentReplacementFlagged`.
+- `handover()`: khi `equipmentReplacementFlagged=true`, BE tự gọi `applyEquipmentReplacementOnComplete()` (đọc cờ từ diagnose, không cần field thêm trên `MaintenanceHandoverRequest`).
 
 ---
 

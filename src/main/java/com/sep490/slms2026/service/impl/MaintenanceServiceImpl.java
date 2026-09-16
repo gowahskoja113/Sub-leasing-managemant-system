@@ -738,6 +738,15 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Bắt buộc phải có ảnh bàn giao (AFTER)");
         }
 
+        if (req.isEquipmentReplacementFlagged()) {
+            boolean chargeToTenant = !req.isCompanyAbsorbedFault()
+                    && req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
+                    && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
+            MaintenanceCompleteRequest replacementCtx = new MaintenanceCompleteRequest();
+            replacementCtx.setEstimatedDamageAmount(req.getEstimatedDamageAmount());
+            applyEquipmentReplacementOnComplete(req, replacementCtx, chargeToTenant);
+        }
+
         MaintenanceStatus old = req.getStatus();
         req.setStatus(MaintenanceStatus.CLOSED);
         req.setDoneAt(LocalDateTime.now());
@@ -745,7 +754,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         repository.save(req);
         restoreRoomStatus(req);
 
-        addTimeline(req, old, MaintenanceStatus.CLOSED, "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra");
+        String handoverNote = "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra";
+        if (req.isEquipmentReplacementFlagged()) {
+            handoverNote += " (thiết bị thay mới"
+                    + (req.getEstimatedDamageAmount() != null
+                    ? ", giá trị " + req.getEstimatedDamageAmount() + "đ" : "")
+                    + ")";
+        }
+        addTimeline(req, old, MaintenanceStatus.CLOSED, handoverNote);
         notifyTenantOnComplete(req, false);
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
 
