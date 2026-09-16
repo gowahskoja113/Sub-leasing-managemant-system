@@ -174,6 +174,14 @@ public class MaintenanceRequest implements Serializable {
     @Column(name = "expected_return_at")
     private LocalDateTime expectedReturnAt;
 
+    /**
+     * true khi diagnose() chốt thiết bị cần thay mới.
+     * FE đọc field này ở charge()/complete() thay vì suy luận từ estimatedDamageAmount > 0.
+     */
+    @Column(name = "equipment_replacement_flagged", nullable = false)
+    @Builder.Default
+    private boolean equipmentReplacementFlagged = false;
+
     @Column(name = "equipment_id")
     private Long equipmentId;
 

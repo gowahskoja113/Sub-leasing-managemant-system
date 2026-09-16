@@ -78,6 +78,12 @@ public class MaintenanceRequestResponse {
     /** Ngày dự kiến trả máy (tham khảo) khi mang đi kiểm tra — không gate theo ngày. */
     private LocalDateTime expectedReturnAt;
 
+    /**
+     * true = diagnose() đã chốt thiết bị cần thay mới.
+     * FE dùng field này (không suy luận từ estimatedDamageAmount > 0) khi gọi charge()/complete().
+     */
+    private Boolean equipmentReplacementFlagged;
+
     private List<String> beforeImages;
     private List<String> afterImages;
     private List<String> invoiceImages;

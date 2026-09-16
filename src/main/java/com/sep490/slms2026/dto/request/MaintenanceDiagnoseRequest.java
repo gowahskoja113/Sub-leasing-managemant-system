@@ -14,8 +14,24 @@ import java.util.List;
 @Data
 public class MaintenanceDiagnoseRequest {
 
-    /** Giá thợ báo (chi phí sửa thực tế). */
+    /**
+     * Khi {@link #equipmentNeedsReplacement} = false/null: giá thợ báo (bắt buộc, ≥ 0) —
+     * lưu vào estimatedDamageAmount.
+     * Khi thay thiết bị: chi phí phát sinh thêm tuỳ chọn (vd lắp đặt) — lưu vào invoiceAmount.
+     */
     private BigDecimal quotedRepairAmount;
+
+    /**
+     * Thiết bị hỏng hoàn toàn — cần thay mới.
+     * Áp dụng độc lập với damageCause (cả WEAR lẫn TENANT_MISUSE).
+     */
+    private Boolean equipmentNeedsReplacement;
+
+    /**
+     * Bắt buộc khi {@link #equipmentNeedsReplacement} = true.
+     * FE tự tính (khấu hao còn lại / penaltyFee), BE không tự tính lại.
+     */
+    private BigDecimal estimatedDamageAmount;
 
     /**
      * WEAR = hao mòn tự nhiên (công ty trả).

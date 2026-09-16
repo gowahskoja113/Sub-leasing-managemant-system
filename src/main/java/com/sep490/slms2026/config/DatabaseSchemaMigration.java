@@ -156,6 +156,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureUtilityCustomerCodeColumns();
         ensureMaintenanceAdminReviewColumns();
         ensureMaintenanceAppointmentColumns();
+        ensureMaintenanceDiagnoseReplacementColumn();
         ensureUtilityInvoiceTenantViewedAtColumn();
         ensureMeterReadingLockColumns();
 
@@ -520,6 +521,16 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("maintenance_requests", "visit_arrival_confirmed_at", "TIMESTAMP");
         addColumnIfNotExists("maintenance_requests", "repair_appointment_at", "TIMESTAMP");
         addColumnIfNotExists("maintenance_requests", "repair_started_at", "TIMESTAMP");
+    }
+
+    /** Diagnose: cờ thiết bị cần thay mới (2026-09-16). */
+    private void ensureMaintenanceDiagnoseReplacementColumn() {
+        addColumnIfNotExists("maintenance_requests", "equipment_replacement_flagged",
+                "BOOLEAN NOT NULL DEFAULT FALSE");
+        addColumnIfNotExists("maintenance_requests", "company_absorbed_fault",
+                "BOOLEAN NOT NULL DEFAULT FALSE");
+        addColumnIfNotExists("maintenance_requests", "company_absorbed_note", "TEXT");
+        addColumnIfNotExists("maintenance_requests", "expected_return_at", "TIMESTAMP");
     }
 
     /** Map status cũ → redesign (OPEN / IN_REPAIR / CLOSED / CANCELLED). */

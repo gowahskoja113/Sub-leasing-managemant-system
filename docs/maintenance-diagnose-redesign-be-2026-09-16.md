@@ -22,8 +22,13 @@
 | `companyAbsorbedFault` | boolean | Khách lỗi + từ chối trả → công ty trả hộ |
 | `companyAbsorbedNote` | string? | Tóm tắt thoả thuận ngoài app |
 | `expectedReturnAt` | datetime? | Dự kiến trả máy khi mang đi kiểm tra (tham khảo) |
+| `equipmentReplacementFlagged` | boolean | Diagnose đã chốt thiết bị cần thay mới — FE đọc ở `charge()`/`complete()` |
 
-`quotedRepairAmount` lúc diagnose được lưu vào **`estimatedDamageAmount`** (field sẵn có).
+`quotedRepairAmount` lúc diagnose:
+- **Không thay thiết bị:** lưu vào `estimatedDamageAmount` (field sẵn có).
+- **Có thay thiết bị** (`equipmentNeedsReplacement=true`): `estimatedDamageAmount` = giá trị thay thế (FE tính); `quotedRepairAmount` (tuỳ chọn) = chi phí phát sinh thêm → lưu `invoiceAmount`.
+
+**Không** suy luận “có thay mới” từ `estimatedDamageAmount > 0` — dùng `equipmentReplacementFlagged`.
 
 ---
 
@@ -48,6 +53,8 @@
 - `OPEN` (sửa được ngay), hoặc
 - `REPAIR_SCHEDULED` **và** `damageCause == null` (sau mang đi)
 
+Sửa thường (không thay thiết bị):
+
 ```json
 {
   "quotedRepairAmount": 450000,
@@ -56,6 +63,22 @@
   "repairAppointmentAt": null
 }
 ```
+
+Thiết bị hỏng hoàn toàn — cần thay mới (áp dụng đủ 4 nhánh: sửa ngay / mang đi × WEAR / TENANT_MISUSE):
+
+```json
+{
+  "equipmentNeedsReplacement": true,
+  "estimatedDamageAmount": 2500000,
+  "quotedRepairAmount": 150000,
+  "damageCause": "WEAR",
+  "category": "APPLIANCE",
+  "repairAppointmentAt": null
+}
+```
+
+- `estimatedDamageAmount`: **bắt buộc** khi thay mới — FE tự tính (khấu hao còn lại / penaltyFee), BE không tính lại.
+- `quotedRepairAmount`: **tuỳ chọn** khi thay mới — chi phí phát sinh thêm (vd lắp đặt) → `invoiceAmount`.
 
 Lỗi khách + đồng ý trả:
 
@@ -94,6 +117,8 @@ Lỗi khách + từ chối trả (công ty trả hộ):
 
 `repairAppointmentAt` **bắt buộc** khi đang ở nhánh mang đi (`REPAIR_SCHEDULED` chưa chẩn đoán).
 
+Khi `equipmentNeedsReplacement=true` + `WEAR` (hoặc TENANT_MISUSE + absorbed): công ty tự chịu — không lập hoá đơn thu khách; số tiền chỉ lưu tham khảo. FE ở `complete()` đọc `equipmentReplacementFlagged` để gửi `equipmentNeedsReplacement=true` (không suy luận từ `estimatedDamageAmount > 0`).
+
 ### 3) Filter list
 
 `GET /api/v1/maintenance?companyAbsorbedFault=true&from=...&to=...&propertyId=...`
@@ -110,6 +135,7 @@ Lỗi khách + từ chối trả (công ty trả hộ):
 - `start-repair` với công ty trả hộ → `IN_REPAIR` (không vào `TENANT_FAULT`).
 - `complete` không lập hoá đơn thu khách khi `companyAbsorbedFault`.
 - `billingHint` khi CLOSED + absorbed → `HOST_PAID`.
+- `charge()` / `complete()`: **không đổi** — `resolveMaintenanceChargeAmount()` đã đúng (`estimatedDamageAmount` + `invoiceAmount` tuỳ chọn khi replacement). FE chỉ cần đọc `equipmentReplacementFlagged`.
 
 ---
 
@@ -124,3 +150,5 @@ Badge: `companyAbsorbedFault === true` → “Khách từ chối trả — công
 Cuối tháng: list `companyAbsorbedFault=true` + khoảng `from`/`to`.
 
 `approve` / `reject-fault` vẫn dùng được nếu FE chưa migrate hết.
+
+Khối **thiết bị hỏng hoàn toàn — cần thay mới** trên màn diagnose: tick → nhập `estimatedDamageAmount` (FE tính), `quotedRepairAmount` tuỳ chọn. Sau đó ở `charge()`/`complete()` gửi `equipmentNeedsReplacement` theo `equipmentReplacementFlagged` từ GET phiếu.
