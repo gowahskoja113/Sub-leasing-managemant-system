@@ -59,12 +59,17 @@ public class DataSeeder implements ApplicationRunner {
                 "Phú Nhuận", "Quận 3", "Bình Thạnh", "Gò Vấp", "Quận 1"
         });
 
+        // Khớp seed.sql + sheet Danh_Muc_Tham_Khao / Thiet_Bi_Ban_Giao trong Excel import
         EQUIPMENT_CATALOG.put("Điều hòa", "Máy lạnh / điều hòa không khí");
         EQUIPMENT_CATALOG.put("Tủ lạnh", "Tủ lạnh các loại");
         EQUIPMENT_CATALOG.put("Máy giặt", "Máy giặt cửa trước / cửa trên");
+        EQUIPMENT_CATALOG.put("Bàn ăn", "Bàn ăn và ghế");
         EQUIPMENT_CATALOG.put("Giường", "Giường ngủ các loại");
+        EQUIPMENT_CATALOG.put("Tủ quần áo", "Tủ đựng quần áo");
+        EQUIPMENT_CATALOG.put("Bếp từ", "Bếp từ / bếp gas");
         EQUIPMENT_CATALOG.put("Nóng lạnh", "Máy nước nóng");
         EQUIPMENT_CATALOG.put("Quạt", "Quạt điện / quạt trần");
+        EQUIPMENT_CATALOG.put("Khác", "Thiết bị khác");
 
         // code -> [name, description]
         RENOVATION_CATEGORIES.put("PAINTING", new String[]{"Sơn sửa", "Sơn tường, trần nhà"});

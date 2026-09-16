@@ -71,6 +71,13 @@ public class MaintenanceRequestResponse {
     private TenantInvoiceResponse issuedInvoice;
     private Long chargeInvoiceId;
 
+    /** true = lỗi khách, khách từ chối trả, công ty đã/đang trả hộ. */
+    private Boolean companyAbsorbedFault;
+    private String companyAbsorbedNote;
+
+    /** Ngày dự kiến trả máy (tham khảo) khi mang đi kiểm tra — không gate theo ngày. */
+    private LocalDateTime expectedReturnAt;
+
     private List<String> beforeImages;
     private List<String> afterImages;
     private List<String> invoiceImages;

@@ -155,6 +155,25 @@ public class MaintenanceRequest implements Serializable {
     @Column(name = "charge_invoice_id")
     private Long chargeInvoiceId;
 
+    /**
+     * true khi lỗi do khách nhưng khách từ chối trả — công ty trả hộ.
+     * Không lập hoá đơn/gate thanh toán; dùng để FE badge + lọc cuối tháng.
+     */
+    @Column(name = "company_absorbed_fault", nullable = false)
+    @Builder.Default
+    private boolean companyAbsorbedFault = false;
+
+    /** Ghi chú thoả thuận / lý do công ty trả hộ (tuỳ chọn). */
+    @Column(name = "company_absorbed_note", columnDefinition = "TEXT")
+    private String companyAbsorbedNote;
+
+    /**
+     * Ngày dự kiến trả máy khi mang đi kiểm tra (tham khảo, không ràng buộc nghiệp vụ).
+     * Khác {@link #repairAppointmentAt} — lịch giao/sửa chính thức sau khi chẩn đoán.
+     */
+    @Column(name = "expected_return_at")
+    private LocalDateTime expectedReturnAt;
+
     @Column(name = "equipment_id")
     private Long equipmentId;
 

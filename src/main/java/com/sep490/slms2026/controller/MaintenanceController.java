@@ -35,8 +35,12 @@ public class MaintenanceController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) Long propertyId,
             @RequestParam(required = false) Long roomId,
+            @RequestParam(required = false) Boolean companyAbsorbedFault,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             Pageable pageable) {
-        return maintenanceService.getRequests(status, priority, category, propertyId, roomId, pageable);
+        return maintenanceService.getRequests(
+                status, priority, category, propertyId, roomId, companyAbsorbedFault, from, to, pageable);
     }
 
     @PostMapping
@@ -176,6 +180,23 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public MaintenanceRequestResponse confirmArrival(@PathVariable Long id) {
         return maintenanceService.confirmArrival(id);
+    }
+
+    @PutMapping("/{id}/send-for-inspection")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse sendForInspection(
+            @PathVariable Long id,
+            @RequestBody(required = false) MaintenanceSendForInspectionRequest request) {
+        return maintenanceService.sendForInspection(
+                id, request != null ? request : new MaintenanceSendForInspectionRequest());
+    }
+
+    @PutMapping("/{id}/diagnose")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public MaintenanceRequestResponse diagnose(
+            @PathVariable Long id,
+            @RequestBody MaintenanceDiagnoseRequest request) {
+        return maintenanceService.diagnose(id, request);
     }
 
     @PutMapping("/{id}/reschedule-repair")

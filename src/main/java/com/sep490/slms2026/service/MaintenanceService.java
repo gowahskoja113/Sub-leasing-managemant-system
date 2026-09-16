@@ -17,7 +17,8 @@ import org.springframework.web.multipart.MultipartFile;
 public interface MaintenanceService {
 
     Page<MaintenanceRequestResponse> getRequests(
-            String status, String priority, String category, Long propertyId, Long roomId, Pageable pageable);
+            String status, String priority, String category, Long propertyId, Long roomId,
+            Boolean companyAbsorbedFault, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
     MaintenanceRequestResponse createRequest(MaintenanceCreateRequest request);
 
@@ -71,6 +72,18 @@ public interface MaintenanceService {
 
     /** Manager xác nhận có mặt — chỉ ghi visitArrivalConfirmedAt, không đổi status. */
     MaintenanceRequestResponse confirmArrival(Long id);
+
+    /**
+     * Mang đi kiểm tra thêm: OPEN → REPAIR_SCHEDULED, chưa cần nguyên nhân/giá.
+     * expectedReturnAt chỉ mang tính tham khảo.
+     */
+    MaintenanceRequestResponse sendForInspection(Long id, MaintenanceSendForInspectionRequest request);
+
+    /**
+     * Chẩn đoán & báo giá (màn dùng chung): áp dụng trên OPEN (sửa ngay) hoặc
+     * REPAIR_SCHEDULED chưa có nguyên nhân (sau khi mang đi kiểm tra).
+     */
+    MaintenanceRequestResponse diagnose(Long id, MaintenanceDiagnoseRequest request);
 
     /** Manager đổi lịch sửa (REPAIR_SCHEDULED, còn trước ngày hẹn). */
     MaintenanceRequestResponse rescheduleRepair(Long id, MaintenanceRescheduleRepairRequest request);
