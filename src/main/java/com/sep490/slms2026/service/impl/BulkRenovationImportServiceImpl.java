@@ -35,6 +35,8 @@ import static com.sep490.slms2026.imports.ExcelRenovationImportWorkbookReader.*;
 public class BulkRenovationImportServiceImpl implements BulkRenovationImportService {
 
     private static final String SKIP_REASON_ALREADY_SUBMITTED = "Đã hoàn thành đợt 2 / đã gửi Host — bỏ qua";
+    private static final String SKIP_REASON_HOUSE_NOT_INITIALIZED =
+            "Chưa khởi tạo tòa nhà cho mã HĐ này — bỏ qua";
     private static final Set<String> VALID_EXPLOITATION_TYPES = Set.of(
             "NGUYEN_CAN", "WHOLE_HOUSE", "THEO_PHONG", "INDIVIDUAL_ROOM");
 
@@ -268,8 +270,13 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         Map<String, String> skipped = new LinkedHashMap<>();
         for (ExploitationConfigImportRow row : configRows) {
             String code = row.getContractCode();
+            if (code == null || code.isBlank()) {
+                continue;
+            }
             Optional<InboundContract> contractOpt = inboundContractRepository.findByContractCode(code);
             if (contractOpt.isEmpty()) {
+                // Nhà chưa có trong hệ thống (chưa đợt 1) — bỏ qua, tiếp tục import các nhà còn lại
+                skipped.put(code, SKIP_REASON_HOUSE_NOT_INITIALIZED);
                 continue;
             }
             PropertyStatus status = contractOpt.get().getProperty().getStatus();
