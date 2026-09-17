@@ -130,20 +130,16 @@ public class PayosServiceImpl implements PayosService {
         }
     }
 
-    /** Số gửi PayOS = amount / divisor, sàn tối thiểu 2.000đ (giới hạn ngân hàng). */
+    /**
+     * Số gửi PayOS luôn hard-code 2.000 VND (sandbox/demo).
+     * Hợp đồng/hóa đơn vẫn giữ số gốc; webhook không đối chiếu amount.
+     */
     private long toPayosChargeAmount(long amount) {
         if (amount <= 0) {
             throw new BusinessException("Số tiền thanh toán không hợp lệ");
         }
-        long divisor = amountDivisor <= 0 ? 1L : amountDivisor;
-        long charged = amount / divisor;
-        if (charged < MIN_PAYOS_CHARGE_AMOUNT) {
-            log.info("PayOS charge floor: gốc {} ÷ {} = {} → sàn {}", amount, divisor, charged, MIN_PAYOS_CHARGE_AMOUNT);
-            charged = MIN_PAYOS_CHARGE_AMOUNT;
-        } else if (divisor > 1) {
-            log.info("PayOS amount-divisor={}: gốc {} → charge {}", divisor, amount, charged);
-        }
-        return charged;
+        log.info("PayOS charge hardcoded: gốc {} → charge {}", amount, MIN_PAYOS_CHARGE_AMOUNT);
+        return MIN_PAYOS_CHARGE_AMOUNT;
     }
 
     @Override

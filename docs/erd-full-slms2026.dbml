@@ -1,0 +1,829 @@
+// SLMS2026 — Full ERD (JPA entities)
+// Import: https://dbdiagram.io → Import → paste this file
+// Tip: sau khi import, tạo Table Group theo section (Identity / Property / Contract / Billing / Maintenance / Checkout / System)
+// PK types & table names khớp codebase; cột phụ chỉ lấy field chính (không 100% mọi cột).
+
+Project SLMS2026_ERD {
+  database_type: 'PostgreSQL'
+  Note: 'Full project ERD from JPA @Entity — ~65 tables + join/collection tables'
+}
+
+// ========== Identity ==========
+
+Table "User" {
+  id uuid [pk, note: 'GenerationType.UUID']
+  username varchar [unique, not null]
+  phone_number varchar [unique, not null]
+  email varchar
+  full_name varchar [not null]
+  role varchar [note: 'Role enum']
+  status varchar [note: 'UserStatus']
+  create_at timestamp [not null]
+  is_first_login boolean [not null]
+}
+
+Table Admin {
+  user_id uuid [pk, ref: - "User".id]
+  start_at timestamp
+}
+
+Table Owner {
+  user_id uuid [pk, ref: - "User".id]
+}
+
+Table Tenant {
+  user_id uuid [pk, ref: - "User".id]
+  cccd varchar
+  date_of_birth date
+  permanent_address varchar
+}
+
+Table Operation_Management {
+  user_id uuid [pk, ref: - "User".id]
+  start_at timestamp
+}
+
+Table Zone {
+  id uuid [pk, note: 'GenerationType.UUID']
+  name varchar [not null]
+  description text
+  level int [not null]
+  parent_id uuid [ref: > Zone.id]
+}
+
+Table manager_zones {
+  manager_id uuid [pk, ref: > Operation_Management.user_id]
+  zone_id uuid [pk, ref: > Zone.id]
+  Note: 'Join table OperationManagement @ManyToMany'
+}
+
+Table zone_managers {
+  zone_id uuid [pk, ref: > Zone.id, note: 'Entity ZoneManager']
+  manager_id uuid [not null, ref: > Operation_Management.user_id]
+  assigned_by uuid
+  assigned_at timestamp
+}
+
+Table zone_manager_handovers {
+  id bigint [pk, increment]
+  zone_id uuid [not null, ref: > Zone.id]
+  from_manager_id uuid
+  to_manager_id uuid
+  changed_by uuid [not null]
+  changed_at timestamp [not null]
+  affected_properties int
+  affected_contracts int
+}
+
+// ========== Property / Onboarding ==========
+
+Table properties {
+  id bigint [pk, increment]
+  property_code varchar [unique, not null]
+  property_name varchar [not null]
+  address varchar [not null]
+  zone_id uuid [not null, ref: > Zone.id]
+  status varchar [not null, note: 'PropertyStatus']
+  is_whole_house boolean
+  total_rooms int
+  operation_manager_id uuid
+  price decimal
+  applied_price decimal
+  renovation_completed boolean [not null]
+}
+
+Table property_images {
+  property_id bigint [not null, ref: > properties.id]
+  image_url varchar
+  indexes {
+    (property_id, image_url) [pk]
+  }
+  Note: '@ElementCollection on Property'
+}
+
+Table rooms {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_number varchar [not null]
+  floor int
+  price decimal
+  applied_price decimal
+  deposit decimal
+  area float [not null]
+  room_type varchar [not null, note: 'PropertyType']
+  status varchar [not null, note: 'RoomStatus']
+  is_deleted boolean [not null]
+}
+
+Table room_price_history {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  change_type varchar [not null]
+  old_price decimal
+  new_price decimal [not null]
+  contract_id bigint
+  changed_by uuid
+  changed_at timestamp [not null]
+}
+
+Table inbound_contracts {
+  id bigint [pk, increment]
+  property_id bigint [not null, unique, ref: - properties.id]
+  contract_code varchar [unique, not null]
+  owner_name varchar [not null]
+  total_rent_amount decimal [not null]
+  start_date date [not null]
+  end_date date [not null]
+  status varchar [not null, note: 'ContractStatus']
+}
+
+Table master_leases {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  owner_name varchar
+  monthly_rent decimal
+  deposit decimal
+  start_date date
+  end_date date
+  status varchar [note: 'MasterLeaseStatus']
+  is_deleted boolean [not null]
+}
+
+Table renovation_categories {
+  id bigint [pk, increment]
+  code varchar [unique, not null]
+  name varchar [not null]
+  description text
+  active boolean [not null]
+}
+
+Table renovation_sessions {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  session_number int [not null]
+  start_date date
+  end_date date
+  status varchar [not null, note: 'RenovationSessionStatus']
+  disabled_at timestamp
+  created_at timestamp
+}
+
+Table renovation_lines {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  category_id bigint [not null, ref: > renovation_categories.id]
+  session_id bigint [ref: > renovation_sessions.id]
+  cost decimal [not null]
+  note text
+}
+
+Table equipment_catalog {
+  id bigint [pk, increment]
+  name varchar [unique, not null]
+  description text
+  active boolean [not null]
+}
+
+Table equipment_manifests {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  catalog_id bigint [not null, ref: > equipment_catalog.id]
+  quantity int [not null]
+  status varchar [not null, note: 'EquipmentStatus']
+  source varchar [not null, note: 'EquipmentSource']
+  price decimal
+}
+
+Table handover_equipments {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  catalog_id bigint [not null, ref: > equipment_catalog.id]
+  room_number varchar
+  house_area varchar [note: 'HouseArea']
+  status varchar [not null]
+  quantity int [not null]
+  note text
+}
+
+Table equipments {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  catalog_id bigint [not null, ref: > equipment_catalog.id]
+  manifest_id bigint [ref: > equipment_manifests.id]
+  renovation_session_id bigint [ref: > renovation_sessions.id]
+  equipment_name varchar
+  source varchar [not null]
+  status varchar [not null]
+  operational_status varchar
+  price decimal
+  qr_code varchar [unique]
+}
+
+Table depreciation_results {
+  id bigint [pk, increment]
+  inbound_contract_id bigint [not null, ref: > inbound_contracts.id]
+  room_id bigint [ref: > rooms.id]
+  total_investment decimal [not null]
+  contract_months int [not null]
+  monthly_depreciation decimal [not null]
+  suggested_price_with_profit decimal [not null]
+  pricing_version int [not null]
+  calculated_at timestamp [not null]
+  superseded_at timestamp
+}
+
+Table pricing_config {
+  id bigint [pk]
+  mode varchar [not null, note: 'PricingMode']
+  p_desired decimal
+  roi_expected decimal
+  o_operation decimal [not null]
+  annual_increase_pct decimal [not null]
+  v_rate_pct decimal [not null]
+  repair_reserve_pct_per_year decimal [not null]
+  updated_at timestamp
+  updated_by uuid
+}
+
+Table pricing_capital_items {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  pricing_version int [not null]
+  kind varchar [not null, note: 'PricingCapitalItemKind']
+  source_id bigint
+  room_id bigint [ref: > rooms.id]
+  amount decimal [not null]
+  start_date date [not null]
+  months int [not null]
+  monthly_amount decimal [not null]
+  created_at timestamp [not null]
+}
+
+Table property_viewing_leads {
+  id bigint [pk, increment]
+  customer_name varchar [not null]
+  customer_phone varchar [not null]
+  status varchar [not null, note: 'ViewingLeadStatus']
+  assigned_manager_id uuid
+  created_by uuid
+  linked_user_id uuid
+  preferred_viewing_at timestamp
+  scheduled_at timestamp
+  created_at timestamp
+}
+
+Table viewing_lead_properties {
+  id bigint [pk, increment]
+  lead_id bigint [not null, ref: > property_viewing_leads.id]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  interest_type varchar [not null, note: 'ViewingInterestType']
+  note text
+}
+
+// ========== Contract ==========
+
+Table tenant_contracts {
+  id bigint [pk, increment]
+  contract_code varchar [unique, not null]
+  tenant_user_id uuid [ref: > Tenant.user_id]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  rent_amount decimal [not null]
+  deposit decimal [not null]
+  start_date date [not null]
+  end_date date
+  status varchar [not null, note: 'ContractStatus']
+  payment_status varchar [note: 'PaymentStatus']
+  assigned_manager_id uuid [ref: > "User".id]
+  terminated_at timestamp
+}
+
+Table tenant_contract_condition_photos {
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  image_url varchar [not null]
+  captured_at timestamp
+  indexes {
+    (tenant_contract_id, image_url) [pk]
+  }
+  Note: '@ElementCollection ContractEvidencePhoto'
+}
+
+Table household_members {
+  id bigint [pk, increment]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  full_name varchar [not null]
+  relation varchar
+  phone varchar
+  date_of_birth date
+  cccd varchar
+}
+
+Table tenant_contract_equipments {
+  id bigint [pk, increment]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  equipment_id bigint [not null, ref: > equipments.id]
+  condition_at_signing varchar [note: 'EquipmentStatus']
+  quantity int [not null]
+}
+
+Table extension_requests {
+  id bigint [pk, increment]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  tenant_user_id uuid [not null]
+  months int [not null]
+  new_end_date date [not null]
+  status varchar [not null, note: 'ExtensionRequestStatus']
+  created_at timestamp [not null]
+  reviewed_at timestamp
+  reviewed_by uuid
+}
+
+Table deposit_audit_log {
+  id bigint [pk, increment]
+  contract_id bigint [not null, ref: > tenant_contracts.id]
+  action varchar [not null]
+  actor_user_id uuid
+  actor_role varchar
+  at timestamp [not null]
+  payload_json text
+}
+
+// ========== Billing ==========
+
+Table invoices {
+  id bigint [pk, increment]
+  tenant_id uuid [ref: > Tenant.user_id]
+  room_id bigint [ref: > rooms.id]
+  property_id bigint [ref: > properties.id]
+  amount decimal
+  due_date date
+  status varchar [note: 'InvoiceStatus — host invoices']
+  month varchar [note: 'YYYY-MM']
+  created_at timestamp
+  is_deleted boolean [not null]
+}
+
+Table expenses {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  category varchar [note: 'ExpenseCategory']
+  amount decimal
+  month varchar [note: 'YYYY-MM']
+  note text
+  created_by varchar
+  created_at timestamp
+  is_deleted boolean [not null]
+}
+
+Table host_expenses {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  category varchar [not null, note: 'HostExpenseCategory']
+  amount decimal [not null]
+  month varchar [not null]
+  note text
+  created_at timestamp [not null]
+}
+
+Table utility_bills {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  type varchar [not null, note: 'UtilityType']
+  billing_period varchar [not null]
+  month int [not null]
+  year int [not null]
+  total_quantity int [not null]
+  total_amount decimal [not null]
+  unit_price decimal [not null]
+  status varchar [not null, note: 'UtilityBillStatus']
+  created_at timestamp
+}
+
+Table utility_invoices {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  tenant_contract_id bigint [ref: > tenant_contracts.id]
+  utility_type varchar [not null]
+  billing_period varchar [not null]
+  prev_reading decimal [not null]
+  new_reading decimal [not null]
+  consumption decimal [not null]
+  amount decimal [not null]
+  status varchar [not null, note: 'UtilityInvoiceStatus']
+  created_at timestamp [not null]
+}
+
+Table monthly_readings {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  utility_type varchar [not null]
+  billing_month varchar [not null, note: 'YearMonth']
+  reading_start int [not null]
+  reading_end int [not null]
+  units_used int [not null]
+  unit_price decimal [not null]
+  amount_charged decimal [not null]
+  recorded_date date [not null]
+}
+
+Table meter_readings {
+  id bigint [pk, increment]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  utility_type varchar [not null]
+  period varchar [not null]
+  reading decimal [not null]
+  prev_reading decimal
+  recorded_at timestamp [not null]
+  recorded_by uuid
+  utility_invoice_id bigint [ref: > utility_invoices.id]
+}
+
+Table tenant_invoices {
+  id bigint [pk, increment]
+  code varchar [unique, not null]
+  tenant_user_id uuid
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  utility_invoice_id bigint [unique, ref: > utility_invoices.id]
+  invoice_type varchar [not null, note: 'TenantInvoiceType']
+  billing_month int
+  billing_year int
+  total_amount decimal [not null]
+  grand_total decimal [not null]
+  status varchar [not null, note: 'TenantInvoiceStatus']
+  due_date date
+  paid_at timestamp
+}
+
+Table tenant_invoice_payos_orders {
+  id bigint [pk, increment]
+  invoice_id bigint [not null, ref: > tenant_invoices.id]
+  order_code bigint [unique, not null]
+  amount decimal [not null]
+  purpose varchar [note: 'PayosOrderPurpose']
+  status varchar [not null, note: 'PayosOrderStatus']
+  created_at timestamp [not null]
+  expired_at timestamp
+}
+
+Table tenant_payments {
+  id bigint [pk, increment]
+  tenant_invoice_id bigint [not null, ref: > tenant_invoices.id]
+  tenant_user_id uuid
+  invoice_code varchar [not null]
+  invoice_type varchar [not null]
+  amount decimal [not null]
+  method varchar [not null]
+  paid_at timestamp [not null]
+  transaction_id varchar
+  collection_mode varchar
+}
+
+Table tenant_payment_claims {
+  id bigint [pk, increment]
+  tenant_invoice_id bigint [not null, ref: > tenant_invoices.id]
+  tenant_user_id uuid [not null]
+  amount decimal [not null]
+  method varchar [not null]
+  status varchar [not null, note: 'PaymentClaimStatus']
+  created_at timestamp [not null]
+  verified_at timestamp
+  verified_by uuid
+}
+
+Table tenant_pending_charges {
+  id bigint [pk, increment]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  invoice_id bigint [ref: > tenant_invoices.id]
+  amount decimal [not null]
+  category varchar [not null]
+  maintenance_request_id bigint [ref: > maintenance_requests.id]
+  status varchar [not null]
+  created_at timestamp [not null]
+}
+
+Table invoice_disputes {
+  id bigint [pk, increment]
+  invoice_id bigint [not null, ref: > utility_invoices.id]
+  tenant_invoice_id bigint [not null, ref: > tenant_invoices.id]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  status varchar [not null]
+  reason varchar [not null]
+  note varchar [not null]
+  created_at timestamp [not null]
+  resolved_at timestamp
+  replacement_invoice_id bigint [ref: > utility_invoices.id]
+}
+
+Table invoice_dispute_photos {
+  dispute_id bigint [not null, ref: > invoice_disputes.id]
+  photo_url varchar
+  indexes {
+    (dispute_id, photo_url) [pk]
+  }
+  Note: '@ElementCollection on InvoiceDispute'
+}
+
+// ========== Maintenance ==========
+
+Table maintenance_requests {
+  id bigint [pk, increment]
+  request_code varchar [unique]
+  tenant_id uuid [not null, ref: > Tenant.user_id]
+  property_id bigint [not null, ref: > properties.id]
+  room_id bigint [ref: > rooms.id]
+  tenant_contract_id bigint [ref: > tenant_contracts.id]
+  equipment_id bigint [ref: > equipments.id]
+  title varchar
+  category varchar
+  status varchar [note: 'MaintenanceStatus']
+  flow_type varchar [note: 'MaintenanceFlowType']
+  visit_appointment_at timestamp
+  invoice_amount decimal
+  created_at timestamp
+  is_deleted boolean [not null]
+}
+
+Table maintenance_images {
+  id bigint [pk, increment]
+  maintenance_request_id bigint [not null, ref: > maintenance_requests.id]
+  image_url varchar [not null]
+  type varchar [not null, note: 'MaintenancePhotoType']
+  created_at timestamp [not null]
+}
+
+Table maintenance_timelines {
+  id bigint [pk, increment]
+  maintenance_request_id bigint [not null, ref: > maintenance_requests.id]
+  old_status varchar
+  new_status varchar [not null]
+  note text
+  changed_by uuid
+  changed_at timestamp [not null]
+}
+
+Table maintenance_history {
+  id bigint [pk, increment]
+  maintenance_request_id bigint [not null, ref: > maintenance_requests.id]
+  old_status varchar
+  new_status varchar
+  note text
+  changed_by uuid [not null, ref: > "User".id]
+  changed_at timestamp
+}
+
+Table equipment_maintenance_histories {
+  id bigint [pk, increment]
+  equipment_id bigint [not null, ref: > equipments.id]
+  maintenance_request_id bigint [not null, ref: > maintenance_requests.id]
+  maintenance_date timestamp
+  repair_cost bigint
+  note text
+}
+
+Table outstanding_damage_records {
+  id bigint [pk, increment]
+  maintenance_request_id bigint [not null, ref: > maintenance_requests.id]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  equipment_id bigint [ref: > equipments.id]
+  label varchar [not null]
+  estimated_amount decimal [not null]
+  resolved_at_checkout boolean [not null]
+  checkout_damage_item_id bigint [ref: > checkout_damage_items.id]
+  created_at timestamp
+}
+
+Table outstanding_damage_photos {
+  record_id bigint [not null, ref: > outstanding_damage_records.id]
+  photo_url varchar
+  indexes {
+    (record_id, photo_url) [pk]
+  }
+  Note: '@ElementCollection on OutstandingDamageRecord'
+}
+
+// ========== Checkout ==========
+
+Table checkout_requests {
+  id bigint [pk, increment]
+  tenant_user_id uuid [not null]
+  tenant_contract_id bigint [not null, ref: > tenant_contracts.id]
+  expected_move_out_date date [not null]
+  reason text [not null]
+  status varchar [not null, note: 'CheckoutRequestStatus']
+  origin varchar [note: 'CheckoutOrigin']
+  created_at timestamp [not null]
+  reviewed_at timestamp
+  completed_at timestamp
+  refund_due_date date
+}
+
+Table checkout_request_dispute_photos {
+  checkout_request_id bigint [not null, ref: > checkout_requests.id]
+  photo_url varchar
+  indexes {
+    (checkout_request_id, photo_url) [pk]
+  }
+  Note: '@ElementCollection on CheckoutRequest'
+}
+
+Table checkout_inspections {
+  id bigint [pk, increment]
+  checkout_request_id bigint [not null, unique, ref: - checkout_requests.id]
+  room_condition_note text
+  electricity_final_reading int
+  water_final_reading int
+  created_at timestamp [not null]
+  updated_at timestamp
+}
+
+Table checkout_inspection_photos {
+  inspection_id bigint [not null, ref: > checkout_inspections.id]
+  photo_url varchar
+  indexes {
+    (inspection_id, photo_url) [pk]
+  }
+  Note: '@ElementCollection on CheckoutInspection'
+}
+
+Table checkout_damage_items {
+  id bigint [pk, increment]
+  checkout_inspection_id bigint [not null, ref: > checkout_inspections.id]
+  equipment_id bigint [ref: > equipments.id]
+  maintenance_request_id bigint [ref: > maintenance_requests.id]
+  label varchar [not null]
+  amount decimal [not null]
+  note text
+}
+
+Table checkout_damage_item_photos {
+  damage_item_id bigint [not null, ref: > checkout_damage_items.id]
+  photo_url varchar
+  indexes {
+    (damage_item_id, photo_url) [pk]
+  }
+  Note: '@ElementCollection on CheckoutDamageItem'
+}
+
+Table checkout_settlements {
+  id bigint [pk, increment]
+  checkout_request_id bigint [not null, unique, ref: - checkout_requests.id]
+  deposit_amount decimal [not null]
+  unpaid_total decimal [not null]
+  damage_total decimal [not null]
+  adjustment_total decimal [not null]
+  refund_amount decimal [not null]
+  extra_charge_amount decimal [not null]
+  extra_charge_invoice_id bigint
+  refund_paid_at timestamp
+  created_at timestamp [not null]
+}
+
+Table checkout_settlement_invoices {
+  id bigint [pk, increment]
+  checkout_settlement_id bigint [not null, ref: > checkout_settlements.id]
+  invoice_id bigint
+  invoice_code varchar
+  invoice_type varchar
+  amount decimal [not null]
+}
+
+Table checkout_settlement_adjustments {
+  id bigint [pk, increment]
+  checkout_settlement_id bigint [not null, ref: > checkout_settlements.id]
+  label varchar [not null]
+  amount decimal [not null]
+}
+
+// ========== System / Security ==========
+
+Table otp_verifications {
+  id bigint [pk, increment]
+  phone_number varchar [not null]
+  code varchar [not null]
+  purpose varchar [not null, note: 'OtpPurpose']
+  reference_id bigint
+  expires_at timestamp [not null]
+  verified boolean [not null]
+  attempt_count int [not null]
+  created_at timestamp [not null]
+}
+
+Table user_push_tokens {
+  id bigint [pk, increment]
+  user_id uuid [not null, ref: > "User".id]
+  token varchar [unique, not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table notifications {
+  id bigint [pk, increment]
+  user_id uuid [not null, ref: > "User".id]
+  title varchar
+  content text
+  type varchar
+  screen varchar
+  dedupe_key varchar
+  is_read boolean [not null]
+  created_at timestamp
+}
+
+Table host_notifications {
+  id bigint [pk, increment]
+  user_id uuid [not null, ref: > "User".id]
+  dedupe_key varchar [not null]
+  type varchar [not null]
+  title varchar [not null]
+  message text [not null]
+  priority varchar
+  is_read boolean [not null]
+  created_at timestamp [not null]
+}
+
+Table meter_override_fail_counters {
+  manager_id uuid [pk, ref: > Operation_Management.user_id]
+  fail_count int [not null]
+  locked_until timestamp
+}
+
+Table meter_override_logs {
+  id bigint [pk, increment]
+  manager_id uuid [not null]
+  contract_id bigint [not null, ref: > tenant_contracts.id]
+  meter_kind varchar [not null]
+  entered_value decimal
+  reason text
+  created_at timestamp [not null]
+}
+
+Table meter_override_passcodes {
+  id bigint [pk, increment]
+  code varchar [not null]
+  created_by uuid [not null]
+  note text
+  expires_at timestamp [not null]
+  used_at timestamp
+  used_by uuid
+  created_at timestamp [not null]
+}
+
+Table meter_override_tokens {
+  id bigint [pk, increment]
+  token uuid [unique, not null]
+  manager_id uuid [not null]
+  contract_id bigint [ref: > tenant_contracts.id]
+  meter_kind varchar [not null]
+  expires_at timestamp [not null]
+  used_at timestamp
+  created_at timestamp [not null]
+}
+
+Table invoice_unlock_fail_counters {
+  manager_id uuid [pk]
+  invoice_id bigint [pk, ref: > tenant_invoices.id]
+  fail_count int [not null]
+  locked_until timestamp
+  Note: '@IdClass composite PK'
+}
+
+Table invoice_unlock_logs {
+  id bigint [pk, increment]
+  manager_id uuid [not null]
+  invoice_id bigint [not null, ref: > tenant_invoices.id]
+  purpose varchar [not null, note: 'InvoiceUnlockPurpose']
+  unlocked_by_admin uuid [not null]
+  passcode_id bigint
+  success boolean [not null]
+  created_at timestamp [not null]
+}
+
+Table invoice_unlock_passcodes {
+  id bigint [pk, increment]
+  code varchar [not null]
+  invoice_id bigint [not null, ref: > tenant_invoices.id]
+  purpose varchar [not null]
+  created_by uuid [not null]
+  expires_at timestamp [not null]
+  used_at timestamp
+  used_by uuid
+  created_at timestamp [not null]
+}
+
+Table invoice_unlock_tokens {
+  id bigint [pk, increment]
+  token uuid [unique, not null]
+  manager_id uuid [not null]
+  invoice_id bigint [not null, ref: > tenant_invoices.id]
+  purpose varchar [not null]
+  passcode_id bigint [not null, ref: > invoice_unlock_passcodes.id]
+  unlocked_by_admin uuid [not null]
+  expires_at timestamp [not null]
+  used_at timestamp
+  created_at timestamp [not null]
+}

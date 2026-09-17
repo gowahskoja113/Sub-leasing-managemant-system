@@ -1,0 +1,61 @@
+@startuml SLMS2026_Conceptual_ERD
+' ERD khái niệm kiểu Chen (hình chữ nhật + hình thoi) — paste vào https://www.plantuml.com/plantuml
+' Scope: Onboarding + Billing + Maintenance (+ Checkout)
+
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+entity "User" as User
+entity "Tenant" as Tenant
+entity "Owner" as Owner
+entity "Manager" as Manager
+entity "Zone" as Zone
+entity "Property" as Property
+entity "Room" as Room
+entity "MasterLease" as MasterLease
+entity "Equipment" as Equipment
+entity "RenovationSession" as Reno
+entity "TenantContract" as Contract
+entity "TenantInvoice" as Invoice
+entity "TenantPayment" as Payment
+entity "UtilityBill" as UtilBill
+entity "MeterReading" as Meter
+entity "MaintenanceRequest" as Maint
+entity "MaintenanceImage" as MaintImg
+entity "CheckoutRequest" as Checkout
+entity "CheckoutSettlement" as Settle
+entity "CheckoutDamageItem" as Damage
+
+User ||--|| Tenant : "has profile"
+User ||--|| Owner : "has profile"
+User ||--|| Manager : "has profile"
+Manager }o--o{ Zone : "manages"
+Zone ||--o{ Property : "contains"
+Property ||--o{ Room : "has"
+Property ||--o| MasterLease : "leased by host"
+Property ||--o{ Equipment : "has"
+Property ||--o{ Reno : "renovation"
+Property ||--o{ Contract : "rented via"
+Tenant ||--o{ Contract : "signs"
+Room ||--o{ Contract : "occupies\n(or whole house)"
+Contract ||--o{ Invoice : "billed by"
+Invoice ||--o{ Payment : "paid by"
+Property ||--o{ UtilBill : "utility"
+Property ||--o{ Meter : "reading"
+Tenant ||--o{ Maint : "creates"
+Property ||--o{ Maint : "located at"
+Contract ||--o{ Maint : "under"
+Equipment ||--o{ Maint : "targets"
+Maint ||--o{ MaintImg : "has photos"
+Contract ||--o{ Checkout : "ends with"
+Checkout ||--|| Settle : "settled by"
+Checkout ||--o{ Damage : "charges"
+Maint ||--o{ Damage : "outstanding"
+
+@enduml

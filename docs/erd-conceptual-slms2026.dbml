@@ -1,0 +1,150 @@
+// SLMS2026 — ERD khái niệm (giống mức độ ảnh mẫu báo cáo)
+// Import: https://dbdiagram.io
+// Không gồm bảng hệ thống (OTP, unlock, push token…) — chỉ domain chính
+
+Project SLMS2026_Conceptual {
+  database_type: 'PostgreSQL'
+  Note: 'Conceptual ERD — Onboarding + Billing + Maintenance (+ Checkout gắn billing)'
+}
+
+// ----- Identity -----
+Table "User" {
+  id uuid [pk]
+  full_name varchar
+  role varchar
+  status varchar
+}
+
+Table Tenant {
+  user_id uuid [pk, ref: - "User".id]
+}
+
+Table Owner {
+  user_id uuid [pk, ref: - "User".id]
+}
+
+Table Manager {
+  user_id uuid [pk, ref: - "User".id, note: 'Operation_Management']
+}
+
+Table Zone {
+  id uuid [pk]
+  name varchar
+}
+
+// ----- Onboarding / Property -----
+Table Property {
+  id bigint [pk]
+  property_code varchar
+  property_name varchar
+  status varchar
+  zone_id uuid [ref: > Zone.id]
+}
+
+Table Room {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  room_number varchar
+  status varchar
+}
+
+Table MasterLease {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  status varchar
+  Note: 'HĐ inbound Host ↔ công ty'
+}
+
+Table Equipment {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  room_id bigint [ref: > Room.id]
+  status varchar
+}
+
+Table RenovationSession {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  status varchar
+}
+
+// ----- Contract -----
+Table TenantContract {
+  id bigint [pk]
+  contract_code varchar
+  tenant_id uuid [ref: > Tenant.user_id]
+  property_id bigint [ref: > Property.id]
+  room_id bigint [ref: > Room.id]
+  status varchar
+}
+
+// ----- Billing -----
+Table TenantInvoice {
+  id bigint [pk]
+  code varchar
+  tenant_contract_id bigint [ref: > TenantContract.id]
+  invoice_type varchar
+  status varchar
+  total_amount decimal
+}
+
+Table TenantPayment {
+  id bigint [pk]
+  tenant_invoice_id bigint [ref: > TenantInvoice.id]
+  amount decimal
+  paid_at timestamp
+}
+
+Table UtilityBill {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  status varchar
+}
+
+Table MeterReading {
+  id bigint [pk]
+  property_id bigint [ref: > Property.id]
+  room_id bigint [ref: > Room.id]
+}
+
+// ----- Maintenance -----
+Table MaintenanceRequest {
+  id bigint [pk]
+  tenant_id uuid [ref: > Tenant.user_id]
+  property_id bigint [ref: > Property.id]
+  room_id bigint [ref: > Room.id]
+  tenant_contract_id bigint [ref: > TenantContract.id]
+  equipment_id bigint [ref: > Equipment.id]
+  status varchar
+  flow_type varchar
+}
+
+Table MaintenanceImage {
+  id bigint [pk]
+  maintenance_request_id bigint [ref: > MaintenanceRequest.id]
+  photo_type varchar
+}
+
+// ----- Checkout (sub-flow Billing) -----
+Table CheckoutRequest {
+  id bigint [pk]
+  tenant_contract_id bigint [ref: > TenantContract.id]
+  status varchar
+}
+
+Table CheckoutSettlement {
+  id bigint [pk]
+  checkout_request_id bigint [ref: - CheckoutRequest.id]
+  refund_amount decimal
+  damage_total decimal
+}
+
+Table CheckoutDamageItem {
+  id bigint [pk]
+  checkout_request_id bigint [ref: > CheckoutRequest.id, note: 'qua Inspection']
+  maintenance_request_id bigint [ref: > MaintenanceRequest.id]
+  amount decimal
+}
+
+// Gợi ý Table Group trên dbdiagram:
+// Identity | Onboarding | Contract | Billing | Maintenance | Checkout
