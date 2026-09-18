@@ -34,6 +34,7 @@ import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.UtilityInvoiceService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
 import com.sep490.slms2026.util.UtilityTypeMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 public class MeterReadingServiceImpl implements MeterReadingService {
 
@@ -297,15 +299,35 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                         .findByPropertyIdAndMonthAndYearAndTypeAndStatus(
                                 propertyId, month.getMonthValue(), month.getYear(),
                                 UtilityType.ELECTRIC, UtilityBillStatus.PUBLISHED)
-                        .ifPresent(bill -> utilityInvoiceService.issueElectricFromSavedReading(bill, readingId));
+                        .ifPresent(bill -> {
+                            try {
+                                utilityInvoiceService.issueElectricFromSavedReading(bill, readingId);
+                            } catch (BusinessException ex) {
+                                // Giữ bản chốt — không để lỗi phát hành kèm rollback số đã lưu.
+                                log.warn("Auto-issue điện sau chốt thất bại (readingId={}): {}",
+                                        readingId, ex.getMessage());
+                            }
+                        });
             } else if (utilityType == UtilityType.WATER) {
-                // Nước: không ghép theo period — lấy hoá đơn PUBLISHED mới nhất còn dùng được.
+                // Nước: hoá đơn PUBLISHED mới nhất chỉ dùng nếu phòng này chưa có HĐ nước kỳ đó.
+                // Giấy tháng trước vẫn PUBLISHED mãi → không ghép số chốt chu kỳ mới vào giấy cũ.
+                final Long targetRoomId = roomId;
                 utilityBillRepository
                         .findByPropertyIdAndTypeAndStatusOrderByCreatedAtDesc(
                                 propertyId, UtilityType.WATER, UtilityBillStatus.PUBLISHED)
                         .stream()
                         .findFirst()
-                        .ifPresent(bill -> utilityInvoiceService.issueWaterFromSavedReading(bill, readingId));
+                        .filter(bill -> !roomHasActiveWaterInvoice(
+                                propertyId, targetRoomId, bill.getBillingPeriod()))
+                        .ifPresent(bill -> {
+                            try {
+                                utilityInvoiceService.issueWaterFromSavedReading(bill, readingId);
+                            } catch (BusinessException ex) {
+                                // Chỉ lưu bản chốt (invoiceId=null); admin đẩy giấy sau sẽ gom.
+                                log.warn("Auto-issue nước sau chốt thất bại (readingId={}, billId={}): {}",
+                                        readingId, bill.getId(), ex.getMessage());
+                            }
+                        });
             }
             saved = meterReadingRepository.findById(readingId).orElse(saved);
         }
@@ -442,6 +464,20 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                     .build());
         }
         return items;
+    }
+
+    /**
+     * True nếu phòng đã có hoá đơn nước còn hiệu lực cho kỳ của giấy (không tính CANCELLED).
+     * Dùng để tránh ghép bản chốt chu kỳ mới vào giấy PUBLISHED tháng trước.
+     */
+    private boolean roomHasActiveWaterInvoice(Long propertyId, Long roomId, String billingPeriod) {
+        if (roomId == null || billingPeriod == null || billingPeriod.isBlank()) {
+            return false;
+        }
+        return utilityInvoiceRepository.findByFilters(propertyId, billingPeriod, UtilityType.WATER).stream()
+                .anyMatch(u -> u.getRoom() != null
+                        && roomId.equals(u.getRoom().getId())
+                        && u.getStatus() != UtilityInvoiceStatus.CANCELLED);
     }
 
     /**

@@ -266,7 +266,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public UtilityInvoiceResponse issueElectricFromSavedReading(UtilityBill bill, Long meterReadingId) {
         Property property = bill.getProperty();
         MeterReading reading = meterReadingRepository.findById(meterReadingId)
@@ -363,7 +363,7 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public UtilityInvoiceResponse issueWaterFromSavedReading(UtilityBill bill, Long meterReadingId) {
         Property property = bill.getProperty();
         MeterReading reading = meterReadingRepository.findById(meterReadingId)
