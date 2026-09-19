@@ -1,0 +1,137 @@
+@startuml AssignEquipment
+title Figure — AssignEquipment Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "EquipmentCatalogRepository" as ECR
+participant "EquipmentManifestRepository" as EMR
+participant "RoomRepository" as RR
+participant "RenovationSessionRepository" as RSR
+participant "EquipmentRepository" as ER
+database DB
+
+Admin -> FE : (1) Choose catalog, quantity, room or house area,\nsource (INITIAL_HANDOVER / PURCHASED)\nClick "Assign equipment"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/equipments/assign\nAssignEquipmentRequest
+activate C
+C -> S : (3) assignEquipment(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status != PENDING_EQUIPMENT_INSTALLATION
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> S : (10) validateEquipmentStatus()\nvalidateEquipmentPlacement(roomId XOR houseArea)
+
+S -> ECR : (11) findById(catalogId)
+activate ECR
+ECR -> DB : (12) SELECT EquipmentCatalog
+DB --> ECR : (13) Catalog
+ECR --> S : (14) EquipmentCatalog
+deactivate ECR
+
+alt source = INITIAL_HANDOVER
+  S -> EMR : (15) findByPropertyIdAndCatalogIdAndStatusAndSource
+  activate EMR
+  EMR -> DB : (16) SELECT EquipmentManifest
+  DB --> EMR : (17) manifest / empty
+  EMR --> S : (18) EquipmentManifest
+  deactivate EMR
+  S -> ER : (19) countActiveByManifestId(manifestId)
+  activate ER
+  ER -> DB : (20) SELECT COUNT Equipment
+  DB --> ER : (21) alreadyAssigned
+  ER --> S : (22) alreadyAssigned
+  deactivate ER
+  alt Not in manifest OR alreadyAssigned + quantity > manifest quantity
+    S --> C : BusinessException
+    C --> FE : Error response
+    FE --> Admin : Show error
+  end
+else source = PURCHASED
+  S -> S : (23) resolvePurchasedUnitPrice() price > 0
+  S -> EMR : (24) findPurchasedManifestByPrice(...)
+  activate EMR
+  EMR -> DB : (25) SELECT EquipmentManifest
+  DB --> EMR : (26) manifest?
+  EMR --> S : (27) EquipmentManifest?
+  deactivate EMR
+end
+
+opt roomId provided
+  S -> RR : (28) findByIdAndPropertyId(roomId, propertyId)
+  activate RR
+  RR -> DB : (29) SELECT Room
+  DB --> RR : (30) Room
+  RR --> S : (31) Room
+  deactivate RR
+end
+
+opt PURCHASED AND importAction = THAY_THE
+  S -> ER : (32) findActivePurchasedAtPlacement(...)
+  activate ER
+  ER -> DB : (33) SELECT Equipment
+  DB --> ER : (34) active equipments
+  ER --> S : (35) List<Equipment>
+  S -> ER : (36) save(operationalStatus = DISABLED)
+  ER -> DB : (37) UPDATE Equipment
+  DB --> ER : (38) OK
+  deactivate ER
+end
+
+S -> RSR : (39) findTopByPropertyIdAndEndDateIsNull...
+activate RSR
+RSR -> DB : (40) SELECT RenovationSession
+DB --> RSR : (41) session?
+RSR --> S : (42) current session?
+deactivate RSR
+
+loop quantity times
+  S -> ER : (43) save(Equipment ACTIVE)
+  activate ER
+  ER -> DB : (44) INSERT Equipment
+  DB --> ER : (45) OK
+  ER --> S : (46) saved
+  deactivate ER
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (47) CommitTransaction()
+DB --> S : (48) Committed
+deactivate DB
+
+S --> C : (49) EquipmentResponse
+deactivate S
+C --> FE : (50) 200 OK + EquipmentResponse
+deactivate C
+FE --> Admin : (51) Show assigned equipment
+
+@enduml

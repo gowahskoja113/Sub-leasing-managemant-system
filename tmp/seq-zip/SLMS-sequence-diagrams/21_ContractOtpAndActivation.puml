@@ -1,0 +1,136 @@
+@startuml ContractOtpAndActivation
+title Figure — ContractOtpAndActivation (Deposit Payment, OTP & Activation) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+actor Manager
+participant "Front-end" as FE
+participant "TenantMyContractController" as TC
+participant "TenantContractActionController" as MC
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "OtpServiceImpl" as OTP
+participant "RealtimeEventServiceImpl" as RT
+participant "RoomRepository" as RR
+participant "TenantBillingServiceImpl" as TBS
+participant "UnitPriceServiceImpl" as UPS
+participant "NotificationRepository" as NR
+database DB
+
+== Step 1: Tenant requests both OTP codes ==
+Tenant -> FE : (1) Open pending contract, click "Send OTP"
+FE -> TC : (2) POST /api/v1/tenant/me/contracts/{id}/send-confirm-otp
+activate TC
+TC -> S : (3) sendDualContractConfirmOtps(contractId)
+activate S
+S -> TCR : (4) findContractForUpdate(id) (SELECT ... FOR UPDATE)
+activate TCR
+TCR -> DB : (5) SELECT TenantContract FOR UPDATE
+DB --> TCR : (6) TenantContract
+TCR --> S : (7) TenantContract
+deactivate TCR
+
+alt Not PAID / not PENDING / not owner / early move-in window exceeded /\ncontract already ACTIVE
+  S --> TC : BusinessException
+  TC --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+opt tenantOtpVerifiedAt is null
+  S -> OTP : (8) sendOtp(phone, CONTRACT_CONFIRM_TENANT, contractId)
+  OTP -> DB : (9) INSERT OtpVerification + send SMS
+end
+opt managerOtpVerifiedAt is null
+  S -> OTP : (10) sendOtp(phone, CONTRACT_CONFIRM_MANAGER, contractId)
+  OTP -> DB : (11) INSERT OtpVerification + send SMS
+end
+S -> TCR : (12) saveAndFlush(confirmRequestedAt)
+TCR -> DB : (13) UPDATE TenantContract
+S -> RT : (14) publishContractConfirmProgress(contract)
+RT --> FE : (15) STOMP event to Tenant / Manager apps
+S --> TC : (16) void
+deactivate S
+TC --> FE : (17) 200 OK
+deactivate TC
+
+== Step 2: Tenant confirms own OTP ==
+Tenant -> FE : (18) Enter tenant OTP
+FE -> TC : (19) POST /api/v1/tenant/me/contracts/{id}/confirm-otp\nConfirmContractRequest
+activate TC
+TC -> S : (20) confirmContractByTenant(contractId, otp)
+activate S
+S -> DB : (21) BeginTransaction()
+activate DB
+DB --> S : (22) Success
+S -> OTP : (23) verifyOrThrow(phone, otp, CONTRACT_CONFIRM_TENANT, contractId)
+activate OTP
+OTP -> DB : (24) SELECT / UPDATE OtpVerification
+DB --> OTP : (25) OK
+OTP --> S : (26) verified / BusinessException
+deactivate OTP
+S -> TCR : (27) saveAndFlush(tenantOtpVerifiedAt = now)
+TCR -> DB : (28) UPDATE TenantContract
+S -> S : (29) tryActivateAfterDualOtp(contractId)
+S -> RT : (30) publishContractConfirmProgress(contract)
+alt managerOtpVerifiedAt is still null
+  S --> TC : (31) TenantContractResponse (still PENDING)
+end
+
+== Step 3: Manager confirms own OTP ==
+Manager -> FE : (32) Enter manager OTP
+FE -> MC : (33) POST /api/v1/tenant-contracts/{id}/confirm\nConfirmContractRequest
+activate MC
+MC -> S : (34) confirmContract(contractId, otp)
+S -> OTP : (35) verifyOrThrow(phone, otp, CONTRACT_CONFIRM_MANAGER, contractId)
+OTP --> S : (36) verified
+S -> TCR : (37) saveAndFlush(managerOtpVerifiedAt, onboardedByManager, onboardedAt)
+TCR -> DB : (38) UPDATE TenantContract
+S -> S : (39) tryActivateAfterDualOtp(contractId)\n(re-read row under lock: both OTP timestamps set?)
+
+== Step 4: Activation (only when both OTP verified) ==
+S -> S : (40) activateContract(contract)\nassertCanReceiveTenant(lease), clamp move-in date
+opt contract.tenant is null
+  S -> DB : (41) INSERT / link Tenant + User
+end
+opt Room rental
+  S -> RR : (42) save(status = RENTED)
+  RR -> DB : (43) UPDATE Room
+end
+S -> TCR : (44) save(status = ACTIVE, activatedAt)
+TCR -> DB : (45) UPDATE TenantContract
+S -> TBS : (46) generateProratedRentForNewContract(contract)
+TBS -> DB : (47) INSERT rent invoice (pro-rata)
+S -> UPS : (48) applyContractRent(contract, HOP_DONG)
+UPS -> DB : (49) INSERT price history
+S -> NR : (50) notifyContractActivated (tenant + manager)
+NR -> DB : (51) INSERT Notification
+S -> RT : (52) publishContractActivated(contract)
+RT --> FE : (53) STOMP event CONTRACT_ACTIVATED
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> MC : Exception
+  MC --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (54) CommitTransaction()
+DB --> S : (55) Committed
+deactivate DB
+S --> MC : (56) TenantContractResponse (status ACTIVE)
+deactivate MC
+MC --> FE : (57) 200 OK
+FE --> Manager : (58) Show "Contract activated"
+S --> TC : (59) TenantContractResponse (ACTIVE) for tenant's last call
+TC --> FE : (60) 200 OK
+deactivate S
+deactivate TC
+FE --> Tenant : (61) Show "Contract activated"
+
+@enduml

@@ -1,0 +1,107 @@
+@startuml BulkImportRenovationSupplement
+title Figure — BulkImportRenovationSupplement (Supplement Renovation on an Already-Active Property) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as PC
+participant "BulkImportController" as C
+participant "BulkRenovationSupplementImportServiceImpl" as S
+participant "ExcelRenovationSupplementWorkbookReader" as XR
+participant "InboundContractRepository" as ICR
+participant "PropertyOnboardingServiceImpl" as POS
+database DB
+
+== Start supplement renovation ==
+Admin -> FE : (1) Click "Start renovation" on ACTIVE property
+FE -> PC : (2) POST /api/v1/properties/{propertyId}/renovation/start
+PC -> POS : (3) startRenovation(propertyId)
+activate POS
+POS -> DB : (4) UPDATE Property status = UNDER_RENOVATION\nINSERT RenovationSession (sessionNumber >= 2)
+DB --> POS : (5) OK
+POS --> PC : (6) PropertyResponse
+deactivate POS
+PC --> FE : (7) 200 OK
+
+== Import supplement Excel ==
+Admin -> FE : (8) Select supplement Excel file\nClick "Import"
+FE -> C : (9) POST /api/v1/import/renovation-supplement-excel\npropertyId + file + dryRun
+activate C
+C -> S : (10) importSupplementWorkbook(propertyId, file, dryRun)
+activate S
+
+S -> DB : (11) BeginTransaction()
+activate DB
+DB --> S : (12) Success
+
+S -> XR : (13) read(file)
+activate XR
+XR --> S : (14) workbook (renovation lines + purchased equipment)
+deactivate XR
+
+S -> S : (15) collectContractCodes(workbook)\nvalidate(propertyId, workbook, codes)
+
+alt Validation errors / no rows
+  S --> C : BulkImportValidationException(errors)
+  C --> FE : 400 Bad Request + errors
+  FE --> Admin : Show row errors
+end
+
+alt dryRun = true
+  S --> C : BulkImportResponse(dryRun = true)
+  C --> FE : 200 OK
+  FE --> Admin : Show preview
+else dryRun = false
+  loop for each contract code
+    S -> ICR : (16) findByContractCode(contractCode)
+    activate ICR
+    ICR -> DB : (17) SELECT InboundContract
+    DB --> ICR : (18) InboundContract
+    ICR --> S : (19) InboundContract
+    deactivate ICR
+
+    loop each renovation row
+      S -> POS : (20) addRenovationLine(propertyId, request)
+      POS -> DB : (21) INSERT RenovationLine
+    end
+
+    opt Purchased equipment rows exist
+      S -> POS : (22) appendPurchasedEquipmentManifest(propertyId, items)
+      POS -> DB : (23) INSERT / UPDATE EquipmentManifest
+      loop each purchased row
+        S -> POS : (24) assignEquipment(propertyId, request)
+        POS -> DB : (25) INSERT Equipment
+      end
+    end
+
+    S -> POS : (26) completeRenovation(propertyId)
+    POS -> DB : (27) UPDATE Property status = RENOVATION_COMPLETED,\nfinalize RenovationSession
+    S -> POS : (28) submitToHost(propertyId)
+    POS -> DB : (29) recalculate pricing,\nUPDATE Property status = PENDING_HOST_REVIEW
+  end
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (30) CommitTransaction()
+DB --> S : (31) Committed
+deactivate DB
+
+S --> C : (32) BulkImportResponse
+deactivate S
+C --> FE : (33) 200 OK + BulkImportResponse
+deactivate C
+FE --> Admin : (34) Show result\n("Price recalculated, sent to Host for review")
+
+@enduml

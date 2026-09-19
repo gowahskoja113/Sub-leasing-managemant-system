@@ -1,0 +1,116 @@
+@startuml CreateUtilityBillPublish
+title Figure — CreateUtilityBill (Publish) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+
+actor Admin
+participant "Front-end" as FE
+participant "AdminUtilityBillController" as C
+participant "UtilityBillServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "UtilityBillRepository" as UBR
+participant "UtilityInvoiceService" as UIS
+participant "AppNotificationService" as NS
+database DB
+
+Admin -> FE : (1) Click "Publish hoá đơn EVN/nước"\n(OCR sửa tay → confirm)
+FE -> C : (2) POST /api/v1/admin/utility-bills\nCreateUtilityBillRequest
+activate C
+C -> S : (3) createUtilityBill(request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> S : (6) validate()\n(type, month, year, totalAmount, quantity)
+
+S -> PR : (7) findById(propertyId)
+activate PR
+PR -> DB : (8) SELECT Property
+DB --> PR : (9) Property
+PR --> S : (10) Property
+deactivate PR
+
+S -> S : (11) assertCustomerCodeMatches\n(property vs bill customerCode)
+
+alt [CUSTOMER_CODE_MISMATCH / REQUIRED]
+  S --> C : BusinessException + details
+  C --> FE : Error (FE sửa mã rồi gửi lại)
+end
+
+S -> UBR : (12) findByPropertyIdAndMonthAndYearAndTypeAndStatus\n(PUBLISHED)
+activate UBR
+UBR -> DB : (13) SELECT UtilityBill
+DB --> UBR : (14) existing?
+UBR --> S : (15) Optional
+deactivate UBR
+
+alt [Đã có bill PUBLISHED kỳ này]
+  S --> C : UTILITY_BILL_ALREADY_EXISTS
+else [Tạo mới]
+  opt [wholeHouse]
+    S -> S : (16) validateWholeHouseReadings\n(prevReading, newReading)
+  end
+
+  S -> S : (17) unitPrice = totalAmount / totalQuantity
+
+  S -> UBR : (18) save(UtilityBill status=PUBLISHED)
+  activate UBR
+  UBR -> DB : (19) INSERT UtilityBill
+  DB --> UBR : (20) Model state
+  UBR --> S : (21) bill
+  deactivate UBR
+end
+
+alt [wholeHouse]
+  S -> UIS : (22a) createFromWholeHouseBill\n(bill, prev, new)
+  activate UIS
+  UIS -> DB : (23a) INSERT UtilityInvoice(s)
+  DB --> UIS : (24a) OK
+  UIS --> S : (25a) done
+  deactivate UIS
+  S -> NS : (26a) notifyManagerBillPublished
+else [ELECTRIC chia phòng]
+  S -> UIS : (22b) issueElectricFromSavedReadings(bill)
+  activate UIS
+  UIS -> DB : (23b) SELECT MeterReading chưa invoice\nINSERT UtilityInvoice\nUPDATE MeterReading
+  DB --> UIS : (24b) issued count
+  UIS --> S : (25b) int issued
+  deactivate UIS
+else [WATER chia phòng]
+  S -> UIS : (22c) issueWaterFromSavedReadings(bill)
+  activate UIS
+  UIS -> DB : (23c) SELECT MeterReading / INSERT invoices
+  DB --> UIS : (24c) issued count
+  UIS --> S : (25c) int issued
+  deactivate UIS
+end
+
+break [Lỗi]
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Hiển thị lỗi
+end
+
+S -> DB : (27) CommitTransaction()
+DB --> S : (28) Committed
+deactivate DB
+
+S --> C : (29) UtilityBillResponse
+deactivate S
+C --> FE : (30) Response result
+deactivate C
+FE --> Admin : (31) Hiển thị bill PUBLISHED\n(+ số invoice đã phát hành)
+
+note over S, UIS
+  Nếu Manager chốt chỉ số SAU khi bill đã PUBLISHED:
+  xem sequence SaveLockedMeterReading
+  nhánh auto-issue (issue*FromSavedReading).
+end note
+
+@enduml

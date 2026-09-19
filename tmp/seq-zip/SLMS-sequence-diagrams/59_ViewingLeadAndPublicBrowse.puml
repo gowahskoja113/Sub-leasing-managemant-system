@@ -1,0 +1,136 @@
+@startuml ViewingLeadAndPublicBrowse
+title Figure — ViewingLeadAndPublicBrowse (Guest Browsing, Viewing Lead, Wishlist) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Guest
+actor Admin
+participant "Front-end" as FE
+participant "PublicPropertyController" as PC
+participant "PublicPropertyServiceImpl" as PS
+participant "AdminViewingLeadController" as LC
+participant "ViewingWishlistController" as WC
+participant "ViewingLeadServiceImpl" as LS
+participant "PropertyRepository" as PR
+participant "RoomRepository" as RR
+participant "TenantContractRepository" as TCR
+participant "PropertyViewingLeadRepository" as LR
+participant "UserRepository" as UR
+database DB
+
+== Step 1: Guest browses properties and rooms (no login) ==
+Guest -> FE : (1) Open the property list
+FE -> PC : (2) GET /api/v1/public/properties?page=
+activate PC
+PC -> PS : (3) listPublicProperties(pageable)
+activate PS
+PS -> TCR : (4) findByRoomIsNullAndStatus(ACTIVE) -> rented whole-house ids
+TCR -> DB : (5) SELECT TenantContract
+DB --> TCR : (6) contracts
+PS -> RR : (7) findPropertyIdsByRoomStatus(AVAILABLE)
+RR -> DB : (8) SELECT Room
+DB --> RR : (9) property ids with available rooms
+PS -> PR : (10) findByStatusInAndOperationManagerIdIsNotNull(ACTIVE, RENTED)
+PR -> DB : (11) SELECT Property
+DB --> PR : (12) page of properties
+PS --> PC : (13) Page<GuestPropertyResponse> (with availability flags)
+deactivate PS
+PC --> FE : (14) 200 OK
+deactivate PC
+FE --> Guest : (15) Show properties
+
+Guest -> FE : (16) Open a property
+FE -> PC : (17) GET /api/v1/public/properties/{id}/rooms
+PC -> PS : (18) getPublicRooms(propertyId)
+PS -> PR : (19) findById(propertyId)
+PR -> DB : (20) SELECT Property
+alt Property not ACTIVE / RENTED or has no manager
+  PS --> PC : ResourceNotFoundException
+  PC --> FE : 404 Error response
+end
+PS -> RR : (21) findByPropertyIdWithProperty(propertyId) -> only AVAILABLE rooms
+RR -> DB : (22) SELECT Room
+PS --> PC : (23) List<RoomResponse>
+PC --> FE : (24) 200 OK
+FE --> Guest : (25) Show available rooms
+
+== Step 2: Admin records a viewing lead after the customer calls ==
+Admin -> FE : (26) Enter customer name, phone, preferred time,\ninterested properties / rooms\nClick "Create lead"
+FE -> LC : (27) POST /api/v1/admin/viewing-leads\nCreateViewingLeadRequest
+activate LC
+LC -> LS : (28) createLead(adminId, request)
+activate LS
+
+LS -> DB : (29) BeginTransaction()
+activate DB
+DB --> LS : (30) Success
+
+LS -> LS : (31) normalize phone, validateUniqueProperties(items)
+
+LS -> PR : (32) findById(propertyId) for each item
+activate PR
+PR -> DB : (33) SELECT Property
+DB --> PR : (34) Property
+PR --> LS : (35) Property
+deactivate PR
+LS -> RR : (36) find room (if room-level interest)
+RR -> DB : (37) SELECT Room
+DB --> RR : (38) Room
+
+alt Property / room not found or duplicated in the request
+  LS --> LC : ResourceNotFoundException / BusinessException
+  LC --> FE : Error response
+  FE --> Admin : Show error
+end
+
+LS -> UR : (39) linkExistingUser(lead, phone)\nfind account by phone
+activate UR
+UR -> DB : (40) SELECT User
+DB --> UR : (41) User?
+UR --> LS : (42) User?
+deactivate UR
+
+LS -> LR : (43) save(PropertyViewingLead status = NEW,\ninterestedProperties)
+activate LR
+LR -> DB : (44) INSERT PropertyViewingLead, ViewingLeadProperty
+DB --> LR : (45) OK
+LR --> LS : (46) saved lead
+deactivate LR
+
+break Business / system error
+  LS -> DB : RollbackTransaction()
+  DB --> LS : Rolled back
+  LS --> LC : Exception
+  LC --> FE : Error response
+  FE --> Admin : Show error
+end
+
+LS -> DB : (47) CommitTransaction()
+DB --> LS : (48) Committed
+deactivate DB
+LS --> LC : (49) ViewingLeadResponse
+deactivate LS
+LC --> FE : (50) 200 OK
+deactivate LC
+FE --> Admin : (51) Show created lead
+
+== Step 3: Customer sees own viewing wishlist ==
+Guest -> FE : (52) Login, open "Viewing wishlist"
+FE -> WC : (53) GET /api/v1/me/viewing-wishlist
+activate WC
+WC -> LS : (54) listWishlistForCustomer(userId, phone, pageable)
+activate LS
+LS -> LR : (55) findForCustomer(userId, phoneVariants, pageable)
+LR -> DB : (56) SELECT PropertyViewingLead
+DB --> LR : (57) leads
+LS --> WC : (58) Page<ViewingLeadResponse>
+deactivate LS
+WC --> FE : (59) 200 OK
+deactivate WC
+FE --> Guest : (60) Show wishlist
+
+@enduml

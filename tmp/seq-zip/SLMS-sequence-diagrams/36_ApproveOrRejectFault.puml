@@ -1,0 +1,107 @@
+@startuml ApproveOrRejectFault
+title Figure — ApproveOrRejectFault (Manager Approves Ticket or Marks Tenant Fault) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "TenantInvoiceRepository" as TIR
+participant "RoomRepository" as RR
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Approve (normal wear) ==
+Manager -> FE : (1) Choose category / priority (+ repair time)\nClick "Approve"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/approve\nMaintenanceApproveRequest
+activate C
+C -> S : (3) approve(id, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) requireManagerAccess, requireStatus(OPEN),\nrequireVisitArrivalConfirmed, parse category / priority
+
+alt Not manager in charge / status != OPEN / arrival not confirmed / category missing
+  S --> C : AccessDeniedException / BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+opt Ticket has chargeInvoiceId
+  S -> TIR : (11) findById(chargeInvoiceId)
+  TIR -> DB : (12) SELECT TenantInvoice
+  DB --> TIR : (13) invoice
+  alt Invoice not PAID
+    S --> C : BusinessException ("tenant must pay first")
+    C --> FE : Error response
+    FE --> Manager : Show error
+  end
+end
+
+alt Repair time given OR needs off-site inspection
+  S -> S : (14) validateAndAssertSlotAvailable(managerId, repairAt, 60 min)
+  S -> MR : (15) save(status = REPAIR_SCHEDULED, repairAppointmentAt)
+else Repair immediately
+  S -> MR : (16) save(status = IN_REPAIR)
+  S -> RR : (17) markRoomMaintenance (Room = MAINTENANCE)
+  RR -> DB : (18) UPDATE Room
+end
+MR -> DB : (19) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+S -> NR : (20) notifyTenant MAINTENANCE_APPROVED
+NR -> DB : (21) INSERT Notification
+S -> RT : (22) publishMaintenanceEvent(APPROVED, SCHEDULE_CHANGED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (23) CommitTransaction()
+DB --> S : (24) Committed
+deactivate DB
+S --> C : (25) MaintenanceRequestResponse
+deactivate S
+C --> FE : (26) 200 OK
+deactivate C
+FE --> Manager : (27) Show updated ticket
+
+== Reject: tenant fault (alternative) ==
+Manager -> FE : (28) Enter fault reason + evidence photos,\nchoose MANAGER_REPAIR / TENANT_SELF_REPAIR\nClick "Reject - tenant fault"
+FE -> C : (29) PUT /api/v1/maintenance/{id}/reject-fault\nMaintenanceRejectFaultRequest
+C -> S : (30) rejectFault(id, request)
+S -> S : (31) requireStatus(OPEN), faultReason + evidence + resolutionPath required
+alt resolutionPath = TENANT_SELF_REPAIR
+  S -> MR : (32) save(status = PENDING_TENANT_REPAIR,\nselfRepairDeadline, estimatedDamageAmount)
+else resolutionPath = MANAGER_REPAIR
+  alt Repair time given
+    S -> MR : (33) save(status = REPAIR_SCHEDULED)
+  else No repair time
+    S -> MR : (34) save(status = TENANT_FAULT)
+  end
+end
+MR -> DB : (35) UPDATE MaintenanceRequest, INSERT PhotoHistory (FAULT_EVIDENCE), Timeline
+S -> NR : (36) notifyTenant MAINTENANCE_TENANT_FAULT / SELF_REPAIR_ASSIGNED
+S -> RT : (37) publishMaintenanceEvent(REJECT_FAULT)
+S --> C : (38) MaintenanceRequestResponse
+C --> FE : (39) 200 OK
+
+@enduml

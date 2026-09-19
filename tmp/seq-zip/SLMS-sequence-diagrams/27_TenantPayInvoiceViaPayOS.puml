@@ -1,0 +1,135 @@
+@startuml TenantPayInvoiceViaPayOS
+title Figure — TenantPayInvoiceViaPayOS Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+participant "Front-end" as FE
+participant "TenantMeController" as C
+participant "TenantBillingServiceImpl" as S
+participant "TenantInvoiceRepository" as TIR
+participant "TenantInvoicePayosOrderRepository" as POR
+participant "PayosServiceImpl" as PAYOS
+participant "PayOS" as EXT
+participant "PayosWebhookController" as WC
+participant "TenantPaymentRepository" as TPR
+participant "InvoicePaidEventListener" as EL
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Step 1: Create QR ==
+Tenant -> FE : (1) Open invoice, click "Pay"
+FE -> C : (2) POST /api/v1/tenant/me/invoices/{id}/payment
+activate C
+C -> S : (3) createPayment(tenantUserId, invoiceId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TIR : (6) loadOwnedInvoice(invoiceId, tenantUserId)
+activate TIR
+TIR -> DB : (7) SELECT TenantInvoice
+DB --> TIR : (8) TenantInvoice
+TIR --> S : (9) TenantInvoice
+deactivate TIR
+
+alt Invoice already PAID / CANCELLED / not owned
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> POR : (10) updateStatusForInvoice(ACTIVE -> SUPERSEDED)
+activate POR
+POR -> DB : (11) UPDATE TenantInvoicePayosOrder
+DB --> POR : (12) OK
+deactivate POR
+
+S -> PAYOS : (13) createPaymentLink(orderCode, grandTotal, invoiceCode)
+activate PAYOS
+PAYOS -> EXT : (14) POST /v2/payment-requests
+EXT --> PAYOS : (15) checkoutUrl, qrCode
+PAYOS --> S : (16) PaymentLink
+deactivate PAYOS
+
+S -> POR : (17) save(TenantInvoicePayosOrder ACTIVE, purpose SELF)
+activate POR
+POR -> DB : (18) INSERT TenantInvoicePayosOrder
+DB --> POR : (19) OK
+deactivate POR
+S -> TIR : (20) save(invoice.payosOrderCode / checkoutUrl / qrCode)
+TIR -> DB : (21) UPDATE TenantInvoice
+
+break Business / system error (e.g. PayOS unreachable)
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+S --> C : (24) TenantInvoiceResponse (QR)
+deactivate S
+C --> FE : (25) 200 OK + QR
+deactivate C
+FE --> Tenant : (26) Show QR
+
+== Step 2: PayOS webhook (normal path) ==
+Tenant -> EXT : (27) Scan QR and pay in banking app
+EXT -> WC : (28) POST /api/v1/payos/webhook (signed)
+activate WC
+WC -> PAYOS : (29) verifyWebhookSignature()
+PAYOS --> WC : (30) valid
+WC -> S : (31) markInvoicePaidByPayosOrderCode(orderCode)
+activate S
+S -> POR : (32) findByOrderCode(orderCode)
+POR -> DB : (33) SELECT TenantInvoicePayosOrder
+DB --> POR : (34) order
+alt Order already PAID / invoice already PAID
+  S -> DB : notify admins of overpayment (PAYMENT_OVERPAYMENT_ADMIN)
+end
+S -> POR : (35) save(order status = PAID)
+POR -> DB : (36) UPDATE TenantInvoicePayosOrder
+S -> TIR : (37) markPaid(): invoice status = PAID, paidAt, method QR
+TIR -> DB : (38) UPDATE TenantInvoice (+ UtilityInvoice status PAID)
+S -> TPR : (39) save(TenantPayment)
+TPR -> DB : (40) INSERT TenantPayment
+S -> S : (41) publishEvent(InvoicePaidEvent)
+S --> WC : (42) void
+deactivate S
+WC --> EXT : (43) 200 OK
+deactivate WC
+
+S -> EL : (44) [after commit] onInvoicePaid(event)
+activate EL
+EL -> RT : (45) publishInvoicePaid(invoice) (STOMP)
+RT --> FE : (46) INVOICE_PAID event
+EL -> DB : (47) notifyPaymentReceived (tenant + manager, REQUIRES_NEW)
+deactivate EL
+FE --> Tenant : (48) Show "Paid"
+
+== Step 3: Manual check (fallback) ==
+Tenant -> FE : (49) Click "I have paid" / refresh
+FE -> C : (50) POST /api/v1/tenant/me/invoices/{id}/payment/check
+C -> S : (51) checkPayment(tenantUserId, invoiceId)
+S -> PAYOS : (52) getPaymentStatus(orderCode)
+PAYOS -> EXT : (53) GET /v2/payment-requests/{orderCode}
+EXT --> PAYOS : (54) status
+alt status = PAID
+  S -> S : (55) markPaid() + publish InvoicePaidEvent
+else Not paid yet
+  S -> DB : (56) createBankTransferClaim (PENDING_VERIFY)\nfor manager to verify
+end
+S --> C : (57) TenantInvoiceResponse
+C --> FE : (58) 200 OK
+
+@enduml

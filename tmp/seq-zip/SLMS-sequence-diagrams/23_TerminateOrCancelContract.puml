@@ -1,0 +1,117 @@
+@startuml TerminateOrCancelContract
+title Figure — TerminateOrCancelContract Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "TenantContractActionController" as C
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "TenantInvoiceRepository" as TIR
+participant "RoomRepository" as RR
+participant "ContractEquipmentServiceImpl" as CES
+participant "UnitPriceServiceImpl" as UPS
+participant "UserRepository" as UR
+database DB
+
+== Terminate an ACTIVE / EXPIRED contract ==
+Manager -> FE : (1) Choose type (VIOLATION / AGREEMENT / EARLY_MOVE_OUT),\nreason, effective date\nClick "Terminate"
+FE -> C : (2) POST /api/v1/tenant-contracts/{id}/terminate\nTerminateContractRequest
+activate C
+C -> S : (3) terminateActiveContract(contractId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt Already TERMINATED OR status not ACTIVE / EXPIRED
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+opt type = VIOLATION
+  S -> TIR : (10) findForTenant(tenantId, OVERDUE, RENT)
+  activate TIR
+  TIR -> DB : (11) SELECT TenantInvoice
+  DB --> TIR : (12) overdue invoices
+  TIR --> S : (13) List<TenantInvoice>
+  deactivate TIR
+  alt No rent invoice overdue more than 3 days
+    S --> C : BusinessException
+    C --> FE : Error response
+    FE --> Manager : Show error
+  end
+end
+
+alt effectiveDate before contract startDate
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> RR : (14) releaseContractOccupancy(): Room RENTED -> AVAILABLE
+activate RR
+RR -> DB : (15) UPDATE Room
+DB --> RR : (16) OK
+deactivate RR
+S -> CES : (17) restoreDisabledByContract(contractId)
+CES -> DB : (18) UPDATE Equipment (re-enable)
+
+S -> TCR : (19) save(status = TERMINATED, terminatedAt,\nterminationType / reason / note, endDate = effectiveDate)
+activate TCR
+TCR -> DB : (20) UPDATE TenantContract
+DB --> TCR : (21) OK
+deactivate TCR
+
+S -> UPS : (22) revertToListedPrice(contract)
+UPS -> DB : (23) UPDATE room applied price, INSERT price history
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (24) CommitTransaction()
+DB --> S : (25) Committed
+deactivate DB
+S --> C : (26) TenantContractResponse
+deactivate S
+C --> FE : (27) 200 OK
+deactivate C
+FE --> Manager : (28) Show terminated contract\n(tenant account stays open for refund confirmation)
+
+== Cancel a DRAFT / PENDING contract (alternative) ==
+Manager -> FE : (29) Click "Cancel contract"
+FE -> C : (30) POST /api/v1/tenant-contracts/{id}/cancel
+C -> S : (31) cancelContract(contractId)
+alt status = ACTIVE
+  S --> C : BusinessException("use /terminate")
+  C --> FE : Error response
+end
+S -> RR : (32) releaseContractOccupancy()
+S -> TCR : (33) save(status = TERMINATED, paymentStatus PENDING -> CANCELLED)
+TCR -> DB : (34) UPDATE TenantContract
+S -> UPS : (35) revertToListedPrice(contract)
+S -> UR : (36) disableTenantAccountIfNoActiveContracts(tenantUserId)
+UR -> DB : (37) UPDATE User status = DISABLE (if no other contract)
+S --> C : (38) void
+C --> FE : (39) 200 OK
+
+@enduml

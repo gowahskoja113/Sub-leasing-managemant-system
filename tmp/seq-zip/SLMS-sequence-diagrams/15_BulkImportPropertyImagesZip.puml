@@ -1,0 +1,94 @@
+@startuml BulkImportPropertyImagesZip
+title Figure — BulkImportPropertyImagesZip Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "BulkImportController" as C
+participant "BulkPropertyImageImportServiceImpl" as S
+participant "PropertyImageZipParser" as ZP
+participant "InboundContractRepository" as ICR
+participant "LocalPropertyImageStorage" as ST
+participant "PropertyRepository" as PR
+database DB
+
+Admin -> FE : (1) Select images zip (folder per contract code)\nClick "Dry run" / "Import"
+FE -> C : (2) POST /api/v1/import/property-images-zip\nmultipart file + dryRun
+activate C
+C -> S : (3) importFromZip(zipFile, dryRun)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+alt Zip file empty
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> ZP : (6) parse(zipFile)
+activate ZP
+ZP --> S : (7) List<ParsedZipImage>
+deactivate ZP
+
+alt No valid image in zip
+  S --> C : BulkImportImagesResponse(warnings)
+  C --> FE : 200 OK
+  FE --> Admin : Show warning
+end
+
+S -> S : (8) groupByContractCode(images)
+
+loop for each contract code
+  S -> ICR : (9) findByContractCodeIgnoreCaseWithProperty(code)
+  activate ICR
+  ICR -> DB : (10) SELECT InboundContract + Property
+  DB --> ICR : (11) InboundContract / empty
+  ICR --> S : (12) InboundContract?
+  deactivate ICR
+
+  alt Contract not found
+    S -> S : (13) result NOT_FOUND + warning
+  else dryRun = true
+    S -> S : (14) result PREVIEW (images to attach)
+  else Import
+    loop each image
+      S -> ST : (15) store(contractCode, fileName, content)
+      activate ST
+      ST --> S : (16) imageUrl
+      deactivate ST
+    end
+    S -> PR : (17) save(property.imageUrls)
+    activate PR
+    PR -> DB : (18) UPDATE Property
+    DB --> PR : (19) OK
+    deactivate PR
+  end
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (20) CommitTransaction()
+DB --> S : (21) Committed
+deactivate DB
+
+S --> C : (22) BulkImportImagesResponse
+deactivate S
+C --> FE : (23) 200 OK + result
+deactivate C
+FE --> Admin : (24) Show attached / not-found per contract
+
+@enduml

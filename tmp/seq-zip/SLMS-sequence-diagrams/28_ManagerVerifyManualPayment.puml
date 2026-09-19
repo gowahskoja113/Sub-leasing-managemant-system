@@ -1,0 +1,102 @@
+@startuml ManagerVerifyManualPayment
+title Figure — ManagerVerifyManualPayment (Verify / Reject Payment Claim) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "ManagerBillingController" as C
+participant "ManagerBillingServiceImpl" as S
+participant "TenantPaymentClaimRepository" as CR
+participant "TenantBillingServiceImpl" as TBS
+participant "TenantInvoiceRepository" as TIR
+participant "TenantPaymentRepository" as TPR
+participant "InvoicePaidEventListener" as EL
+database DB
+
+Manager -> FE : (1) Open pending payments, review claim\nClick "Verify" / "Reject"
+FE -> C : (2) POST /api/v1/manager/payments/{claimId}/verify
+activate C
+C -> S : (3) verifyPayment(managerId, isAdmin, claimId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> CR : (6) loadClaimForManager(claimId, managerId, isAdmin)
+activate CR
+CR -> DB : (7) SELECT TenantPaymentClaim
+DB --> CR : (8) claim
+CR --> S : (9) TenantPaymentClaim
+deactivate CR
+
+alt Manager not in charge of property OR claim not PENDING_VERIFY
+  S --> C : AccessDeniedException / BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> TBS : (10) approvePaymentClaim(claim, managerId)
+activate TBS
+
+alt Invoice already PAID via another channel
+  TBS --> S : BusinessException ("reject this claim to avoid duplicate")
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+TBS -> CR : (11) save(claim status = VERIFIED, verifiedAt, verifiedBy)
+activate CR
+CR -> DB : (12) UPDATE TenantPaymentClaim
+DB --> CR : (13) OK
+deactivate CR
+
+TBS -> TIR : (14) markPaid(): status = PAID, paidAt, method
+activate TIR
+TIR -> DB : (15) UPDATE TenantInvoice (+ UtilityInvoice PAID)
+DB --> TIR : (16) OK
+deactivate TIR
+TBS -> TPR : (17) save(TenantPayment)
+activate TPR
+TPR -> DB : (18) INSERT TenantPayment
+DB --> TPR : (19) OK
+deactivate TPR
+TBS -> TBS : (20) publishEvent(InvoicePaidEvent)
+TBS --> S : (21) void
+deactivate TBS
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+
+TBS -> EL : (24) [after commit] realtime event + payment notifications
+S --> C : (25) ManagerPaymentResponse
+deactivate S
+C --> FE : (26) 200 OK
+deactivate C
+FE --> Manager : (27) Show claim VERIFIED
+
+== Alternative: reject ==
+Manager -> FE : (28) Click "Reject" + reason
+FE -> C : (29) POST /api/v1/manager/payments/{claimId}/reject
+C -> S : (30) rejectPayment(managerId, isAdmin, claimId, reason)
+S -> CR : (31) save(claim status = REJECTED, rejectReason, verifiedBy)
+CR -> DB : (32) UPDATE TenantPaymentClaim
+S --> C : (33) ManagerPaymentResponse
+C --> FE : (34) 200 OK
+
+@enduml

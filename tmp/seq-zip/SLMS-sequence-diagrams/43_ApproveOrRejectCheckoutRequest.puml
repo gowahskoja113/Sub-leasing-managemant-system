@@ -1,0 +1,106 @@
+@startuml ApproveOrRejectCheckoutRequest
+title Figure — ApproveOrRejectCheckoutRequest Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "CheckoutRequestController" as C
+participant "TenantCheckoutServiceImpl" as S
+participant "CheckoutRequestRepository" as CRR
+participant "TenantContractRepository" as TCR
+participant "TenantInvoiceRepository" as TIR
+participant "NotificationRepository" as NR
+database DB
+
+Manager -> FE : (1) Open pending request, click "Approve" (+ note)
+FE -> C : (2) POST /api/v1/checkout-requests/{id}/approve\nApproveCheckoutRequest
+activate C
+C -> S : (3) approveRequest(requestId, managerUserId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> CRR : (6) findById(requestId)
+activate CRR
+CRR -> DB : (7) SELECT CheckoutRequest
+DB --> CRR : (8) CheckoutRequest
+CRR --> S : (9) CheckoutRequest
+deactivate CRR
+
+alt Status != PENDING OR contract no longer ACTIVE
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> CRR : (10) save(status = APPROVED, reviewedAt, reviewedBy, managerNote)
+activate CRR
+CRR -> DB : (11) UPDATE CheckoutRequest
+DB --> CRR : (12) OK
+deactivate CRR
+
+S -> TCR : (13) save(contract.endDate = expectedMoveOutDate)
+activate TCR
+TCR -> DB : (14) UPDATE TenantContract
+DB --> TCR : (15) OK
+deactivate TCR
+
+S -> TIR : (16) findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth\n(RENT, move-out month)
+activate TIR
+TIR -> DB : (17) SELECT TenantInvoice
+DB --> TIR : (18) rent invoice?
+TIR --> S : (19) Optional<TenantInvoice>
+deactivate TIR
+opt Rent invoice exists and is not PAID
+  S -> S : (20) recompute pro-rata amount up to move-out date
+  S -> TIR : (21) save(totalAmount, grandTotal, clear PayOS QR)
+  TIR -> DB : (22) UPDATE TenantInvoice
+end
+
+S -> NR : (23) sendNotification(tenant, CHECKOUT_APPROVED) + push
+activate NR
+NR -> DB : (24) INSERT Notification
+DB --> NR : (25) OK
+deactivate NR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (26) CommitTransaction()
+DB --> S : (27) Committed
+deactivate DB
+
+S --> C : (28) CheckoutRequestResponse
+deactivate S
+C --> FE : (29) 200 OK
+deactivate C
+FE --> Manager : (30) Show APPROVED request
+
+== Alternative: reject ==
+Manager -> FE : (31) Enter reason, click "Reject"
+FE -> C : (32) POST /api/v1/checkout-requests/{id}/reject\nRejectCheckoutRequest
+C -> S : (33) rejectRequest(requestId, managerUserId, request)
+S -> S : (34) assertPending()
+S -> CRR : (35) save(status = REJECTED, rejectReason, reviewedAt, reviewedBy)
+CRR -> DB : (36) UPDATE CheckoutRequest
+opt Origin is TENANT_REQUEST and contract.endDate = expectedMoveOutDate
+  S -> TCR : (37) contract.endDate = null
+  TCR -> DB : (38) UPDATE TenantContract
+end
+S -> NR : (39) sendNotification(tenant, CHECKOUT_REJECTED)
+S --> C : (40) CheckoutRequestResponse
+C --> FE : (41) 200 OK
+
+@enduml

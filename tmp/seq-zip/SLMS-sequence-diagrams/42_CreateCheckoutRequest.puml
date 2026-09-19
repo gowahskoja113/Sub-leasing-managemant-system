@@ -1,0 +1,114 @@
+@startuml CreateCheckoutRequest
+title Figure — CreateCheckoutRequest (Tenant Requests Move-out / Cancel) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+participant "Front-end" as FE
+participant "TenantMeLifecycleController" as C
+participant "TenantCheckoutServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "CheckoutRequestRepository" as CRR
+participant "NotificationRepository" as NR
+participant "PushNotificationService" as PUSH
+database DB
+
+Tenant -> FE : (1) Choose expected move-out date, reason,\nrefund bank account\nClick "Request move-out"
+FE -> C : (2) POST /api/v1/tenant/me/checkout-requests\nCreateCheckoutRequest
+activate C
+C -> S : (3) createRequest(tenantUserId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract / empty
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt Contract not found / not owned by tenant / status != ACTIVE /\nmove-out date in the past
+  S --> C : ResourceNotFoundException / BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> CRR : (10) existsByTenantContractIdAndStatusIn(open statuses)
+activate CRR
+CRR -> DB : (11) SELECT CheckoutRequest
+DB --> CRR : (12) exists?
+CRR --> S : (13) boolean
+deactivate CRR
+
+alt An open checkout request already exists
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> CRR : (14) save(CheckoutRequest status = PENDING,\nexpectedMoveOutDate, reason, refund bank info)
+activate CRR
+CRR -> DB : (15) INSERT CheckoutRequest
+DB --> CRR : (16) Model state
+CRR --> S : (17) saved request
+deactivate CRR
+
+S -> NR : (18) sendNotification(managerId, CHECKOUT_REQUESTED)
+activate NR
+NR -> DB : (19) INSERT Notification
+DB --> NR : (20) OK
+deactivate NR
+S -> PUSH : (21) sendPushNotification(manager push token)
+PUSH --> S : (22) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (23) CommitTransaction()
+DB --> S : (24) Committed
+deactivate DB
+
+S --> C : (25) CheckoutRequestResponse
+deactivate S
+C --> FE : (26) 200 OK + CheckoutRequestResponse
+deactivate C
+FE --> Tenant : (27) Show request (PENDING)
+
+== Tenant cancels a pending request ==
+Tenant -> FE : (28) Click "Cancel request"
+FE -> C : (29) DELETE /api/v1/tenant/me/checkout-requests/{id}
+C -> S : (30) cancelRequest(tenantUserId, requestId)
+S -> CRR : (31) findByIdAndTenantUserId(requestId, tenantUserId)
+CRR --> S : (32) CheckoutRequest
+alt status != PENDING OR origin = CONTRACT_EXPIRED (system created)
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> CRR : (33) save(status = REJECTED, rejectReason = "Tenant cancelled")
+CRR -> DB : (34) UPDATE CheckoutRequest
+S -> TCR : (35) reset contract.endDate if it equals expectedMoveOutDate
+TCR -> DB : (36) UPDATE TenantContract
+S -> NR : (37) sendNotification(managerId, CHECKOUT_CANCELLED)
+S --> C : (38) CheckoutRequestResponse
+C --> FE : (39) 200 OK
+
+== Manager creates request on behalf of tenant ==
+note over S
+  createRequestForManager(managerId, request): same validation
+  (contract ACTIVE, no open request), saves PENDING request and
+  notifies the tenant (CHECKOUT_REQUESTED_BY_MANAGER).
+end note
+
+@enduml

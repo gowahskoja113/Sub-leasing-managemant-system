@@ -1,0 +1,127 @@
+@startuml EquipmentLifecycleAndQr
+title Figure — EquipmentLifecycleAndQr (Scan QR, Update Status, Enable / Disable) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "EquipmentQrController" as QC
+participant "GlobalEquipmentController" as GC
+participant "EquipmentServiceImpl" as S
+participant "EquipmentRepository" as ER
+participant "PropertyAccessService" as PAS
+participant "TenantContractRepository" as TCR
+participant "MaintenanceRequestRepository" as MR
+database DB
+
+== Step 1: Scan the equipment QR code ==
+Manager -> FE : (1) Scan QR sticker on the equipment (EQ-{id})
+FE -> QC : (2) GET /api/v1/equipments/by-qr/{qrCode}
+activate QC
+QC -> S : (3) getEquipmentByQrCode(qrCode)
+activate S
+S -> ER : (4) findByQrCode(qrCode)
+activate ER
+ER -> DB : (5) SELECT Equipment
+DB --> ER : (6) Equipment / empty
+ER --> S : (7) Equipment?
+deactivate ER
+opt Not found by QR AND code starts with "EQ-"
+  S -> ER : (8) findById(parsed id) (fallback)
+  ER -> DB : (9) SELECT Equipment
+  DB --> ER : (10) Equipment / empty
+end
+alt Equipment not found
+  S --> QC : ResourceNotFoundException
+  QC --> FE : 404 Error response
+  FE --> Manager : Show error
+end
+opt Caller is a tenant
+  S -> TCR : (11) findByTenantId(userId) -> assertTenantCanAccessEquipment
+  TCR -> DB : (12) SELECT TenantContract
+  DB --> TCR : (13) contracts
+  alt Equipment not in tenant's ACTIVE contract
+    S --> QC : AccessDeniedException
+    QC --> FE : 403 Error response
+  end
+end
+S --> QC : (14) EquipmentResponse
+deactivate S
+QC --> FE : (15) 200 OK
+deactivate QC
+FE --> Manager : (16) Show equipment detail + maintenance history
+
+== Step 2: Update lifecycle status ==
+Manager -> FE : (17) Choose status (GOOD / MAINTENANCE / BROKEN ...)
+FE -> GC : (18) PATCH /api/v1/equipment/{id}/status
+activate GC
+GC -> S : (19) updateEquipmentStatus(id, status)
+activate S
+
+S -> DB : (20) BeginTransaction()
+activate DB
+DB --> S : (21) Success
+
+S -> ER : (22) findById(id)
+activate ER
+ER -> DB : (23) SELECT Equipment
+DB --> ER : (24) Equipment
+ER --> S : (25) Equipment
+deactivate ER
+S -> PAS : (26) assertCanManageProperty(propertyId)
+activate PAS
+PAS --> S : (27) OK / Forbidden
+deactivate PAS
+
+alt Equipment not found / manager does not manage the property
+  S --> GC : ResourceNotFoundException / AccessDeniedException
+  GC --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> ER : (28) save(status; if MAINTENANCE / BROKEN:\nlastMaintenanceDate = now, maintenanceCount + 1)
+activate ER
+ER -> DB : (29) UPDATE Equipment
+DB --> ER : (30) OK
+deactivate ER
+
+opt New status is MAINTENANCE or BROKEN AND unit has an ACTIVE contract
+  S -> TCR : (31) resolveActiveContract(equipment)
+  TCR -> DB : (32) SELECT TenantContract
+  DB --> TCR : (33) contract
+  S -> MR : (34) save(MaintenanceRequest CLOSED, category,\n"status change recorded from equipment lifecycle")
+  MR -> DB : (35) INSERT MaintenanceRequest
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> GC : Exception
+  GC --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (36) CommitTransaction()
+DB --> S : (37) Committed
+deactivate DB
+S --> GC : (38) EquipmentResponse
+deactivate S
+GC --> FE : (39) 200 OK
+deactivate GC
+FE --> Manager : (40) Show updated equipment
+
+== Step 3: Enable / disable equipment (admin) ==
+FE -> QC : (41) PATCH /api/v1/equipments/{id}/operational-status\nUpdateEquipmentOperationalStatusRequest
+QC -> S : (42) updateEquipmentOperationalStatus(id, request)
+S -> ER : (43) findById(id)
+ER -> DB : (44) SELECT Equipment
+S -> ER : (45) save(operationalStatus; DISABLED -> disabledAt, disabledReason;\nACTIVE -> clear both)
+ER -> DB : (46) UPDATE Equipment
+S --> QC : (47) EquipmentResponse
+QC --> FE : (48) 200 OK
+
+@enduml

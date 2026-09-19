@@ -1,0 +1,169 @@
+@startuml F6_CashFlow_Class
+title Figure — Cash Flow Class Diagram\nUML 2.1 — Master lease expense / room income / PnL reports
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+together {
+  class HostController {
+    - hostPortalService: HostPortalService
+    + getDashboardSummary(): HostDashboardSummary
+    + getCashflow(...): HostCashflowResponse
+    + getPropertyPnl(...): HostPropertyPnlResponse
+    + createMasterLease(req: MasterLeaseUpsertRequest): MasterLeaseResponse
+    + updateMasterLease(id: Long, req: MasterLeaseUpsertRequest): MasterLeaseResponse
+    + createExpense(req: HostExpenseUpsertRequest): HostExpenseResponse
+    + updateExpense(id: Long, req: HostExpenseUpsertRequest): HostExpenseResponse
+    + getFinancialSummaryReport(...): List~FinancialSummaryRow~
+  }
+
+  class MasterLeaseUpsertRequest {
+    + propertyId: Long
+    + ownerName: String
+    + ownerPhone: String
+    + monthlyRent: BigDecimal
+    + deposit: BigDecimal
+    + paymentDay: Integer
+    + startDate: LocalDate
+    + endDate: LocalDate
+    + escalationPct: Double
+  }
+
+  class HostExpenseUpsertRequest {
+    + propertyId: Long
+    + category: HostExpenseCategory
+    + amount: BigDecimal
+    + month: Integer
+    + year: Integer
+    + note: String
+  }
+
+  class HostCashflowResponse {
+    + totalIncome: BigDecimal
+    + totalExpense: BigDecimal
+    + netProfit: BigDecimal
+    + period: String
+  }
+}
+
+together {
+  interface HostPortalService
+  class HostPortalServiceImpl {
+    - masterLeaseRepository: MasterLeaseRepository
+    - hostExpenseRepository: HostExpenseRepository
+    - tenantInvoiceRepository: TenantInvoiceRepository
+    - tenantPaymentRepository: TenantPaymentRepository
+    - propertyRepository: PropertyRepository
+    + upsertMasterLease(...): MasterLeaseResponse
+    + upsertExpense(...): HostExpenseResponse
+    + getCashflow(...): HostCashflowResponse
+    + getPropertyPnl(...): HostPropertyPnlResponse
+    + getFinancialSummary(...): List
+  }
+}
+
+note right of HostPortalServiceImpl
+  «@Transactional» trên write
+  Income = TenantInvoice PAID
+  (từ luồng Billing / PayOS)
+  Expense = MasterLease rent
+  + HostExpense
+end note
+
+together {
+  interface MasterLeaseRepository
+  interface HostExpenseRepository
+  interface TenantInvoiceRepository
+  interface TenantPaymentRepository
+  interface PropertyRepository
+  interface DepositAuditLogRepository
+}
+
+interface JpaRepository<T,ID>
+MasterLeaseRepository --|> JpaRepository
+HostExpenseRepository --|> JpaRepository
+TenantInvoiceRepository --|> JpaRepository
+TenantPaymentRepository --|> JpaRepository
+
+together {
+  class MasterLease {
+    + id: Long
+    + ownerName: String
+    + ownerPhone: String
+    + monthlyRent: BigDecimal
+    + deposit: BigDecimal
+    + paymentDay: Integer
+    + startDate: LocalDate
+    + endDate: LocalDate
+    + escalationPct: Double
+    + status: MasterLeaseStatus
+    + deleted: boolean
+  }
+
+  class HostExpense {
+    + id: Long
+    + category: HostExpenseCategory
+    + amount: BigDecimal
+    + month: Integer
+    + year: Integer
+    + note: String
+  }
+
+  class TenantInvoice {
+    + id: Long
+    + invoiceType: TenantInvoiceType
+    + amount: BigDecimal
+    + status: TenantInvoiceStatus
+  }
+
+  class TenantPayment {
+    + id: Long
+    + amount: BigDecimal
+    + paidAt: LocalDateTime
+  }
+
+  class Property {
+    + id: Long
+    + propertyName: String
+  }
+
+  class DepositAuditLog {
+    + id: Long
+    + amount: BigDecimal
+    + action: String
+  }
+
+  enum MasterLeaseStatus {
+    ACTIVE
+    TERMINATED
+  }
+
+  enum HostExpenseCategory {
+    RENT_TO_OWNER
+    RENOVATION
+    MAINTENANCE
+    UTILITY
+    OTHER
+  }
+}
+
+HostController --> HostPortalService
+HostController ..> MasterLeaseUpsertRequest
+HostController ..> HostExpenseUpsertRequest
+HostController ..> HostCashflowResponse
+HostPortalService <|.. HostPortalServiceImpl
+HostPortalServiceImpl --> MasterLeaseRepository
+HostPortalServiceImpl --> HostExpenseRepository
+HostPortalServiceImpl --> TenantInvoiceRepository
+HostPortalServiceImpl --> TenantPaymentRepository
+HostPortalServiceImpl --> PropertyRepository
+
+Property "1" o-- "*" MasterLease
+Property "1" o-- "*" HostExpense
+Property "1" o-- "*" TenantInvoice
+TenantInvoice "1" o-- "*" TenantPayment
+MasterLease --> MasterLeaseStatus
+HostExpense --> HostExpenseCategory
+
+@enduml

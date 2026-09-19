@@ -1,0 +1,172 @@
+@startuml F2_TenantOnboard_Class
+title Figure — Tenant Onboarding Class Diagram\nUML 2.1 — Draft contract / deposit PayOS / OTP / host approve
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+together {
+  class TenantContractController {
+    - tenantOnboardingService: TenantOnboardingService
+    + createContract(...): TenantContractResponse
+  }
+
+  class TenantContractActionController {
+    - tenantOnboardingService: TenantOnboardingService
+    + createDepositPayment(id: Long): PaymentLinkResponse
+    + sendOtp(id: Long): void
+    + confirm(id: Long, req: ConfirmContractRequest): TenantContractResponse
+  }
+
+  class HostController {
+    - hostPortalService: HostPortalService
+    + approveContract(id: Long): void
+    + rejectContract(id: Long): void
+  }
+
+  class PayosWebhookController {
+    - tenantBillingService: TenantBillingService
+    + handleWebhook(payload: PayosWebhookPayload): void
+  }
+
+  class OnboardTenantRequest {
+    + fullName: String
+    + phone: String
+    + rentAmount: BigDecimal
+    + deposit: BigDecimal
+    + initialElectricReading: BigDecimal
+    + initialWaterReading: BigDecimal
+    + roomConditionPhotos: List~String~
+    + draft: Boolean
+    + requireDepositPayment: Boolean
+  }
+
+  class ConfirmContractRequest {
+    + otp: String
+  }
+}
+
+together {
+  interface TenantOnboardingService
+  class TenantOnboardingServiceImpl {
+    - tenantContractRepository: TenantContractRepository
+    - tenantRepository: TenantRepository
+    - payosService: PayosService
+    - otpService: OtpService
+    + createDraftContract(...): TenantContractResponse
+    + createDepositPayment(...): PaymentLinkResponse
+    + sendConfirmOtp(...): void
+    + confirmContract(...): TenantContractResponse
+  }
+
+  interface HostPortalService
+  class HostPortalServiceImpl {
+    + approveContract(contractId: Long): void
+    + rejectContract(contractId: Long): void
+  }
+
+  interface PayosService {
+    + createPaymentLink(...): PayosLink
+  }
+
+  interface OtpService {
+    + sendOtp(...): void
+    + verifyOtp(...): boolean
+  }
+}
+
+note right of TenantOnboardingServiceImpl
+  «@Transactional»
+  External: PayOS, Twilio SMS
+end note
+
+together {
+  interface TenantContractRepository
+  interface TenantRepository
+  interface OtpVerificationRepository
+  interface TenantInvoiceRepository
+}
+
+interface JpaRepository<T,ID>
+
+TenantContractRepository --|> JpaRepository
+TenantRepository --|> JpaRepository
+OtpVerificationRepository --|> JpaRepository
+TenantInvoiceRepository --|> JpaRepository
+
+together {
+  class TenantContract {
+    + id: Long
+    + contractCode: String
+    + rentAmount: BigDecimal
+    + deposit: BigDecimal
+    + status: ContractStatus
+    + priceApprovalStatus: PriceApprovalStatus
+    + initialElectricReading: BigDecimal
+    + initialWaterReading: BigDecimal
+    + paymentStatus: PaymentStatus
+    + payosOrderCode: String
+    + tenantOtpVerifiedAt: LocalDateTime
+    + activatedAt: LocalDateTime
+  }
+
+  class Tenant {
+    + id: UUID
+    + fullName: String
+    + phone: String
+  }
+
+  class ContractEvidencePhoto {
+    + id: Long
+    + photoUrl: String
+    + photoType: PhotoType
+  }
+
+  class OtpVerification {
+    + id: Long
+    + purpose: OtpPurpose
+    + codeHash: String
+    + expiresAt: LocalDateTime
+  }
+
+  class TenantInvoice {
+    + id: Long
+    + invoiceType: TenantInvoiceType
+    + status: TenantInvoiceStatus
+    + amount: BigDecimal
+  }
+
+  class Property
+  class Room
+
+  enum ContractStatus {
+    DRAFT
+    PENDING_DEPOSIT
+    PENDING_CONFIRM
+    ACTIVE
+    ...
+  }
+}
+
+TenantContractController --> TenantOnboardingService
+TenantContractActionController --> TenantOnboardingService
+HostController --> HostPortalService
+PayosWebhookController --> TenantBillingService
+TenantOnboardingService <|.. TenantOnboardingServiceImpl
+HostPortalService <|.. HostPortalServiceImpl
+TenantOnboardingServiceImpl --> TenantContractRepository
+TenantOnboardingServiceImpl --> TenantRepository
+TenantOnboardingServiceImpl --> PayosService
+TenantOnboardingServiceImpl --> OtpService
+TenantOnboardingServiceImpl --> OtpVerificationRepository
+TenantOnboardingServiceImpl --> TenantInvoiceRepository
+
+TenantContractRepository ..> TenantContract
+Tenant "1" o-- "*" TenantContract
+Property "1" o-- "*" TenantContract
+Room "0..1" o-- "*" TenantContract
+TenantContract "1" o-- "*" ContractEvidencePhoto
+TenantContract "1" o-- "*" TenantInvoice
+TenantContract --> ContractStatus
+
+@enduml

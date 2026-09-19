@@ -1,0 +1,99 @@
+@startuml F5_Checkout_Sequence
+title Figure — Checkout Sequence Diagram\nCreate → Approve → Inspection → Settlement → Refund → Complete
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Tenant
+actor Manager
+actor Owner
+participant "Front-end" as FE
+participant "TenantMeLifecycleController" as TC
+participant "CheckoutRequestController" as CC
+participant "CheckoutProcessController" as PC
+participant "TenantCheckoutServiceImpl" as CS
+participant "CheckoutProcessServiceImpl" as PS
+participant "CheckoutRequestRepository" as RR
+participant "CheckoutInspectionRepository" as IR
+participant "CheckoutSettlementRepository" as SR
+participant "DepositAuditLogRepository" as DR
+database DB
+
+Tenant -> FE : (1) Yêu cầu trả phòng
+FE -> TC : (2) POST /tenant/me/checkout-requests
+activate TC
+TC -> CS : (3) create(CreateCheckoutRequest)
+activate CS
+CS -> DB : (4) BeginTransaction()
+CS -> RR : (5) save(status=PENDING)
+RR -> DB : (6) INSERT CheckoutRequest
+CS -> DB : (7) CommitTransaction()
+CS --> TC : (8) CheckoutResponse
+deactivate CS
+TC --> FE : (9) Created
+deactivate TC
+
+Manager -> FE : (10) Approve
+FE -> CC : (11) POST .../{id}/approve
+CC -> CS : (12) approve(...)
+CS -> RR : (13) UPDATE status=APPROVED
+
+Manager -> FE : (14) Inspection + damages
+FE -> PC : (15) POST .../{id}/inspection
+activate PC
+PC -> PS : (16) saveInspection(req)
+activate PS
+PS -> DB : (17) BeginTransaction()
+PS -> IR : (18) save(CheckoutInspection\n+ DamageItems)
+IR -> DB : (19) INSERT
+PS -> RR : (20) UPDATE status=INSPECTING
+PS -> DB : (21) CommitTransaction()
+PS --> PC : (22) OK
+deactivate PS
+deactivate PC
+
+Manager -> FE : (23) Submit settlement
+FE -> PC : (24) POST .../settlement/submit
+PC -> PS : (25) submitSettlement
+PS -> SR : (26) save(CheckoutSettlement\ndeposit - unpaid - damage)
+SR -> DB : (27) INSERT
+PS -> RR : (28) UPDATE WAITING_TENANT
+
+Tenant -> FE : (29) Accept settlement
+FE -> PC : (30) POST .../settlement/accept
+PC -> PS : (31) acceptSettlement
+PS -> RR : (32) UPDATE SETTLING
+
+Owner -> FE : (33) Ghi nhận hoàn cọc + proof
+FE -> PC : (34) POST .../{id}/refund
+activate PC
+PC -> PS : (35) recordRefund(CheckoutRefundRequest)
+activate PS
+PS -> DB : (36) BeginTransaction()
+PS -> SR : (37) UPDATE refundAmount, proofUrl
+PS -> DR : (38) INSERT DepositAuditLog
+DR -> DB : (39) INSERT
+break
+  PS -> DB : RollbackTransaction()
+end
+PS -> DB : (40) CommitTransaction()
+PS --> PC : (41) OK
+deactivate PS
+deactivate PC
+
+Manager -> FE : (42) Complete checkout
+FE -> CC : (43) POST .../{id}/complete
+activate CC
+CC -> CS : (44) complete(...)
+activate CS
+CS -> DB : (45) BeginTransaction()
+CS -> RR : (46) UPDATE COMPLETED
+CS -> CS : (47) terminate contract,\nroom → AVAILABLE
+CS -> DB : (48) CommitTransaction()
+CS --> CC : (49) CheckoutResponse
+deactivate CS
+CC --> FE : (50) Done
+deactivate CC
+FE --> Tenant : (51) Trả phòng hoàn tất
+
+@enduml

@@ -1,0 +1,129 @@
+@startuml StartRepairHandoverComplete
+title Figure — StartRepairHandoverComplete (Start Repair, Handover / Complete Ticket) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "TenantInvoiceRepository" as TIR
+participant "EquipmentRepository" as ER
+participant "RoomRepository" as RR
+participant "TenantPendingChargeServiceImpl" as TPC
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Step 1: Start repair (from REPAIR_SCHEDULED) ==
+Manager -> FE : (1) Click "Start repair"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/start-repair
+activate C
+C -> S : (3) startRepair(id)
+activate S
+S -> MR : (4) findActive(id)
+MR -> DB : (5) SELECT MaintenanceRequest
+DB --> MR : (6) MaintenanceRequest
+MR --> S : (7) MaintenanceRequest
+S -> S : (8) requireManagerAccess, requireStatus(REPAIR_SCHEDULED),\ndamageCause must be set (diagnosed)
+opt Not company-absorbed AND has charge invoice
+  S -> TIR : (9) findById(chargeInvoiceId)
+  TIR -> DB : (10) SELECT TenantInvoice
+  DB --> TIR : (11) invoice
+  alt Invoice not PAID / TENANT_FAULT without quote
+    S --> C : BusinessException ("tenant must pay first")
+    C --> FE : Error response
+    FE --> Manager : Show error
+  end
+end
+S -> MR : (12) save(status = IN_REPAIR or TENANT_FAULT, repairStartedAt)
+S -> RR : (13) markRoomMaintenance (Room = MAINTENANCE)
+RR -> DB : (14) UPDATE Room
+MR -> DB : (15) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+S -> NR : (16) notifyTenant "Repair started"
+S -> RT : (17) publishMaintenanceEvent(SCHEDULE_CHANGED)
+S --> C : (18) MaintenanceRequestResponse
+deactivate S
+C --> FE : (19) 200 OK
+deactivate C
+
+== Step 2a: Complete repair (IN_REPAIR / TENANT_FAULT by manager) ==
+Manager -> FE : (20) Upload AFTER + invoice photos, vendor, amount, description\nClick "Complete"
+FE -> C : (21) PUT /api/v1/maintenance/{id}/complete\nMaintenanceCompleteRequest
+activate C
+C -> S : (22) complete(id, request)
+activate S
+
+S -> DB : (23) BeginTransaction()
+activate DB
+DB --> S : (24) Success
+
+S -> MR : (25) findActive(id)
+MR --> S : (26) MaintenanceRequest
+S -> S : (27) requireManagerAccess; status must be IN_REPAIR\nor TENANT_FAULT (manager repair)
+
+alt Wrong status / charge invoice not PAID / no AFTER image /\nno INVOICE image / invoice fields missing
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+opt Equipment needs replacement
+  S -> ER : (28) save(Equipment status = NEW, installationDate,\nmaintenanceCount + 1, recommendReplacement = false)
+  ER -> DB : (29) UPDATE Equipment
+end
+
+S -> MR : (30) save(status = CLOSED, doneAt, resolvedAt,\nresolutionNote, repairDescription, invoice fields)
+MR -> DB : (31) UPDATE MaintenanceRequest, INSERT PhotoHistory (AFTER, INVOICE), Timeline
+S -> RR : (32) restoreRoomStatus (RENTED / AVAILABLE unless another open ticket)
+RR -> DB : (33) UPDATE Room
+
+opt chargeToTenant AND no charge invoice yet
+  S -> TPC : (34) createAndIssueMaintenanceCharge(contract, amount, ...)
+  TPC -> DB : (35) INSERT TenantInvoice (PENDING)
+  TPC --> S : (36) TenantInvoiceResponse
+end
+
+S -> NR : (37) notifyTenantOnComplete
+NR -> DB : (38) INSERT Notification
+S -> RT : (39) publishMaintenanceEvent(COMPLETED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (40) CommitTransaction()
+DB --> S : (41) Committed
+deactivate DB
+S --> C : (42) MaintenanceRequestResponse (+ issuedInvoice)
+deactivate S
+C --> FE : (43) 200 OK
+deactivate C
+FE --> Manager : (44) Show ticket CLOSED
+
+== Step 2b: Handover (equipment returned after inspection / REPAIR_SCHEDULED) ==
+Manager -> FE : (45) Upload handover photos, click "Handover"
+FE -> C : (46) PUT /api/v1/maintenance/{id}/handover\nMaintenanceHandoverRequest
+C -> S : (47) handover(id, request)
+S -> S : (48) status must be REPAIR_SCHEDULED, diagnosed,\ncharge invoice PAID (unless company absorbed),\nAFTER photo required
+opt Replacement flagged
+  S -> ER : (49) apply replacement (Equipment NEW)
+end
+S -> MR : (50) save(status = CLOSED, doneAt, resolvedAt)
+MR -> DB : (51) UPDATE MaintenanceRequest
+S -> RR : (52) restoreRoomStatus
+S -> NR : (53) notifyTenantOnComplete
+S -> RT : (54) publishMaintenanceEvent(COMPLETED)
+S --> C : (55) MaintenanceRequestResponse
+C --> FE : (56) 200 OK
+
+@enduml

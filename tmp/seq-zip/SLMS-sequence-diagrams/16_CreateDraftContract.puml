@@ -1,0 +1,138 @@
+@startuml CreateDraftContract
+title Figure — CreateDraftContract (Create Draft Contract & Assign Manager) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "TenantContractController" as C
+participant "TenantOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "InboundContractRepository" as ICR
+participant "RoomRepository" as RR
+participant "TenantContractRepository" as TCR
+participant "UserRepository" as UR
+participant "ContractEquipmentServiceImpl" as CES
+participant "MeterOverrideServiceImpl" as MOS
+participant "NotificationRepository" as NR
+participant "UnitPriceServiceImpl" as UPS
+database DB
+
+Manager -> FE : (1) Fill tenant info, rent, deposit, dates,\nselected equipment\nClick "Save draft contract"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/rooms/{roomId}/tenant-contract\nOnboardTenantRequest (draft = true)
+activate C
+C -> S : (3) onboardTenant(propertyId, roomId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property / empty
+PR --> S : (9) Property
+deactivate PR
+
+S -> S : (10) validate dates\n(endDate after moveInDate, max 5 years)
+
+S -> ICR : (11) requireInboundLease(propertyId)
+activate ICR
+ICR -> DB : (12) SELECT InboundContract
+DB --> ICR : (13) InboundContract / empty
+ICR --> S : (14) InboundContract
+deactivate ICR
+S -> S : (15) InboundLeaseRules.assertOccupancyWindow()
+
+opt Room rental (roomId != null)
+  S -> RR : (16) findByIdAndPropertyId(roomId, propertyId)
+  activate RR
+  RR -> DB : (17) SELECT Room
+  DB --> RR : (18) Room
+  RR --> S : (19) Room
+  deactivate RR
+  S -> TCR : (20) existsByRoomIdAndStatus(ACTIVE) /\nexistsOverlappingContractByRoom()
+  activate TCR
+  TCR -> DB : (21) SELECT TenantContract
+  DB --> TCR : (22) exists?
+  TCR --> S : (23) boolean
+  deactivate TCR
+end
+
+alt Dates invalid / lease window violated / room active or overlapping /\nproperty has no operation manager
+  S --> C : BusinessException / ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> UR : (24) findById(property.operationManagerId)\n(assignedManager = Operation Manager)
+activate UR
+UR -> DB : (25) SELECT User
+DB --> UR : (26) User
+UR --> S : (27) assignedManager
+deactivate UR
+
+S -> S : (28) build TenantContract (status = DRAFT,\ndraftTenant* fields, initial meter readings,\nrent escalation, household members)
+
+S -> CES : (29) resolveAndApplyHandover(contract, selected / declined / added equipment)
+activate CES
+CES -> DB : (30) SELECT Equipment
+DB --> CES : (31) equipments
+CES --> S : (32) equipment snapshot applied
+deactivate CES
+
+S -> TCR : (33) saveAndFlush(contract)\n(retry up to 3 times if duplicate contract code)
+activate TCR
+TCR -> DB : (34) INSERT TenantContract (DRAFT)
+DB --> TCR : (35) Model state
+TCR --> S : (36) saved contract
+deactivate TCR
+
+opt Meter reading provided
+  S -> S : (37) requireMeterEvidence(photo or overrideToken)
+  opt Override token, no photo
+    S -> MOS : (38) consumeOverrideIfPresent(managerId, contractId, kind, token, value, reason)
+    activate MOS
+    MOS -> DB : (39) UPDATE MeterOverrideToken, INSERT MeterOverrideLog
+    DB --> MOS : (40) OK
+    MOS --> S : (41) true
+    deactivate MOS
+  end
+end
+
+S -> NR : (42) notifyAssignedManager (Notification + push)
+activate NR
+NR -> DB : (43) INSERT Notification
+DB --> NR : (44) OK
+deactivate NR
+
+S -> UPS : (45) applyContractRent(contract, HOP_DONG)
+activate UPS
+UPS -> DB : (46) INSERT price history / UPDATE applied rent
+DB --> UPS : (47) OK
+deactivate UPS
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (48) CommitTransaction()
+DB --> S : (49) Committed
+deactivate DB
+
+S --> C : (50) TenantContractResponse (+ lease handover warning)
+deactivate S
+C --> FE : (51) 200 OK + TenantContractResponse
+deactivate C
+FE --> Manager : (52) Show draft contract
+
+@enduml

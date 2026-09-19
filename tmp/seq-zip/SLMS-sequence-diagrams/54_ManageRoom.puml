@@ -1,0 +1,132 @@
+@startuml ManageRoom
+title Figure — ManageRoom (Add, Update, Change Status, Delete Room) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "RoomController" as C
+participant "RoomServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "RoomRepository" as RR
+participant "EquipmentRepository" as ER
+participant "UnitPriceServiceImpl" as UPS
+database DB
+
+== Add a room ==
+Admin -> FE : (1) Enter room number, floor, area, max occupants\nClick "Add room"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/rooms\nAddRoomRequest
+activate C
+C -> S : (3) addRoom(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property / empty
+PR --> S : (9) Property
+deactivate PR
+
+alt Property not editable in onboarding / renting type not chosen /\nfloor > totalFloor
+  S --> C : BusinessException / ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> RR : (10) countByPropertyIdAndDeletedIsFalse(propertyId)
+activate RR
+RR -> DB : (11) SELECT COUNT Room
+DB --> RR : (12) currentCount
+RR --> S : (13) currentCount
+deactivate RR
+S -> RR : (14) existsByPropertyIdAndRoomNumberAndDeletedIsFalse(...)
+activate RR
+RR -> DB : (15) SELECT Room
+DB --> RR : (16) exists?
+RR --> S : (17) boolean
+deactivate RR
+
+alt currentCount >= totalRooms OR room number already exists
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> RR : (18) save(Room status = DRAFT)\n(price / deposit cleared for whole-house)
+activate RR
+RR -> DB : (19) INSERT Room
+DB --> RR : (20) Model state
+RR --> S : (21) saved room
+deactivate RR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+S --> C : (24) RoomResponse
+deactivate S
+C --> FE : (25) 201 Created / 200 OK
+deactivate C
+FE --> Admin : (26) Show new room (DRAFT)
+
+== Update room information ==
+Admin -> FE : (27) Edit room, click "Save"
+FE -> C : (28) PUT /api/v1/properties/{propertyId}/rooms/{roomId}
+C -> S : (29) updateRoom(propertyId, roomId, request)
+S -> PR : (30) loadPropertyForRoomManagement() (onboarding only)
+S -> RR : (31) loadRoom(propertyId, roomId)
+alt Room is RENTED / floor invalid / duplicate room number
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> UPS : (32) isUnitOccupied(propertyId, roomId)
+UPS --> S : (33) boolean
+S -> RR : (34) save(room; appliedPrice = price when not occupied)
+RR -> DB : (35) UPDATE Room
+S --> C : (36) RoomResponse
+C --> FE : (37) 200 OK
+
+== Change room status (AVAILABLE / MAINTENANCE / DISABLED) ==
+Admin -> FE : (38) Choose new status
+FE -> C : (39) PATCH /api/v1/properties/{propertyId}/rooms/{roomId}/status
+C -> S : (40) updateRoomStatus(propertyId, roomId, request)
+alt Property not onboarding / ACTIVE, whole-house property,\nroom RENTED or DRAFT, transition not allowed
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> RR : (41) save(room status)
+RR -> DB : (42) UPDATE Room
+S --> C : (43) RoomResponse
+C --> FE : (44) 200 OK
+
+== Delete (soft delete) a room ==
+Admin -> FE : (45) Click "Delete room"
+FE -> C : (46) DELETE /api/v1/properties/{propertyId}/rooms/{roomId}
+C -> S : (47) deleteRoom(propertyId, roomId)
+alt Room is RENTED
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> ER : (48) findByRoomId(roomId) -> set room = null, houseArea = null
+ER -> DB : (49) UPDATE Equipment (return to storage)
+S -> RR : (50) save(room deleted = true)
+RR -> DB : (51) UPDATE Room
+S --> C : (52) void
+C --> FE : (53) 204 No Content
+
+@enduml

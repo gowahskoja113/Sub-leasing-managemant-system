@@ -1,0 +1,94 @@
+@startuml IssueInvoiceFromPendingCharges
+title Figure — IssueInvoiceFromPendingCharges Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "ManagerPendingChargeController" as C
+participant "TenantPendingChargeServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "TenantPendingChargeRepository" as PCR
+participant "TenantInvoiceRepository" as TIR
+database DB
+
+Manager -> FE : (1) Open pending charges of a contract,\nselect charges, choose due date\nClick "Issue invoice"
+FE -> C : (2) POST /api/v1/manager/pending-charges/issue-invoice\nIssueInvoiceRequest
+activate C
+C -> S : (3) issueInvoiceFromCharges(contractId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract / empty
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt Contract not found / charge list is empty
+  S --> C : ResourceNotFoundException / BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> PCR : (10) findAllById(chargeIds)
+activate PCR
+PCR -> DB : (11) SELECT TenantPendingCharge
+DB --> PCR : (12) charges
+PCR --> S : (13) List<TenantPendingCharge>
+deactivate PCR
+
+S -> S : (14) check each charge belongs to the contract\nand status = PENDING; totalAmount = sum(amount)
+alt A charge belongs to another contract or is already INVOICED
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> TIR : (15) save(TenantInvoice type MAINTENANCE, PENDING,\ncode HD-MAINT-{contractId}-{timestamp}, dueDate)
+activate TIR
+TIR -> DB : (16) INSERT TenantInvoice
+DB --> TIR : (17) Model state
+TIR --> S : (18) saved invoice
+deactivate TIR
+
+S -> PCR : (19) saveAll(charges: status = INVOICED, invoice)
+activate PCR
+PCR -> DB : (20) UPDATE TenantPendingCharge
+DB --> PCR : (21) OK
+deactivate PCR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+
+S --> C : (24) TenantInvoiceResponse
+deactivate S
+C --> FE : (25) 200 OK + TenantInvoiceResponse
+deactivate C
+FE --> Manager : (26) Show issued invoice
+
+note over S
+  createAndIssueMaintenanceCharge(contract, amount, requestId, note)
+  (used by maintenance flows): saves one PENDING charge (category
+  MAINTENANCE), calls the same issue step, then creates a PayOS
+  payment link for the new invoice when PayOS is configured.
+end note
+
+@enduml

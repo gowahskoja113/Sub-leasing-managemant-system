@@ -1,0 +1,134 @@
+@startuml UserAccountManagement
+title Figure — UserAccountManagement (Register, Admin Creates / Updates User, Profile, Password) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+actor User
+participant "Front-end" as FE
+participant "UserController" as C
+participant "AuthController" as AC
+participant "UserServiceImpl" as S
+participant "AuthServiceImpl" as AS
+participant "UserRepository" as UR
+participant "PasswordEncoder" as PE
+database DB
+
+== Admin creates an account (Manager / Admin / Owner) ==
+Admin -> FE : (1) Enter username, phone, password, full name, role\nClick "Create user"
+FE -> C : (2) POST /api/v1/user\nUser payload
+activate C
+C -> S : (3) createUser(user)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> UR : (6) existsByUsername / existsByPhoneNumber
+activate UR
+UR -> DB : (7) SELECT User
+DB --> UR : (8) exists?
+UR --> S : (9) boolean
+deactivate UR
+
+alt Username or phone already registered
+  S --> C : RuntimeException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> PE : (10) encode(password)
+PE --> S : (11) hash
+S -> S : (12) status = ACTIVE (default);\ncreate profile by role\n(OperationManagement / Admin / Owner)
+
+S -> UR : (13) save(User + profile)
+activate UR
+UR -> DB : (14) INSERT User, profile row
+DB --> UR : (15) Model state
+UR --> S : (16) saved user
+deactivate UR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (17) CommitTransaction()
+DB --> S : (18) Committed
+deactivate DB
+S --> C : (19) User
+deactivate S
+C --> FE : (20) 200 OK
+deactivate C
+FE --> Admin : (21) Show created user
+
+== Admin updates a user / changes status ==
+Admin -> FE : (22) Edit phone, name, role, password OR toggle status
+FE -> C : (23) PUT /api/v1/user/{id}  |  PATCH /api/v1/user/{id}/status
+C -> S : (24) updateUser(id, details) | changeUserStatus(id, status)
+S -> UR : (25) findById(id)
+UR -> DB : (26) SELECT User
+alt User not found / new phone already used
+  S --> C : RuntimeException
+  C --> FE : Error response
+end
+S -> UR : (27) save(user: phone, fullName, role, password (BCrypt), status)
+UR -> DB : (28) UPDATE User
+S --> C : (29) User
+C --> FE : (30) 200 OK
+
+== Self-service: register as tenant ==
+User -> FE : (31) Enter username, phone, password, full name\nClick "Register"
+FE -> AC : (32) POST /api/v1/auth/register
+activate AC
+AC -> AS : (33) register(AuthRequest)
+activate AS
+AS -> UR : (34) existsByUsername / existsByPhoneNumber
+UR -> DB : (35) SELECT User
+alt Duplicate username or phone / role other than ROLE_TENANT
+  AS --> AC : RuntimeException
+  AC --> FE : Error response
+  FE --> User : Show error
+end
+AS -> PE : (36) encode(password)
+AS -> UR : (37) save(User ROLE_TENANT, ACTIVE)
+UR -> DB : (38) INSERT User
+AS --> AC : (39) "Registration successful"
+deactivate AS
+AC --> FE : (40) 200 OK
+deactivate AC
+FE --> User : (41) Show success
+
+== Self-service: update profile / change password ==
+User -> FE : (42) Edit full name, email, avatar
+FE -> C : (43) PUT /api/v1/user/me
+C -> S : (44) updateMyProfile(request)
+S -> UR : (45) findById(currentUserId) -> save(fullName, email, avatarUrl)
+UR -> DB : (46) UPDATE User
+S --> C : (47) AuthMeResponse
+C --> FE : (48) 200 OK
+
+User -> FE : (49) Enter old + new password
+FE -> AC : (50) POST /api/v1/auth/change-password
+AC -> AS : (51) changePassword(request)
+AS -> UR : (52) findById(currentUserId)
+UR -> DB : (53) SELECT User
+alt Old password does not match
+  AS --> AC : BusinessException
+  AC --> FE : Error response
+end
+AS -> PE : (54) matches(old, hash) ; encode(new)
+AS -> UR : (55) save(password, firstLogin = false)
+UR -> DB : (56) UPDATE User
+AS --> AC : (57) void
+AC --> FE : (58) 200 OK
+
+@enduml

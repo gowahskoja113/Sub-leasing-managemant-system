@@ -1,0 +1,94 @@
+@startuml InvoiceUnlockAndManagerPaymentQr
+title Figure — InvoiceUnlockAndManagerPaymentQr (Cash Collect / Proxy Pay by Manager) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+actor Manager
+participant "Front-end" as FE
+participant "InvoiceUnlockController" as UC
+participant "InvoiceUnlockServiceImpl" as US
+participant "ManagerBillingController" as BC
+participant "TenantBillingServiceImpl" as TBS
+participant "PayosServiceImpl" as PAYOS
+database DB
+
+== Step 1: Admin generates one-time passcode ==
+Admin -> FE : (1) Choose invoice + purpose (CASH_COLLECT / PROXY_PAY)\nClick "Generate passcode"
+FE -> UC : (2) POST /api/v1/admin/invoice-unlock/passcodes
+activate UC
+UC -> US : (3) generatePasscode(adminId, request)
+activate US
+US -> DB : (4) SELECT TenantInvoice, count passcodes created in last hour
+DB --> US : (5) invoice, recent count
+alt Invoice not found OR too many passcodes in 1 hour
+  US --> UC : ResourceNotFoundException / 429
+  UC --> FE : Error response
+end
+US -> DB : (6) INSERT InvoiceUnlockPasscode (code, invoiceId, purpose, expiresAt)
+DB --> US : (7) OK
+US --> UC : (8) InvoiceUnlockPasscodeResponse (code)
+deactivate US
+UC --> FE : (9) 200 OK + code
+deactivate UC
+FE --> Admin : (10) Show code, send to manager
+
+== Step 2: Manager verifies passcode ==
+Manager -> FE : (11) Enter passcode
+FE -> UC : (12) POST /api/v1/manager/invoice-unlock/verify
+activate UC
+UC -> US : (13) verifyPasscode(managerId, request)
+activate US
+US -> DB : (14) SELECT TenantInvoice, InvoiceUnlockFailCounter
+DB --> US : (15) invoice, counter
+alt Manager not in charge / counter locked
+  US --> UC : AccessDeniedException / 429
+  UC --> FE : Error response
+end
+US -> DB : (16) SELECT usable InvoiceUnlockPasscode by code
+DB --> US : (17) passcode?
+alt Passcode wrong or expired
+  US -> DB : (18) failCount + 1 (lock after max fails)
+  US --> UC : 403 Forbidden
+  UC --> FE : Error response
+  FE --> Manager : Show error
+else Passcode valid
+  US -> DB : (19) UPDATE passcode (usedAt, usedBy), reset fail counter,\nINSERT InvoiceUnlockToken, INSERT InvoiceUnlockLog (UNLOCKED)
+  DB --> US : (20) OK
+  US --> UC : (21) unlockToken, expiresAt
+end
+deactivate US
+UC --> FE : (22) 200 OK + unlockToken
+deactivate UC
+
+== Step 3: Manager creates payment QR ==
+Manager -> FE : (23) Choose purpose, enter payer name/phone (proxy)\nClick "Create QR"
+FE -> BC : (24) POST /api/v1/manager/invoices/{id}/payment-qr\nManagerPaymentQrRequest (unlockToken)
+activate BC
+BC -> TBS : (25) createManagerPaymentQr(managerId, invoiceId, request)
+activate TBS
+TBS -> DB : (26) BeginTransaction(); SELECT TenantInvoice, InvoiceUnlockToken
+activate DB
+DB --> TBS : (27) invoice, token
+alt Invoice PAID / CANCELLED, manager not in charge,\ntoken invalid / used / expired / not matching invoice or purpose,\nproxy payer name missing
+  TBS --> BC : BusinessException / AccessDeniedException
+  BC --> FE : Error response
+  FE --> Manager : Show error
+end
+TBS -> PAYOS : (28) createPaymentLink(orderCode, amount, code, expiredAt)
+PAYOS --> TBS : (29) checkoutUrl, qrCode
+TBS -> DB : (30) UPDATE old orders SUPERSEDED, INSERT TenantInvoicePayosOrder\n(purpose CASH_COLLECT / PROXY_PAY),\nUPDATE token usedAt, INSERT InvoiceUnlockLog (QR_CREATED)
+DB --> TBS : (31) OK
+TBS -> DB : (32) CommitTransaction()
+deactivate DB
+TBS --> BC : (33) ManagerPaymentQrResponse
+deactivate TBS
+BC --> FE : (34) 200 OK + QR
+deactivate BC
+FE --> Manager : (35) Show QR; payment is recorded via PayOS webhook\n(see TenantPayInvoiceViaPayOS)
+
+@enduml

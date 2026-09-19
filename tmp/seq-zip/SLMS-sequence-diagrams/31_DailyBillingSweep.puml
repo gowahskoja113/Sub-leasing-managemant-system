@@ -1,0 +1,92 @@
+@startuml DailyBillingSweep
+title Figure — DailyBillingSweep (Monthly Rent Invoice Issue, Reminders & Overdue) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor "Scheduler\n(cron 00:05 / 08:00)" as CRON
+participant "BillingCronServiceImpl" as S
+participant "UnitPriceServiceImpl" as UPS
+participant "TenantContractRepository" as TCR
+participant "TenantInvoiceRepository" as TIR
+participant "InvoiceDisputeServiceImpl" as IDS
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+CRON -> S : (1) generateMonthlyRentInvoices() [00:05]
+activate S
+S -> DB : (2) BeginTransaction()
+activate DB
+DB --> S : (3) Success
+S -> TCR : (4) findByStatusWithPropertyAndTenant(ACTIVE)
+activate TCR
+TCR -> DB : (5) SELECT TenantContract
+DB --> TCR : (6) contracts
+TCR --> S : (7) List<TenantContract>
+deactivate TCR
+
+loop for each ACTIVE contract
+  S -> S : (8) shouldIssueRegularRent(today, month, contract)?\n(has tenant, rent amount > 0)
+  S -> TIR : (9) find RENT invoice for (contract, year, month)
+  activate TIR
+  TIR -> DB : (10) SELECT TenantInvoice
+  DB --> TIR : (11) exists?
+  TIR --> S : (12) Optional
+  deactivate TIR
+  opt Not issued yet
+    S -> TIR : (13) save(TenantInvoice RENT REGULAR PENDING,\ndueDate, autoIssued = true)
+    TIR -> DB : (14) INSERT TenantInvoice
+    S -> NR : (15) sendNotification RENT_ISSUED
+    NR -> DB : (16) INSERT Notification
+    S -> PUSH : (17) sendToUser(tenantId, ...)
+  end
+end
+
+CRON -> S : (18) dailyBillingSweepTask() [08:00] / runSweepOnStartup()
+S -> UPS : (19) applyDueEscalations()\nnotifyUpcomingAnnualEscalations()
+UPS -> DB : (20) UPDATE contract rent (annual increase), INSERT Notification
+S -> S : (21) generateDueRentInvoices(today)\nremindPendingMeterReadings(today)\nremindUpcomingRent(today)
+
+S -> TIR : (22) findByStatusInAndDueDateIsNotNull(PENDING, PARTIAL, OVERDUE)
+activate TIR
+TIR -> DB : (23) SELECT TenantInvoice
+DB --> TIR : (24) invoices
+TIR --> S : (25) List<TenantInvoice>
+deactivate TIR
+S -> IDS : (26) openDisputeTenantInvoiceIds()
+IDS -> DB : (27) SELECT open InvoiceDispute
+IDS --> S : (28) frozen invoice ids
+
+loop for each invoice (skip frozen / already reminded today)
+  alt Rent invoice, dueDate in 1..leadDays
+    S -> NR : (29) BILLING_REMINDER "N days left"
+  else dueDate = today
+    S -> NR : (30) BILLING_REMINDER "due today" + manager digest
+  else dueDate passed
+    S -> TIR : (31) save(status = OVERDUE, lateFee)
+    opt overdueDays >= terminationAfterDays
+      S -> DB : (32) UPDATE TenantContract terminationProposed = true\nnotify manager BILLING_OVERDUE
+    end
+  end
+  NR -> DB : (33) INSERT Notification
+  S -> PUSH : (34) sendToUser(tenantId / managerId, ...)
+  S -> TIR : (35) save(lastReminderDate = today)
+  TIR -> DB : (36) UPDATE TenantInvoice
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+end
+
+S -> DB : (37) CommitTransaction()
+DB --> S : (38) Committed
+deactivate DB
+S --> CRON : (39) Map<String,Integer> result\n(reminded, overdueMarked, issued ...)
+deactivate S
+
+@enduml

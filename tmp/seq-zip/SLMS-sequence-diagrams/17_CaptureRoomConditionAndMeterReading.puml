@@ -1,0 +1,118 @@
+@startuml CaptureRoomConditionAndMeterReading
+title Figure — CaptureRoomConditionAndMeterReading (Capture Room Condition & Initial Utility Meter Reading) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "OcrController" as OC
+participant "TenantContractActionController" as C
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "ContractEquipmentServiceImpl" as CES
+participant "MeterOverrideServiceImpl" as MOS
+participant "InboundContractRepository" as ICR
+participant "UnitPriceServiceImpl" as UPS
+database DB
+
+== Read meter by camera (optional) ==
+Manager -> FE : (1) Capture electric / water meter photo
+FE -> OC : (2) POST /api/v1/ocr/meter (image)
+OC --> FE : (3) Detected reading (Manager can edit)
+
+== Save condition and initial readings on the draft contract ==
+Manager -> FE : (4) Take room condition photos + note,\nconfirm initial electric / water readings\nClick "Save"
+FE -> C : (5) PUT /api/v1/tenant-contracts/{id}\nUpdateDraftContractRequest
+activate C
+C -> S : (6) updateDraftContract(contractId, request)
+activate S
+
+S -> DB : (7) BeginTransaction()
+activate DB
+DB --> S : (8) Success
+
+S -> TCR : (9) findById(contractId)
+activate TCR
+TCR -> DB : (10) SELECT TenantContract
+DB --> TCR : (11) TenantContract
+TCR --> S : (12) TenantContract
+deactivate TCR
+
+alt status != DRAFT
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> S : (13) apply rent / deposit / dates / tenant info
+
+S -> CES : (14) resolveAndApplyHandover(contract, equipment ids)
+activate CES
+CES -> DB : (15) SELECT Equipment
+DB --> CES : (16) equipments
+CES --> S : (17) applied
+deactivate CES
+
+S -> S : (18) set initialElectricReading / initialWaterReading,\nmeter image URLs + capturedAt,\nroomConditionPhotos + roomConditionNote
+
+S -> S : (19) requireMeterEvidence(reading, imageUrl, overrideToken)
+
+alt Reading has no photo AND no override token
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+opt Override token and no photo
+  S -> MOS : (20) consumeOverrideIfPresent(managerId, contractId,\nELEC / WATER, token, value, reason)
+  activate MOS
+  MOS -> DB : (21) UPDATE MeterOverrideToken\nINSERT MeterOverrideLog
+  DB --> MOS : (22) OK
+  MOS --> S : (23) true / false
+  deactivate MOS
+end
+
+S -> ICR : (24) requireInboundLease(propertyId)
+activate ICR
+ICR -> DB : (25) SELECT InboundContract
+DB --> ICR : (26) InboundContract
+ICR --> S : (27) InboundContract
+deactivate ICR
+S -> S : (28) InboundLeaseRules.assertOccupancyWindow()
+
+S -> TCR : (29) save(contract)
+activate TCR
+TCR -> DB : (30) UPDATE TenantContract
+DB --> TCR : (31) OK
+TCR --> S : (32) saved
+deactivate TCR
+
+S -> UPS : (33) applyContractRent(contract, HOP_DONG)
+activate UPS
+UPS -> DB : (34) INSERT price history
+DB --> UPS : (35) OK
+deactivate UPS
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (36) CommitTransaction()
+DB --> S : (37) Committed
+deactivate DB
+
+S --> C : (38) TenantContractResponse
+deactivate S
+C --> FE : (39) 200 OK + TenantContractResponse
+deactivate C
+FE --> Manager : (40) Show updated draft contract
+
+@enduml

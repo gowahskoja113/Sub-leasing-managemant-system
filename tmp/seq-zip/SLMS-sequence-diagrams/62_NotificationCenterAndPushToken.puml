@@ -1,0 +1,119 @@
+@startuml NotificationCenterAndPushToken
+title Figure — NotificationCenterAndPushToken (Realtime Events, In-app Notifications, Push Token) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor User
+participant "Front-end / Mobile App" as FE
+participant "PushTokenController" as PTC
+participant "UserPushTokenService" as PUSH
+participant "AppNotificationController" as C
+participant "AppNotificationServiceImpl" as S
+participant "NotificationRepository" as NR
+participant "SseNotificationService" as SSE
+participant "RealtimeEventServiceImpl" as RT
+participant "Expo / FCM Push Server" as EXT
+participant "Business service\n(any flow)" as BIZ
+database DB
+
+== Step 1: Register the device push token after login ==
+User -> FE : (1) Login, allow notifications
+FE -> PTC : (2) POST /api/v1/user/me/push-token\n{pushToken}
+activate PTC
+PTC -> PUSH : (3) register(user, pushToken)
+activate PUSH
+PUSH -> DB : (4) INSERT / UPDATE UserPushToken (per device)
+DB --> PUSH : (5) OK
+PUSH --> PTC : (6) void
+deactivate PUSH
+PTC --> FE : (7) 200 OK {success:true}
+deactivate PTC
+
+== Step 2: Open realtime channels ==
+FE -> C : (8) GET /api/v1/notifications/stream (SSE)
+activate C
+C -> SSE : (9) subscribe(userId)
+activate SSE
+SSE --> FE : (10) SseEmitter, event "connected"
+loop every 30 seconds
+  SSE --> FE : (11) heartbeat comment "ping"
+end
+deactivate SSE
+deactivate C
+FE -> RT : (12) STOMP subscribe /user/queue/... (maintenance, contract, invoice events)
+
+== Step 3: A business flow creates a notification ==
+BIZ -> NR : (13) save(Notification userId, title, content, type,\nscreen, paramsJson, dedupeKey)
+activate NR
+NR -> DB : (14) INSERT Notification
+DB --> NR : (15) OK
+NR --> BIZ : (16) saved
+deactivate NR
+BIZ -> PUSH : (17) sendToUser(userId, title, body, data)
+activate PUSH
+PUSH -> DB : (18) SELECT UserPushToken of the user
+DB --> PUSH : (19) tokens
+PUSH -> EXT : (20) send push message to every device token
+EXT --> PUSH : (21) tickets
+deactivate PUSH
+BIZ -> SSE : (22) pushNotification(userId, notificationId)
+SSE --> FE : (23) SSE event "notification" {id}
+BIZ -> RT : (24) publish*Event(...) (invoice paid, contract activated,\nmaintenance updates)
+RT --> FE : (25) STOMP event to the target users / roles
+
+== Step 4: User reads notifications ==
+User -> FE : (26) Open notification center
+FE -> C : (27) GET /api/v1/notifications?unreadOnly=&types=&page=
+activate C
+C -> S : (28) listNotifications(userId, unreadOnly, types, pageable)
+activate S
+S -> NR : (29) findByUserIdAndTypeInOrderByIdDesc(...)
+activate NR
+NR -> DB : (30) SELECT Notification
+DB --> NR : (31) page
+NR --> S : (32) Page<Notification>
+deactivate NR
+S --> C : (33) Page<NotificationResponse> (screen + params for deep link)
+deactivate S
+C --> FE : (34) 200 OK
+deactivate C
+FE --> User : (35) Show list + unread badge (GET /unread-count)
+
+User -> FE : (36) Tap a notification
+FE -> C : (37) PUT /api/v1/notifications/{id}/read
+activate C
+C -> S : (38) markAsRead(userId, notificationId)
+activate S
+S -> NR : (39) findById(id)
+NR -> DB : (40) SELECT Notification
+alt Notification not found or belongs to another user
+  S --> C : ResourceNotFoundException
+  C --> FE : 404 Error response
+end
+S -> NR : (41) save(read = true)
+NR -> DB : (42) UPDATE Notification
+S --> C : (43) void
+deactivate S
+C --> FE : (44) 200 OK
+deactivate C
+FE --> User : (45) Navigate to the linked screen
+
+User -> FE : (46) Click "Mark all as read"
+FE -> C : (47) PUT /api/v1/notifications/read-all
+C -> S : (48) markAllAsRead(userId)
+S -> NR : (49) markAllAsRead(userId)
+NR -> DB : (50) UPDATE Notification SET read = true
+C --> FE : (51) 200 OK
+
+== Step 5: Logout removes the push token ==
+User -> FE : (52) Logout
+FE -> PTC : (53) DELETE /api/v1/user/me/push-token {pushToken?}
+PTC -> PUSH : (54) unregister(user, token)\n(no body = remove every device of the account)
+PUSH -> DB : (55) DELETE UserPushToken
+PTC --> FE : (56) 200 OK
+
+@enduml

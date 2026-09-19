@@ -1,0 +1,101 @@
+@startuml ReportFaultAndAdminReview
+title Figure — ReportFaultAndAdminReview Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+actor Admin
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Manager reports tenant fault ==
+Manager -> FE : (1) Enter fault reason + evidence photos\nClick "Report tenant fault"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/report-fault\nMaintenanceReportFaultRequest
+activate C
+C -> S : (3) reportFault(id, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) requireManagerAccess, requireStatus(OPEN)
+
+alt Not manager in charge / status != OPEN / no faultReason / no evidence image
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> MR : (11) save(flowType = TENANT_FAULT, damageCause = TENANT_MISUSE,\nfaultReason, status = TENANT_FAULT)
+activate MR
+MR -> DB : (12) UPDATE MaintenanceRequest,\nINSERT PhotoHistory (FAULT_EVIDENCE), MaintenanceTimeline
+DB --> MR : (13) OK
+deactivate MR
+S -> NR : (14) notifyAdmins MAINTENANCE_FAULT_REPORTED,\nnotifyTenant (waiting for admin)
+NR -> DB : (15) INSERT Notification
+S -> RT : (16) publishMaintenanceEvent(FAULT_REPORTED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (17) CommitTransaction()
+DB --> S : (18) Committed
+deactivate DB
+S --> C : (19) MaintenanceRequestResponse
+deactivate S
+C --> FE : (20) 200 OK
+deactivate C
+FE --> Manager : (21) Show "Waiting for admin review"
+
+== Admin reviews the fault report ==
+Admin -> FE : (22) Open ticket, click "Approve" / "Reject" + note
+FE -> C : (23) PUT /api/v1/maintenance/{id}/admin-review\nMaintenanceAdminReviewRequest
+activate C
+C -> S : (24) adminReviewFault(id, request)
+activate S
+S -> MR : (25) findActive(id)
+MR --> S : (26) MaintenanceRequest
+S -> S : (27) requireAdminAccess()
+
+alt approved missing / status != TENANT_FAULT / flow not TENANT_FAULT /\nno fault report / legacy path set / already reviewed
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> MR : (28) save(adminReviewedAt, adminReviewedBy,\nadminApproved, adminReviewNote)
+activate MR
+MR -> DB : (29) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+DB --> MR : (30) OK
+deactivate MR
+S -> NR : (31) notifyPropertyManager MAINTENANCE_ADMIN_REVIEWED
+NR -> DB : (32) INSERT Notification
+S -> RT : (33) publishMaintenanceEvent(ADMIN_REVIEWED)
+S --> C : (34) MaintenanceRequestResponse
+deactivate S
+C --> FE : (35) 200 OK
+deactivate C
+FE --> Admin : (36) Show review result
+
+@enduml

@@ -1,0 +1,96 @@
+@startuml MeterOverridePasscode
+title Figure — MeterOverridePasscode (Manual Meter Reading without Photo) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+actor Manager
+participant "Front-end" as FE
+participant "MeterOverrideController" as C
+participant "MeterOverrideServiceImpl" as S
+participant "MeterOverridePasscodeRepository" as PR
+participant "MeterOverrideTokenRepository" as TR
+participant "MeterOverrideFailCounterRepository" as FR
+participant "MeterOverrideLogRepository" as LR
+database DB
+
+== Step 1: Admin generates passcode ==
+Admin -> FE : (1) Click "Generate meter override code"
+FE -> C : (2) POST /api/v1/admin/meter-override/passcodes
+activate C
+C -> S : (3) generatePasscode(adminId, request)
+activate S
+S -> PR : (4) countByCreatedByAndCreatedAtAfter(now - 1h)
+PR -> DB : (5) SELECT COUNT MeterOverridePasscode
+DB --> PR : (6) recent
+alt recent >= max per hour
+  S --> C : 429 Too Many Requests
+  C --> FE : Error response
+end
+S -> PR : (7) save(passcode: code, expiresAt = now + ttl)
+PR -> DB : (8) INSERT MeterOverridePasscode
+DB --> PR : (9) OK
+S --> C : (10) MeterOverridePasscodeResponse (code)
+deactivate S
+C --> FE : (11) 200 OK
+deactivate C
+FE --> Admin : (12) Show code, send to manager
+
+== Step 2: Manager verifies passcode ==
+Manager -> FE : (13) Enter code (meter kind ELEC / WATER)
+FE -> C : (14) POST /api/v1/manager/meter-override/verify
+activate C
+C -> S : (15) verifyPasscode(managerId, request)
+activate S
+S -> FR : (16) findById(managerId)
+FR -> DB : (17) SELECT MeterOverrideFailCounter
+DB --> FR : (18) counter
+alt Counter locked
+  S --> C : 429 Too Many Requests
+  C --> FE : Error response
+end
+S -> PR : (19) findUsableByCode(code, now)
+PR -> DB : (20) SELECT MeterOverridePasscode
+DB --> PR : (21) passcode?
+alt Passcode wrong / expired / used
+  S -> FR : (22) failCount + 1 (lock after max fails)
+  FR -> DB : (23) UPDATE MeterOverrideFailCounter
+  S --> C : 403 Forbidden
+  C --> FE : Error response
+  FE --> Manager : Show error
+else Passcode valid
+  S -> PR : (24) save(usedAt, usedBy) (one-time)
+  PR -> DB : (25) UPDATE MeterOverridePasscode
+  S -> FR : (26) reset failCount
+  S -> TR : (27) save(MeterOverrideToken: token, managerId, contractId, meterKind, expiresAt)
+  TR -> DB : (28) INSERT MeterOverrideToken
+  S --> C : (29) MeterOverrideVerifyResponse (overrideToken)
+end
+deactivate S
+C --> FE : (30) 200 OK + overrideToken
+deactivate C
+FE --> Manager : (31) Allow manual reading input with a reason
+
+== Step 3: Token consumed when saving the reading ==
+Manager -> FE : (32) Enter reading + reason, save\n(SaveLockedMeterReading / CreateDraftContract)
+FE -> S : (33) consumeOverrideIfPresent(managerId, contractId, kind,\ntoken, value, reason)
+activate S
+S -> TR : (34) findByToken(token)
+TR -> DB : (35) SELECT MeterOverrideToken
+DB --> TR : (36) token
+alt Token invalid / used / expired / other manager /\nother contract / other meter kind / reason blank
+  S --> FE : BusinessException
+  FE --> Manager : Show error
+end
+S -> TR : (37) save(usedAt = now)
+TR -> DB : (38) UPDATE MeterOverrideToken
+S -> LR : (39) save(MeterOverrideLog: enteredValue, reason)
+LR -> DB : (40) INSERT MeterOverrideLog
+S --> FE : (41) true
+deactivate S
+
+@enduml

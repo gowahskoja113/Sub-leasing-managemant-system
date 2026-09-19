@@ -1,0 +1,93 @@
+@startuml ManagerCreateRentInvoice
+title Figure — ManagerCreateRentInvoice Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "RentInvoiceController" as C
+participant "TenantBillingServiceImpl" as S
+participant "PropertyAccessService" as PAS
+participant "TenantContractRepository" as TCR
+participant "TenantInvoiceRepository" as TIR
+database DB
+
+Manager -> FE : (1) Choose contract, billing month, amount, due date\nClick "Create rent invoice"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/rooms/{roomId}/rent-invoices\nCreateRentInvoiceRequest
+activate C
+C -> S : (3) createManagerRentInvoice(propertyId, roomId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PAS : (6) assertCanManageProperty(propertyId)
+activate PAS
+PAS --> S : (7) OK / Forbidden
+deactivate PAS
+
+S -> S : (8) parseBillingMonth(request.billingMonth)
+
+S -> TCR : (9) loadAndValidateContract(propertyId, roomId, contractId)
+activate TCR
+TCR -> DB : (10) SELECT TenantContract
+DB --> TCR : (11) TenantContract
+TCR --> S : (12) TenantContract
+deactivate TCR
+
+alt Billing month is current month AND today is past the regular due date
+  S --> C : BusinessException UTILITY_WINDOW_CLOSED
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> TIR : (13) findByTenantContractIdAndInvoiceTypeAndBillingYearAndBillingMonth(RENT)
+activate TIR
+TIR -> DB : (14) SELECT TenantInvoice
+DB --> TIR : (15) existing / empty
+TIR --> S : (16) Optional<TenantInvoice>
+deactivate TIR
+
+alt Existing invoice PAID -> PERIOD_ALREADY_SETTLED /\nexisting not CANCELLED -> INVOICE_ALREADY_EXISTS
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+alt amount != contract.rentAmount
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> TIR : (17) save(TenantInvoice type RENT, cycle REGULAR,\nstatus PENDING, code HD-RENT-{contractId}-{yyyy-MM},\nautoIssued = false)
+activate TIR
+TIR -> DB : (18) INSERT TenantInvoice
+DB --> TIR : (19) Model state
+TIR --> S : (20) saved invoice
+deactivate TIR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (21) CommitTransaction()
+DB --> S : (22) Committed
+deactivate DB
+
+S --> C : (23) TenantInvoiceResponse
+deactivate S
+C --> FE : (24) 201 Created + TenantInvoiceResponse
+deactivate C
+FE --> Manager : (25) Show created rent invoice
+
+@enduml

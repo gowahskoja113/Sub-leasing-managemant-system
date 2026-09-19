@@ -1,0 +1,86 @@
+@startuml F6_CashFlow_Sequence
+title Figure — Cash Flow Sequence Diagram\nRecord MasterLease / HostExpense → Aggregate income vs expense → PnL
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Owner
+participant "Front-end" as FE
+participant "HostController" as C
+participant "HostPortalServiceImpl" as S
+participant "MasterLeaseRepository" as MLR
+participant "HostExpenseRepository" as HER
+participant "TenantInvoiceRepository" as TIR
+participant "TenantPaymentRepository" as TPR
+participant "PropertyRepository" as PR
+database DB
+
+== A. Ghi chi phí thuê nhà lớn (MasterLease) ==
+
+Owner -> FE : (1) Upsert master lease
+FE -> C : (2) POST /api/v1/host/master-leases\nMasterLeaseUpsertRequest
+activate C
+C -> S : (3) upsertMasterLease(req)
+activate S
+S -> DB : (4) BeginTransaction()
+S -> PR : (5) findById(propertyId)
+PR -> DB : (6) SELECT Property
+S -> MLR : (7) save(MasterLease ACTIVE)
+MLR -> DB : (8) INSERT/UPDATE MasterLease
+break
+  S -> DB : RollbackTransaction()
+end
+S -> DB : (9) CommitTransaction()
+S --> C : (10) MasterLeaseResponse
+deactivate S
+C --> FE : (11) OK
+deactivate C
+
+== B. Ghi chi phí phát sinh (HostExpense) ==
+
+Owner -> FE : (12) Add monthly expense
+FE -> C : (13) POST /api/v1/host/expenses\nHostExpenseUpsertRequest
+activate C
+C -> S : (14) upsertExpense(req)
+activate S
+S -> DB : (15) BeginTransaction()
+S -> HER : (16) save(HostExpense)
+HER -> DB : (17) INSERT HostExpense
+S -> DB : (18) CommitTransaction()
+S --> C : (19) HostExpenseResponse
+deactivate S
+C --> FE : (20) OK
+deactivate C
+
+== C. Xem cash flow / PnL (đối chiếu doanh thu phòng) ==
+
+Owner -> FE : (21) Open cash flow dashboard
+FE -> C : (22) GET /api/v1/host/finance/cashflow\n?from&to&propertyId
+activate C
+C -> S : (23) getCashflow(filters)
+activate S
+S -> TIR : (24) sum PAID TenantInvoice\n(in period)
+TIR -> DB : (25) SELECT aggregates
+DB --> TIR : (26) income
+TIR --> S : (27) totalIncome
+S -> TPR : (28) optional payment cross-check
+S -> MLR : (29) sum MasterLease.monthlyRent\n(+ prorate)
+MLR -> DB : (30) SELECT
+MLR --> S : (31) leaseExpense
+S -> HER : (32) sum HostExpense in period
+HER -> DB : (33) SELECT
+HER --> S : (34) otherExpense
+S -> S : (35) netProfit = income\n- (leaseExpense + otherExpense)
+S --> C : (36) HostCashflowResponse
+deactivate S
+C --> FE : (37) Response
+deactivate C
+FE --> Owner : (38) Hiển thị Income / Expense / Net\n(+ export report nếu cần)
+
+note over S
+  Income phát sinh từ luồng Billing
+  (TenantInvoice PAID qua PayOS).
+  Sequence này chỉ đọc + ghi expense.
+end note
+
+@enduml

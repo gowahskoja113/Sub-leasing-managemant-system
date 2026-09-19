@@ -1,0 +1,105 @@
+@startuml TenantActivationSendOtp
+title Figure — TenantActivation (Check & Send OTP) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+participant "Front-end" as FE
+participant "AuthController" as C
+participant "TenantActivationServiceImpl" as S
+participant "UserRepository" as UR
+participant "TenantContractRepository" as TCR
+participant "OtpServiceImpl" as OTP
+participant "OtpVerificationRepository" as OVR
+participant "TwilioServiceImpl" as TW
+database DB
+
+Tenant -> FE : (1) Enter phone number\nClick "Activate account"
+FE -> C : (2) POST /api/v1/auth/tenant-activate/check\nphoneNumber
+activate C
+C -> S : (3) check(phoneNumber)
+activate S
+S -> UR : (4) findByPhoneNumber(local / international) / findByUsername
+activate UR
+UR -> DB : (5) SELECT User
+DB --> UR : (6) User / empty
+UR --> S : (7) User?
+deactivate UR
+
+alt User not found / not ROLE_TENANT / status DISABLE
+  S --> C : status NOT_FOUND / NOT_ELIGIBLE
+else isFirstLogin = false
+  S --> C : status READY_TO_LOGIN
+else First login
+  S -> TCR : (8) findByTenantId(userId)
+  activate TCR
+  TCR -> DB : (9) SELECT TenantContract
+  DB --> TCR : (10) contracts
+  TCR --> S : (11) contracts
+  deactivate TCR
+  alt No ACTIVE or (PENDING + PAID) contract
+    S --> C : status NOT_ELIGIBLE\n(deposit not paid yet)
+  else Has eligible contract
+    S --> C : (12) status NEEDS_ACTIVATION
+  end
+end
+deactivate S
+C --> FE : (13) 200 OK + TenantActivateCheckResponse
+deactivate C
+
+alt status is not NEEDS_ACTIVATION
+  FE --> Tenant : Show message
+end
+
+FE --> Tenant : (14) Show "Send OTP" step
+Tenant -> FE : (15) Click "Send OTP"
+FE -> C : (16) POST /api/v1/auth/tenant-activate/send-otp\nphoneNumber
+activate C
+C -> S : (17) sendOtp(phoneNumber)
+activate S
+
+S -> DB : (18) BeginTransaction()
+activate DB
+DB --> S : (19) Success
+
+S -> S : (20) requireActivatableTenant()\n(re-run check, must be NEEDS_ACTIVATION)
+
+S -> OTP : (21) sendOtp(phone, TENANT_ACTIVATION, referenceId)
+activate OTP
+OTP -> OTP : (22) generateCode() 6 digits,\nexpiresAt = now + expiryMinutes
+OTP -> OVR : (23) save(OtpVerification)
+activate OVR
+OVR -> DB : (24) INSERT OtpVerification
+DB --> OVR : (25) OK
+OVR --> OTP : (26) saved
+deactivate OVR
+OTP -> TW : (27) sendOtp(phone, code)
+activate TW
+TW --> OTP : (28) SMS sent
+deactivate TW
+OTP --> S : (29) done
+deactivate OTP
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (30) CommitTransaction()
+DB --> S : (31) Committed
+deactivate DB
+
+S --> C : (32) void
+deactivate S
+C --> FE : (33) 200 OK
+deactivate C
+FE --> Tenant : (34) Show OTP input
+
+@enduml

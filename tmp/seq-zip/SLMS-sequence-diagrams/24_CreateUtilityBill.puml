@@ -1,0 +1,119 @@
+@startuml CreateUtilityBill
+title Figure — CreateUtilityBill (Admin Publishes EVN / Water Bill) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "AdminUtilityBillController" as C
+participant "UtilityBillServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "UtilityBillRepository" as UBR
+participant "UtilityInvoiceServiceImpl" as UIS
+participant "NotificationRepository" as NR
+database DB
+
+Admin -> FE : (1) Scan / enter utility bill (customer code, period,\ntotal quantity, total amount, image)\nClick "Publish"
+FE -> C : (2) POST /api/v1/admin/utility-bills\nCreateUtilityBillRequest
+activate C
+C -> S : (3) createUtilityBill(request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property / empty
+PR --> S : (9) Property
+deactivate PR
+
+S -> S : (10) assertCustomerCodeMatches(property, type, customerCode)
+
+alt Customer code missing / mismatch
+  S --> C : BusinessException CUSTOMER_CODE_REQUIRED / MISMATCH
+  C --> FE : Error response
+  FE --> Admin : Show error (confirm code and resend)
+end
+
+S -> UBR : (11) findByPropertyIdAndMonthAndYearAndTypeAndStatus(PUBLISHED)
+activate UBR
+UBR -> DB : (12) SELECT UtilityBill
+DB --> UBR : (13) existing / empty
+UBR --> S : (14) Optional<UtilityBill>
+deactivate UBR
+
+alt Bill already exists for this period
+  S --> C : BusinessException UTILITY_BILL_ALREADY_EXISTS
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+opt Property is whole house
+  S -> S : (15) validateWholeHouseReadings(prev, new, totalQuantity)
+  alt Consumption mismatch / reading order invalid
+    S --> C : BusinessException
+    C --> FE : Error response
+    FE --> Admin : Show error
+  end
+end
+
+S -> S : (16) unitPrice = totalAmount / totalQuantity
+
+S -> UBR : (17) save(UtilityBill status = PUBLISHED)
+activate UBR
+UBR -> DB : (18) INSERT UtilityBill
+DB --> UBR : (19) Model state
+UBR --> S : (20) saved bill
+deactivate UBR
+
+alt Whole house
+  S -> UIS : (21) createFromWholeHouseBill(bill, prevReading, newReading)
+  activate UIS
+  UIS -> DB : (22) INSERT UtilityInvoice + TenantInvoice\n(tenant of ACTIVE contract), notify tenant
+  DB --> UIS : (23) OK
+  UIS --> S : (24) UtilityInvoiceResponse
+  deactivate UIS
+  S -> NR : (25) notifyManagerBillPublished
+  NR -> DB : (26) INSERT Notification
+else Room rental, ELECTRIC
+  S -> UIS : (27) issueElectricFromSavedReadings(bill)
+  activate UIS
+  UIS -> DB : (28) SELECT unissued MeterReading (period),\nINSERT UtilityInvoice per room
+  DB --> UIS : (29) OK
+  UIS --> S : (30) issued count
+  deactivate UIS
+else Room rental, WATER
+  S -> UIS : (31) issueWaterFromSavedReadings(bill)
+  activate UIS
+  UIS -> DB : (32) SELECT unissued water readings,\nINSERT UtilityInvoice per room
+  DB --> UIS : (33) OK
+  UIS --> S : (34) issued count
+  deactivate UIS
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (35) CommitTransaction()
+DB --> S : (36) Committed
+deactivate DB
+
+S --> C : (37) UtilityBillResponse
+deactivate S
+C --> FE : (38) 200 OK + UtilityBillResponse
+deactivate C
+FE --> Admin : (39) Show published bill
+
+@enduml

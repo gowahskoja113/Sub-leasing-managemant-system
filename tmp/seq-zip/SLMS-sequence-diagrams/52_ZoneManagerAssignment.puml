@@ -1,0 +1,143 @@
+@startuml ZoneManagerAssignment
+title Figure — ZoneManagerAssignment (Assign / Transfer / Release Manager of a Zone) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "ZoneAssignmentController" as C
+participant "ZoneAssignmentServiceImpl" as S
+participant "ZoneRepository" as ZR
+participant "UserRepository" as UR
+participant "ZoneManagerRepository" as ZMR
+participant "PropertyOnboardingServiceImpl" as POS
+participant "TenantContractRepository" as TCR
+participant "ZoneManagerHandoverRepository" as ZHR
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+Admin -> FE : (1) Choose zone and manager\nClick "Assign manager"
+FE -> C : (2) PUT /api/v1/zones/{zoneId}/manager\nAssignZoneManagerRequest
+activate C
+C -> S : (3) assignManager(zoneId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> ZR : (6) findById(zoneId)
+activate ZR
+ZR -> DB : (7) SELECT Zone
+DB --> ZR : (8) Zone / empty
+ZR --> S : (9) Zone
+deactivate ZR
+S -> UR : (10) findById(managerId)
+activate UR
+UR -> DB : (11) SELECT User
+DB --> UR : (12) User / empty
+UR --> S : (13) User
+deactivate UR
+
+alt Zone or manager not found
+  S --> C : ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> ZMR : (14) findById(zoneId) (existing assignment)
+activate ZMR
+ZMR -> DB : (15) SELECT ZoneManager
+DB --> ZMR : (16) ZoneManager?
+ZMR --> S : (17) existing
+deactivate ZMR
+
+opt Same manager already assigned
+  S --> C : latest handover (no change)
+end
+
+S -> ZMR : (18) save(ZoneManager zoneId, managerId, assignedBy, assignedAt)
+activate ZMR
+ZMR -> DB : (19) INSERT / UPDATE ZoneManager
+DB --> ZMR : (20) OK
+deactivate ZMR
+
+S -> POS : (21) applyZoneOperationManager(zoneId, managerId)
+activate POS
+POS -> DB : (22) UPDATE Property.operationManagerId for each property in zone;\nPENDING_OPERATION_MANAGER -> ACTIVE, open DRAFT rooms;\nreassign manager on live contracts
+DB --> POS : (23) OK
+POS --> S : (24) affectedProperties
+deactivate POS
+
+S -> TCR : (25) findActiveAndPendingByZoneId(zoneId)\nupdateAssignedManagerByZoneId(manager, zoneId)
+activate TCR
+TCR -> DB : (26) UPDATE TenantContract.assignedManager
+DB --> TCR : (27) affectedContracts
+TCR --> S : (28) affectedContracts
+deactivate TCR
+
+S -> ZHR : (29) save(ZoneManagerHandover from, to, changedBy,\naffectedProperties, affectedContracts)
+activate ZHR
+ZHR -> DB : (30) INSERT ZoneManagerHandover
+DB --> ZHR : (31) OK
+deactivate ZHR
+
+S -> NR : (32) sendHandoffNotifications(old manager, new manager, tenants)
+activate NR
+NR -> DB : (33) INSERT Notification
+DB --> NR : (34) OK
+deactivate NR
+S -> PUSH : (35) sendToUser(...)
+PUSH --> S : (36) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (37) CommitTransaction()
+DB --> S : (38) Committed
+deactivate DB
+S --> C : (39) ZoneHandoverResponse
+deactivate S
+C --> FE : (40) 200 OK
+deactivate C
+FE --> Admin : (41) Show updated zone assignment
+
+== Release a zone (remove manager) ==
+Admin -> FE : (42) Click "Remove manager"
+FE -> C : (43) DELETE /api/v1/zones/{zoneId}/manager
+C -> S : (44) removeManager(zoneId)
+S -> S : (45) assertNoLiveContracts(zoneId)
+alt Zone still has live contracts
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> ZMR : (46) delete(ZoneManager)
+ZMR -> DB : (47) DELETE ZoneManager
+S -> POS : (48) releaseZoneOperationManager(zoneId)\n(ACTIVE -> PENDING_OPERATION_MANAGER,\nAVAILABLE rooms -> DRAFT)
+POS -> DB : (49) UPDATE Property, Room
+S -> TCR : (50) removeAssignedManagerByZoneId(zoneId)
+TCR -> DB : (51) UPDATE TenantContract
+S -> ZHR : (52) save(ZoneManagerHandover to = null)
+ZHR -> DB : (53) INSERT ZoneManagerHandover
+S -> NR : (54) sendHandoffNotifications(...)
+S --> C : (55) void
+C --> FE : (56) 200 OK
+
+== Transfer a manager to another zone ==
+note over S
+  transferManager(request): assignManager(toZoneId, managerId),
+  then doRemoveManager() for every zone in releaseZoneIds that
+  is currently held by the same manager.
+end note
+
+@enduml

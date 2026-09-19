@@ -1,0 +1,87 @@
+@startuml ContractExpiryCron
+title Figure — ContractExpiryCron (Expire Contracts, Auto Checkout Request & Reminders) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor "Scheduler\n(cron 00:00)" as CRON
+participant "ContractLifecycleCron" as CL
+participant "TenantCheckoutServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "ExtensionRequestRepository" as ERR
+participant "CheckoutRequestRepository" as CRR
+participant "TenantOnboardingServiceImpl" as TOS
+participant "NotificationRepository" as NR
+database DB
+
+CRON -> CL : (1) expireDueContracts()
+activate CL
+CL -> S : (2) processExpiredContracts()
+activate S
+
+S -> DB : (3) BeginTransaction()
+activate DB
+DB --> S : (4) Success
+
+S -> TCR : (5) findByStatus(ACTIVE)
+activate TCR
+TCR -> DB : (6) SELECT TenantContract
+DB --> TCR : (7) contracts
+TCR --> S : (8) List<TenantContract>
+deactivate TCR
+
+loop for each ACTIVE contract with endDate
+  S -> ERR : (9) existsByTenantContractIdAndStatus(PENDING)
+  activate ERR
+  ERR -> DB : (10) SELECT ExtensionRequest
+  DB --> ERR : (11) exists?
+  ERR --> S : (12) boolean
+  deactivate ERR
+
+  alt Pending extension request AND today > endDate + 7 days
+    S -> ERR : (13) save(status = EXPIRED, rejectReason = "Overdue")
+    ERR -> DB : (14) UPDATE ExtensionRequest
+    S -> NR : (15) sendNotification(tenant, EXTENSION_EXPIRED)
+  else Pending extension request AND today = endDate
+    S -> NR : (16) notify manager, admins, owners (EXTENSION_REMINDER)\n(auto checkout request is postponed)
+  end
+
+  opt No pending extension request
+    opt endDate is before today
+      S -> TCR : (17) save(status = EXPIRED)
+      TCR -> DB : (18) UPDATE TenantContract
+      S -> TOS : (19) syncExpiredIfNeeded(contract)
+    end
+    opt Today >= endDate AND no open checkout request
+      S -> CRR : (20) save(CheckoutRequest status PENDING,\norigin = CONTRACT_EXPIRED, reason = natural expiry)
+      CRR -> DB : (21) INSERT CheckoutRequest
+      S -> NR : (22) sendNotification(tenant + manager, CHECKOUT_REQUESTED_AUTO)
+      NR -> DB : (23) INSERT Notification
+    end
+  end
+end
+
+CL -> S : (24) processContractExpirationReminders()
+S -> TCR : (25) findByStatus(ACTIVE)
+loop each contract with 30 / 15 / 7 / 1 / 0 days left
+  S -> NR : (26) sendNotification(tenant + manager CONTRACT_EXPIRING;\nowners only at D-30 and D-0)
+  NR -> DB : (27) INSERT Notification
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+end
+
+S -> DB : (28) CommitTransaction()
+DB --> S : (29) Committed
+deactivate DB
+S --> CL : (30) void
+deactivate S
+CL --> CRON : (31) done
+deactivate CL
+
+@enduml

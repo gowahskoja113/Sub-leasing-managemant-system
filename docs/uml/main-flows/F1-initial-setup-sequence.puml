@@ -1,0 +1,85 @@
+@startuml F1_InitialSetup_Sequence
+title Figure — Initial Setup Sequence Diagram\nSubmit to Host → Host Confirm Pricing → Assign Operation Manager
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Admin
+actor Host
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "RoomRepository" as RR
+participant "OperationManagementRepository" as OMR
+database DB
+
+== A. Admin nộp hồ sơ cho Host ==
+
+Admin -> FE : (1) Click "Submit to Host"
+FE -> C : (2) POST /api/v1/properties/{id}/submit-to-host
+activate C
+C -> S : (3) submitToHost(propertyId)
+activate S
+S -> DB : (4) BeginTransaction()
+DB --> S : (5) Success
+S -> PR : (6) findById(propertyId)
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+S -> S : (10) validate structure / equipment / pricing ready
+S -> PR : (11) save(status=PENDING_HOST,\nsubmittedToHostAt=now)
+PR -> DB : (12) UPDATE Property
+DB --> PR : (13) OK
+PR --> S : (14) Property
+break
+  S -> DB : RollbackTransaction()
+end
+S -> DB : (15) CommitTransaction()
+DB --> S : (16) Committed
+S --> C : (17) PropertyResponse
+deactivate S
+C --> FE : (18) Response
+deactivate C
+FE --> Admin : (19) Chờ Host xác nhận
+
+== B. Host xác nhận giá ==
+
+Host -> FE : (20) Confirm appliedPrice / roomPrices
+FE -> C : (21) POST /api/v1/properties/{id}/host-confirm
+activate C
+C -> S : (22) hostConfirm(id, HostConfirmRequest)
+activate S
+S -> DB : (23) BeginTransaction()
+S -> PR : (24) findById + validate PENDING_HOST
+S -> RR : (25) update room prices
+RR -> DB : (26) UPDATE Room
+S -> PR : (27) save(appliedPrice, status=READY)
+PR -> DB : (28) UPDATE Property
+S -> DB : (29) CommitTransaction()
+S --> C : (30) PropertyResponse
+deactivate S
+C --> FE : (31) Response
+deactivate C
+FE --> Host : (32) Đã xác nhận giá
+
+== C. Admin gán Operation Manager ==
+
+Admin -> FE : (33) Chọn manager
+FE -> C : (34) PATCH /api/v1/properties/{id}/operation-manager
+activate C
+C -> S : (35) assignOperationManager(id, req)
+activate S
+S -> DB : (36) BeginTransaction()
+S -> OMR : (37) save(OperationManagement)
+OMR -> DB : (38) INSERT OperationManagement
+S -> PR : (39) save(operationManagerId,\nstatus→OPERATING)
+PR -> DB : (40) UPDATE Property
+S -> DB : (41) CommitTransaction()
+S --> C : (42) PropertyResponse
+deactivate S
+C --> FE : (43) Response
+deactivate C
+FE --> Admin : (44) Nhà sẵn sàng vận hành
+
+@enduml

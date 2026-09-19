@@ -1,0 +1,223 @@
+@startuml F3_MonthlyBilling_Class
+title Figure — Monthly Billing & Payment Class Diagram\nUML 2.1 — Meter lock / UtilityBill / Invoice / PayOS
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+together {
+  class MeterReadingController {
+    - meterReadingService: MeterReadingService
+    + saveLocked(req: SaveMeterReadingRequest): SavedMeterReadingItem
+  }
+
+  class AdminUtilityBillController {
+    - utilityBillService: UtilityBillService
+    + create(req: CreateUtilityBillRequest): UtilityBillResponse
+  }
+
+  class TenantMeController {
+    - tenantBillingService: TenantBillingService
+    + createPayment(invoiceId: Long): PaymentLinkResponse
+  }
+
+  class PayosWebhookController {
+    - tenantBillingService: TenantBillingService
+    + handleWebhook(payload): void
+  }
+
+  class AdminBillingController {
+    - billingCronService: BillingCronService
+    + runDailySweep(): void
+  }
+
+  class SaveMeterReadingRequest {
+    + propertyId: Long
+    + roomId: Long
+    + utilityType: String
+    + period: String
+    + prevReading: BigDecimal
+    + newReading: BigDecimal
+    + meterImageUrl: String
+    + overrideToken: UUID
+    + overrideReason: String
+  }
+
+  class CreateUtilityBillRequest {
+    + propertyId: Long
+    + type: String
+    + month: Integer
+    + year: Integer
+    + totalQuantity: Integer
+    + totalAmount: BigDecimal
+    + customerCode: String
+    + imageUrl: String
+  }
+}
+
+together {
+  interface MeterReadingService
+  class MeterReadingServiceImpl {
+    - meterReadingRepository: MeterReadingRepository
+    - utilityBillRepository: UtilityBillRepository
+    - utilityInvoiceService: UtilityInvoiceService
+    - meterOverrideService: MeterOverrideService
+    + saveLockedReading(req): SavedMeterReadingItem
+  }
+
+  interface UtilityBillService
+  class UtilityBillServiceImpl {
+    - utilityBillRepository: UtilityBillRepository
+    - utilityInvoiceService: UtilityInvoiceService
+    + createUtilityBill(req): UtilityBillResponse
+  }
+
+  interface UtilityInvoiceService
+  class UtilityInvoiceServiceImpl {
+    + issueElectricFromSavedReadings(bill): int
+    + issueWaterFromSavedReadings(bill): int
+    + issueElectricFromSavedReading(bill, readingId): UtilityInvoiceResponse
+  }
+
+  interface TenantBillingService
+  class TenantBillingServiceImpl {
+    - tenantInvoiceRepository: TenantInvoiceRepository
+    - payosService: PayosService
+    + createFromUtilityInvoice(...): TenantInvoice
+    + createPaymentLink(invoiceId): PaymentLinkResponse
+    + markInvoicePaidByPayosOrderCode(...): void
+  }
+
+  interface BillingCronService
+  class BillingCronServiceImpl {
+    + runDailySweep(): void
+  }
+
+  interface MeterOverrideService
+  interface PayosService
+}
+
+note right of MeterReadingServiceImpl
+  «@Transactional»
+  Side-effect: auto-issue invoice
+  nếu UtilityBill đã PUBLISHED
+end note
+
+together {
+  interface MeterReadingRepository
+  interface UtilityBillRepository
+  interface UtilityInvoiceRepository
+  interface TenantInvoiceRepository
+  interface TenantPaymentRepository
+}
+
+interface JpaRepository<T,ID>
+MeterReadingRepository --|> JpaRepository
+UtilityBillRepository --|> JpaRepository
+UtilityInvoiceRepository --|> JpaRepository
+TenantInvoiceRepository --|> JpaRepository
+TenantPaymentRepository --|> JpaRepository
+
+together {
+  class MeterReading {
+    + id: Long
+    + utilityType: UtilityType
+    + period: String
+    + prevReading: BigDecimal
+    + reading: BigDecimal
+    + imageUrl: String
+    + utilityInvoiceId: Long
+    + recordedAt: LocalDateTime
+  }
+
+  class UtilityBill {
+    + id: Long
+    + type: UtilityType
+    + month: Integer
+    + year: Integer
+    + totalQuantity: Integer
+    + totalAmount: BigDecimal
+    + unitPrice: BigDecimal
+    + status: UtilityBillStatus
+  }
+
+  class UtilityInvoice {
+    + id: Long
+    + consumption: BigDecimal
+    + amount: BigDecimal
+    + status: UtilityInvoiceStatus
+  }
+
+  class TenantInvoice {
+    + id: Long
+    + invoiceType: TenantInvoiceType
+    + amount: BigDecimal
+    + status: TenantInvoiceStatus
+    + dueDate: LocalDate
+    + autoIssued: Boolean
+  }
+
+  class TenantPayment {
+    + id: Long
+    + amount: BigDecimal
+    + paidAt: LocalDateTime
+  }
+
+  class TenantInvoicePayosOrder {
+    + id: Long
+    + orderCode: String
+    + status: PayosOrderStatus
+  }
+
+  class Property
+  class Room
+  class TenantContract
+
+  enum UtilityBillStatus {
+    PUBLISHED
+    REVOKED
+  }
+
+  enum TenantInvoiceStatus {
+    UNPAID
+    PAID
+    OVERDUE
+    ...
+  }
+}
+
+MeterReadingController --> MeterReadingService
+AdminUtilityBillController --> UtilityBillService
+TenantMeController --> TenantBillingService
+PayosWebhookController --> TenantBillingService
+AdminBillingController --> BillingCronService
+
+MeterReadingService <|.. MeterReadingServiceImpl
+UtilityBillService <|.. UtilityBillServiceImpl
+UtilityInvoiceService <|.. UtilityInvoiceServiceImpl
+TenantBillingService <|.. TenantBillingServiceImpl
+BillingCronService <|.. BillingCronServiceImpl
+
+MeterReadingServiceImpl --> MeterReadingRepository
+MeterReadingServiceImpl --> UtilityBillRepository
+MeterReadingServiceImpl --> UtilityInvoiceService
+MeterReadingServiceImpl --> MeterOverrideService
+UtilityBillServiceImpl --> UtilityBillRepository
+UtilityBillServiceImpl --> UtilityInvoiceService
+TenantBillingServiceImpl --> TenantInvoiceRepository
+TenantBillingServiceImpl --> PayosService
+TenantBillingServiceImpl --> TenantPaymentRepository
+
+Property "1" o-- "*" MeterReading
+Room "0..1" o-- "*" MeterReading
+Property "1" o-- "*" UtilityBill
+Property "1" o-- "*" UtilityInvoice
+Room "0..1" o-- "*" UtilityInvoice
+TenantContract "1" o-- "*" TenantInvoice
+TenantInvoice "1" o-- "*" TenantPayment
+TenantInvoice "1" o-- "*" TenantInvoicePayosOrder
+MeterReading ..> UtilityInvoice : utilityInvoiceId
+UtilityBill --> UtilityBillStatus
+TenantInvoice --> TenantInvoiceStatus
+
+@enduml

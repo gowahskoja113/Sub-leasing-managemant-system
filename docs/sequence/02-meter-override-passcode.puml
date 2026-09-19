@@ -1,0 +1,147 @@
+@startuml MeterOverridePasscode
+title Figure — MeterOverride Passcode & Verify Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+
+actor Admin
+actor Manager
+participant "Front-end" as FE
+participant "MeterOverrideController" as C
+participant "MeterOverrideServiceImpl" as S
+participant "MeterOverridePasscodeRepository" as PR
+participant "MeterOverrideFailCounterRepository" as FCR
+participant "MeterOverrideTokenRepository" as TR
+participant "TenantContractRepository" as TCR
+database DB
+
+== A. Admin tạo mã OTP một lần ==
+
+Admin -> FE : (1) Click "Tạo mã override chỉ số"
+FE -> C : (2) POST /api/v1/admin/meter-override/passcodes
+activate C
+C -> S : (3) generatePasscode(adminId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) countByCreatedByAndCreatedAtAfter(1h)
+activate PR
+PR -> DB : (7) SELECT COUNT
+DB --> PR : (8) recent count
+PR --> S : (9) count
+deactivate PR
+
+alt [Vượt MAX_GEN_PER_HOUR]
+  S --> C : 429 TOO_MANY_REQUESTS
+else [OK]
+  S -> S : (10) generateUniqueCode()
+  S -> PR : (11) save(MeterOverridePasscode)
+  activate PR
+  PR -> DB : (12) INSERT MeterOverridePasscode
+  DB --> PR : (13) Model state
+  PR --> S : (14) saved passcode
+  deactivate PR
+end
+
+break [Lỗi]
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+end
+
+S -> DB : (15) CommitTransaction()
+DB --> S : (16) Committed
+deactivate DB
+
+S --> C : (17) MeterOverridePasscodeResponse\n(code, expiresAt, message)
+deactivate S
+C --> FE : (18) Response result
+deactivate C
+FE --> Admin : (19) Hiển thị mã 6 số\n(Admin gửi tay cho Manager)
+
+== B. Manager verify mã → nhận overrideToken ==
+
+Manager -> FE : (20) Nhập passcode + contractId + meterKind
+FE -> C : (21) POST /api/v1/manager/meter-override/verify
+activate C
+C -> S : (22) verifyPasscode(managerId, request)
+activate S
+
+S -> DB : (23) BeginTransaction()
+activate DB
+DB --> S : (24) Success
+
+opt [Có contractId]
+  S -> TCR : (25) findById(contractId)
+  activate TCR
+  TCR -> DB : (26) SELECT TenantContract
+  DB --> TCR : (27) Contract
+  TCR --> S : (28) TenantContract
+  deactivate TCR
+end
+
+S -> FCR : (29) findById(managerId) fail counter
+activate FCR
+FCR -> DB : (30) SELECT FailCounter
+DB --> FCR : (31) counter
+FCR --> S : (32) MeterOverrideFailCounter
+deactivate FCR
+
+alt [Đang bị lock]
+  S --> C : 429 locked
+else [Tìm passcode usable]
+  S -> PR : (33) findUsableByCode(code, now)
+  activate PR
+  PR -> DB : (34) SELECT Passcode
+  DB --> PR : (35) passcode / null
+  PR --> S : (36) MeterOverridePasscode?
+  deactivate PR
+end
+
+alt [Sai mã / hết hạn]
+  S -> FCR : (37) save(counter++ / lock)
+  FCR -> DB : (38) UPDATE FailCounter
+  S --> C : 403 FORBIDDEN
+else [Mã hợp lệ]
+  S -> PR : (39) save(passcode.usedAt, usedBy)
+  activate PR
+  PR -> DB : (40) UPDATE Passcode (tiêu thụ 1 lần)
+  DB --> PR : (41) OK
+  PR --> S : (42) done
+  deactivate PR
+
+  S -> FCR : (43) reset fail counter
+  FCR -> DB : (44) UPDATE FailCounter
+
+  S -> TR : (45) save(MeterOverrideToken UUID)
+  activate TR
+  TR -> DB : (46) INSERT OverrideToken
+  DB --> TR : (47) Model state
+  TR --> S : (48) token
+  deactivate TR
+end
+
+break [Lỗi]
+  S -> DB : RollbackTransaction()
+end
+
+S -> DB : (49) CommitTransaction()
+DB --> S : (50) Committed
+deactivate DB
+
+S --> C : (51) MeterOverrideVerifyResponse\n(overrideToken, expiresAt)
+deactivate S
+C --> FE : (52) Response result
+deactivate C
+FE --> Manager : (53) Lưu overrideToken\n→ dùng khi POST chốt chỉ số (không ảnh)
+
+note right of Manager
+  Tiếp theo: luồng SaveLockedMeterReading
+  với overrideToken + overrideReason
+  (consumeOverrideIfPresent)
+end note
+
+@enduml

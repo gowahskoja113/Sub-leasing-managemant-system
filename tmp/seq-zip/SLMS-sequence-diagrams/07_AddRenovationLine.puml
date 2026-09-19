@@ -1,0 +1,106 @@
+@startuml AddRenovationLine
+title Figure — AddRenovationLine & SetRenovationSchedule Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "RenovationCategoryRepository" as RCR
+participant "RenovationSessionRepository" as RSR
+participant "RenovationLineRepository" as RLR
+database DB
+
+== Add renovation line ==
+Admin -> FE : (1) Choose category, cost, note\nClick "Add renovation item"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/renovation-lines\nAddRenovationLineRequest
+activate C
+C -> S : (3) addRenovationLine(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status not in process 2 OR hasRenovation = false
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> RCR : (10) findById(categoryId)
+activate RCR
+RCR -> DB : (11) SELECT RenovationCategory
+DB --> RCR : (12) Category / empty
+RCR --> S : (13) RenovationCategory
+deactivate RCR
+
+S -> RSR : (14) findOrCreateCurrentSession(property)
+activate RSR
+RSR -> DB : (15) SELECT / INSERT RenovationSession
+DB --> RSR : (16) session
+RSR --> S : (17) RenovationSession
+deactivate RSR
+
+S -> RLR : (18) save(RenovationLine)
+activate RLR
+RLR -> DB : (19) INSERT RenovationLine
+DB --> RLR : (20) OK
+RLR --> S : (21) saved
+deactivate RLR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+
+S --> C : (24) RenovationLineResponse
+deactivate S
+C --> FE : (25) 200 OK + RenovationLineResponse
+deactivate C
+FE --> Admin : (26) Show renovation line
+
+== Set renovation schedule ==
+Admin -> FE : (27) Enter start date / end date\nClick "Save schedule"
+FE -> C : (28) PUT /api/v1/properties/{propertyId}/renovation-schedule\nRenovationScheduleRequest
+activate C
+C -> S : (29) setRenovationSchedule(propertyId, request)
+activate S
+S -> PR : (30) findById(propertyId)
+PR --> S : (31) Property
+alt endDate not after startDate OR not in process 2 OR hasRenovation = false
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+S -> RSR : (32) findOrCreateCurrentSession + save(start, end)
+RSR -> DB : (33) UPDATE RenovationSession
+S -> PR : (34) save(renovationStartDate, renovationEndDate,\nrenovationCompleted = false)
+PR -> DB : (35) UPDATE Property
+S --> C : (36) PropertyResponse
+deactivate S
+C --> FE : (37) 200 OK
+deactivate C
+FE --> Admin : (38) Show schedule
+
+@enduml

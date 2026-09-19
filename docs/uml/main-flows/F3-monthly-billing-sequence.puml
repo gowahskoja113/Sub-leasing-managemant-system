@@ -1,0 +1,96 @@
+@startuml F3_MonthlyBilling_Sequence
+title Figure — Monthly Billing Sequence Diagram\nLock meter → Publish bill → Issue invoice → PayOS pay
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+actor Admin
+actor Tenant
+participant "Front-end" as FE
+participant "MeterReadingController" as MC
+participant "AdminUtilityBillController" as AC
+participant "TenantMeController" as TC
+participant "PayosWebhookController" as WC
+participant "MeterReadingServiceImpl" as MRS
+participant "UtilityBillServiceImpl" as UBS
+participant "UtilityInvoiceService" as UIS
+participant "TenantBillingServiceImpl" as TBS
+participant "PayosService" as PayOS
+participant "MeterReadingRepository" as MRR
+participant "UtilityBillRepository" as UBR
+participant "TenantInvoiceRepository" as TIR
+database DB
+
+== A. Manager chốt chỉ số ==
+
+Manager -> FE : (1) Chốt chỉ số (ảnh / override)
+FE -> MC : (2) POST /api/v1/manager/meter-readings
+activate MC
+MC -> MRS : (3) saveLockedReading(req)
+activate MRS
+MRS -> DB : (4) BeginTransaction()
+MRS -> MRS : (5) validate period, reading,\ncontract ACTIVE
+alt [không ảnh]
+  MRS -> MRS : (6) consumeOverrideIfPresent(...)
+end
+MRS -> MRR : (7) save(MeterReading)
+MRR -> DB : (8) INSERT/UPDATE
+opt [UtilityBill đã PUBLISHED]
+  MRS -> UIS : (9) issue*FromSavedReading
+  UIS -> DB : (10) INSERT UtilityInvoice\n+ TenantInvoice
+end
+MRS -> DB : (11) CommitTransaction()
+MRS --> MC : (12) SavedMeterReadingItem
+deactivate MRS
+MC --> FE : (13) 201 Created
+deactivate MC
+
+== B. Admin publish giấy EVN/nước ==
+
+Admin -> FE : (14) Publish UtilityBill
+FE -> AC : (15) POST /api/v1/admin/utility-bills
+activate AC
+AC -> UBS : (16) createUtilityBill(req)
+activate UBS
+UBS -> DB : (17) BeginTransaction()
+UBS -> UBR : (18) save(status=PUBLISHED)
+UBR -> DB : (19) INSERT UtilityBill
+UBS -> UIS : (20) issueElectric/WaterFromSavedReadings
+UIS -> DB : (21) INSERT invoices từ readings đã chốt
+UBS -> DB : (22) CommitTransaction()
+UBS --> AC : (23) UtilityBillResponse
+deactivate UBS
+AC --> FE : (24) OK
+deactivate AC
+
+== C. Tenant thanh toán PayOS ==
+
+Tenant -> FE : (25) Pay invoice
+FE -> TC : (26) POST /tenant/me/invoices/{id}/payment
+activate TC
+TC -> TBS : (27) createPaymentLink(invoiceId)
+TBS -> PayOS : (28) createPaymentLink
+PayOS --> TBS : (29) QR / orderCode
+TBS -> TIR : (30) save PayosOrder
+TBS --> TC : (31) PaymentLinkResponse
+deactivate TC
+FE --> Tenant : (32) QR
+
+Tenant -> PayOS : (33) Pay success
+PayOS -> WC : (34) POST /payos/webhook
+activate WC
+WC -> TBS : (35) markInvoicePaidByPayosOrderCode
+TBS -> DB : (36) BeginTransaction()
+TBS -> TIR : (37) UPDATE TenantInvoice PAID\n+ INSERT TenantPayment
+TBS -> DB : (38) CommitTransaction()
+WC --> PayOS : (39) 200
+deactivate WC
+FE --> Tenant : (40) Đã thanh toán
+
+note over MRS, TBS
+  Cron BillingCronServiceImpl.runDailySweep
+  (08:00): phát hành tiền thuê + nhắc nợ
+end note
+
+@enduml

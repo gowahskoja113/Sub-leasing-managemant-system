@@ -1,0 +1,126 @@
+@startuml DepositPaymentWebhook
+title Figure — DepositPaymentWebhook (PayOS Webhook / Check Payment) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+participant "PayOS" as EXT
+participant "PayosWebhookController" as WC
+participant "PayosServiceImpl" as PAYOS
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "TenantInvoiceRepository" as TIR
+participant "TenantPaymentRepository" as TPR
+participant "TenantBillingServiceImpl" as TBS
+participant "NotificationRepository" as NR
+participant "Front-end (Manager)" as FE
+participant "TenantContractActionController" as C
+database DB
+
+Tenant -> EXT : (1) Scan QR and pay deposit + first rent
+EXT -> WC : (2) POST /api/v1/payos/webhook\n{code, data{orderCode,...}, signature}
+activate WC
+
+WC -> PAYOS : (3) verifyWebhookSignature(data, signature)
+activate PAYOS
+PAYOS --> WC : (4) valid / invalid
+deactivate PAYOS
+
+alt Signature invalid OR data missing
+  WC --> EXT : 200 OK {success:false / true (ping)}
+end
+
+alt code = "00" AND orderCode > 0
+  WC -> S : (5) markDepositPaid(orderCode)
+  activate S
+
+  S -> DB : (6) BeginTransaction()
+  activate DB
+  DB --> S : (7) Success
+
+  S -> TCR : (8) findByPayosOrderCode(orderCode)
+  activate TCR
+  TCR -> DB : (9) SELECT TenantContract
+  DB --> TCR : (10) TenantContract?
+  TCR --> S : (11) TenantContract?
+  deactivate TCR
+
+  S -> S : (12) completeDepositPayment(contract, orderCode, "PAYOS")\n(idempotent: PayOS may retry)
+  S -> TCR : (13) save(paymentStatus = PAID, paidAt,\ndepositPaidAt, depositMethod)
+  activate TCR
+  TCR -> DB : (14) UPDATE TenantContract
+  DB --> TCR : (15) OK
+  deactivate TCR
+
+  opt contract.tenant is null AND draft phone present
+    S -> S : (16) getOrCreateTenant(draft phone, name, CCCD ...)
+    S -> DB : (17) INSERT / UPDATE User (ROLE_TENANT, firstLogin = true), Tenant
+    DB --> S : (18) OK
+  end
+
+  S -> TIR : (19) findByCode("HD-ONBOARD-{id}")
+  activate TIR
+  TIR -> DB : (20) SELECT TenantInvoice
+  DB --> TIR : (21) invoice / empty
+  TIR --> S : (22) exists?
+  deactivate TIR
+
+  opt Onboarding invoice does not exist yet
+    S -> TIR : (23) save(TenantInvoice type OTHER, status PAID,\ngrandTotal = deposit + first rent)
+    activate TIR
+    TIR -> DB : (24) INSERT TenantInvoice
+    DB --> TIR : (25) OK
+    deactivate TIR
+    S -> TPR : (26) save(TenantPayment)
+    activate TPR
+    TPR -> DB : (27) INSERT TenantPayment
+    DB --> TPR : (28) OK
+    deactivate TPR
+    S -> TBS : (29) recordPaidFirstRentFromOnboard(contract, orderCode)
+    TBS -> DB : (30) INSERT rent invoice for first cycle (PAID)
+  end
+
+  S -> NR : (31) notifyDepositPaid (manager + tenant)
+  activate NR
+  NR -> DB : (32) INSERT Notification
+  DB --> NR : (33) OK
+  deactivate NR
+
+  S -> DB : (34) CommitTransaction()
+  DB --> S : (35) Committed
+  deactivate DB
+  S --> WC : (36) void
+  deactivate S
+
+  WC -> TBS : (37) markInvoicePaidByPayosOrderCode(orderCode)
+  activate TBS
+  TBS -> DB : (38) UPDATE TenantInvoice (only if orderCode belongs to a rent invoice)
+  DB --> TBS : (39) OK
+  deactivate TBS
+end
+
+WC --> EXT : (40) 200 OK {success:true}
+deactivate WC
+
+== Fallback: Manager checks payment manually ==
+FE -> C : (41) POST /api/v1/tenant-contracts/{id}/check-payment
+activate C
+C -> S : (42) syncPaymentStatus(contractId)
+activate S
+S -> PAYOS : (43) getPaymentStatus(orderCode)
+PAYOS -> EXT : (44) GET /v2/payment-requests/{orderCode}
+EXT --> PAYOS : (45) status
+PAYOS --> S : (46) "PAID" / other
+opt status = PAID
+  S -> S : (47) completeDepositPayment(contract, orderCode, "PAYOS")
+end
+S --> C : (48) TenantContractResponse
+deactivate S
+C --> FE : (49) 200 OK
+deactivate C
+
+@enduml

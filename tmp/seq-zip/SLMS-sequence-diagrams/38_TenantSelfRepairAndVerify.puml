@@ -1,0 +1,114 @@
+@startuml TenantSelfRepairAndVerify
+title Figure — TenantSelfRepairAndVerify Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+actor Manager
+actor "Scheduler\n(cron 09:00)" as CRON
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "OutstandingDamageRecordRepository" as ODR
+participant "RoomRepository" as RR
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Tenant submits self-repair evidence ==
+Tenant -> FE : (1) Upload photos of the repaired item\nClick "Submit evidence"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/submit-self-repair\n(multipart files / JSON urls)
+activate C
+C -> S : (3) submitSelfRepair(id, request, files)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) requireStatus(PENDING_TENANT_REPAIR), requireTenantOwner
+
+alt Wrong status / not the ticket owner / no evidence image
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> S : (11) storeFiles(files) -> urls
+S -> DB : (12) INSERT MaintenancePhotoHistory (SELF_REPAIR),\nINSERT MaintenanceTimeline
+S -> NR : (13) notifyPropertyManager MAINTENANCE_SELF_REPAIR_SUBMITTED
+NR -> DB : (14) INSERT Notification
+S -> RT : (15) publishMaintenanceEvent(SELF_REPAIR_SUBMITTED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (16) CommitTransaction()
+DB --> S : (17) Committed
+deactivate DB
+S --> C : (18) MaintenanceRequestResponse
+deactivate S
+C --> FE : (19) 200 OK
+deactivate C
+FE --> Tenant : (20) Show "Waiting for manager verification"
+
+== Manager verifies ==
+Manager -> FE : (21) Review photos, click "Accept" / "Reject"
+FE -> C : (22) PUT /api/v1/maintenance/{id}/verify-repair\nMaintenanceVerifyRepairRequest
+activate C
+C -> S : (23) verifyRepair(id, request)
+activate S
+S -> MR : (24) findActive(id)
+MR --> S : (25) MaintenanceRequest
+S -> S : (26) requireManagerAccess, requireStatus(PENDING_TENANT_REPAIR),\nSELF_REPAIR photo must exist
+alt request.accepted = true
+  S -> MR : (27) save(status = CLOSED, doneAt, resolvedAt)
+  MR -> DB : (28) UPDATE MaintenanceRequest, INSERT Timeline
+  S -> RR : (29) restoreRoomStatus(req)
+  RR -> DB : (30) UPDATE Room (RENTED / AVAILABLE)
+  S -> NR : (31) notifyTenant MAINTENANCE_COMPLETED
+else Rejected
+  S -> MR : (32) save(status = OUTSTANDING_DAMAGE)
+  MR -> DB : (33) UPDATE MaintenanceRequest
+  S -> ODR : (34) save(OutstandingDamageRecord: estimatedAmount, photos)
+  ODR -> DB : (35) INSERT OutstandingDamageRecord (deducted at checkout)
+  S -> NR : (36) notifyTenant MAINTENANCE_SELF_REPAIR_OVERDUE
+end
+S -> RT : (37) publishMaintenanceEvent(VERIFY_REPAIR)
+S --> C : (38) MaintenanceRequestResponse
+deactivate S
+C --> FE : (39) 200 OK
+deactivate C
+FE --> Manager : (40) Show verification result
+
+== Cron: deadline passed without evidence ==
+CRON -> S : (41) processOverdueSelfRepairsTask()
+activate S
+S -> MR : (42) findByStatusAndSelfRepairDeadlineBefore(PENDING_TENANT_REPAIR, today)
+MR -> DB : (43) SELECT MaintenanceRequest
+DB --> MR : (44) overdue tickets
+loop each overdue ticket without SELF_REPAIR photo
+  S -> MR : (45) save(status = OUTSTANDING_DAMAGE)
+  S -> ODR : (46) save(OutstandingDamageRecord)
+  S -> NR : (47) notify tenant + manager (SELF_REPAIR_OVERDUE)
+end
+S --> CRON : (48) count
+deactivate S
+
+@enduml

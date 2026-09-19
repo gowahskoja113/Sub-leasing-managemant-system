@@ -1,0 +1,225 @@
+
+
+CAPSTONE PROJECT REGISTER
+
+Class:            Duration time:  from 04/2026 To 08/2026
+(*) Profession: Software Engineer                   Specialty: SE
+(*) Kinds of person make registers:               Lecturer                Students
+
+1. Register information for supervisor (if have)
+No.
+Full name
+Phone
+E-Mail
+Title
+  Supervisor
+Kiều Trọng Khánh
+
+khanhkt@fpt.edu.vn
+
+2. Register information for students (if have)
+
+Full name
+Student code
+Phone
+E-mail
+Role in Group
+1
+Nguyễn Hoàng Ngọc Sơn
+SE172384
+0352393203
+sonnhnse172384@fpt.edu.vn
+Leader
+2
+Phạm Ngọc Trung Nhân
+SE182294
+0905923781
+nhanpntse182294@fpt.edu.vn
+
+3
+Nguyễn Hoàng Long
+SE172340
+0865803493
+longnhse172340@fpt.edu.vn
+
+4
+Thái Tấn Tiến
+SE172575
+0942013011
+tienttse172575@fpt.edu.vn
+
+5
+
+3. Register content of Capstone Project
+(*) 3.1. Capstone Project name:
+English: Sub-leasing Management System
+Vietnamese: Hệ thống quản lý kinh doanh thuê và cho thuê lại bất động sản
+a. Context:
+The project focuses on developing a comprehensive management system for the business model of renting entire houses, renovating them, and subdividing them into smaller rooms for subleasing. This is a common business model in major cities in Vietnam; however, there is currently no specialized software solution to support efficient management.
+The system includes a mobile application for tenants and on-site operations managers, along with a centralized web-based admin portal to monitor cash flow, investment costs, and the overall operational performance of the property portfolio. It addresses three core challenges: managing two-way cash flow (paying large rent for whole properties while collecting smaller rents from individual rooms), managing equipment from initial investment through operation, and automating rent collection and issue resolution processes.
+Functional requirement :
+Objectives: Based on the user requirement, the system is implemented as follows
+1.Build a Mobile Application: Enable tenants to view invoices, make payments, and submit maintenance requests easily.
+2.Build an Operations Management Application: Support managers in onboarding tenants, recording utility meter readings, and handling operational issues.
+3.Develop an Admin Dashboard: Provide administrators with real-time monitoring of revenue, expenses, and system performance.
+4.Implement an Automated Billing System: Automatically calculate and generate monthly invoices based on rental and utility data.
+5.Integrate a Payment System: Support QR Code and bank transfer payments with automatic status updates via webhook.
+6.Build a Maintenance Management System: Allow tenants to submit requests and enable managers to track and resolve issues efficiently.
+7.Two-way cash flow management: Automatically track and reconcile the rental cost of entire property (expenses) with income collected from individual rooms (revenue) to accurately calculate net profit.
+Non-functional requirement:
+-Limitations:
+oPayment integration is restricted to popular local methods (VietQR, bank transfers). International credit cards are not supported within the project scope.
+oThe application requires a stable internet connection for push notifications, and data synchronization; offline functionality is not supported.
+oUtility meter image recognition relies on an external OCR library; accuracy is highly dependent on the quality of the captured photos.
+-Exclusions:
+oHuman Resource Management: The system does not include HR functionalities such as payroll, attendance tracking, or employee performance evaluations.
+oLegal & Contract Compliance: While the system generates electronic contracts based on templates, it does not guarantee comprehensive legal consulting or full legal validity.
+oProperty Valuation: The system does not provide real estate valuation features or rental market analytics.
+-Assumptions:
+○Property data (houses, rooms, equipment) is initially inputted by System Admin and is maintained regularly.
+○The business operators already hold valid master lease agreements with the original property owners before utilizing the system.
+○Users (tenants and managers) possess smartphones with reliable internet access.
+○Payment integration (banking webhooks/VietQR) functions reliably according to the partner's API documentation.
+-Business rules:
+○Billing Cycle: Invoices are automatically generated on a designated date each month after the manager records the electricity and water meter readings. Invoices cannot be created if the meter readings have not been recorded.
+○Payment Deadline: Tenants must pay within the deadline specified in the lease contract. Late payments will incur additional fees and trigger automatic reminders.
+○Security Deposit: The security deposit is recorded separately and will only be refunded upon contract termination, provided there is no property damage.
+○Occupancy Rule: A room can only have one active lease contract at any given time. A new contract can only be created after the previous one has ended.
+ (*) 3.2. Main proposal content (including result and product)
+Proposed Solutions:
+Deployment Place: Hoang Binh Land Trụ sở chính: 408/31 Nguyễn Thị Minh Khai, Phường Bàn Cờ, TPHCM
+The user has given the scientific research management workflow as follows
+1.Initial Setup (System Admin)
+System Admin → Add Property Portfolio → Main House
+System Admin → Configure Room & Pricing → Sub-divided Rooms
+Main House + Sub-divided Rooms → Record Initial Equipment
+2.Tenant Onboarding (Operations Manager & Tenant)
+Operations Manager → Add New Tenant (Mobile App)
+Operations Manager → Capture Room Condition & Initial Utility Meters
+→ Generate E-Contract (Digital Agreement)
+Tenant → Confirm
+3.Monthly Billing & Payment
+Operations Manager → Record Monthly Meter Reading
+System Handler → Automatic Billing System → Send Invoice Notification
+Tenant → Pay via QR CODE / Bank Transfer → Validate with Bank Webhook & Update Status → Tenant Get Payment Confirmation
+System Handler → Record Income
+4.Maintenance Request (Issue Resolution)
+Tenant → Submit Request (Mobile App)
+System Handler→ Send notification, review & schedule → Operations Manager
+Operations Manager → Perform repairs & Record Costs
+System Handler→ Update equipment history & notify tenant
+5.Cash Flow Management
+System Admin → Record large-house lease expenses
+System Handler → Record Income
+System Handler + Record Income → Automatic Cash Flow Reconciliation → Admin Dashboard → Export Financial Summary to Excel (XLS)
+Applied Theory:
+-Apply the Scrum framework of Agile methodology and use UML Specification 2.5 to describe requirement specifications and design documents
+-The students should apply their knowledge about SWD392, SWE102, SWR302, SWT301, and PMG202c, and their deep programming and skills that they get based on their curriculum or OJT when they do capstone in progress.
+-Should use 3-tier architecture (Client - Server - Database) and apply MVC2 Design Pattern
+-Server-side technique: Java Spring boot, Database Management System
+-Client-side technique: The web application can be applied with React JS, the mobile application can be applied with React Native
+Products (Expected Deliverables):
+Build a system that supports main features written as user stories as follows:
+Tenant & Contract Management Workflow
+-As a tenant, I want to register or log in to an account so that I can access billing and maintenance features.
+-As a tenant, I want to view my current room details, rental contract terms, and payment history.
+-As a tenant, I want to receive push notifications when a new invoice is generated each month.
+-As a tenant, I want to track the status of my maintenance requests from submission to resolution.
+-As an Operations Manager, I want to board a new tenant by registering their information, capturing room condition photos, and recording initial utility meter readings.
+-As an Operations Manager, I want to generate a digital rental contract and send it to the tenant for confirmation via OTP.
+-As a System Admin, I want to manage the full property portfolio, including adding new houses, configuring room layouts, and setting rental pricing.
+-As the System Handler, I want to automatically update room status (Available / Occupied / Maintenance) based on contract events.
+Monthly Billing & Payment Workflow
+-As an Operations Manager, I want to record end-of-month electricity and water meter readings (manually or by photo) for each room.
+-As the System Handler, I want to automatically calculate monthly invoices including rent, electricity, water, service fees, and any outstanding balance
+-As the System Handler, I want to push invoice notifications to tenants' mobile apps immediately after calculation.
+-As a User, I want to view my itemized monthly invoice and pay via QR Code or bank transfer within the app.
+-As the System Handler, I want to process payment webhooks from integrated banking services and automatically update invoice status to 'Paid'.
+-As a System Admin, I want to view a real-time cash flow dashboard showing total revenue collected vs. total expenses for each property.
+- As the System Handler, I want to automatically send payment reminders to tenants who have not paid by the due date.
+Maintenance & Equipment Management Workflow
+-As a User, I want to submit a maintenance request with a description, category (electrical, plumbing, furniture, etc.), and supporting photos.
+-As an Operations Manager, I want to receive instant notifications for new maintenance requests and view them as priority.
+-As an Operations Manager, I want to update the status of a maintenance request (Pending / In Progress / Resolved) and record repair costs.
+-As the System Handler, I want to update the maintenance history for related equipment items when a repair is completed.
+-As the System Handler, I want to send a resolution notification to the tenant when their request is resolved.
+-As an Operations Manager, I want to manage the equipment inventory for each room, tracking item details from installation through the operational lifecycle.
+Cash Flow & Financial Reporting Workflow
+-As a System Admin, I want to record large-house lease expenses (monthly rent paid to property owners) to track the primary cost center.
+-As a System Admin, I want to see a net profit/loss report per property, comparing room revenue against all associated expenses.
+-As the System Handler, I want to automatically reconcile incoming payments against outstanding invoices and generate monthly financial summaries.
+-As a System Admin, I want to export financial reports (revenue, expenses, profit) to Excel for external accounting.
+Proposed Tasks:
+-The first student should implement the Core Back-End Services, including APIs for manage cast flow, Payment integration, and calculate the electric and water fees.
+-The second student should implement the mobile application for Operator and Tenants, integrating maps, push notification, and related functions.
+-The third student should implement the Web application, providing dashboard, profit management, property management, and others.
+-The final student should implement the module reminding billing cycle, some functional about managing system.
+-Schedule Plan
+No.WeekDescription
+1Week 1• Meet directly with the client to gather requirements.
+● Define requirements, processes, and content related to scope and deployment methods.
+● Execute documentation report.
+2Week 2• Meeting with the client to orient processes, proceed with building the Database (CSDL), and prototype.
+● Plan execution and project deployment.
+● Document report 2.
+● Prepare for and conduct Review 1.
+3Week 3• Meeting with the client to review and standardize prototype evaluation.
+● Proceed with prototype implementation.
+● Create Use Case diagrams.
+● Document part of report 3.
+● Conduct Review 3.
+4Week 4• Meeting with the client.
+● Continue implementing processes.
+● Implement workflow of the processes.
+● Continue updating report 3.
+5Week 5• Meeting with the client.
+● Continue implementing processes.
+● Implement non-functional requirements, architecture diagrams, and class diagrams.
+● Document part of report 4.
+6Week 6• Meeting with the client.
+● Implement critical system processes.
+● Create sequence and activity diagrams.
+● Supplement documentation for reports 3 and 4.
+7Week 7• Meeting with the client.
+● Continue implementing core flow.
+● Prepare for and conduct Review 2.
+8Week 8• Meeting with the client.
+● Implement content related to the core flow.
+● Adjust components of reports 3 and 4.
+9Week 9• Meeting with the client.
+● Continue implementing core flow.
+● Work on reports 3, 4, and 5.
+10Week 10• Meeting with the client.
+● Continue implementing core flow.
+● Configure the system to prepare for client deployment.
+● Adjust completed reports.
+11Week 11• Meeting with the client.
+● Continue implementing core flow.
+● Configure the system to prepare for client deployment.
+● Adjust completed reports.
+● Proceed with preparations for Review 3.
+● Deploy core flow to the client for evaluation.
+12Week 12• Meeting with the client.
+● Continue implementing core flow.
+● Configure the system to prepare for client deployment.
+● Adjust completed reports.
+● Adjust reports (based on feedback).
+13Week 13• Meeting with the client.
+● Continue implementing management components of the application (CRUD).
+● Gradual deployment to the client to gather feedback.
+● Review 3.
+● Document report 6 and adjust previous reports.
+14Week 14• Meeting with the client.
+● Finalize documentation to submit to the school.
+● Finalize remaining application parts.
+● Adjust based on client requests.
+● Prepare content for the project defense; if not on time, continue working for the 2nd defense attempt.
+4. Other comments (propose all relative things if have).
+
+Supervisor (If have)
+ (Sign and full name)
+
+HCM, date 04/05/2026
+On behalf of Registers
+(Sign and full name)
+

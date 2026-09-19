@@ -1,0 +1,99 @@
+@startuml ExtendContract
+title Figure — ExtendContract Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "TenantContractActionController" as C
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "InboundContractRepository" as ICR
+participant "UnitPriceServiceImpl" as UPS
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+Manager -> FE : (1) Enter new end date (and optional new rent)\nClick "Extend contract"
+FE -> C : (2) PATCH /api/v1/tenant-contracts/{id}/extend\nExtendContractRequest
+activate C
+C -> S : (3) extendContract(contractId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt status != ACTIVE OR newEndDate not after current endDate
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> ICR : (10) requireInboundLease(propertyId)
+activate ICR
+ICR -> DB : (11) SELECT InboundContract
+DB --> ICR : (12) InboundContract
+ICR --> S : (13) InboundContract
+deactivate ICR
+S -> S : (14) InboundLeaseRules.assertOccupancyWindow(moveIn, newEndDate)
+
+alt New end date exceeds inbound lease
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> TCR : (15) save(endDate = newEndDate,\nrentAmount / baseRentAmount if changed)
+activate TCR
+TCR -> DB : (16) UPDATE TenantContract
+DB --> TCR : (17) OK
+TCR --> S : (18) saved
+deactivate TCR
+
+opt Rent changed
+  S -> UPS : (19) applyContractRent(contract, HOP_DONG, "Extend contract")
+  activate UPS
+  UPS -> DB : (20) INSERT price history
+  DB --> UPS : (21) OK
+  deactivate UPS
+end
+
+S -> NR : (22) notifyContractExtended: Notification for tenant + manager
+activate NR
+NR -> DB : (23) INSERT Notification (CONTRACT_EXTENDED, CONTRACT_EXTENDED_MANAGER)
+DB --> NR : (24) OK
+deactivate NR
+S -> PUSH : (25) sendToUser(tenantId / managerId, ...)
+PUSH --> S : (26) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (27) CommitTransaction()
+DB --> S : (28) Committed
+deactivate DB
+
+S --> C : (29) TenantContractResponse
+deactivate S
+C --> FE : (30) 200 OK
+deactivate C
+FE --> Manager : (31) Show extended contract
+
+@enduml

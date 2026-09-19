@@ -1,0 +1,147 @@
+@startuml HostConfirmPricing
+title Figure — HostConfirmPricing (Host Reviews Pricing & Confirms Activation) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Host
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "DepreciationResultRepository" as DRR
+participant "InboundContractRepository" as ICR
+participant "ZoneManagerRepository" as ZMR
+participant "UnitPriceServiceImpl" as UPS
+participant "RoomRepository" as RR
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+Host -> FE : (1) Review suggested price, enter contingency %\n(and room prices if per-room)\nClick "Confirm"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/host-confirm\nHostConfirmRequest
+activate C
+C -> S : (3) hostConfirm(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status != PENDING_HOST_REVIEW / renovation not completed
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> DRR : (10) existsByPropertyId(propertyId)
+activate DRR
+DRR -> DB : (11) SELECT DepreciationResult
+DB --> DRR : (12) exists?
+DRR --> S : (13) boolean
+deactivate DRR
+
+S -> ICR : (14) findFirstByPropertyIdOrderByIdDesc(propertyId)
+activate ICR
+ICR -> DB : (15) SELECT InboundContract
+DB --> ICR : (16) InboundContract?
+ICR --> S : (17) InboundContract?
+deactivate ICR
+S -> S : (18) InboundLeaseRules.assertLeaseNotExpired(today, lease)
+
+alt No pricing result / inbound lease expired
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> ZMR : (19) findById(zoneId)
+activate ZMR
+ZMR -> DB : (20) SELECT ZoneManager
+DB --> ZMR : (21) ZoneManager / empty
+ZMR --> S : (22) ZoneManager
+deactivate ZMR
+
+alt Zone has no manager
+  S --> C : BusinessException ZONE_HAS_NO_MANAGER
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> PR : (23) save(hostContingencyPercent,\noperationManagerId, status = ACTIVE,\nmanagerAcceptedAt)
+activate PR
+PR -> DB : (24) UPDATE Property
+DB --> PR : (25) OK
+deactivate PR
+
+S -> NR : (26) save(Notification PROPERTY_ASSIGNED)
+activate NR
+NR -> DB : (27) INSERT Notification
+DB --> NR : (28) OK
+deactivate NR
+S -> PUSH : (29) sendToUser(managerId, title, body)
+activate PUSH
+PUSH --> S : (30) push sent
+deactivate PUSH
+
+alt wholeHouse = true
+  S -> S : (31) confirmWholeHouse()\nfinalPrice = resolveFinalPrice(price, roomFloor, contingency%)
+  S -> DRR : (32) findWholeHouseByPropertyId
+  DRR --> S : (33) DepreciationResult
+  S -> PR : (34) save(price, appliedPrice)
+  PR -> DB : (35) UPDATE Property
+else wholeHouse = false
+  S -> S : (36) confirmPerRoom() (roomPrices required)
+  loop for each room
+    S -> DRR : (37) findByRoomId(roomId)
+    DRR --> S : (38) DepreciationResult
+    S -> S : (39) finalPrice = resolveFinalPrice(...)
+  end
+  S -> RR : (40) saveAll(rooms with price / appliedPrice)
+  RR -> DB : (41) UPDATE Room
+end
+
+opt Price changed vs. old price
+  S -> UPS : (42) recordOnboardingPriceChange(propertyId, roomId,\nHOST_DOI / CAI_TAO_BO_SUNG, old, new)
+  activate UPS
+  UPS -> DB : (43) INSERT price history
+  DB --> UPS : (44) OK
+  deactivate UPS
+end
+
+S -> RR : (45) openDraftRoomsIfActive()\n(DRAFT rooms -> AVAILABLE)
+activate RR
+RR -> DB : (46) UPDATE Room status
+DB --> RR : (47) OK
+RR --> S : (48) RoomActivationResult
+deactivate RR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> DB : (49) CommitTransaction()
+DB --> S : (50) Committed
+deactivate DB
+
+S --> C : (51) PropertyActivationResponse
+deactivate S
+C --> FE : (52) 200 OK + activation result
+deactivate C
+FE --> Host : (53) Show property ACTIVE, rooms opened
+
+@enduml

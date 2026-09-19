@@ -1,0 +1,111 @@
+@startuml SaveCheckoutInspection
+title Figure — SaveCheckoutInspection (Room Inspection at Move-out) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "CheckoutProcessController" as C
+participant "CheckoutProcessServiceImpl" as S
+participant "CheckoutRequestRepository" as CRR
+participant "CheckoutInspectionRepository" as CIR
+participant "MaintenanceServiceImpl" as MS
+participant "TenantInvoiceRepository" as TIR
+participant "NotificationRepository" as NR
+database DB
+
+Manager -> FE : (1) Record final electric / water readings + photos,\nroom condition note, damage items\nClick "Save inspection"
+FE -> C : (2) POST /api/v1/checkout-requests/{id}/inspection\nCheckoutInspectionRequest
+activate C
+C -> S : (3) saveInspection(checkoutRequestId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> CRR : (6) findById(checkoutRequestId)
+activate CRR
+CRR -> DB : (7) SELECT CheckoutRequest
+DB --> CRR : (8) CheckoutRequest / empty
+CRR --> S : (9) CheckoutRequest
+deactivate CRR
+
+S -> S : (10) requireInspectionEditable(request)
+
+alt Request not found / status not editable
+  S --> C : ResourceNotFoundException / BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> CIR : (11) findByCheckoutRequestId(id) or new CheckoutInspection
+activate CIR
+CIR -> DB : (12) SELECT CheckoutInspection
+DB --> CIR : (13) inspection?
+CIR --> S : (14) CheckoutInspection
+deactivate CIR
+
+S -> S : (15) set readings, meter images, photos;\nrebuild CheckoutDamageItem list
+
+S -> CIR : (16) save(inspection + damages)
+activate CIR
+CIR -> DB : (17) INSERT / UPDATE CheckoutInspection,\nCheckoutDamageItem
+DB --> CIR : (18) OK
+CIR --> S : (19) saved
+deactivate CIR
+
+loop each damage item linked to a maintenance request
+  S -> MS : (20) markOutstandingDamageResolved(maintenanceRequestId,\ndamageItemId, amount)
+  activate MS
+  MS -> DB : (21) UPDATE OutstandingDamageRecord resolvedAtCheckout = true
+  DB --> MS : (22) OK
+  deactivate MS
+end
+
+opt Final electric / water reading provided
+  S -> S : (23) createFinalUtilityInvoice(contract, type, reading,\nmoveOutDate, unit price)
+  S -> TIR : (24) save(TenantInvoice "final utility at move-out")
+  activate TIR
+  TIR -> DB : (25) INSERT TenantInvoice
+  DB --> TIR : (26) OK
+  deactivate TIR
+end
+
+S -> S : (27) syncCompensationInvoice(contract, moveOutDate, damages)
+S -> TIR : (28) create / update COMPENSATION invoice for damage total
+TIR -> DB : (29) INSERT / UPDATE TenantInvoice
+
+opt status != INSPECTING
+  S -> CRR : (30) save(status = INSPECTING)
+  CRR -> DB : (31) UPDATE CheckoutRequest
+end
+
+opt previous status != DISPUTED
+  S -> NR : (32) sendNotification(tenant, CHECKOUT_INSPECTED)
+  NR -> DB : (33) INSERT Notification
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (34) CommitTransaction()
+DB --> S : (35) Committed
+deactivate DB
+
+S --> C : (36) void
+deactivate S
+C --> FE : (37) 200 OK
+deactivate C
+FE --> Manager : (38) Show inspection saved
+
+@enduml

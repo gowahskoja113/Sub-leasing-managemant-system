@@ -1,0 +1,130 @@
+@startuml CheckoutSettlement
+title Figure — CheckoutSettlement (Submit, Tenant Accepts or Disputes) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+actor Tenant
+participant "Front-end" as FE
+participant "CheckoutProcessController" as C
+participant "TenantCheckoutProcessController" as TC
+participant "CheckoutProcessServiceImpl" as S
+participant "CheckoutRequestRepository" as CRR
+participant "CheckoutInspectionRepository" as CIR
+participant "TenantInvoiceRepository" as TIR
+participant "CheckoutSettlementRepository" as CSR
+participant "NotificationRepository" as NR
+database DB
+
+== Step 1: Manager previews settlement ==
+Manager -> FE : (1) Open settlement tab
+FE -> C : (2) GET /api/v1/checkout-requests/{id}/settlement
+activate C
+C -> S : (3) getSettlement(checkoutRequestId)
+activate S
+S -> CRR : (4) findById(id)
+CRR -> DB : (5) SELECT CheckoutRequest
+S -> CIR : (6) findByCheckoutRequestId(id)
+CIR -> DB : (7) SELECT CheckoutInspection + damages
+alt Inspection not found
+  S --> C : ResourceNotFoundException
+  C --> FE : Error response
+end
+S -> TIR : (8) findByTenantContractId(contractId)
+TIR -> DB : (9) SELECT TenantInvoice
+DB --> TIR : (10) invoices
+S -> S : (11) chargesTotal = unpaid + move-out invoices,\nchargesPaid, rent adjustment for unused / extra days
+S --> C : (12) CheckoutSettlementResponse
+deactivate S
+C --> FE : (13) 200 OK
+deactivate C
+FE --> Manager : (14) Show settlement table
+
+== Step 2: Manager submits settlement ==
+Manager -> FE : (15) Click "Send settlement to tenant"
+FE -> C : (16) POST /api/v1/checkout-requests/{id}/settlement/submit
+activate C
+C -> S : (17) submitSettlement(checkoutRequestId)
+activate S
+S -> DB : (18) BeginTransaction()
+activate DB
+DB --> S : (19) Success
+S -> CRR : (20) findById(id)
+CRR --> S : (21) CheckoutRequest
+alt Status not INSPECTING / DISPUTED
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+S -> S : (22) getSettlement() -> lock numbers:\nrefundAmount = deposit (+ credit if adjustments > charges),\nextraChargeAmount = chargesTotal - adjustmentTotal
+S -> CSR : (23) save(CheckoutSettlement + invoices + adjustments)
+activate CSR
+CSR -> DB : (24) INSERT / UPDATE CheckoutSettlement,\nSettlementInvoice, SettlementAdjustment
+DB --> CSR : (25) OK
+deactivate CSR
+S -> CRR : (26) save(status = WAITING_TENANT)
+CRR -> DB : (27) UPDATE CheckoutRequest
+S -> NR : (28) sendNotification(tenant, CHECKOUT_SETTLEMENT_SENT)
+NR -> DB : (29) INSERT Notification
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+S -> DB : (30) CommitTransaction()
+DB --> S : (31) Committed
+deactivate DB
+S --> C : (32) void
+deactivate S
+C --> FE : (33) 200 OK
+deactivate C
+FE --> Manager : (34) Show "Waiting for tenant"
+
+== Step 3a: Tenant accepts ==
+Tenant -> FE : (35) Review settlement, click "Accept"
+FE -> TC : (36) POST /api/v1/tenant/me/checkout-requests/{id}/settlement/accept
+activate TC
+TC -> S : (37) acceptSettlement(checkoutRequestId, tenantId)
+activate S
+S -> CRR : (38) findById(id)
+CRR --> S : (39) CheckoutRequest
+alt Not the owner / status != WAITING_TENANT
+  S --> TC : Exception
+  TC --> FE : Error response
+  FE --> Tenant : Show error
+end
+S -> CRR : (40) save(status = SETTLING)
+CRR -> DB : (41) UPDATE CheckoutRequest
+S -> NR : (42) sendNotification(manager, CHECKOUT_SETTLEMENT_ACCEPTED)
+NR -> DB : (43) INSERT Notification
+S --> TC : (44) void
+deactivate S
+TC --> FE : (45) 200 OK
+deactivate TC
+FE --> Tenant : (46) Show "Settlement accepted"
+
+== Step 3b: Tenant disputes (alternative, max 3 times) ==
+Tenant -> FE : (47) Enter reason + photos, click "Dispute"
+FE -> TC : (48) POST /api/v1/tenant/me/checkout-requests/{id}/settlement/dispute
+TC -> S : (49) disputeSettlement(checkoutRequestId, tenantId, request)
+alt Status != WAITING_TENANT OR disputeCount >= 3
+  S --> TC : Exception
+  TC --> FE : Error response
+end
+S -> CRR : (50) save(status = DISPUTED, disputeCount + 1,\ndisputeReason, disputePhotos, disputedAt)
+CRR -> DB : (51) UPDATE CheckoutRequest
+S -> NR : (52) sendNotification(manager, CHECKOUT_DISPUTED)
+S --> TC : (53) void
+TC --> FE : (54) 200 OK
+note right of S
+  Manager edits inspection again (SaveCheckoutInspection)
+  and re-submits the settlement.
+end note
+
+@enduml

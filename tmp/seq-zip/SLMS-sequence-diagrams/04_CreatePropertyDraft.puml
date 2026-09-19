@@ -1,0 +1,82 @@
+@startuml CreatePropertyDraft
+title Figure — CreatePropertyDraft Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "ZoneRepository" as ZR
+participant "PropertyCodeService" as PCS
+participant "PropertyRepository" as PR
+database DB
+
+Admin -> FE : (1) Fill property info (name, address, zone,\nfloors, rooms, images)\nClick "Create draft"
+FE -> C : (2) POST /api/v1/properties/draft\nPropertyDraftRequest
+activate C
+C -> S : (3) createDraft(request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> ZR : (6) findById(zoneId)
+activate ZR
+ZR -> DB : (7) SELECT Zone
+DB --> ZR : (8) Zone / empty
+ZR --> S : (9) Zone
+deactivate ZR
+
+alt Zone not found
+  S --> C : ResourceNotFoundException
+  C --> FE : 404 Error response
+  FE --> Admin : Show error
+end
+
+S -> S : (10) buildFullAddress(shortAddress, zone)\nassertAddressAvailable(fullAddress)
+
+alt Address already used by another property
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> PCS : (11) resolveForCreate(propertyCode, propertyName)
+activate PCS
+PCS --> S : (12) unique propertyCode
+deactivate PCS
+
+S -> S : (13) applyUtilityCustomerCodes(electric, water)
+
+S -> PR : (14) save(Property status = DRAFT)
+activate PR
+PR -> DB : (15) INSERT Property
+DB --> PR : (16) Model state
+PR --> S : (17) saved property
+deactivate PR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) Committed
+deactivate DB
+
+S --> C : (20) PropertyResponse
+deactivate S
+C --> FE : (21) 201 Created + PropertyResponse
+deactivate C
+FE --> Admin : (22) Show created draft property
+
+@enduml

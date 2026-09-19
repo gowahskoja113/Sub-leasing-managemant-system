@@ -1,0 +1,179 @@
+@startuml F1_InitialSetup_Class
+title Figure — Initial Setup (Property Onboarding) Class Diagram\nUML 2.1 — Spring Boot mapping of Controller / Service / Repository / Entity
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+together {
+  class PropertyOnboardingController {
+    - propertyOnboardingService: PropertyOnboardingService
+    + createDraft(req: PropertyDraftRequest): PropertyResponse
+    + updateStructure(id: Long, req: UpdatePropertyStructureRequest): PropertyResponse
+    + saveEquipmentManifest(id: Long, req: SaveEquipmentManifestRequest): void
+    + addRenovationLine(id: Long, req: AddRenovationLineRequest): void
+    + submitToHost(id: Long): PropertyResponse
+    + hostConfirm(id: Long, req: HostConfirmRequest): PropertyResponse
+    + assignOperationManager(id: Long, req: AssignOperationManagerRequest): PropertyResponse
+  }
+
+  class PropertyDraftRequest {
+    + propertyName: String
+    + address: String
+    + zoneId: Long
+    + areaSize: Double
+    + totalFloor: Integer
+    + wholeHouse: Boolean
+    + descriptions: String
+  }
+
+  class HostConfirmRequest {
+    + appliedPrice: BigDecimal
+    + roomPrices: List~RoomPriceConfirm~
+    + note: String
+  }
+
+  class AssignOperationManagerRequest {
+    + managerId: UUID
+  }
+}
+
+together {
+  interface PropertyOnboardingService {
+    + createDraft(...): PropertyResponse
+    + submitToHost(propertyId: Long): PropertyResponse
+    + hostConfirm(propertyId: Long, req: HostConfirmRequest): PropertyResponse
+    + assignOperationManager(...): PropertyResponse
+  }
+
+  class PropertyOnboardingServiceImpl {
+    - propertyRepository: PropertyRepository
+    - roomRepository: RoomRepository
+    - equipmentManifestRepository: EquipmentManifestRepository
+    - renovationLineRepository: RenovationLineRepository
+    - operationManagementRepository: OperationManagementRepository
+    + createDraft(...): PropertyResponse
+    + submitToHost(...): PropertyResponse
+    + hostConfirm(...): PropertyResponse
+    + assignOperationManager(...): PropertyResponse
+  }
+}
+
+note right of PropertyOnboardingServiceImpl
+  «@Transactional»
+  Spring transaction = Unit of Work
+  (Begin / Commit / Rollback)
+end note
+
+together {
+  interface PropertyRepository
+  interface RoomRepository
+  interface EquipmentManifestRepository
+  interface RenovationLineRepository
+  interface OperationManagementRepository
+}
+
+PropertyRepository -up-|> JpaRepository
+RoomRepository -up-|> JpaRepository
+EquipmentManifestRepository -up-|> JpaRepository
+RenovationLineRepository -up-|> JpaRepository
+OperationManagementRepository -up-|> JpaRepository
+
+interface JpaRepository<T,ID> {
+  + save(entity: T): T
+  + findById(id: ID): Optional~T~
+  + delete(entity: T): void
+}
+
+together {
+  class Property {
+    + id: Long
+    + propertyName: String
+    + propertyCode: String
+    + address: String
+    + status: PropertyStatus
+    + wholeHouse: Boolean
+    + hasRenovation: Boolean
+    + price: BigDecimal
+    + appliedPrice: BigDecimal
+    + operationManagerId: UUID
+    + submittedToHostAt: LocalDateTime
+    + managerAcceptedAt: LocalDateTime
+  }
+
+  class Room {
+    + id: Long
+    + roomCode: String
+    + price: BigDecimal
+    + status: RoomStatus
+  }
+
+  class EquipmentManifest {
+    + id: Long
+    + quantity: Integer
+  }
+
+  class Equipment {
+    + id: Long
+    + name: String
+    + status: EquipmentStatus
+    + source: EquipmentSource
+  }
+
+  class RenovationLine {
+    + id: Long
+    + description: String
+    + cost: BigDecimal
+  }
+
+  class OperationManagement {
+    + id: Long
+    + managerId: UUID
+    + assignedAt: LocalDateTime
+  }
+
+  class Zone {
+    + id: Long
+    + name: String
+  }
+
+  enum PropertyStatus {
+    DRAFT
+    PENDING_HOST
+    READY
+    OPERATING
+    ...
+  }
+}
+
+PropertyOnboardingController --> PropertyOnboardingService : uses
+PropertyOnboardingController ..> PropertyDraftRequest : uses
+PropertyOnboardingController ..> HostConfirmRequest : uses
+PropertyOnboardingController ..> AssignOperationManagerRequest : uses
+PropertyOnboardingService <|.. PropertyOnboardingServiceImpl
+PropertyOnboardingServiceImpl --> PropertyRepository : uses
+PropertyOnboardingServiceImpl --> RoomRepository : uses
+PropertyOnboardingServiceImpl --> EquipmentManifestRepository : uses
+PropertyOnboardingServiceImpl --> RenovationLineRepository : uses
+PropertyOnboardingServiceImpl --> OperationManagementRepository : uses
+
+PropertyRepository ..> Property
+RoomRepository ..> Room
+EquipmentManifestRepository ..> EquipmentManifest
+RenovationLineRepository ..> RenovationLine
+OperationManagementRepository ..> OperationManagement
+
+Zone "1" o-- "*" Property
+Property "1" o-- "*" Room
+Property "1" o-- "*" EquipmentManifest
+Property "1" o-- "*" Equipment
+Property "1" o-- "*" RenovationLine
+Property "1" o-- "0..*" OperationManagement
+Property --> PropertyStatus
+
+@enduml

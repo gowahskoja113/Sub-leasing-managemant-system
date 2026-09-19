@@ -1,0 +1,88 @@
+@startuml F4_Maintenance_Sequence
+title Figure — Maintenance Sequence Diagram\nHappy path: Create → Diagnose → Approve → Repair → Complete
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Tenant
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as RR
+participant "MaintenanceImageRepository" as IR
+participant "MaintenanceHistoryRepository" as HR
+participant "EquipmentRepository" as ER
+database DB
+
+Tenant -> FE : (1) Submit maintenance\n(+ photos, appointment)
+FE -> C : (2) POST /api/v1/maintenance
+activate C
+C -> S : (3) create(MaintenanceCreateRequest)
+activate S
+S -> DB : (4) BeginTransaction()
+S -> S : (5) validate ACTIVE contract
+S -> RR : (6) save(status=OPEN)
+RR -> DB : (7) INSERT MaintenanceRequest
+S -> IR : (8) save images
+IR -> DB : (9) INSERT MaintenanceImage
+S -> HR : (10) append history CREATED
+S -> DB : (11) CommitTransaction()
+S --> C : (12) MaintenanceResponse
+deactivate S
+C --> FE : (13) Created + notify Manager
+deactivate C
+
+Manager -> FE : (14) Confirm arrival / diagnose
+FE -> C : (15) POST .../{id}/diagnose
+activate C
+C -> S : (16) diagnose(id, req)
+activate S
+S -> DB : (17) BeginTransaction()
+S -> RR : (18) findById
+RR -> DB : (19) SELECT
+S -> RR : (20) save(DIAGNOSED,\ndamageCause, estimatedCost, flowType)
+RR -> DB : (21) UPDATE
+S -> HR : (22) append DIAGNOSED
+S -> DB : (23) CommitTransaction()
+S --> C : (24) Response
+deactivate S
+C --> FE : (25) OK
+deactivate C
+
+alt [Luồng A — công ty chịu / sửa]
+  Manager -> FE : (26) Approve + start repair
+  FE -> C : (27) POST .../approve , .../start-repair
+  C -> S : (28) approve / startRepair
+  S -> RR : (29) UPDATE status=REPAIRING
+else [Luồng B — lỗi tenant]
+  Manager -> FE : (26') Report fault
+  FE -> C : (27') POST .../report-fault
+  C -> S : (28') reportFault → admin-review / charge / self-repair
+end
+
+Manager -> FE : (30) Complete + handover photos
+FE -> C : (31) POST .../{id}/complete
+activate C
+C -> S : (32) complete(id, MaintenanceCompleteRequest)
+activate S
+S -> DB : (33) BeginTransaction()
+S -> RR : (34) save(COMPLETED, actualCost, doneAt)
+RR -> DB : (35) UPDATE MaintenanceRequest
+opt [có equipment]
+  S -> ER : (36) update equipment history
+  ER -> DB : (37) INSERT EquipmentMaintenanceHistory
+end
+S -> HR : (38) append COMPLETED
+break
+  S -> DB : RollbackTransaction()
+end
+S -> DB : (39) CommitTransaction()
+S --> C : (40) MaintenanceResponse
+deactivate S
+C --> FE : (41) Resolved
+deactivate C
+FE --> Tenant : (42) Thông báo hoàn tất
+FE --> Manager : (43) Ticket đóng
+
+@enduml

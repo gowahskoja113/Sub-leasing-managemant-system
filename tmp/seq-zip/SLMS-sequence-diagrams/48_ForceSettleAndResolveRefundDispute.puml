@@ -1,0 +1,120 @@
+@startuml ForceSettleAndResolveRefundDispute
+title Figure — ForceSettleAndResolveRefundDispute (Admin) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "CheckoutRequestController" as C
+participant "TenantCheckoutServiceImpl" as S
+participant "CheckoutRequestRepository" as CRR
+participant "CheckoutSettlementRepository" as CSR
+participant "TenantInvoiceRepository" as TIR
+participant "DepositAuditLogRepository" as DAL
+participant "NotificationRepository" as NR
+database DB
+
+== Force settle: deduct deposit to pay unpaid final charges ==
+Admin -> FE : (1) Enter reason, confirm deduction\nClick "Force settle"
+FE -> C : (2) POST /api/v1/checkout-requests/{id}/force-settle\nForceSettleRequest
+activate C
+C -> S : (3) forceSettle(requestId, adminUserId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> CRR : (6) findById(requestId)
+CRR -> DB : (7) SELECT CheckoutRequest
+DB --> CRR : (8) CheckoutRequest
+S -> CSR : (9) findByCheckoutRequestId(requestId)
+CSR -> DB : (10) SELECT CheckoutSettlement
+DB --> CSR : (11) settlement / empty
+
+alt No settlement / deductFromDeposit != true / already force-settled
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> TIR : (12) findByTenantContractIdAndStatusNotIn(PAID, CANCELLED)
+activate TIR
+TIR -> DB : (13) SELECT TenantInvoice
+DB --> TIR : (14) unpaid invoices
+TIR --> S : (15) List<TenantInvoice>
+deactivate TIR
+
+alt No unpaid invoice OR less than 30 days since last invoice was issued
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error (earliest allowed date)
+end
+
+loop each unpaid invoice
+  S -> TIR : (16) save(status = PAID, paidAt, paymentMethod = "Deposit deduction")
+  TIR -> DB : (17) UPDATE TenantInvoice
+end
+
+S -> S : (18) refundDueDate = today + 3 working days\nremainingRefund = refundAmount - totalDeducted
+
+S -> CSR : (19) save(forceSettledAt, forceSettledBy, reason,\nrefundDueDate, refundAmount)
+CSR -> DB : (20) UPDATE CheckoutSettlement
+S -> DAL : (21) save(DepositAuditLog FORCE_SETTLE)
+DAL -> DB : (22) INSERT DepositAuditLog
+S -> NR : (23) notify owners + admins (DEPOSIT_REFUND_DUE),\nnotify tenant (CHECKOUT_FORCE_SETTLED)
+NR -> DB : (24) INSERT Notification
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (25) CommitTransaction()
+DB --> S : (26) Committed
+deactivate DB
+S --> C : (27) CheckoutRequestResponse
+deactivate S
+C --> FE : (28) 200 OK
+deactivate C
+FE --> Admin : (29) Show deposit deducted
+
+== Resolve refund dispute ==
+Admin -> FE : (30) Choose outcome RETRANSFERRED / REJECTED + note
+FE -> C : (31) POST /api/v1/checkout-requests/{id}/resolve-refund-dispute\nResolveRefundDisputeRequest
+activate C
+C -> S : (32) resolveRefundDispute(requestId, adminUserId, request)
+activate S
+S -> CSR : (33) findByCheckoutRequestId(requestId)
+CSR --> S : (34) settlement
+alt No dispute pending
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+alt outcome = RETRANSFERRED
+  S -> CSR : (35) save(refundDisputeResolvedAt, outcome, refundPaidAt = now)
+  S -> NR : (36) sendNotification(tenant, REFUND_RETRANSFERRED)
+else outcome = REJECTED
+  S -> CSR : (37) save(refundDisputeResolvedAt, outcome, refundDisputeRejectedAt)
+  S -> NR : (38) sendNotification(tenant, REFUND_DISPUTE_REJECTED)
+else invalid outcome
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+CSR -> DB : (39) UPDATE CheckoutSettlement
+S -> DAL : (40) save(DepositAuditLog REFUND_DISPUTE_RESOLVED)
+DAL -> DB : (41) INSERT DepositAuditLog
+S --> C : (42) CheckoutRequestResponse
+deactivate S
+C --> FE : (43) 200 OK
+deactivate C
+FE --> Admin : (44) Show dispute resolved
+
+@enduml

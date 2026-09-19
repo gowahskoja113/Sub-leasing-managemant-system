@@ -1,0 +1,212 @@
+﻿lines 211
+0: CAPSTONE PROJECT REGISTER
+1: Class:            Duration time:  from 04/2026 To 08/2026
+2: (*) Profession: Software Engineer                   Specialty: SE
+3: (*) Kinds of person make registers:               Lecturer                Students
+4: 1. Register information for supervisor (if have)
+5: No.
+6: Full name
+7: Phone
+8: E-Mail
+9: Title
+10: Supervisor
+11: Kiß╗üu Trß╗ìng Kh├ính
+12: khanhkt@fpt.edu.vn
+13: 2. Register information for students (if have)
+14: Full name
+15: Student code
+16: Phone
+17: E-mail
+18: Role in Group
+19: 1
+20: Nguyß╗àn Ho├áng Ngß╗ìc S╞ín
+21: SE172384
+22: 0352393203
+23: sonnhnse172384@fpt.edu.vn
+24: Leader
+25: 2
+26: Phß║ím Ngß╗ìc Trung Nh├ón
+27: SE182294
+28: 0905923781
+29: nhanpntse182294@fpt.edu.vn
+30: 3
+31: Nguyß╗àn Ho├áng Long
+32: SE172340
+33: 0865803493
+34: longnhse172340@fpt.edu.vn
+35: 4
+36: Th├íi Tß║Ñn Tiß║┐n
+37: SE172575
+38: 0942013011
+39: tienttse172575@fpt.edu.vn
+40: 5
+41: 3. Register content of Capstone Project
+42: (*) 3.1. Capstone Project name:
+43: English: Sub-leasing Management System
+44: Vietnamese: Hß╗ç thß╗æng quß║ún l├╜ kinh doanh thu├¬ v├á cho thu├¬ lß║íi bß║Ñt ─æß╗Öng sß║ún
+45: a. Context:
+46: The project focuses on developing a comprehensive management system for the business model of renting entire houses, renovating them, and subdividing them into smaller rooms for subleasing. This is a 
+47: The system includes a mobile application for tenants and on-site operations managers, along with a centralized web-based admin portal to monitor cash flow, investment costs, and the overall operationa
+48: Functional requirement :
+49: Objectives: Based on the user requirement, the system is implemented as follows
+50: 1.Build a Mobile Application: Enable tenants to view invoices, make payments, and submit maintenance requests easily.
+51: 2.Build an Operations Management Application: Support managers in onboarding tenants, recording utility meter readings, and handling operational issues.
+52: 3.Develop an Admin Dashboard: Provide administrators with real-time monitoring of revenue, expenses, and system performance.
+53: 4.Implement an Automated Billing System: Automatically calculate and generate monthly invoices based on rental and utility data.
+54: 5.Integrate a Payment System: Support QR Code and bank transfer payments with automatic status updates via webhook.
+55: 6.Build a Maintenance Management System: Allow tenants to submit requests and enable managers to track and resolve issues efficiently.
+56: 7.Two-way cash flow management: Automatically track and reconcile the rental cost of entire property (expenses) with income collected from individual rooms (revenue) to accurately calculate net profit
+57: Non-functional requirement:
+58: -Limitations:
+59: oPayment integration is restricted to popular local methods (VietQR, bank transfers). International credit cards are not supported within the project scope.
+60: oThe application requires a stable internet connection for push notifications, and data synchronization; offline functionality is not supported.
+61: oUtility meter image recognition relies on an external OCR library; accuracy is highly dependent on the quality of the captured photos.
+62: -Exclusions:
+63: oHuman Resource Management: The system does not include HR functionalities such as payroll, attendance tracking, or employee performance evaluations.
+64: oLegal & Contract Compliance: While the system generates electronic contracts based on templates, it does not guarantee comprehensive legal consulting or full legal validity.
+65: oProperty Valuation: The system does not provide real estate valuation features or rental market analytics.
+66: -Assumptions:
+67: ΓùïProperty data (houses, rooms, equipment) is initially inputted by System Admin and is maintained regularly.
+68: ΓùïThe business operators already hold valid master lease agreements with the original property owners before utilizing the system.
+69: ΓùïUsers (tenants and managers) possess smartphones with reliable internet access.
+70: ΓùïPayment integration (banking webhooks/VietQR) functions reliably according to the partner's API documentation.
+71: -Business rules:
+72: ΓùïBilling Cycle: Invoices are automatically generated on a designated date each month after the manager records the electricity and water meter readings. Invoices cannot be created if the meter reading
+73: ΓùïPayment Deadline: Tenants must pay within the deadline specified in the lease contract. Late payments will incur additional fees and trigger automatic reminders.
+74: ΓùïSecurity Deposit: The security deposit is recorded separately and will only be refunded upon contract termination, provided there is no property damage.
+75: ΓùïOccupancy Rule: A room can only have one active lease contract at any given time. A new contract can only be created after the previous one has ended.
+76: (*) 3.2. Main proposal content (including result and product)
+77: Proposed Solutions:
+78: Deployment Place: Hoang Binh Land Trß╗Ñ sß╗ƒ ch├¡nh: 408/31 Nguyß╗àn Thß╗ï Minh Khai, Ph╞░ß╗¥ng B├án Cß╗¥, TPHCM
+79: The user has given the scientific research management workflow as follows
+80: 1.Initial Setup (System Admin)
+81: System Admin ΓåÆ Add Property Portfolio ΓåÆ Main House
+82: System Admin ΓåÆ Configure Room & Pricing ΓåÆ Sub-divided Rooms
+83: Main House + Sub-divided Rooms ΓåÆ Record Initial Equipment
+84: 2.Tenant Onboarding (Operations Manager & Tenant)
+85: Operations Manager ΓåÆ Add New Tenant (Mobile App)
+86: Operations Manager ΓåÆ Capture Room Condition & Initial Utility Meters
+87: ΓåÆ Generate E-Contract (Digital Agreement)
+88: Tenant ΓåÆ Confirm
+89: 3.Monthly Billing & Payment
+90: Operations Manager ΓåÆ Record Monthly Meter Reading
+91: System Handler ΓåÆ Automatic Billing System ΓåÆ Send Invoice Notification
+92: Tenant ΓåÆ Pay via QR CODE / Bank Transfer ΓåÆ Validate with Bank Webhook & Update Status ΓåÆ Tenant Get Payment Confirmation
+93: System Handler ΓåÆ Record Income
+94: 4.Maintenance Request (Issue Resolution)
+95: Tenant ΓåÆ Submit Request (Mobile App)
+96: System HandlerΓåÆ Send notification, review & schedule ΓåÆ Operations Manager
+97: Operations Manager ΓåÆ Perform repairs & Record Costs
+98: System HandlerΓåÆ Update equipment history & notify tenant
+99: 5.Cash Flow Management
+100: System Admin ΓåÆ Record large-house lease expenses
+101: System Handler ΓåÆ Record Income
+102: System Handler + Record Income ΓåÆ Automatic Cash Flow Reconciliation ΓåÆ Admin Dashboard ΓåÆ Export Financial Summary to Excel (XLS)
+103: Applied Theory:
+104: -Apply the Scrum framework of Agile methodology and use UML Specification 2.5 to describe requirement specifications and design documents
+105: -The students should apply their knowledge about SWD392, SWE102, SWR302, SWT301, and PMG202c, and their deep programming and skills that they get based on their curriculum or OJT when they do capstone
+106: -Should use 3-tier architecture (Client - Server - Database) and apply MVC2 Design Pattern
+107: -Server-side technique: Java Spring boot, Database Management System
+108: -Client-side technique: The web application can be applied with React JS, the mobile application can be applied with React Native
+109: Products (Expected Deliverables):
+110: Build a system that supports main features written as user stories as follows:
+111: Tenant & Contract Management Workflow
+112: -As a tenant, I want to register or log in to an account so that I can access billing and maintenance features.
+113: -As a tenant, I want to view my current room details, rental contract terms, and payment history.
+114: -As a tenant, I want to receive push notifications when a new invoice is generated each month.
+115: -As a tenant, I want to track the status of my maintenance requests from submission to resolution.
+116: -As an Operations Manager, I want to board a new tenant by registering their information, capturing room condition photos, and recording initial utility meter readings.
+117: -As an Operations Manager, I want to generate a digital rental contract and send it to the tenant for confirmation via OTP.
+118: -As a System Admin, I want to manage the full property portfolio, including adding new houses, configuring room layouts, and setting rental pricing.
+119: -As the System Handler, I want to automatically update room status (Available / Occupied / Maintenance) based on contract events.
+120: Monthly Billing & Payment Workflow
+121: -As an Operations Manager, I want to record end-of-month electricity and water meter readings (manually or by photo) for each room.
+122: -As the System Handler, I want to automatically calculate monthly invoices including rent, electricity, water, service fees, and any outstanding balance
+123: -As the System Handler, I want to push invoice notifications to tenants' mobile apps immediately after calculation.
+124: -As a User, I want to view my itemized monthly invoice and pay via QR Code or bank transfer within the app.
+125: -As the System Handler, I want to process payment webhooks from integrated banking services and automatically update invoice status to 'Paid'.
+126: -As a System Admin, I want to view a real-time cash flow dashboard showing total revenue collected vs. total expenses for each property.
+127: - As the System Handler, I want to automatically send payment reminders to tenants who have not paid by the due date.
+128: Maintenance & Equipment Management Workflow
+129: -As a User, I want to submit a maintenance request with a description, category (electrical, plumbing, furniture, etc.), and supporting photos.
+130: -As an Operations Manager, I want to receive instant notifications for new maintenance requests and view them as priority.
+131: -As an Operations Manager, I want to update the status of a maintenance request (Pending / In Progress / Resolved) and record repair costs.
+132: -As the System Handler, I want to update the maintenance history for related equipment items when a repair is completed.
+133: -As the System Handler, I want to send a resolution notification to the tenant when their request is resolved.
+134: -As an Operations Manager, I want to manage the equipment inventory for each room, tracking item details from installation through the operational lifecycle.
+135: Cash Flow & Financial Reporting Workflow
+136: -As a System Admin, I want to record large-house lease expenses (monthly rent paid to property owners) to track the primary cost center.
+137: -As a System Admin, I want to see a net profit/loss report per property, comparing room revenue against all associated expenses.
+138: -As the System Handler, I want to automatically reconcile incoming payments against outstanding invoices and generate monthly financial summaries.
+139: -As a System Admin, I want to export financial reports (revenue, expenses, profit) to Excel for external accounting.
+140: Proposed Tasks:
+141: -The first student should implement the Core Back-End Services, including APIs for manage cast flow, Payment integration, and calculate the electric and water fees.
+142: -The second student should implement the mobile application for Operator and Tenants, integrating maps, push notification, and related functions.
+143: -The third student should implement the Web application, providing dashboard, profit management, property management, and others.
+144: -The final student should implement the module reminding billing cycle, some functional about managing system.
+145: -Schedule Plan
+146: No.WeekDescription
+147: 1Week 1ΓÇó Meet directly with the client to gather requirements.
+148: ΓùÅ Define requirements, processes, and content related to scope and deployment methods.
+149: ΓùÅ Execute documentation report.
+150: 2Week 2ΓÇó Meeting with the client to orient processes, proceed with building the Database (CSDL), and prototype.
+151: ΓùÅ Plan execution and project deployment.
+152: ΓùÅ Document report 2.
+153: ΓùÅ Prepare for and conduct Review 1.
+154: 3Week 3ΓÇó Meeting with the client to review and standardize prototype evaluation.
+155: ΓùÅ Proceed with prototype implementation.
+156: ΓùÅ Create Use Case diagrams.
+157: ΓùÅ Document part of report 3.
+158: ΓùÅ Conduct Review 3.
+159: 4Week 4ΓÇó Meeting with the client.
+160: ΓùÅ Continue implementing processes.
+161: ΓùÅ Implement workflow of the processes.
+162: ΓùÅ Continue updating report 3.
+163: 5Week 5ΓÇó Meeting with the client.
+164: ΓùÅ Continue implementing processes.
+165: ΓùÅ Implement non-functional requirements, architecture diagrams, and class diagrams.
+166: ΓùÅ Document part of report 4.
+167: 6Week 6ΓÇó Meeting with the client.
+168: ΓùÅ Implement critical system processes.
+169: ΓùÅ Create sequence and activity diagrams.
+170: ΓùÅ Supplement documentation for reports 3 and 4.
+171: 7Week 7ΓÇó Meeting with the client.
+172: ΓùÅ Continue implementing core flow.
+173: ΓùÅ Prepare for and conduct Review 2.
+174: 8Week 8ΓÇó Meeting with the client.
+175: ΓùÅ Implement content related to the core flow.
+176: ΓùÅ Adjust components of reports 3 and 4.
+177: 9Week 9ΓÇó Meeting with the client.
+178: ΓùÅ Continue implementing core flow.
+179: ΓùÅ Work on reports 3, 4, and 5.
+180: 10Week 10ΓÇó Meeting with the client.
+181: ΓùÅ Continue implementing core flow.
+182: ΓùÅ Configure the system to prepare for client deployment.
+183: ΓùÅ Adjust completed reports.
+184: 11Week 11ΓÇó Meeting with the client.
+185: ΓùÅ Continue implementing core flow.
+186: ΓùÅ Configure the system to prepare for client deployment.
+187: ΓùÅ Adjust completed reports.
+188: ΓùÅ Proceed with preparations for Review 3.
+189: ΓùÅ Deploy core flow to the client for evaluation.
+190: 12Week 12ΓÇó Meeting with the client.
+191: ΓùÅ Continue implementing core flow.
+192: ΓùÅ Configure the system to prepare for client deployment.
+193: ΓùÅ Adjust completed reports.
+194: ΓùÅ Adjust reports (based on feedback).
+195: 13Week 13ΓÇó Meeting with the client.
+196: ΓùÅ Continue implementing management components of the application (CRUD).
+197: ΓùÅ Gradual deployment to the client to gather feedback.
+198: ΓùÅ Review 3.
+199: ΓùÅ Document report 6 and adjust previous reports.
+200: 14Week 14ΓÇó Meeting with the client.
+201: ΓùÅ Finalize documentation to submit to the school.
+202: ΓùÅ Finalize remaining application parts.
+203: ΓùÅ Adjust based on client requests.
+204: ΓùÅ Prepare content for the project defense; if not on time, continue working for the 2nd defense attempt.
+205: 4. Other comments (propose all relative things if have).
+206: Supervisor (If have)
+207: (Sign and full name)
+208: HCM, date 04/05/2026
+209: On behalf of Registers
+210: (Sign and full name)

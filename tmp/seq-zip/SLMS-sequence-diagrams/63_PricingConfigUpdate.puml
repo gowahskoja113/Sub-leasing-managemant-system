@@ -1,0 +1,84 @@
+@startuml PricingConfigUpdate
+title Figure — PricingConfigUpdate (Admin Configures Pricing Parameters) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "AdminPricingController" as C
+participant "PricingConfigServiceImpl" as S
+participant "PricingConfigRepository" as PR
+database DB
+
+Admin -> FE : (1) Open "Pricing configuration"
+FE -> C : (2) GET /api/v1/admin/pricing-config
+activate C
+C -> S : (3) get()
+activate S
+S -> PR : (4) findById(SINGLETON_ID)
+activate PR
+PR -> DB : (5) SELECT PricingConfig
+DB --> PR : (6) config / empty
+PR --> S : (7) Optional<PricingConfig>
+deactivate PR
+opt No config row yet
+  S -> PR : (8) save(PricingConfig.defaults())
+  PR -> DB : (9) INSERT PricingConfig
+  DB --> PR : (10) OK
+end
+S --> C : (11) PricingConfigResponse
+deactivate S
+C --> FE : (12) 200 OK
+deactivate C
+FE --> Admin : (13) Show current mode, desired price / ROI, operation cost,\nmanager salaries, annual increase %, buffers
+
+Admin -> FE : (14) Change parameters\nClick "Save"
+FE -> C : (15) PUT /api/v1/admin/pricing-config\nUpdatePricingConfigRequest
+activate C
+C -> S : (16) update(request, adminId)
+activate S
+
+S -> DB : (17) BeginTransaction()
+activate DB
+DB --> S : (18) Success
+
+S -> S : (19) current() -> load singleton config
+
+alt mode = FORWARD and pDesired missing /\nmode = REVERSE and roiExpected missing
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> S : (20) set mode, pDesired, roiExpected, oOperation,\nmanagerSalaries (drop null / <= 0), annualIncreasePct,\nescalationGraceMonths, newYearPriceLeadMonths,\nvRatePct, handoverBufferMonths, updatedAt, updatedBy
+
+S -> PR : (21) save(config)
+activate PR
+PR -> DB : (22) UPDATE PricingConfig
+DB --> PR : (23) OK
+PR --> S : (24) saved config
+deactivate PR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (25) CommitTransaction()
+DB --> S : (26) Committed
+deactivate DB
+
+S --> C : (27) PricingConfigResponse
+deactivate S
+C --> FE : (28) 200 OK
+deactivate C
+FE --> Admin : (29) Show saved configuration\n(applies to the next pricing calculation and annual escalation)
+
+@enduml

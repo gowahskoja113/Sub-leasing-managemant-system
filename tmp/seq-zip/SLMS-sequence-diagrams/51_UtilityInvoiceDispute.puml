@@ -1,0 +1,163 @@
+@startuml UtilityInvoiceDispute
+title Figure — UtilityInvoiceDispute (Tenant Disputes, Admin Resolves) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+actor Admin
+participant "Front-end" as FE
+participant "TenantInvoiceDisputeController" as C
+participant "AdminInvoiceDisputeController" as AC
+participant "InvoiceDisputeServiceImpl" as S
+participant "TenantInvoiceRepository" as TIR
+participant "UtilityInvoiceRepository" as UIR
+participant "InvoiceDisputeRepository" as IDR
+participant "TenantPendingChargeRepository" as TPC
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+== Step 1: Tenant files a dispute ==
+Tenant -> FE : (1) Open electric / water invoice, enter reason,\nnote and photos\nClick "Dispute invoice"
+FE -> C : (2) POST /api/v1/tenant/me/invoices/{id}/dispute\nCreateInvoiceDisputeRequest
+activate C
+C -> S : (3) create(tenantUserId, tenantInvoiceId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TIR : (6) findByIdAndTenantUserId(invoiceId, tenantUserId)
+activate TIR
+TIR -> DB : (7) SELECT TenantInvoice
+DB --> TIR : (8) TenantInvoice / empty
+TIR --> S : (9) TenantInvoice
+deactivate TIR
+
+alt Not found / not ELECTRICITY or WATER / CANCELLED / no utilityInvoiceId
+  S --> C : ResourceNotFoundException / BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> IDR : (10) existsByTenantInvoiceIdAndStatusIn(BLOCKING)
+activate IDR
+IDR -> DB : (11) SELECT InvoiceDispute
+DB --> IDR : (12) exists?
+IDR --> S : (13) boolean
+deactivate IDR
+alt A dispute already exists for this invoice
+  S --> C : BusinessException DISPUTE_ALREADY_EXISTS
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> UIR : (14) findById(utilityInvoiceId)
+activate UIR
+UIR -> DB : (15) SELECT UtilityInvoice
+DB --> UIR : (16) UtilityInvoice
+UIR --> S : (17) UtilityInvoice
+deactivate UIR
+
+S -> IDR : (18) save(InvoiceDispute status = OPEN, reason, note, photos)
+activate IDR
+IDR -> DB : (19) INSERT InvoiceDispute
+DB --> IDR : (20) OK
+deactivate IDR
+
+opt Invoice is OVERDUE
+  S -> TIR : (21) save(status = PENDING) (freeze late status)
+  TIR -> DB : (22) UPDATE TenantInvoice
+end
+
+S -> NR : (23) notify admins + manager of the property
+activate NR
+NR -> DB : (24) INSERT Notification
+DB --> NR : (25) OK
+deactivate NR
+S -> PUSH : (26) sendToUser(admins, manager)
+PUSH --> S : (27) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (28) CommitTransaction()
+DB --> S : (29) Committed
+deactivate DB
+S --> C : (30) InvoiceDisputeResponse
+deactivate S
+C --> FE : (31) 200 OK
+deactivate C
+FE --> Tenant : (32) Show dispute OPEN\n(invoice is excluded from overdue reminders while open)
+
+== Tenant withdraws (alternative) ==
+Tenant -> FE : (33) Click "Withdraw dispute"
+FE -> C : (34) POST /api/v1/tenant/me/invoices/{id}/dispute/withdraw
+C -> S : (35) withdraw(tenantUserId, tenantInvoiceId)
+S -> IDR : (36) findFirstByTenantInvoiceIdOrderByCreatedAtDesc(id)
+alt No dispute / status != OPEN
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> IDR : (37) save(status = WITHDRAWN, resolvedAt)
+IDR -> DB : (38) UPDATE InvoiceDispute
+S -> TIR : (39) applyGraceDueDate(invoice) (extend due date)
+TIR -> DB : (40) UPDATE TenantInvoice
+S --> C : (41) InvoiceDisputeResponse
+C --> FE : (42) 200 OK
+
+== Step 2: Admin resolves ==
+Admin -> FE : (43) Choose outcome ACCEPTED / REJECTED, note,\n(optional corrected readings and unit price)
+FE -> AC : (44) POST /api/v1/admin/invoice-disputes/{id}/resolve\nResolveInvoiceDisputeRequest
+activate AC
+AC -> S : (45) resolve(adminUserId, disputeId, request)
+activate S
+S -> IDR : (46) findById(disputeId)
+IDR -> DB : (47) SELECT InvoiceDispute
+DB --> IDR : (48) dispute
+alt Dispute not OPEN / invalid outcome
+  S --> AC : BusinessException
+  AC --> FE : Error response
+  FE --> Admin : Show error
+end
+alt outcome = ACCEPTED
+  opt Corrected reading and unit price provided
+    S -> UIR : (49) save(prev / new reading, consumption, unitPrice, amount)
+    UIR -> DB : (50) UPDATE UtilityInvoice
+    S -> TIR : (51) save(totalAmount, grandTotal = new amount)
+    TIR -> DB : (52) UPDATE TenantInvoice
+  end
+  alt Invoice was already PAID
+    alt New total < old total
+      S -> TPC : (53) save(TenantPendingCharge negative amount\nUTILITY_DISPUTE_CREDIT)
+      TPC -> DB : (54) INSERT TenantPendingCharge (credit next period)
+    else New total > old total
+      S -> TIR : (55) save(status = PENDING) + applyGraceDueDate
+    end
+  else Not paid
+    S -> TIR : (56) applyGraceDueDate(invoice)
+  end
+  S -> NR : (57) notifyOnResolve(accepted)
+else outcome = REJECTED
+  S -> TIR : (58) applyGraceDueDate(invoice)
+  S -> NR : (59) notifyOnResolve(rejected)
+end
+S -> IDR : (60) save(status, resolvedBy, resolvedAt, resolutionNote)
+IDR -> DB : (61) UPDATE InvoiceDispute
+S --> AC : (62) AdminInvoiceDisputeResponse
+deactivate S
+AC --> FE : (63) 200 OK
+deactivate AC
+FE --> Admin : (64) Show resolved dispute
+
+@enduml

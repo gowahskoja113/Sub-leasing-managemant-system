@@ -1,0 +1,107 @@
+@startuml HostApproveContractPrice
+title Figure — HostApproveContractPrice (Approve / Reject / Resubmit Contract Price) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Host
+actor Manager
+participant "Front-end" as FE
+participant "HostController" as C
+participant "HostPortalServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+participant "TenantContractActionController" as AC
+participant "TenantOnboardingServiceImpl" as TOS
+database DB
+
+== Host approves ==
+Host -> FE : (1) Open pending contract, click "Approve price"
+FE -> C : (2) PUT /api/v1/host/contracts/{id}/approve
+activate C
+C -> S : (3) approveContract(contractId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract / empty
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt Contract not found OR priceApprovalStatus != PENDING_PRICE_APPROVAL
+  S --> C : ResourceNotFoundException / BusinessException
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> TCR : (10) save(priceApprovalStatus = APPROVED_AWAITING_DEPOSIT)
+activate TCR
+TCR -> DB : (11) UPDATE TenantContract
+DB --> TCR : (12) OK
+deactivate TCR
+
+S -> NR : (13) save(Notification PRICE_APPROVAL_RESULT) for assigned manager
+activate NR
+NR -> DB : (14) INSERT Notification
+DB --> NR : (15) OK
+deactivate NR
+S -> PUSH : (16) sendToUser(managerId, "Host approved price")
+PUSH --> S : (17) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) Committed
+deactivate DB
+S --> C : (20) HostContractDto
+deactivate S
+C --> FE : (21) 200 OK
+deactivate C
+FE --> Host : (22) Show "Approved, awaiting deposit"
+
+== Host rejects (alternative) ==
+Host -> FE : (23) Click "Reject price" + reason
+FE -> C : (24) PUT /api/v1/host/contracts/{id}/reject
+C -> S : (25) rejectContract(contractId, reason)
+S -> TCR : (26) save(priceApprovalStatus = PRICE_REJECTED, priceRejectReason)
+TCR -> DB : (27) UPDATE TenantContract
+S -> NR : (28) save(Notification) + push to manager
+S --> C : (29) HostContractDto
+C --> FE : (30) 200 OK
+
+== Manager adjusts price and resubmits ==
+Manager -> FE : (31) Edit rent / deposit\nClick "Resubmit for approval"
+FE -> AC : (32) POST /api/v1/tenant-contracts/{id}/resubmit-approval\nResubmitApprovalRequest
+activate AC
+AC -> TOS : (33) resubmitApproval(contractId, request)
+activate TOS
+TOS -> DB : (34) SELECT TenantContract
+alt Status not PRICE_REJECTED / PENDING, or onboarding payment PENDING / PAID
+  TOS --> AC : BusinessException
+  AC --> FE : Error response
+  FE --> Manager : Show error
+end
+TOS -> DB : (35) UPDATE TenantContract\n(rent, deposit, PENDING_PRICE_APPROVAL)
+DB --> TOS : (36) OK
+TOS --> AC : (37) TenantContractResponse
+deactivate TOS
+AC --> FE : (38) 200 OK
+deactivate AC
+FE --> Manager : (39) Show "Waiting for host approval"
+
+@enduml

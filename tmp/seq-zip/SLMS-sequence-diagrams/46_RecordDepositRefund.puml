@@ -1,0 +1,147 @@
+@startuml RecordDepositRefund
+title Figure — RecordDepositRefund (Refund Deposit, Tenant Confirms or Disputes) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Host
+actor Tenant
+participant "Front-end" as FE
+participant "CheckoutProcessController" as C
+participant "TenantMeLifecycleController" as TC
+participant "CheckoutProcessServiceImpl" as S
+participant "TenantCheckoutServiceImpl" as TS
+participant "TenantInvoiceRepository" as TIR
+participant "CheckoutSettlementRepository" as CSR
+participant "DepositAuditLogRepository" as DAL
+participant "TwilioServiceImpl" as SMS
+participant "NotificationRepository" as NR
+participant "TenantOnboardingServiceImpl" as TOS
+database DB
+
+== Step 1: Host / Admin records the refund transfer ==
+Host -> FE : (1) Enter refund amount, method, proof image, paid date\nClick "Record refund"
+FE -> C : (2) POST /api/v1/checkout-requests/{id}/refund\nCheckoutRefundRequest
+activate C
+C -> S : (3) refund(checkoutRequestId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> DB : (6) SELECT CheckoutRequest
+DB --> S : (7) CheckoutRequest
+S -> S : (8) assertCanRecordDepositRefund(request)
+
+S -> TIR : (9) findByTenantContractIdAndStatusNotIn(PAID, CANCELLED)
+activate TIR
+TIR -> DB : (10) SELECT TenantInvoice
+DB --> TIR : (11) unpaid invoices
+TIR --> S : (12) List<TenantInvoice>
+deactivate TIR
+
+alt Unpaid charges exist
+  S --> C : BusinessException CHARGES_NOT_SETTLED
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+alt Status not SETTLING / COMPLETED
+  S --> C : BusinessException REFUND_NOT_ALLOWED
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> CSR : (13) findByCheckoutRequestId(id) or createRefundSettlement()
+activate CSR
+CSR -> DB : (14) SELECT CheckoutSettlement
+DB --> CSR : (15) settlement
+CSR --> S : (16) CheckoutSettlement
+deactivate CSR
+
+alt Refund already recorded / refundAmount <= 0 / paidAt missing
+  S --> C : BusinessException REFUND_ALREADY_RECORDED / NOT_ALLOWED / INVALID
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> S : (17) hashFileContent(proofUrl)
+S -> CSR : (18) existsByRefundProofHash(hash)
+CSR -> DB : (19) SELECT CheckoutSettlement by hash
+DB --> CSR : (20) exists?
+alt Proof image already used for another refund
+  S --> C : BusinessException DUPLICATE_PROOF
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> CSR : (21) save(refundAmount, refundMethod, refundProofUrl,\nrefundProofHash, refundPaidAt, refundNote)
+CSR -> DB : (22) UPDATE CheckoutSettlement
+DB --> CSR : (23) OK
+S -> DAL : (24) save(DepositAuditLog REFUND_RECORDED)
+DAL -> DB : (25) INSERT DepositAuditLog
+S -> NR : (26) sendNotification(tenant, CHECKOUT_REFUND_TRANSFERRED)
+NR -> DB : (27) INSERT Notification
+S -> SMS : (28) sendSms(tenantPhone, "please confirm receipt in the app")
+SMS --> S : (29) SMS sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+
+S -> DB : (30) CommitTransaction()
+DB --> S : (31) Committed
+deactivate DB
+S --> C : (32) DepositRefundResponse
+deactivate S
+C --> FE : (33) 200 OK
+deactivate C
+FE --> Host : (34) Show refund recorded
+
+== Step 2a: Tenant confirms receiving the money ==
+Tenant -> FE : (35) Click "I received the refund"
+FE -> TC : (36) POST /api/v1/tenant/me/checkout-requests/{id}/confirm-refund
+activate TC
+TC -> TS : (37) confirmRefund(requestId, tenantUserId)
+activate TS
+TS -> CSR : (38) findByCheckoutRequestId(requestId)
+CSR --> TS : (39) CheckoutSettlement
+alt refundPaidAt is null
+  TS --> TC : BusinessException
+  TC --> FE : Error response
+end
+TS -> CSR : (40) save(refundConfirmedAt = now)
+CSR -> DB : (41) UPDATE CheckoutSettlement
+TS -> DAL : (42) save(DepositAuditLog REFUND_CONFIRMED)
+TS -> NR : (43) notify owners, admins (REFUND_CONFIRMED),\nnotify manager (READY_TO_COMPLETE)
+NR -> DB : (44) INSERT Notification
+TS -> TOS : (45) disableTenantAccountIfNoActiveContracts(tenantId, contractId)
+TOS -> DB : (46) UPDATE User status = DISABLE (if no other contract)
+TS --> TC : (47) CheckoutRequestResponse
+deactivate TS
+TC --> FE : (48) 200 OK
+deactivate TC
+
+== Step 2b: Tenant disputes (alternative) ==
+Tenant -> FE : (49) Click "I have not received it" + reason
+FE -> TC : (50) POST /api/v1/tenant/me/checkout-requests/{id}/dispute-refund
+TC -> TS : (51) disputeRefund(requestId, tenantUserId, request)
+alt Refund not recorded / already confirmed / dispute in progress
+  TS --> TC : BusinessException
+  TC --> FE : Error response
+end
+TS -> CSR : (52) save(refundDisputedAt, refundDisputeReason)
+CSR -> DB : (53) UPDATE CheckoutSettlement
+TS -> DAL : (54) save(DepositAuditLog REFUND_DISPUTED)
+TS -> NR : (55) notify owners + admins (CHECKOUT_REFUND_DISPUTED)
+TS --> TC : (56) CheckoutRequestResponse
+TC --> FE : (57) 200 OK
+
+@enduml

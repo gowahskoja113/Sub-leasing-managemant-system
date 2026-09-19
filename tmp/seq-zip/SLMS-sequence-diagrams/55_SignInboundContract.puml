@@ -1,0 +1,112 @@
+@startuml SignInboundContract
+title Figure — SignInboundContract (Sign Lease with Owner & Choose Onboarding Options) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "InboundContractController" as C
+participant "InboundContractServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "InboundContractRepository" as ICR
+participant "PropertyOnboardingController" as OC
+participant "PropertyOnboardingServiceImpl" as OS
+database DB
+
+== Step 1: Sign the inbound contract ==
+Admin -> FE : (1) Enter contract code, owner, total rent,\nstart / end date, scan URL\nClick "Sign contract"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/inbound-contract\nCreateInboundContractRequest
+activate C
+C -> S : (3) signContract(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property / empty
+PR --> S : (9) Property
+deactivate PR
+
+alt endDate not after startDate / property not found
+  S --> C : BusinessException / ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+alt Property status != DRAFT
+  opt Status is past DRAFT (contract already signed)
+    S --> C : existing InboundContractResponse (idempotent)
+  end
+  S --> C : BusinessException ("only DRAFT can be signed")
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> ICR : (10) findFirstByPropertyIdOrderByIdDesc(propertyId)
+activate ICR
+ICR -> DB : (11) SELECT InboundContract
+DB --> ICR : (12) existing / empty
+ICR --> S : (13) Optional<InboundContract>
+deactivate ICR
+
+S -> ICR : (14) save(InboundContract: code, owner, totalRent,\nstart / end date, scan URL, status ACTIVE)
+activate ICR
+ICR -> DB : (15) INSERT / UPDATE InboundContract
+DB --> ICR : (16) Model state
+ICR --> S : (17) saved contract
+deactivate ICR
+
+S -> PR : (18) save(Property status = PENDING)
+activate PR
+PR -> DB : (19) UPDATE Property
+DB --> PR : (20) OK
+deactivate PR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (21) CommitTransaction()
+DB --> S : (22) Committed
+deactivate DB
+S --> C : (23) InboundContractResponse
+deactivate S
+C --> FE : (24) 200 OK
+deactivate C
+FE --> Admin : (25) Show signed contract (property PENDING)
+
+== Step 2: Choose renting type and renovation option ==
+Admin -> FE : (26) Choose whole house / per room,\nrenovation yes / no
+FE -> OC : (27) POST /api/v1/properties/{propertyId}/onboarding-options\nOnboardingOptionsRequest
+activate OC
+OC -> OS : (28) setOnboardingOptions(propertyId, request)
+activate OS
+OS -> PR : (29) findById(propertyId)
+PR -> DB : (30) SELECT Property
+alt Property status != PENDING
+  OS --> OC : BusinessException ("sign the contract first")
+  OC --> FE : Error response
+  FE --> Admin : Show error
+end
+OS -> PR : (31) save(wholeHouse, hasRenovation,\nrenovationCompleted = !hasRenovation,\nstatus = UNDER_RENOVATION)
+PR -> DB : (32) UPDATE Property
+DB --> PR : (33) OK
+OS --> OC : (34) PropertyResponse
+deactivate OS
+OC --> FE : (35) 200 OK
+deactivate OC
+FE --> Admin : (36) Show property UNDER_RENOVATION
+
+@enduml

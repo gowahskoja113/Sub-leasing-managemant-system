@@ -1,0 +1,97 @@
+@startuml ConfirmArrivalAndSendForInspection
+title Figure — ConfirmArrivalAndSendForInspection Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Step 1: Manager confirms arrival at the site ==
+Manager -> FE : (1) Arrive at room, click "Confirm arrival"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/confirm-arrival
+activate C
+C -> S : (3) confirmArrival(id)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) requireManagerAccess(req), requireStatus(OPEN)
+
+alt Not the manager in charge OR status != OPEN
+  S --> C : AccessDeniedException / BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> MR : (11) save(visitArrivalConfirmedAt = now)
+activate MR
+MR -> DB : (12) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+DB --> MR : (13) OK
+deactivate MR
+S -> NR : (14) notifyTenant "Manager arrived"
+NR -> DB : (15) INSERT Notification
+S -> PUSH : (16) sendToUser(tenantId, ...)
+S -> RT : (17) publishMaintenanceEvent(SCHEDULE_CHANGED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) Committed
+deactivate DB
+S --> C : (20) MaintenanceRequestResponse
+deactivate S
+C --> FE : (21) 200 OK
+deactivate C
+FE --> Manager : (22) Show "Arrival confirmed"\n(if not confirmed within 2 hours after the appointment,\nthe ticket is auto-cancelled by cron)
+
+== Step 2: Manager takes the equipment away for inspection (optional) ==
+Manager -> FE : (23) Click "Send for inspection" (+ expected return time)
+FE -> C : (24) PUT /api/v1/maintenance/{id}/send-for-inspection\nMaintenanceSendForInspectionRequest
+activate C
+C -> S : (25) sendForInspection(id, request)
+activate S
+S -> MR : (26) findActive(id)
+MR --> S : (27) MaintenanceRequest
+S -> S : (28) requireManagerAccess, requireStatus(OPEN),\nrequireVisitArrivalConfirmed
+alt Ticket already has damageCause
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+S -> MR : (29) save(status = REPAIR_SCHEDULED, acknowledgedAt,\nflowType = null, damageCause = null, expectedReturnAt)
+MR -> DB : (30) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+S -> NR : (31) notifyTenant "Equipment is being inspected"
+NR -> DB : (32) INSERT Notification
+S -> RT : (33) publishMaintenanceEvent(SCHEDULE_CHANGED)
+S --> C : (34) MaintenanceRequestResponse
+deactivate S
+C --> FE : (35) 200 OK
+deactivate C
+FE --> Manager : (36) Show REPAIR_SCHEDULED (diagnosis pending)
+
+@enduml

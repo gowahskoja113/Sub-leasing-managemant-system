@@ -1,0 +1,128 @@
+@startuml BulkImportLeaseExcel
+title Figure — BulkImportLeaseExcel (Phase 1: Bulk Import House via Excel) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "BulkImportController" as C
+participant "BulkLeaseImportServiceImpl" as S
+participant "ExcelLeaseImportWorkbookReader" as XR
+participant "BulkImportSupport" as BIS
+participant "ZoneImportResolver" as ZIR
+participant "PropertyOnboardingServiceImpl" as POS
+participant "InboundContractServiceImpl" as ICS
+participant "HandoverEquipmentRepository" as HER
+participant "PropertyRepository" as PR
+database DB
+
+Admin -> FE : (1) Select lease Excel file\nClick "Dry run" / "Import"
+FE -> C : (2) POST /api/v1/import/lease-excel\nmultipart file + dryRun
+activate C
+C -> S : (3) importLeaseWorkbook(file, dryRun)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> XR : (6) read(file)
+activate XR
+XR --> S : (7) LeaseImportWorkbook\n(lease contracts + handover rows)
+deactivate XR
+
+S -> BIS : (8) resolveSkippedLeaseContracts(leaseContracts)
+activate BIS
+BIS -> DB : (9) SELECT InboundContract by contractCode
+DB --> BIS : (10) existing codes
+BIS --> S : (11) skippedContracts
+deactivate BIS
+
+S -> S : (12) validate(workbook, skippedContracts)\n(lease rows, utility codes, handover rows)
+
+alt Validation errors
+  S --> C : BulkImportValidationException(errors)
+  C --> FE : 400 Bad Request + errors
+  FE --> Admin : Show row errors
+end
+
+alt dryRun = true
+  S --> C : BulkImportResponse(dryRun = true, preview results)
+  C --> FE : 200 OK
+  FE --> Admin : Show preview
+else dryRun = false
+  loop for each lease contract row
+    alt contractCode in skippedContracts
+      S -> S : (13) tryUpdateCustomerCodesOnExisting()\nor buildSkippedResult()
+    else New contract
+      S -> ZIR : (14) resolveDistrictZone(province, district)
+      activate ZIR
+      ZIR -> DB : (15) SELECT Zone
+      DB --> ZIR : (16) Zone
+      ZIR --> S : (17) Zone
+      deactivate ZIR
+
+      S -> POS : (18) createDraft(PropertyDraftRequest)
+      activate POS
+      POS -> DB : (19) INSERT Property (DRAFT)
+      DB --> POS : (20) OK
+      POS --> S : (21) PropertyResponse
+      deactivate POS
+
+      S -> ICS : (22) signContract(propertyId, CreateInboundContractRequest)
+      activate ICS
+      ICS -> DB : (23) INSERT InboundContract,\nUPDATE Property status = PENDING
+      DB --> ICS : (24) OK
+      ICS --> S : (25) InboundContractResponse
+      deactivate ICS
+
+      S -> POS : (26) setOnboardingOptions(wholeHouse = true,\nhasRenovation = expectsPhase2(contractCode))
+      activate POS
+      POS -> DB : (27) UPDATE Property status = UNDER_RENOVATION
+      DB --> POS : (28) OK
+      POS --> S : (29) PropertyResponse
+      deactivate POS
+
+      S -> HER : (30) save(HandoverEquipment) for each handover row
+      activate HER
+      HER -> DB : (31) INSERT HandoverEquipment
+      DB --> HER : (32) OK
+      deactivate HER
+
+      opt Contract has no renovation (NORENO)
+        S -> PR : (33) save(status = RENOVATION_COMPLETED)
+        PR -> DB : (34) UPDATE Property
+        S -> POS : (35) submitToHost(propertyId)
+        activate POS
+        POS -> DB : (36) validate + calculate pricing,\nUPDATE Property status = PENDING_HOST_REVIEW
+        DB --> POS : (37) OK
+        POS --> S : (38) OnboardingSummaryResponse
+        deactivate POS
+      end
+    end
+  end
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (39) CommitTransaction()
+DB --> S : (40) Committed
+deactivate DB
+
+S --> C : (41) BulkImportResponse\n(contractsProcessed, skipped, results)
+deactivate S
+C --> FE : (42) 200 OK + BulkImportResponse
+deactivate C
+FE --> Admin : (43) Show import result per contract
+
+@enduml

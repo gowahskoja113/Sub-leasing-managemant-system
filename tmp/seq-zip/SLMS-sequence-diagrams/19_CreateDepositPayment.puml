@@ -1,0 +1,97 @@
+@startuml CreateDepositPayment
+title Figure — CreateDepositPayment (Deposit + First Rent QR via PayOS) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "TenantContractActionController" as C
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "RoomRepository" as RR
+participant "PayosServiceImpl" as PAYOS
+participant "PayOS API" as EXT
+database DB
+
+Manager -> FE : (1) Click "Collect deposit"
+FE -> C : (2) POST /api/v1/tenant-contracts/{id}/deposit-payment
+activate C
+C -> S : (3) createDepositPayment(contractId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+opt status = DRAFT
+  S -> RR : (10) ensureRoomAvailableForDeposit(contract)
+  activate RR
+  RR -> DB : (11) SELECT Room
+  DB --> RR : (12) Room
+  RR --> S : (13) Room OK
+  deactivate RR
+  S -> S : (14) moveInDate must not be in the past\nstatus = PENDING
+end
+
+S -> S : (15) ensureDepositPaymentAllowed(contract)\n(price approved, not already PAID)
+
+alt Room not available / invalid move-in date /\nprice not approved / already paid
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> S : (16) deposit = resolveDepositAmount()\nfirstRent = resolveFirstRentAmount() (pro-rata)\ntotal = deposit + firstRent
+
+alt total <= 0
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> PAYOS : (17) createPaymentLink(orderCode, amount,\n"Onboard HD {id}")
+activate PAYOS
+PAYOS -> EXT : (18) POST /v2/payment-requests (HMAC-signed)
+activate EXT
+EXT --> PAYOS : (19) checkoutUrl, qrCode, orderCode
+deactivate EXT
+PAYOS --> S : (20) PaymentLink
+deactivate PAYOS
+
+S -> TCR : (21) save(payosOrderCode, paymentStatus = PENDING,\nonboardQrAmount / DepositAmount / FirstRentAmount)
+activate TCR
+TCR -> DB : (22) UPDATE TenantContract
+DB --> TCR : (23) OK
+TCR --> S : (24) saved
+deactivate TCR
+
+break Business / system error (e.g. PayOS unreachable)
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (25) CommitTransaction()
+DB --> S : (26) Committed
+deactivate DB
+
+S --> C : (27) TenantContractResponse\n(payosCheckoutUrl, payosQrCode)
+deactivate S
+C --> FE : (28) 200 OK + QR
+deactivate C
+FE --> Manager : (29) Show QR for tenant to scan
+
+@enduml

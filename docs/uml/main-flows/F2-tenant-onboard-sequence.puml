@@ -1,0 +1,97 @@
+@startuml F2_TenantOnboard_Sequence
+title Figure — Tenant Onboarding Sequence Diagram\nDraft → Deposit PayOS → OTP Confirm → Activate
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+actor Tenant
+actor Host
+participant "Front-end" as FE
+participant "TenantContractController\n/ActionController" as C
+participant "HostController" as HC
+participant "PayosWebhookController" as WC
+participant "TenantOnboardingServiceImpl" as S
+participant "HostPortalServiceImpl" as HS
+participant "PayosService" as PayOS
+participant "OtpService" as OTP
+participant "TenantContractRepository" as CR
+database DB
+
+== A. Manager tạo HĐ draft + chỉ số đầu ==
+
+Manager -> FE : (1) Onboard tenant\n(room condition + meters)
+FE -> C : (2) POST .../tenant-contract\nOnboardTenantRequest
+activate C
+C -> S : (3) createDraftContract(req)
+activate S
+S -> DB : (4) BeginTransaction()
+S -> S : (5) validate occupancy\n(1 ACTIVE contract / room)
+S -> CR : (6) save(TenantContract DRAFT)\n+ evidence photos + meters
+CR -> DB : (7) INSERT TenantContract...
+DB --> CR : (8) OK
+S -> DB : (9) CommitTransaction()
+S --> C : (10) TenantContractResponse
+deactivate S
+C --> FE : (11) Created
+deactivate C
+
+== B. Cọc qua PayOS + Webhook ==
+
+Manager -> FE : (12) Tạo QR cọc
+FE -> C : (13) POST .../deposit-payment
+C -> S : (14) createDepositPayment(contractId)
+S -> PayOS : (15) createPaymentLink
+PayOS --> S : (16) checkoutUrl / orderCode
+S -> CR : (17) save(payosOrderCode, PENDING_DEPOSIT)
+S --> C : (18) PaymentLinkResponse
+C --> FE : (19) QR
+FE --> Tenant : (20) Thanh toán cọc
+
+Tenant -> PayOS : (21) Pay
+PayOS -> WC : (22) POST /api/v1/payos/webhook
+activate WC
+WC -> S : (23) markDepositPaid(orderCode)
+S -> DB : (24) BeginTransaction()
+S -> CR : (25) UPDATE paymentStatus=PAID\n(+ TenantInvoice cọc nếu có)
+S -> DB : (26) CommitTransaction()
+WC --> PayOS : (27) 200 OK
+deactivate WC
+
+== C. OTP + Host approve + Activate ==
+
+opt [requireHostPriceApproval]
+  Host -> FE : (28) Approve giá HĐ
+  FE -> HC : (29) PUT /host/contracts/{id}/approve
+  HC -> HS : (30) approveContract(id)
+  HS -> CR : (31) UPDATE priceApprovalStatus
+end
+
+Manager -> FE : (32) Gửi OTP xác nhận
+FE -> C : (33) POST .../send-otp
+C -> S : (34) sendConfirmOtp
+S -> OTP : (35) send SMS (Twilio)
+OTP --> S : (36) OK
+
+Tenant -> FE : (37) Nhập OTP
+FE -> C : (38) POST .../confirm {otp}
+activate C
+C -> S : (39) confirmContract(id, otp)
+activate S
+S -> DB : (40) BeginTransaction()
+S -> OTP : (41) verifyOtp
+OTP --> S : (42) valid
+S -> CR : (43) UPDATE status=ACTIVE,\nactivatedAt, room OCCUPIED
+CR -> DB : (44) UPDATE
+break
+  S -> DB : RollbackTransaction()
+end
+S -> DB : (45) CommitTransaction()
+S --> C : (46) TenantContractResponse ACTIVE
+deactivate S
+C --> FE : (47) Success
+deactivate C
+FE --> Tenant : (48) Hợp đồng đã kích hoạt
+FE --> Manager : (49) Onboarding hoàn tất
+
+@enduml

@@ -1,0 +1,124 @@
+@startuml BulkImportRenovationExcel
+title Figure — BulkImportRenovationExcel (Phase 2: Exploitation Config + Renovation) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "BulkImportController" as C
+participant "BulkRenovationImportServiceImpl" as S
+participant "ExcelRenovationImportWorkbookReader" as XR
+participant "InboundContractRepository" as ICR
+participant "PropertyRepository" as PR
+participant "RoomServiceImpl" as RS
+participant "PropertyOnboardingServiceImpl" as POS
+database DB
+
+Admin -> FE : (1) Select renovation Excel file\nClick "Dry run" / "Import"
+FE -> C : (2) POST /api/v1/import/renovation-excel\nmultipart file + dryRun
+activate C
+C -> S : (3) importRenovationWorkbook(file, dryRun)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> XR : (6) read(file)
+activate XR
+XR --> S : (7) RenovationImportWorkbook\n(config, rooms, renovation lines, purchased equipment)
+deactivate XR
+
+S -> S : (8) resolveSkippedContracts(configRows)\nvalidate(workbook, skippedContracts)
+
+alt Validation errors / no config rows
+  S --> C : BulkImportValidationException(errors)
+  C --> FE : 400 Bad Request + errors
+  FE --> Admin : Show row errors
+end
+
+alt dryRun = true
+  S --> C : BulkImportResponse(dryRun = true)
+  C --> FE : 200 OK
+  FE --> Admin : Show preview
+else dryRun = false
+  loop for each config row not skipped
+    S -> ICR : (9) findByContractCode(contractCode)
+    activate ICR
+    ICR -> DB : (10) SELECT InboundContract
+    DB --> ICR : (11) InboundContract / empty
+    ICR --> S : (12) InboundContract
+    deactivate ICR
+    alt Inbound contract not found
+      S --> C : ResourceNotFoundException
+      C --> FE : 404 Error response
+      FE --> Admin : Show error
+    end
+
+    S -> PR : (13) save(wholeHouse, totalRooms)
+    activate PR
+    PR -> DB : (14) UPDATE Property
+    DB --> PR : (15) OK
+    deactivate PR
+
+    opt Not whole house
+      S -> RS : (16) addRoom(propertyId, AddRoomRequest) per room row
+      activate RS
+      RS -> DB : (17) INSERT Room
+      DB --> RS : (18) OK
+      deactivate RS
+    end
+
+    loop each renovation row
+      S -> POS : (19) addRenovationLine(propertyId, request)
+      POS -> DB : (20) INSERT RenovationLine
+    end
+
+    opt Purchased equipment rows exist
+      S -> POS : (21) saveEquipmentManifest(propertyId, manifest items)
+      POS -> DB : (22) INSERT EquipmentManifest,\nstatus = PENDING_EQUIPMENT_INSTALLATION
+      loop each purchased row
+        S -> POS : (23) assignEquipment(propertyId, request)
+        POS -> DB : (24) INSERT Equipment
+      end
+    end
+
+    S -> POS : (25) completeRenovation(propertyId)
+    activate POS
+    POS -> DB : (26) UPDATE Property status = RENOVATION_COMPLETED
+    DB --> POS : (27) OK
+    POS --> S : (28) PropertyResponse
+    deactivate POS
+
+    S -> POS : (29) submitToHost(propertyId)
+    activate POS
+    POS -> DB : (30) calculate pricing,\nUPDATE Property status = PENDING_HOST_REVIEW
+    DB --> POS : (31) OK
+    POS --> S : (32) OnboardingSummaryResponse
+    deactivate POS
+  end
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (33) CommitTransaction()
+DB --> S : (34) Committed
+deactivate DB
+
+S --> C : (35) BulkImportResponse
+deactivate S
+C --> FE : (36) 200 OK + BulkImportResponse
+deactivate C
+FE --> Admin : (37) Show import result per contract
+
+@enduml

@@ -1,0 +1,96 @@
+@startuml SaveEquipmentManifest
+title Figure — SaveEquipmentManifest Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "EquipmentManifestRepository" as EMR
+participant "EquipmentCatalogRepository" as ECR
+database DB
+
+Admin -> FE : (1) Declare handover / purchased equipment list\nClick "Save manifest"
+FE -> C : (2) PUT /api/v1/properties/{propertyId}/equipment-manifest\nSaveEquipmentManifestRequest
+activate C
+C -> S : (3) saveEquipmentManifest(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId) (findOnboardingProperty)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status not UNDER_RENOVATION / PENDING_EQUIPMENT_INSTALLATION
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> EMR : (10) deleteByPropertyId(propertyId)
+activate EMR
+EMR -> DB : (11) DELETE EquipmentManifest
+DB --> EMR : (12) OK
+deactivate EMR
+
+loop for each item in request
+  S -> S : (13) validateEquipmentStatus(NEW / GOOD)
+  S -> ECR : (14) findById(catalogId)
+  activate ECR
+  ECR -> DB : (15) SELECT EquipmentCatalog
+  DB --> ECR : (16) Catalog / empty
+  ECR --> S : (17) EquipmentCatalog
+  deactivate ECR
+  alt Catalog not found
+    S --> C : ResourceNotFoundException
+    C --> FE : Error response
+    FE --> Admin : Show error
+  end
+  S -> S : (18) price = 0 if source = INITIAL_HANDOVER
+  S -> EMR : (19) save(EquipmentManifest)
+  activate EMR
+  EMR -> DB : (20) INSERT EquipmentManifest
+  DB --> EMR : (21) OK
+  EMR --> S : (22) saved
+  deactivate EMR
+end
+
+opt status = UNDER_RENOVATION
+  S -> PR : (23) save(status = PENDING_EQUIPMENT_INSTALLATION)
+  activate PR
+  PR -> DB : (24) UPDATE Property
+  DB --> PR : (25) OK
+  deactivate PR
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (26) CommitTransaction()
+DB --> S : (27) Committed
+deactivate DB
+
+S --> C : (28) List<EquipmentManifestResponse>
+deactivate S
+C --> FE : (29) 200 OK + manifest list
+deactivate C
+FE --> Admin : (30) Show saved manifest
+
+@enduml

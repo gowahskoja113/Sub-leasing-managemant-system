@@ -1,0 +1,107 @@
+@startuml BulkImportTenantDraftContracts
+title Figure — BulkImportTenantDraftContracts Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "BulkImportController" as C
+participant "BulkTenantDraftContractImportServiceImpl" as S
+participant "ExcelTenantDraftContractWorkbookReader" as XR
+participant "PropertyRepository" as PR
+participant "RoomRepository" as RR
+participant "TenantContractRepository" as TCR
+participant "TenantOnboardingServiceImpl" as TOS
+database DB
+
+Manager -> FE : (1) Select tenant draft-contract Excel\nClick "Dry run" / "Import"
+FE -> C : (2) POST /api/v1/import/tenant-draft-contracts-excel\nmultipart file + dryRun + skipInvalidRows
+activate C
+C -> S : (3) importWorkbook(file, dryRun, skipInvalidRows)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> XR : (6) read(file)
+activate XR
+XR --> S : (7) TenantDraftContractImportWorkbook (rows)
+deactivate XR
+
+alt No data rows
+  S --> C : BulkImportValidationException FILE_EMPTY
+  C --> FE : 400 Bad Request
+  FE --> Manager : Show error
+end
+
+loop for each row
+  S -> PR : (8) resolveProperty(inbound code / property code / name)
+  activate PR
+  PR -> DB : (9) SELECT Property, InboundContract
+  DB --> PR : (10) Property / empty / ambiguous
+  PR --> S : (11) Property
+  deactivate PR
+  S -> RR : (12) find room by roomNumber (room rental)
+  activate RR
+  RR -> DB : (13) SELECT Room
+  DB --> RR : (14) Room / empty
+  RR --> S : (15) Room
+  deactivate RR
+  S -> TCR : (16) check occupancy overlap
+  activate TCR
+  TCR -> DB : (17) SELECT TenantContract
+  DB --> TCR : (18) contracts
+  TCR --> S : (19) overlap?
+  deactivate TCR
+  S -> S : (20) validateAndResolve(row)\ncollect errors (PROPERTY_NOT_ACTIVE, ROOM_OCCUPIED,\nOCCUPANCY_OUT_OF_LEASE, DUPLICATE_IN_FILE ...)
+end
+
+alt errors exist AND skipInvalidRows = false
+  S --> C : BulkImportValidationException(errors)
+  C --> FE : 400 Bad Request + errors
+  FE --> Manager : Show row errors
+else No valid row
+  S --> C : BulkImportValidationException
+  C --> FE : 400 Bad Request
+  FE --> Manager : Show error
+end
+
+alt dryRun = true
+  S --> C : BulkImportResponse(dryRun = true, preview)
+  C --> FE : 200 OK
+  FE --> Manager : Show preview
+else dryRun = false
+  loop for each resolved row
+    S -> TOS : (21) onboardTenant(propertyId, roomId, OnboardTenantRequest)
+    activate TOS
+    TOS -> DB : (22) INSERT User (tenant), TenantContract (DRAFT)
+    DB --> TOS : (23) OK
+    TOS --> S : (24) TenantContractResponse
+    deactivate TOS
+  end
+end
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (25) CommitTransaction()
+DB --> S : (26) Committed
+deactivate DB
+
+S --> C : (27) BulkImportResponse (results + skipped errors)
+deactivate S
+C --> FE : (28) 200 OK + BulkImportResponse
+deactivate C
+FE --> Manager : (29) Show created draft contracts
+
+@enduml

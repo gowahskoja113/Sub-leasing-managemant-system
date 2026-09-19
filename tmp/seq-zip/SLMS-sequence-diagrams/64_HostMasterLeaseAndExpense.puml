@@ -1,0 +1,104 @@
+@startuml HostMasterLeaseAndExpense
+title Figure — HostMasterLeaseAndExpense (Master Lease & Operating Expense Management) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Host
+participant "Front-end" as FE
+participant "HostController" as C
+participant "MasterLeaseServiceImpl" as MS
+participant "HostExpenseServiceImpl" as ES
+participant "PropertyRepository" as PR
+participant "MasterLeaseRepository" as MR
+participant "ExpenseRepository" as ER
+database DB
+
+== Master lease ==
+Host -> FE : (1) Enter owner, monthly rent, deposit, payment day,\nstart / end date, escalation %\nClick "Create master lease"
+FE -> C : (2) POST /api/v1/host/master-leases\nMasterLeaseRequest
+activate C
+C -> MS : (3) createMasterLease(request)
+activate MS
+MS -> PR : (4) findById(propertyId)
+activate PR
+PR -> DB : (5) SELECT Property
+DB --> PR : (6) Property / empty
+PR --> MS : (7) Property
+deactivate PR
+alt Property not found
+  MS --> C : NoSuchElementException
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+MS -> MR : (8) save(MasterLease status = ACTIVE)
+activate MR
+MR -> DB : (9) INSERT MasterLease
+DB --> MR : (10) Model state
+MR --> MS : (11) saved
+deactivate MR
+MS --> C : (12) MasterLeaseResponse
+deactivate MS
+C --> FE : (13) 200 OK
+deactivate C
+FE --> Host : (14) Show master lease
+
+Host -> FE : (15) Edit lease terms, click "Save"
+FE -> C : (16) PUT /api/v1/host/master-leases/{id}
+C -> MS : (17) updateMasterLease(id, request)
+MS -> MR : (18) findById(id) -> save(owner, rent, deposit, payment day,\ndates, escalation %)
+MR -> DB : (19) UPDATE MasterLease
+MS --> C : (20) MasterLeaseResponse
+C --> FE : (21) 200 OK
+
+Host -> FE : (22) Click "Terminate master lease"
+FE -> C : (23) POST /api/v1/host/master-leases/{id}/terminate
+C -> MS : (24) terminateMasterLease(id)
+MS -> MR : (25) findById(id) -> save(status = TERMINATED)
+MR -> DB : (26) UPDATE MasterLease
+C --> FE : (27) 200 OK
+
+== Operating expenses ==
+Host -> FE : (28) Choose property, category, month, amount, note\nClick "Add expense"
+FE -> C : (29) POST /api/v1/host/expenses\nExpenseRequest
+activate C
+C -> ES : (30) createExpense(request)
+activate ES
+alt category = LEASE
+  ES --> C : BusinessException ("lease cost is generated automatically")
+  C --> FE : Error response
+  FE --> Host : Show error
+end
+ES -> PR : (31) findById(propertyId)
+PR -> DB : (32) SELECT Property
+ES -> ER : (33) save(Expense: property, category, amount, month, note)
+activate ER
+ER -> DB : (34) INSERT Expense
+DB --> ER : (35) Model state
+ER --> ES : (36) saved expense
+deactivate ER
+ES --> C : (37) ExpenseResponse
+deactivate ES
+C --> FE : (38) 200 OK
+deactivate C
+FE --> Host : (39) Show expense
+
+Host -> FE : (40) Edit expense
+FE -> C : (41) PUT /api/v1/host/expenses/{id}
+C -> ES : (42) updateExpense(id, request)
+ES -> ER : (43) findById(id) -> save(category, amount, month, note)\n(LEASE category rejected)
+ER -> DB : (44) UPDATE Expense
+ES --> C : (45) ExpenseResponse
+C --> FE : (46) 200 OK
+
+Host -> FE : (47) Delete expense
+FE -> C : (48) DELETE /api/v1/host/expenses/{id}
+C -> ES : (49) deleteExpense(id)
+ES -> ER : (50) findById(id) -> save(deleted = true) (soft delete)
+ER -> DB : (51) UPDATE Expense
+C --> FE : (52) 200 OK
+
+@enduml

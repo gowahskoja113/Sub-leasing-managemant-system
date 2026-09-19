@@ -1,0 +1,109 @@
+@startuml ManagerCreateUtilityInvoice
+title Figure — ManagerCreateUtilityInvoice Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "UtilityInvoiceController" as C
+participant "UtilityInvoiceServiceImpl" as S
+participant "PropertyAccessService" as PAS
+participant "TenantContractRepository" as TCR
+participant "UtilityInvoiceRepository" as UIR
+participant "MeterReadingRepository" as MRR
+participant "TenantBillingServiceImpl" as TBS
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+database DB
+
+Manager -> FE : (1) Enter period, prev/new reading, meter photo\nClick "Create utility invoice"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/rooms/{roomId}/utility-invoices\nCreateUtilityInvoiceRequest
+activate C
+C -> S : (3) createRoomInvoice(propertyId, roomId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PAS : (6) assertCanManageProperty(propertyId)
+activate PAS
+PAS --> S : (7) OK / Forbidden
+deactivate PAS
+
+S -> S : (8) loadProperty / loadRoom, validateRoomBillable(),\nvalidateInvoiceAmounts(),\nassertRoomSumWithinBill(consumption)
+
+S -> TCR : (9) findByRoomIdAndStatus(roomId, ACTIVE)\n(fallback: latest EXPIRED / TERMINATED)
+activate TCR
+TCR -> DB : (10) SELECT TenantContract
+DB --> TCR : (11) contract?
+TCR --> S : (12) TenantContract?
+deactivate TCR
+
+S -> S : (13) validateBillingPeriodLock(period, contract)
+
+alt Room not billable / amount invalid / room sum exceeds bill /\ncontract ended too long ago / period locked
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> S : (14) createAndSend(): ensureMeterPhotoOrOverride()
+
+alt No meter photo and no valid override token
+  S --> C : BusinessException METER_PHOTO_REQUIRED
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> UIR : (15) save(UtilityInvoice status = SENT)
+activate UIR
+UIR -> DB : (16) INSERT UtilityInvoice
+DB --> UIR : (17) Model state
+UIR --> S : (18) saved invoice
+deactivate UIR
+
+S -> MRR : (19) find / save MeterReading\n(link utilityInvoiceId)
+activate MRR
+MRR -> DB : (20) INSERT / UPDATE MeterReading
+DB --> MRR : (21) OK
+deactivate MRR
+
+opt Contract exists
+  S -> TBS : (22) createFromUtilityInvoice(utilityInvoice, contract)
+  activate TBS
+  TBS -> DB : (23) INSERT TenantInvoice (ELECTRICITY / WATER, PENDING)
+  DB --> TBS : (24) OK
+  TBS --> S : (25) TenantInvoice
+  deactivate TBS
+  S -> NR : (26) save(Notification UTILITY_INVOICE_CREATED)\n(dedupe by key)
+  NR -> DB : (27) INSERT Notification
+  S -> PUSH : (28) sendToUser(tenantId, title, content)
+  PUSH --> S : (29) push sent
+end
+
+S -> S : (30) reconcileIfComplete(propertyId, period, type)\n(all rooms invoiced -> reconcile with bill)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (31) CommitTransaction()
+DB --> S : (32) Committed
+deactivate DB
+
+S --> C : (33) UtilityInvoiceResponse
+deactivate S
+C --> FE : (34) 200 OK / 201 + UtilityInvoiceResponse
+deactivate C
+FE --> Manager : (35) Show created invoice
+
+@enduml

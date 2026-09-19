@@ -1,0 +1,109 @@
+@startuml SubmitToHost
+title Figure — SubmitToHost Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "InboundContractRepository" as ICR
+participant "EquipmentManifestRepository" as EMR
+participant "RoomRepository" as RR
+participant "DepreciationServiceImpl" as DS
+participant "DepreciationResultRepository" as DRR
+database DB
+
+Admin -> FE : (1) Click "Submit to host"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/submit-to-host
+activate C
+C -> S : (3) submitToHost(propertyId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status != RENOVATION_COMPLETED
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> S : (10) validateReadyForSubmit(property)
+S -> ICR : (11) existsByPropertyId(propertyId)
+activate ICR
+ICR -> DB : (12) SELECT InboundContract
+DB --> ICR : (13) exists?
+ICR --> S : (14) boolean
+deactivate ICR
+S -> EMR : (15) findByPropertyId / count assigned equipments
+activate EMR
+EMR -> DB : (16) SELECT EquipmentManifest, Equipment
+DB --> EMR : (17) manifests, assigned counts
+EMR --> S : (18) manifests
+deactivate EMR
+S -> RR : (19) countByPropertyIdAndDeletedIsFalse(propertyId)
+activate RR
+RR -> DB : (20) SELECT COUNT Room
+DB --> RR : (21) roomCount
+RR --> S : (22) roomCount
+deactivate RR
+
+alt Missing inbound contract / equipment not fully assigned /\nroom count != totalRooms / no renovation line or schedule
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DS : (23) calculate(propertyId, CalculateDepreciationRequest)
+activate DS
+DS -> DRR : (24) delete old version + save DepreciationResult\n(whole house or per room)
+activate DRR
+DRR -> DB : (25) DELETE / INSERT DepreciationResult,\nPricingCapitalItem
+DB --> DRR : (26) OK
+DRR --> DS : (27) saved
+deactivate DRR
+DS --> S : (28) DepreciationCalculationResponse
+deactivate DS
+
+S -> PR : (29) save(submittedToHostAt = now,\nstatus = PENDING_HOST_REVIEW)
+activate PR
+PR -> DB : (30) UPDATE Property
+DB --> PR : (31) OK
+PR --> S : (32) saved
+deactivate PR
+
+S -> S : (33) getOnboardingSummary(propertyId)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (34) CommitTransaction()
+DB --> S : (35) Committed
+deactivate DB
+
+S --> C : (36) OnboardingSummaryResponse
+deactivate S
+C --> FE : (37) 200 OK + summary
+deactivate C
+FE --> Admin : (38) Show "Waiting for host review"
+
+@enduml

@@ -1,0 +1,110 @@
+@startuml OcrAndVisionAssist
+title Figure — OcrAndVisionAssist (Meter OCR, Utility Bill OCR, Image Labels, Room Description) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "OcrController" as OC
+participant "OcrServiceImpl" as OS
+participant "Google Cloud Vision" as GV
+participant "OCR.space" as OSP
+participant "VisionController" as VC
+participant "VisionServiceImpl" as VS
+participant "GeminiRoomDescribeProvider" as GEM
+
+== Read a meter from a photo ==
+Manager -> FE : (1) Capture meter photo (uploaded to cloud storage)
+FE -> OC : (2) POST /api/v1/ocr/meter\n{imageUrl}
+activate OC
+OC -> OS : (3) readMeter(imageUrl)
+activate OS
+OS -> GV : (4) readTextWithVision(imageUrl)
+activate GV
+GV --> OS : (5) detected text / error
+deactivate GV
+alt Vision returned text
+  OS -> OS : (6) extractNumbers(text), pickBest(numbers, text)
+else Vision not configured / quota exhausted / error
+  OS -> OSP : (7) POST parse image (OCREngine 2)
+  activate OSP
+  OSP --> OS : (8) ParsedText / IsErroredOnProcessing
+  deactivate OSP
+  alt OCR.space error
+    OS --> OC : BusinessException ("enter the reading manually")
+    OC --> FE : Error response
+    FE --> Manager : Show error, allow manual entry
+  end
+  OS -> OS : (9) extractNumbers(text), pickBest(numbers, text)
+end
+OS --> OC : (10) OcrMeterResponse (reading, numbers, rawText)
+deactivate OS
+OC --> FE : (11) 200 OK
+deactivate OC
+FE --> Manager : (12) Pre-fill the reading (Manager can edit)
+
+== Read an EVN / water bill from a photo ==
+Manager -> FE : (13) Capture utility bill photo
+FE -> OC : (14) POST /api/v1/ocr/evn-bill\n{imageUrl, billType}
+activate OC
+OC -> OS : (15) readUtilityBill(imageUrl, billType)
+activate OS
+OS -> OSP : (16) POST parse image (table mode)
+OSP --> OS : (17) ParsedText
+OS -> OS : (18) find labeled numbers: total quantity, total amount,\nbilling period, customer code, previous / new reading
+OS --> OC : (19) OcrUtilityBillResponse (+ fieldsToConfirm)
+deactivate OS
+OC --> FE : (20) 200 OK
+deactivate OC
+FE --> Manager : (21) Show extracted fields, Manager confirms customer code and readings
+
+== Detect labels in an image ==
+Manager -> FE : (22) Upload a photo of equipment / room
+FE -> VC : (23) POST /api/v1/vision/labels {imageUrl}
+activate VC
+VC -> VS : (24) detectLabels(imageUrl)
+activate VS
+VS -> VS : (25) validateImageUrl (HTTPS only),\nproviders order = [google, local]
+loop each available provider
+  opt Provider is Google
+    VS -> VS : (26) tryAcquireGoogleQuota() (per-user hourly limit)
+  end
+  VS -> GV : (27) detect(image)
+  GV --> VS : (28) labels / error (try next provider)
+end
+alt No provider configured / quota exhausted / all providers failed
+  VS --> VC : BusinessException
+  VC --> FE : Error response
+  FE --> Manager : Show error
+end
+VS --> VC : (29) VisionLabelsResponse
+deactivate VS
+VC --> FE : (30) 200 OK
+deactivate VC
+
+== Generate a room-condition description ==
+Manager -> FE : (31) Click "Generate description" (1..N room photos)
+FE -> VC : (32) POST /api/v1/vision/describe-room {imageUrls}
+activate VC
+VC -> VS : (33) describeRoom(imageUrls)
+activate VS
+alt No image / more than max images / hourly describe quota exhausted
+  VS --> VC : BusinessException VISION_DESCRIBE_UNAVAILABLE / QUOTA
+  VC --> FE : Error response
+  FE --> Manager : Show error (write manually)
+end
+VS -> GEM : (34) describe(images)
+activate GEM
+GEM --> VS : (35) description text
+deactivate GEM
+VS --> VC : (36) VisionDescribeRoomResponse (description, model)
+deactivate VS
+VC --> FE : (37) 200 OK
+deactivate VC
+FE --> Manager : (38) Fill room condition note (Manager can edit)
+
+@enduml

@@ -1,0 +1,128 @@
+@startuml ZoneManagement
+title Figure — ZoneManagement (Create, Update, Delete Zone) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "ZoneController" as C
+participant "ZoneServiceImpl" as S
+participant "ZoneRepository" as ZR
+participant "ZoneMapper" as ZM
+database DB
+
+Admin -> FE : (1) Enter zone name, level, parent zone\nClick "Create zone"
+FE -> C : (2) POST /api/v2/zones\nZoneRequest
+activate C
+C -> S : (3) createZone(request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> S : (6) validateZoneHierarchy(level, parentId)
+
+alt Hierarchy invalid
+  S --> C : RuntimeException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+alt parentId is null (province / city)
+  S -> ZR : (7) existsByNameAndParentIsNull(name)
+else Has parent
+  S -> ZR : (8) existsByNameAndParentId(name, parentId)
+end
+activate ZR
+ZR -> DB : (9) SELECT Zone
+DB --> ZR : (10) exists?
+ZR --> S : (11) boolean
+deactivate ZR
+
+alt Zone name already exists at this level
+  S --> C : RuntimeException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+opt Has parent
+  S -> ZR : (12) findById(parentId)
+  activate ZR
+  ZR -> DB : (13) SELECT Zone
+  DB --> ZR : (14) parent Zone / empty
+  ZR --> S : (15) parent Zone
+  deactivate ZR
+end
+
+S -> ZM : (16) toEntity(request)
+ZM --> S : (17) Zone
+S -> ZR : (18) save(zone with parent)
+activate ZR
+ZR -> DB : (19) INSERT Zone
+DB --> ZR : (20) Model state
+ZR --> S : (21) saved zone
+deactivate ZR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+S --> C : (24) ZoneResponse
+deactivate S
+C --> FE : (25) 200 OK
+deactivate C
+FE --> Admin : (26) Show created zone
+
+== Update a zone ==
+Admin -> FE : (27) Edit zone, click "Save"
+FE -> C : (28) PUT /api/v2/zones/{id}
+C -> S : (29) updateZone(id, request)
+S -> ZR : (30) findById(id)
+ZR -> DB : (31) SELECT Zone
+alt Zone or parent not found / hierarchy invalid /\nname duplicated in the same parent
+  S --> C : RuntimeException
+  C --> FE : Error response
+end
+S -> ZR : (32) save(zone: parent, name, level ...)
+ZR -> DB : (33) UPDATE Zone
+S --> C : (34) ZoneResponse
+C --> FE : (35) 200 OK
+
+== Delete a zone ==
+Admin -> FE : (36) Click "Delete zone"
+FE -> C : (37) DELETE /api/v2/zones/{id}
+C -> S : (38) deleteZone(id)
+S -> ZR : (39) findById(id)
+ZR -> DB : (40) SELECT Zone (+ properties, children)
+alt Zone has properties OR has child zones
+  S --> C : RuntimeException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+S -> ZR : (41) delete(zone)
+ZR -> DB : (42) DELETE Zone
+S --> C : (43) void
+C --> FE : (44) 204 No Content
+
+== Browse the zone tree ==
+Admin -> FE : (45) Open zone selector
+FE -> C : (46) GET /api/v2/zones/root, then /api/v2/zones/{parentId}/children
+C -> S : (47) getRootZones() / getChildrenZones(parentId)
+S -> ZR : (48) findAllByLevel(1) / findAllByParentId(parentId)
+ZR -> DB : (49) SELECT Zone
+S --> C : (50) List<ZoneResponse>
+C --> FE : (51) 200 OK
+
+@enduml

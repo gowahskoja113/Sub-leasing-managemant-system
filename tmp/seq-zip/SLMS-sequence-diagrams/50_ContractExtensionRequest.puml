@@ -1,0 +1,169 @@
+@startuml ContractExtensionRequest
+title Figure — ContractExtensionRequest (Tenant Requests, Admin Approves / Rejects) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+actor Manager
+actor Admin
+participant "Front-end" as FE
+participant "ExtensionRequestController" as C
+participant "ExtensionRequestServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "InboundContractRepository" as ICR
+participant "ExtensionRequestRepository" as ERR
+participant "TenantOnboardingServiceImpl" as TOS
+participant "NotificationRepository" as NR
+participant "PushNotificationService" as PUSH
+database DB
+
+== Step 1: Tenant submits an extension request ==
+Tenant -> FE : (1) Choose number of months (<= maxMonths), note\nClick "Request extension"
+FE -> C : (2) POST /api/v1/tenant/me/contracts/{contractId}/extension-requests\nCreateExtensionRequest
+activate C
+C -> S : (3) createRequest(tenantUserId, contractId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findById(contractId) (loadOwnedContract)
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) TenantContract
+TCR --> S : (9) TenantContract
+deactivate TCR
+
+alt Contract not owned / status != ACTIVE /\ntoday is on or after the last day (closed for extension)
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> ERR : (10) existsByTenantContractIdAndStatus(PENDING)
+activate ERR
+ERR -> DB : (11) SELECT ExtensionRequest
+DB --> ERR : (12) exists?
+ERR --> S : (13) boolean
+deactivate ERR
+alt A pending request already exists
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> ICR : (14) findFirstByPropertyIdOrderByIdDesc(propertyId)
+activate ICR
+ICR -> DB : (15) SELECT InboundContract
+DB --> ICR : (16) InboundContract
+ICR --> S : (17) InboundContract
+deactivate ICR
+S -> S : (18) newEndDate = endDate + months\nInboundLeaseRules.assertOccupancyWindow(...)
+alt New end date exceeds inbound lease
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> ERR : (19) save(ExtensionRequest status = PENDING, months, newEndDate)
+activate ERR
+ERR -> DB : (20) INSERT ExtensionRequest
+DB --> ERR : (21) Model state
+ERR --> S : (22) saved
+deactivate ERR
+
+S -> NR : (23) sendNotification(manager, admins, owners: EXTENSION_REQUESTED)
+activate NR
+NR -> DB : (24) INSERT Notification
+DB --> NR : (25) OK
+deactivate NR
+S -> PUSH : (26) sendPushNotification(...)
+PUSH --> S : (27) push sent
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (28) CommitTransaction()
+DB --> S : (29) Committed
+deactivate DB
+S --> C : (30) ExtensionRequestResponse
+deactivate S
+C --> FE : (31) 200 OK
+deactivate C
+FE --> Tenant : (32) Show request (PENDING)
+
+== Tenant withdraws (alternative) ==
+Tenant -> FE : (33) Click "Withdraw"
+FE -> C : (34) DELETE /api/v1/tenant/me/extension-requests/{requestId}
+C -> S : (35) withdrawRequest(tenantUserId, requestId)
+S -> ERR : (36) findByIdAndTenantUserId(requestId, tenantUserId)
+alt Request is not PENDING
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> ERR : (37) save(status = WITHDRAWN)
+ERR -> DB : (38) UPDATE ExtensionRequest
+S -> NR : (39) notify manager + admins (EXTENSION_WITHDRAWN)
+S --> C : (40) ExtensionRequestResponse
+C --> FE : (41) 200 OK
+
+== Step 2: Manager adds an opinion ==
+Manager -> FE : (42) Enter note on a pending request
+FE -> C : (43) POST /api/v1/manager/extension-requests/{requestId}/note
+C -> S : (44) addManagerNote(managerId, requestId, request)
+S -> ERR : (45) save(managerNote) (only when PENDING)
+ERR -> DB : (46) UPDATE ExtensionRequest
+S --> C : (47) ExtensionRequestResponse
+C --> FE : (48) 200 OK
+
+== Step 3: Admin approves ==
+Admin -> FE : (49) Review request, click "Approve"
+FE -> C : (50) POST /api/v1/admin/extension-requests/{requestId}/approve
+activate C
+C -> S : (51) approveRequest(adminUserId, requestId)
+activate S
+S -> ERR : (52) findById(requestId)
+ERR --> S : (53) ExtensionRequest
+alt Status != PENDING
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+S -> ERR : (54) set status = APPROVED, reviewedAt, reviewedBy
+S -> TOS : (55) extendContract(contractId, newEndDate, keep current rent)
+activate TOS
+TOS -> DB : (56) UPDATE TenantContract.endDate, notify tenant + manager\n(see ExtendContract)
+DB --> TOS : (57) OK
+TOS --> S : (58) TenantContractResponse
+deactivate TOS
+S -> ERR : (59) save(request)
+ERR -> DB : (60) UPDATE ExtensionRequest
+S -> NR : (61) sendNotification(tenant EXTENSION_APPROVED,\nmanager EXTENSION_APPROVED_MGR)
+NR -> DB : (62) INSERT Notification
+S --> C : (63) ExtensionRequestResponse
+deactivate S
+C --> FE : (64) 200 OK
+deactivate C
+FE --> Admin : (65) Show APPROVED
+
+== Admin rejects (alternative) ==
+Admin -> FE : (66) Enter reason, click "Reject"
+FE -> C : (67) POST /api/v1/admin/extension-requests/{requestId}/reject
+C -> S : (68) rejectRequest(adminUserId, requestId, request)
+S -> ERR : (69) save(status = REJECTED, rejectReason, reviewedAt, reviewedBy)
+ERR -> DB : (70) UPDATE ExtensionRequest
+S -> NR : (71) sendNotification(tenant EXTENSION_REJECTED, manager EXTENSION_REJECTED_MGR)
+S --> C : (72) ExtensionRequestResponse
+C --> FE : (73) 200 OK
+
+@enduml

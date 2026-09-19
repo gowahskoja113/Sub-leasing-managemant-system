@@ -1,0 +1,130 @@
+@startuml CancelAndRescheduleMaintenance
+title Figure — CancelAndRescheduleMaintenance Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+actor Manager
+actor "Scheduler\n(every 10 min)" as CRON
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "RoomRepository" as RR
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+== Reschedule visit / repair ==
+Tenant -> FE : (1) Choose new visit time, click "Reschedule"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/reschedule-visit
+activate C
+C -> S : (3) rescheduleVisit(id, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) assertCanRescheduleVisit, requireStatus(OPEN),\nnot yet arrival-confirmed, still before appointment day
+
+alt Not allowed / arrival already confirmed / too late
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> S : (11) validateAndAssertSlotAvailable(managerId, newTime, 30 min)
+alt Slot in the past / outside 07:00-18:00 / overlapping
+  S --> C : BusinessException / ConflictException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> MR : (12) save(visitAppointmentAt = newTime)
+activate MR
+MR -> DB : (13) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+DB --> MR : (14) OK
+deactivate MR
+S -> NR : (15) notifyPropertyManager + notifyTenant (SCHEDULE_CHANGED)
+NR -> DB : (16) INSERT Notification
+S -> RT : (17) publishMaintenanceEvent(SCHEDULE_CHANGED)
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) Committed
+deactivate DB
+S --> C : (20) MaintenanceRequestResponse
+deactivate S
+C --> FE : (21) 200 OK
+deactivate C
+FE --> Tenant : (22) Show new appointment
+
+Manager -> FE : (23) Change repair appointment (REPAIR_SCHEDULED)
+FE -> C : (24) PUT /api/v1/maintenance/{id}/reschedule-repair
+C -> S : (25) rescheduleRepair(id, request)
+S -> S : (26) requireManagerAccess, requireStatus(REPAIR_SCHEDULED),\nslot check (60 min)
+S -> MR : (27) save(repairAppointmentAt = newTime)
+MR -> DB : (28) UPDATE MaintenanceRequest, INSERT Timeline
+S -> NR : (29) notifyTenant SCHEDULE_CHANGED
+S --> C : (30) MaintenanceRequestResponse
+C --> FE : (31) 200 OK
+
+== Cancel ticket ==
+Tenant -> FE : (32) Click "Cancel request" (status OPEN)\nor Manager cancels (any non-final status)
+FE -> C : (33) PUT /api/v1/maintenance/{id}/cancel?reason=...
+activate C
+C -> S : (34) cancel(id, reason)
+activate S
+S -> MR : (35) findActive(id)
+MR --> S : (36) MaintenanceRequest
+alt Tenant: not owner or status != OPEN /\nManager: not in charge or already CLOSED / CANCELLED
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+S -> MR : (37) save(status = CANCELLED)
+MR -> DB : (38) UPDATE MaintenanceRequest, INSERT Timeline
+S -> RR : (39) restoreRoomStatus(req)
+RR -> DB : (40) UPDATE Room
+S -> NR : (41) notify the other party (MAINTENANCE_CANCELLED)
+NR -> DB : (42) INSERT Notification
+S -> RT : (43) publishMaintenanceEvent(CANCELLED_BY_TENANT / BY_MANAGER)
+S --> C : (44) MaintenanceRequestResponse
+deactivate S
+C --> FE : (45) 200 OK
+deactivate C
+FE --> Tenant : (46) Show CANCELLED
+
+== Cron: auto-cancel no-show visits ==
+CRON -> S : (47) autoCancelNoShowVisitsTask()
+activate S
+S -> MR : (48) findNoShowVisitsForAutoCancel(now - 2h)
+MR -> DB : (49) SELECT MaintenanceRequest (OPEN, not arrival-confirmed)
+DB --> MR : (50) tickets
+loop each ticket
+  S -> MR : (51) save(status = CANCELLED)
+  S -> RR : (52) restoreRoomStatus
+  S -> NR : (53) notify tenant + manager (auto-cancelled)
+end
+S --> CRON : (54) count
+deactivate S
+
+@enduml

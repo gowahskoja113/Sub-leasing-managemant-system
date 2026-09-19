@@ -1,0 +1,119 @@
+@startuml SubmitMaintenanceRequest
+title Figure — SubmitMaintenanceRequest Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Tenant
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "TenantContractRepository" as TCR
+participant "EquipmentRepository" as ER
+participant "MaintenanceRequestRepository" as MR
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+Tenant -> FE : (1) Choose equipment / describe issue, attach BEFORE photos,\npick visit appointment time\nClick "Submit request"
+FE -> C : (2) POST /api/v1/maintenance\nMaintenanceCreateRequest
+activate C
+C -> S : (3) createRequest(request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> TCR : (6) findByTenantId(userId) -> ACTIVE contract
+activate TCR
+TCR -> DB : (7) SELECT TenantContract
+DB --> TCR : (8) contracts
+TCR --> S : (9) ACTIVE TenantContract / empty
+deactivate TCR
+
+alt Tenant / ACTIVE contract not found
+  S --> C : ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> S : (10) resolveRoomForCreate(), validate title (<= 200 chars),\nvalidateNoPurchaseIntent(title, description)
+
+opt equipmentId provided
+  S -> ER : (11) findById(equipmentId)
+  activate ER
+  ER -> DB : (12) SELECT Equipment
+  DB --> ER : (13) Equipment
+  ER --> S : (14) Equipment (must belong to tenant's property / room)
+  deactivate ER
+  S -> MR : (15) findFirstByEquipmentIdAndStatusNotIn(CLOSED, CANCELLED, OUTSTANDING_DAMAGE)
+  activate MR
+  MR -> DB : (16) SELECT MaintenanceRequest
+  DB --> MR : (17) open ticket?
+  MR --> S : (18) Optional
+  deactivate MR
+  alt Equipment already has an open ticket
+    S --> C : BusinessException DUPLICATE_EQUIPMENT_TICKET
+    C --> FE : Error response
+    FE --> Tenant : Show error
+  end
+end
+
+alt No BEFORE image / property has no operation manager / no visitAppointmentAt
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> S : (19) validateAndAssertSlotAvailable(managerId, visitAt, 30 min)\n(future time, within 07:00-18:00, no overlap)
+
+alt Slot invalid or overlaps another appointment
+  S --> C : BusinessException / ConflictException
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> MR : (20) save(MaintenanceRequest status = OPEN,\nflowType = NORMAL_WEAR, visitAppointmentAt)
+activate MR
+MR -> DB : (21) INSERT MaintenanceRequest
+DB --> MR : (22) Model state
+MR --> S : (23) saved request
+deactivate MR
+
+S -> DB : (24) INSERT MaintenancePhotoHistory (BEFORE),\nINSERT MaintenanceTimeline (OPEN)
+DB --> S : (25) OK
+
+S -> NR : (26) notifyPropertyManager(MAINTENANCE_CREATED)
+activate NR
+NR -> DB : (27) INSERT Notification
+DB --> NR : (28) OK
+deactivate NR
+S -> PUSH : (29) sendToUser(managerId, ...)
+PUSH --> S : (30) push sent
+S -> RT : (31) publishMaintenanceEvent(CREATED, SCHEDULE_CHANGED)
+RT --> FE : (32) STOMP event to manager app
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Tenant : Show error
+end
+
+S -> DB : (33) CommitTransaction()
+DB --> S : (34) Committed
+deactivate DB
+
+S --> C : (35) MaintenanceRequestResponse
+deactivate S
+C --> FE : (36) 200 OK + MaintenanceRequestResponse
+deactivate C
+FE --> Tenant : (37) Show ticket M-{id} (status OPEN)
+
+@enduml

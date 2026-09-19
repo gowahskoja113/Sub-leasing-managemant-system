@@ -1,0 +1,82 @@
+@startuml ChargeBeforeRepair
+title Figure — ChargeBeforeRepair (Issue Compensation Invoice before Repair) Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "TenantPendingChargeServiceImpl" as TPC
+participant "TenantInvoiceRepository" as TIR
+participant "NotificationRepository" as NR
+database DB
+
+Manager -> FE : (1) Enter vendor, invoice date, amount (or replacement flag)\nClick "Create charge for tenant"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/charge\nMaintenanceChargeRequest
+activate C
+C -> S : (3) chargeBeforeRepair(id, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+S -> S : (10) requireManagerAccess(req)
+
+alt Company absorbs the fault / charge invoice already exists /\nvendor or invoiceDate missing / amount <= 0 (no replacement)
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> S : (11) resolveMaintenanceChargeAmount()\n(replacement value + extra cost, or invoice amount)
+
+S -> TPC : (12) createAndIssueMaintenanceCharge(contract, amount, requestId, note)
+activate TPC
+TPC -> TIR : (13) save(TenantInvoice type MAINTENANCE / OTHER, PENDING)
+activate TIR
+TIR -> DB : (14) INSERT TenantInvoice
+DB --> TIR : (15) OK
+deactivate TIR
+TPC -> NR : (16) notifyTenant "Compensation invoice issued"
+NR -> DB : (17) INSERT Notification
+TPC --> S : (18) TenantInvoiceResponse
+deactivate TPC
+
+S -> MR : (19) save(chargeInvoiceId, invoiceVendor / Number / Date / Amount)
+activate MR
+MR -> DB : (20) UPDATE MaintenanceRequest, INSERT MaintenanceTimeline
+DB --> MR : (21) OK
+deactivate MR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (22) CommitTransaction()
+DB --> S : (23) Committed
+deactivate DB
+
+S --> C : (24) MaintenanceRequestResponse (+ issuedInvoice)
+deactivate S
+C --> FE : (25) 200 OK
+deactivate C
+FE --> Manager : (26) Show invoice, wait for tenant payment\n(repair / handover is blocked until the invoice is PAID)
+
+@enduml

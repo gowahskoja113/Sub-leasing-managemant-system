@@ -1,0 +1,114 @@
+@startuml AssignOperationManager
+title Figure — AssignOperationManager Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyRepository" as PR
+participant "UserRepository" as UR
+participant "ZoneManagerRepository" as ZMR
+participant "TenantOnboardingServiceImpl" as TOS
+participant "NotificationRepository" as NR
+participant "UserPushTokenService" as PUSH
+participant "RoomRepository" as RR
+database DB
+
+Admin -> FE : (1) Choose Operation Manager for property\nClick "Assign"
+FE -> C : (2) PATCH /api/v1/properties/{propertyId}/operation-manager\nAssignOperationManagerRequest
+activate C
+C -> S : (3) assignOperationManager(propertyId, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property
+PR --> S : (9) Property
+deactivate PR
+
+alt status not PENDING_OPERATION_MANAGER / ACTIVE / RENTED
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> UR : (10) findById(managerId)
+activate UR
+UR -> DB : (11) SELECT User
+DB --> UR : (12) User / empty
+UR --> S : (13) User
+deactivate UR
+
+alt User not found / not ROLE_MANAGER / not ACTIVE
+  S --> C : BusinessException / ResourceNotFoundException
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> ZMR : (14) upsertZoneManager(zoneId, managerId, assignedBy)
+activate ZMR
+ZMR -> DB : (15) INSERT / UPDATE ZoneManager
+DB --> ZMR : (16) OK
+deactivate ZMR
+
+alt status = ACTIVE or RENTED AND manager changed
+  S -> PR : (17) save(operationManagerId)
+  PR -> DB : (18) UPDATE Property
+  S -> TOS : (19) reassignManagerForProperty(propertyId, managerId)
+  activate TOS
+  TOS -> DB : (20) UPDATE TenantContract manager,\nINSERT Notification
+  DB --> TOS : (21) OK
+  TOS --> S : (22) done
+  deactivate TOS
+else status = PENDING_OPERATION_MANAGER
+  S -> PR : (23) save(operationManagerId, status = ACTIVE,\nmanagerAcceptedAt)
+  activate PR
+  PR -> DB : (24) UPDATE Property
+  DB --> PR : (25) OK
+  deactivate PR
+  S -> NR : (26) save(Notification PROPERTY_ASSIGNED)
+  activate NR
+  NR -> DB : (27) INSERT Notification
+  DB --> NR : (28) OK
+  deactivate NR
+  S -> PUSH : (29) sendToUser(managerId, ...)
+  PUSH --> S : (30) push sent
+end
+
+S -> RR : (31) openDraftRoomsIfActive() / activatePerRoom()
+activate RR
+RR -> DB : (32) UPDATE Room DRAFT -> AVAILABLE
+DB --> RR : (33) OK
+RR --> S : (34) activated rooms
+deactivate RR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (35) CommitTransaction()
+DB --> S : (36) Committed
+deactivate DB
+
+S --> C : (37) PropertyActivationResponse
+deactivate S
+C --> FE : (38) 200 OK + result
+deactivate C
+FE --> Admin : (39) Show assigned manager and activated rooms
+
+@enduml

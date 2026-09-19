@@ -1,0 +1,110 @@
+@startuml DiagnoseMaintenanceRequest
+title Figure — DiagnoseMaintenanceRequest Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "MaintenanceRequestRepository" as MR
+participant "EquipmentRepository" as ER
+participant "RoomRepository" as RR
+participant "NotificationRepository" as NR
+participant "RealtimeEventServiceImpl" as RT
+database DB
+
+Manager -> FE : (1) Choose cause (WEAR / TENANT_MISUSE), category,\nquoted amount / replacement flag,\nappointment time, fault evidence (if misuse)\nClick "Diagnose"
+FE -> C : (2) PUT /api/v1/maintenance/{id}/diagnose\nMaintenanceDiagnoseRequest
+activate C
+C -> S : (3) diagnose(id, request)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> MR : (6) findActive(id)
+activate MR
+MR -> DB : (7) SELECT MaintenanceRequest
+DB --> MR : (8) MaintenanceRequest
+MR --> S : (9) MaintenanceRequest
+deactivate MR
+
+S -> S : (10) requireManagerAccess, requireVisitArrivalConfirmed
+
+alt Status not OPEN and not REPAIR_SCHEDULED without cause /\ndamageCause missing or invalid /\nrepairAppointmentAt missing after inspection /\ncategory missing
+  S --> C : BusinessException
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> S : (11) applyDiagnoseAmountFields(request, needsReplacement)
+
+opt Equipment needs replacement
+  S -> ER : (12) findById(equipmentId)
+  activate ER
+  ER -> DB : (13) SELECT Equipment
+  DB --> ER : (14) Equipment
+  ER --> S : (15) Equipment
+  S -> ER : (16) save(status = BROKEN, recommendReplacement = true)
+  ER -> DB : (17) UPDATE Equipment
+  deactivate ER
+  S -> NR : (18) notifyAdmins EQUIPMENT_NEEDS_REPLACEMENT
+  NR -> DB : (19) INSERT Notification (each admin)
+end
+
+alt damageCause = WEAR
+  S -> S : (20) flowType = NORMAL_WEAR, company pays
+  alt Has repair appointment / came from inspection
+    S -> S : (21) validateAndAssertSlotAvailable(managerId, repairAt, 60 min)
+    S -> MR : (22) save(status = REPAIR_SCHEDULED, repairAppointmentAt)
+  else Repair immediately
+    S -> MR : (23) save(status = IN_REPAIR)
+    S -> RR : (24) markRoomMaintenance (Room status = MAINTENANCE)
+    RR -> DB : (25) UPDATE Room
+  end
+else damageCause = TENANT_MISUSE
+  S -> S : (26) require tenantAgreesToPay, faultReason, evidence images\nflowType = TENANT_FAULT, path = MANAGER_REPAIR
+  alt Tenant refuses to pay
+    S -> S : (27) companyAbsorbedFault = true
+    S -> MR : (28) save(status = REPAIR_SCHEDULED or IN_REPAIR)
+  else Tenant agrees to pay
+    alt Has repair appointment / came from inspection
+      S -> MR : (29) save(status = REPAIR_SCHEDULED, repairAppointmentAt)
+    else No appointment
+      S -> MR : (30) save(status = TENANT_FAULT)\n(next: ChargeBeforeRepair)
+    end
+  end
+end
+
+MR -> DB : (31) UPDATE MaintenanceRequest,\nINSERT MaintenancePhotoHistory (FAULT_EVIDENCE),\nINSERT MaintenanceTimeline
+DB --> MR : (32) OK
+S -> NR : (33) notifyTenant (MAINTENANCE_APPROVED / MAINTENANCE_TENANT_FAULT)
+NR -> DB : (34) INSERT Notification
+S -> RT : (35) publishMaintenanceEvent(APPROVED / REJECT_FAULT / SCHEDULE_CHANGED)
+RT --> FE : (36) STOMP event
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Manager : Show error
+end
+
+S -> DB : (37) CommitTransaction()
+DB --> S : (38) Committed
+deactivate DB
+
+S --> C : (39) MaintenanceRequestResponse
+deactivate S
+C --> FE : (40) 200 OK + MaintenanceRequestResponse
+deactivate C
+FE --> Manager : (41) Show diagnosis result and next step
+
+@enduml

@@ -1,0 +1,130 @@
+@startuml DisableEnableAndPurgeProperty
+title Figure — DisableEnableAndPurgeProperty Sequence Diagram
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 180
+skinparam ParticipantPadding 8
+skinparam BoxPadding 6
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "PropertyDeletionServiceImpl" as PD
+participant "PropertyRepository" as PR
+participant "TenantContractRepository" as TCR
+participant "RoomRepository" as RR
+participant "JdbcTemplate" as JDBC
+database DB
+
+== Disable a property ==
+Admin -> FE : (1) Click "Disable property"
+FE -> C : (2) POST /api/v1/properties/{propertyId}/disable
+activate C
+C -> S : (3) disableProperty(propertyId)
+activate S
+
+S -> DB : (4) BeginTransaction()
+activate DB
+DB --> S : (5) Success
+
+S -> PR : (6) findById(propertyId)
+activate PR
+PR -> DB : (7) SELECT Property
+DB --> PR : (8) Property / empty
+PR --> S : (9) Property
+deactivate PR
+
+S -> PD : (10) assertNoActiveTenants(propertyId)
+activate PD
+alt Whole house
+  PD -> TCR : (11) existsByPropertyIdAndRoomIsNullAndStatus(ACTIVE)
+  TCR -> DB : (12) SELECT TenantContract
+  DB --> TCR : (13) exists?
+  TCR --> PD : (14) boolean
+else Per room
+  PD -> RR : (15) countByPropertyIdAndStatus(RENTED)
+  RR -> DB : (16) SELECT COUNT Room
+  DB --> RR : (17) rentedCount
+  RR --> PD : (18) rentedCount
+end
+alt Tenants still living in the property
+  PD --> S : BusinessException
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+PD --> S : (19) OK
+deactivate PD
+
+S -> PR : (20) save(previousStatus = status, status = DISABLED)
+activate PR
+PR -> DB : (21) UPDATE Property
+DB --> PR : (22) OK
+deactivate PR
+
+break Business / system error
+  S -> DB : RollbackTransaction()
+  DB --> S : Rolled back
+  S --> C : Exception
+  C --> FE : Error response
+  FE --> Admin : Show error
+end
+
+S -> DB : (23) CommitTransaction()
+DB --> S : (24) Committed
+deactivate DB
+S --> C : (25) PropertyResponse
+deactivate S
+C --> FE : (26) 200 OK
+deactivate C
+FE --> Admin : (27) Show property DISABLED
+
+== Enable again ==
+Admin -> FE : (28) Click "Enable property"
+FE -> C : (29) POST /api/v1/properties/{propertyId}/enable
+C -> S : (30) enableProperty(propertyId)
+S -> PR : (31) findById(propertyId)
+alt Status != DISABLED
+  S --> C : BusinessException
+  C --> FE : Error response
+end
+S -> PR : (32) save(status = previousStatus or DRAFT, previousStatus = null)
+PR -> DB : (33) UPDATE Property
+S --> C : (34) PropertyResponse
+C --> FE : (35) 200 OK
+
+== Purge (hard delete) a property ==
+Admin -> FE : (36) Click "Delete property permanently"
+FE -> C : (37) DELETE /api/v1/properties/{propertyId}/purge
+activate C
+C -> S : (38) purgeProperty(propertyId)
+activate S
+S -> PD : (39) purgeProperty(propertyId)
+activate PD
+PD -> PR : (40) findNameAndStatusById(propertyId)
+PR -> DB : (41) SELECT Property (name, status)
+DB --> PR : (42) name / empty
+alt Property not found
+  PD --> S : ResourceNotFoundException
+  S --> C : Exception
+  C --> FE : 404 Error response
+end
+PD -> PD : (43) assertNoActiveTenants(propertyId)
+PD -> DB : (44) count dependent records\n(equipments, manifests, renovation, rooms, depreciation, readings)
+DB --> PD : (45) counts
+PD -> JDBC : (46) bulkDeleteDependentRecords(propertyId):\nDELETE child -> parent rows (payments, invoices, disputes,\ncheckouts, maintenance, utility, contracts, rooms, images ...)
+activate JDBC
+JDBC -> DB : (47) DELETE ... WHERE property_id = ?
+DB --> JDBC : (48) rows deleted
+deactivate JDBC
+PD --> S : (49) PropertyPurgeResponse (deleted counts)
+deactivate PD
+S --> C : (50) PropertyPurgeResponse
+deactivate S
+C --> FE : (51) 200 OK
+deactivate C
+FE --> Admin : (52) Show purge summary
+
+@enduml
