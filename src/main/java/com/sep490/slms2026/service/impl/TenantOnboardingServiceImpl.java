@@ -1427,6 +1427,29 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     @Override
     @Transactional
+    public TenantContractResponse assignContractManager(Long contractId, UUID managerId) {
+        TenantContract contract = tenantContractRepository.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hợp đồng ID=" + contractId));
+        if (contract.getStatus() == ContractStatus.TERMINATED) {
+            throw new BusinessException("Không thể gán manager cho hợp đồng đã kết thúc");
+        }
+        User manager = userRepository.findById(managerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy manager ID=" + managerId));
+        if (manager.getRole() != Role.ROLE_MANAGER) {
+            throw new BusinessException("User được gán phải có ROLE_MANAGER");
+        }
+        UUID previous = contract.getAssignedManager() != null
+                ? contract.getAssignedManager().getId() : null;
+        contract.setAssignedManager(manager);
+        tenantContractRepository.save(contract);
+        if (!manager.getId().equals(previous)) {
+            notifyAssignedManager(contract);
+        }
+        return toResponse(contract);
+    }
+
+    @Override
+    @Transactional
     public int backfillMissingAssignedManagers() {
         List<TenantContract> contracts = tenantContractRepository.findMissingAssignedManager(
                 List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE));

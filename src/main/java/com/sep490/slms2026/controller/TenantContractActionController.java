@@ -256,6 +256,18 @@ public class TenantContractActionController {
     }
 
     /**
+     * PATCH /{id}/assign-manager — gán manager đón khách / nhận thông báo cho HĐ.
+     * Body: { "managerId": "<uuid>" }
+     */
+    @PatchMapping("/{id}/assign-manager")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
+    public ResponseEntity<TenantContractResponse> assignManager(
+            @PathVariable Long id,
+            @Valid @RequestBody com.sep490.slms2026.dto.request.AssignContractManagerRequest request) {
+        return ResponseEntity.ok(tenantOnboardingService.assignContractManager(id, request.getManagerId()));
+    }
+
+    /**
      * PATCH /{id}/extend — gia hạn hợp đồng đang ACTIVE (dời endDate, có thể kèm giá mới).
      */
     @PatchMapping("/{id}/extend")

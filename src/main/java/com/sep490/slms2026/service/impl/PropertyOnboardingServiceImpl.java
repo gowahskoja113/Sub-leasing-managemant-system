@@ -830,6 +830,30 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         return toEquipmentCatalogResponse(saved);
     }
 
+    @Override
+    @Transactional
+    public EquipmentCatalogResponse updateEquipmentCatalog(Long id, EquipmentCatalogCreateRequest request) {
+        EquipmentCatalog catalog = equipmentCatalogRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục thiết bị ID=" + id));
+        String name = request.getName().trim();
+        if (equipmentCatalogRepository.existsByNameIgnoreCaseAndIdNot(name, id)) {
+            throw new ConflictException("Tên thiết bị '" + name + "' đã tồn tại");
+        }
+        catalog.setName(name);
+        catalog.setDescription(request.getDescription());
+        catalog.setActive(true);
+        return toEquipmentCatalogResponse(equipmentCatalogRepository.save(catalog));
+    }
+
+    @Override
+    @Transactional
+    public void deleteEquipmentCatalog(Long id) {
+        EquipmentCatalog catalog = equipmentCatalogRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục thiết bị ID=" + id));
+        catalog.setActive(false);
+        equipmentCatalogRepository.save(catalog);
+    }
+
     private EquipmentCatalogResponse toEquipmentCatalogResponse(EquipmentCatalog catalog) {
         return EquipmentCatalogResponse.builder()
                 .id(catalog.getId())

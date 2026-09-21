@@ -12,5 +12,7 @@ public interface EquipmentCatalogRepository extends JpaRepository<EquipmentCatal
 
     boolean existsByNameIgnoreCase(String name);
 
+    boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
+
     Optional<EquipmentCatalog> findFirstByNameIgnoreCaseAndActiveTrue(String name);
 }

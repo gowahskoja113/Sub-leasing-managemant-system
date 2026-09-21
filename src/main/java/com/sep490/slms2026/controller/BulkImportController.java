@@ -9,6 +9,7 @@ import com.sep490.slms2026.service.BulkPropertyImageImportService;
 import com.sep490.slms2026.service.BulkRenovationImportService;
 import com.sep490.slms2026.service.BulkRenovationSupplementImportService;
 import com.sep490.slms2026.service.BulkTenantDraftContractImportService;
+import com.sep490.slms2026.service.BulkZoneImportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +28,7 @@ public class BulkImportController {
     private final BulkRenovationSupplementImportService bulkRenovationSupplementImportService;
     private final BulkPropertyImageImportService bulkPropertyImageImportService;
     private final BulkTenantDraftContractImportService bulkTenantDraftContractImportService;
+    private final BulkZoneImportService bulkZoneImportService;
 
     /**
      * Đợt 1 — Khởi tạo nhà từ file Excel (HĐ thuê + TB bàn giao). Luôn nguyên căn.
@@ -107,6 +109,19 @@ public class BulkImportController {
             @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun,
             @RequestParam(value = "skipInvalidRows", defaultValue = "false") boolean skipInvalidRows) {
         return ResponseEntity.ok(bulkTenantDraftContractImportService.importWorkbook(file, dryRun, skipInvalidRows));
+    }
+
+    /**
+     * Import khu vực (Tỉnh/Thành + Quận/Huyện) từ Excel.
+     * Cột bắt buộc: {@code Tỉnh/Thành phố}. Tuỳ chọn: {@code Quận/Huyện}, {@code Mô tả}.
+     * Sheet tên {@code Zones} hoặc sheet đầu tiên. Idempotent — trùng tên thì SKIPPED.
+     */
+    @PostMapping(value = "/zones-excel", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BulkImportResponse> importZonesExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "dryRun", defaultValue = "false") boolean dryRun) {
+        return ResponseEntity.ok(bulkZoneImportService.importZonesWorkbook(file, dryRun));
     }
 
     /**

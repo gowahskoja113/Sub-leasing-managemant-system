@@ -73,6 +73,11 @@ public interface PropertyOnboardingService {
 
     EquipmentCatalogResponse createEquipmentCatalog(EquipmentCatalogCreateRequest request);
 
+    EquipmentCatalogResponse updateEquipmentCatalog(Long id, EquipmentCatalogCreateRequest request);
+
+    /** Soft-delete: active=false — thiết bị đã gán catalog vẫn giữ FK. */
+    void deleteEquipmentCatalog(Long id);
+
     List<RenovationCategoryResponse> listRenovationCategories();
 
     List<HandoverEquipmentResponse> getHandoverEquipments(Long propertyId);

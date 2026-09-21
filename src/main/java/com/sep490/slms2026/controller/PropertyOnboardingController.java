@@ -175,6 +175,21 @@ public class PropertyOnboardingController {
                 .body(propertyOnboardingService.createEquipmentCatalog(request));
     }
 
+    @PutMapping("/equipment-catalog/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<EquipmentCatalogResponse> updateEquipmentCatalog(
+            @PathVariable Long id,
+            @Valid @RequestBody EquipmentCatalogCreateRequest request) {
+        return ResponseEntity.ok(propertyOnboardingService.updateEquipmentCatalog(id, request));
+    }
+
+    @DeleteMapping("/equipment-catalog/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteEquipmentCatalog(@PathVariable Long id) {
+        propertyOnboardingService.deleteEquipmentCatalog(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/renovation-categories")
     public ResponseEntity<List<RenovationCategoryResponse>> listRenovationCategories() {
         return ResponseEntity.ok(propertyOnboardingService.listRenovationCategories());

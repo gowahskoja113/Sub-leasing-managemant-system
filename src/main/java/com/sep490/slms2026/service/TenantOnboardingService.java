@@ -105,6 +105,12 @@ public interface TenantOnboardingService {
     int reassignManagerForProperty(Long propertyId, java.util.UUID newManagerId);
 
     /**
+     * Gán / đổi manager đón khách cho một HĐ cụ thể + gửi thông báo.
+     * Không đổi {@code Property.operationManagerId}.
+     */
+    TenantContractResponse assignContractManager(Long contractId, java.util.UUID managerId);
+
+    /**
      * One-shot backfill: HĐ DRAFT/PENDING/ACTIVE còn {@code assignedManager = null} nhưng nhà đã có
      * {@code operationManagerId} → gán lại + notify. Idempotent (chạy lại không đụng HĐ đã có manager).
      */
