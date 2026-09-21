@@ -20,4 +20,6 @@ public class EquipmentMaintenanceHistoryResponse {
     private LocalDateTime maintenanceDate;
     private Long repairCost;
     private String note;
+    /** Ảnh các lần bảo trì (BEFORE + AFTER + INVOICE của phiếu). */
+    private java.util.List<String> photoUrls;
 }

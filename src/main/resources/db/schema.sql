@@ -817,7 +817,8 @@ CREATE TABLE IF NOT EXISTS equipment_maintenance_histories (
     maintenance_request_id  BIGINT NOT NULL REFERENCES maintenance_requests(id),
     maintenance_date        TIMESTAMP,
     repair_cost             BIGINT,
-    note                    TEXT
+    note                    TEXT,
+    photo_urls              TEXT
 );
 
 -- -----------------------------------------------------------------------------

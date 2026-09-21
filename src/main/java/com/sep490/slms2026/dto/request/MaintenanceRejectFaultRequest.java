@@ -11,6 +11,7 @@ import java.util.List;
 @Data
 public class MaintenanceRejectFaultRequest {
     private String faultReason;
+    /** Tuỳ chọn — đã có ảnh tenant báo lỗi + xác nhận hiện trường. */
     private List<String> faultEvidenceImages;
     private FaultResolutionPath resolutionPath;
     private LocalDate selfRepairDeadline;

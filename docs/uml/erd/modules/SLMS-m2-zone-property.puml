@@ -1,0 +1,71 @@
+@startuml SLMS_M2_Zone_Property
+title Figure — SLMS Module 2: Zone & Property\nUML 2.1 — Full associations (domain hub)
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "2. Zone & Property" {
+  class Zone
+  class Property
+  class Room
+  class InboundContract
+  class MasterLease
+  class PropertyViewingLead
+  class ViewingLeadProperty
+}
+
+class OperationManagement <<external>>
+class TenantContract <<external>>
+class Equipment <<external>>
+class RenovationSession <<external>>
+class RenovationLine <<external>>
+class DepreciationResult <<external>>
+class MeterReading <<external>>
+class MonthlyReading <<external>>
+class UtilityBill <<external>>
+class UtilityInvoice <<external>>
+class Expense <<external>>
+class HostExpense <<external>>
+class MaintenanceRequest <<external>>
+
+Zone "1" o-- "*" Zone : parent >
+OperationManagement "*" -- "*" Zone : manages >
+Zone "1" o-- "*" Property : has >
+Property "1" o-- "*" Room : has >
+Property "1" o-- "0..1" InboundContract : has >
+Property "1" o-- "*" MasterLease : has >
+PropertyViewingLead "1" o-- "*" ViewingLeadProperty : has >
+Property "1" -- "*" ViewingLeadProperty : listed in >
+Room "0..1" -- "*" ViewingLeadProperty : listed in >
+
+Property "1" -- "*" TenantContract : has leases >
+Room "0..1" -- "*" TenantContract : assigned to >
+Property "1" o-- "*" Equipment : has >
+Property "1" o-- "*" RenovationSession : has >
+Property "1" o-- "*" RenovationLine : has >
+InboundContract "1" o-- "*" DepreciationResult : has >
+Room "0..1" -- "*" DepreciationResult : for >
+Property "1" o-- "*" MeterReading : has >
+Property "1" o-- "*" MonthlyReading : has >
+Room "0..1" -- "*" MeterReading : has >
+Room "0..1" -- "*" MonthlyReading : has >
+Property "1" o-- "*" UtilityBill : has >
+Property "1" o-- "*" UtilityInvoice : has >
+Room "0..1" -- "*" UtilityInvoice : for >
+Property "1" o-- "*" Expense : has >
+Property "1" o-- "*" HostExpense : has >
+Property "1" -- "*" MaintenanceRequest : on >
+Room "0..1" -- "*" MaintenanceRequest : on >
+
+note bottom of Property
+  Soft attribute: operationManagerId : UUID
+  (no @ManyToOne to OperationManagement)
+end note
+
+@enduml

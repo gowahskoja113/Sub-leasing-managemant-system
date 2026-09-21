@@ -89,6 +89,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureTenantPendingChargesTable();
         ensureViewingLeadTables();
         ensureEquipmentsMaintenanceCountColumn();
+        addColumnIfNotExists("equipment_maintenance_histories", "photo_urls", "TEXT");
         ensureTenantContractEquipmentsTable();
         addColumnIfNotExists("tenant_contracts", "deposit_cash_tenant_confirmed_at", "TIMESTAMP");
         addColumnIfNotExists("tenant_contracts", "deposit_cash_manager_confirmed_at", "TIMESTAMP");

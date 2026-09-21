@@ -25,11 +25,16 @@ public class GlobalEquipmentController {
 
     @GetMapping("/{id}")
     public ResponseEntity<EquipmentResponse> getEquipmentById(@PathVariable Long id) {
-        return ResponseEntity.ok(equipmentService.getEquipmentById(id));
+        return ResponseEntity.ok(equipmentService.getEquipmentByIdForCaller(id));
     }
 
     @GetMapping("/{id}/maintenance-history")
-    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.MaintenanceRequestResponse>> getEquipmentMaintenanceHistory(@PathVariable Long id) {
+    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse>> getEquipmentMaintenanceHistory(@PathVariable Long id) {
+        return ResponseEntity.ok(equipmentService.getEquipmentMaintenanceHistoryForCaller(id));
+    }
+
+    @GetMapping("/{id}/maintenance-tickets")
+    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.MaintenanceRequestResponse>> getEquipmentMaintenanceTickets(@PathVariable Long id) {
         return ResponseEntity.ok(maintenanceService.getEquipmentMaintenanceHistory(id));
     }
 

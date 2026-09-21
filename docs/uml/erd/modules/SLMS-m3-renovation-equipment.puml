@@ -1,0 +1,52 @@
+@startuml SLMS_M3_Renovation_Equipment
+title Figure — SLMS Module 3: Renovation & Equipment\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "3. Renovation & Equipment" {
+  class RenovationCategory
+  class RenovationSession
+  class RenovationLine
+  class DepreciationResult
+  class EquipmentCatalog
+  class EquipmentManifest
+  class HandoverEquipment
+  class Equipment
+}
+
+class Property <<external>>
+class Room <<external>>
+class InboundContract <<external>>
+class TenantContractEquipment <<external>>
+class MaintenanceRequest <<external>>
+class EquipmentMaintenanceHistory <<external>>
+
+Property "1" o-- "*" RenovationSession : has >
+Property "1" o-- "*" RenovationLine : has >
+RenovationCategory "1" o-- "*" RenovationLine : classifies >
+RenovationSession "0..1" o-- "*" RenovationLine : contains >
+InboundContract "1" o-- "*" DepreciationResult : has >
+Room "0..1" -- "*" DepreciationResult : for >
+
+EquipmentCatalog "1" o-- "*" EquipmentManifest : defines >
+EquipmentCatalog "1" o-- "*" HandoverEquipment : defines >
+EquipmentCatalog "1" o-- "*" Equipment : defines >
+Property "1" o-- "*" EquipmentManifest : has >
+Property "1" o-- "*" HandoverEquipment : has >
+Property "1" o-- "*" Equipment : has >
+Room "0..1" -- "*" Equipment : located in >
+EquipmentManifest "0..1" -- "*" Equipment : sourced from >
+RenovationSession "0..1" -- "*" Equipment : installed in >
+
+Equipment "1" -- "*" TenantContractEquipment : listed in >
+Equipment "0..1" -- "*" MaintenanceRequest : concerns >
+Equipment "1" o-- "*" EquipmentMaintenanceHistory : has >
+
+@enduml

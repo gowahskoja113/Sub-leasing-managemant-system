@@ -1,0 +1,76 @@
+@startuml SLMS_Core_Domain_Class
+title Figure — SLMS Core Domain Class Diagram (Overview)\nUML 2.1 — Backbone associations only
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam packageStyle rectangle
+skinparam package {
+  BackgroundColor White
+  BorderColor Black
+  FontStyle bold
+}
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "Identity" as ID {
+  class User
+  class Admin
+  class Owner
+  class Tenant
+  class OperationManagement
+}
+
+package "Property structure" as PS {
+  class Zone
+  class Property
+  class Room
+  class Equipment
+}
+
+package "Lease" as LS {
+  class TenantContract
+}
+
+package "Ops" as OPS {
+  class MeterReading
+  class MonthlyReading
+  class TenantInvoice
+  class MaintenanceRequest
+  class CheckoutRequest
+}
+
+User "1" -- "0..1" Admin : is >
+User "1" -- "0..1" Owner : is >
+User "1" -- "0..1" Tenant : is >
+User "1" -- "0..1" OperationManagement : is >
+
+OperationManagement "*" -- "*" Zone : manages >
+Zone "1" o-- "*" Property : has >
+Property "1" o-- "*" Room : has >
+Property "1" o-- "*" Equipment : has >
+
+Tenant "0..1" -- "*" TenantContract : signs >
+Property "1" -- "*" TenantContract : has leases >
+Room "0..1" -- "*" TenantContract : assigned to >
+
+Property "1" o-- "*" MeterReading : has >
+Property "1" o-- "*" MonthlyReading : has >
+TenantContract "1" o-- "*" TenantInvoice : has >
+Tenant "1" -- "*" MaintenanceRequest : requests >
+Property "1" -- "*" MaintenanceRequest : on >
+Equipment "0..1" -- "*" MaintenanceRequest : concerns >
+TenantContract "1" o-- "*" CheckoutRequest : requests >
+
+note right of Property
+  Full model:
+  **SLMS-system-erd.puml** (overview)
+  **modules/SLMS-m*.puml** (per package)
+end note
+
+@enduml

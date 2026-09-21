@@ -1,88 +1,114 @@
 @startuml F4_Maintenance_Sequence
-title Figure — Maintenance Sequence Diagram\nHappy path: Create → Diagnose → Approve → Repair → Complete
+title Figure — Maintenance Sequence Diagram\nCreate → View (no QR) → Scan QR to process → Diagnose → Invoice (3 days) → Repair → History
 
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
 
 actor Tenant
 actor Manager
+actor Admin
 participant "Front-end" as FE
 participant "MaintenanceController" as C
+participant "EquipmentController" as EC
 participant "MaintenanceServiceImpl" as S
-participant "MaintenanceRequestRepository" as RR
-participant "MaintenanceImageRepository" as IR
-participant "MaintenanceHistoryRepository" as HR
-participant "EquipmentRepository" as ER
+participant "EquipmentServiceImpl" as ES
+participant "TenantPendingChargeService" as CS
 database DB
+
+== A. Tenant tạo phiếu ==
 
 Tenant -> FE : (1) Submit maintenance\n(+ photos, appointment)
 FE -> C : (2) POST /api/v1/maintenance
 activate C
 C -> S : (3) create(MaintenanceCreateRequest)
 activate S
-S -> DB : (4) BeginTransaction()
-S -> S : (5) validate ACTIVE contract
-S -> RR : (6) save(status=OPEN)
-RR -> DB : (7) INSERT MaintenanceRequest
-S -> IR : (8) save images
-IR -> DB : (9) INSERT MaintenanceImage
-S -> HR : (10) append history CREATED
-S -> DB : (11) CommitTransaction()
-S --> C : (12) MaintenanceResponse
+S -> DB : (4) INSERT MaintenanceRequest OPEN\n+ MaintenanceImage BEFORE
+S --> C : (5) MaintenanceResponse
 deactivate S
-C --> FE : (13) Created + notify Manager
+C --> FE : (6) Created + notify Manager
 deactivate C
 
-Manager -> FE : (14) Confirm arrival / diagnose
-FE -> C : (15) POST .../{id}/diagnose
+== B. Manager xem phiếu — không quét QR ==
+
+Manager -> FE : (7) Mở ticket
+FE -> C : (8) GET /api/v1/maintenance/{id}
 activate C
-C -> S : (16) diagnose(id, req)
-activate S
-S -> DB : (17) BeginTransaction()
-S -> RR : (18) findById
-RR -> DB : (19) SELECT
-S -> RR : (20) save(DIAGNOSED,\ndamageCause, estimatedCost, flowType)
-RR -> DB : (21) UPDATE
-S -> HR : (22) append DIAGNOSED
-S -> DB : (23) CommitTransaction()
-S --> C : (24) Response
-deactivate S
-C --> FE : (25) OK
+C -> S : (9) getRequestById
+S -> ES : (10) equipment snapshot
+ES -> DB : (11) SELECT Equipment
+note right
+  maintenanceCount
+  remainingDepreciation
+  purchasedAt
+  warrantyMonths
+  remainingWarranty
+end note
+S --> C : (12) ticket + equipment
+C --> FE : (13) qrScanRequiredToProcess=true
 deactivate C
 
-alt [Luồng A — công ty chịu / sửa]
-  Manager -> FE : (26) Approve + start repair
-  FE -> C : (27) POST .../approve , .../start-repair
-  C -> S : (28) approve / startRepair
-  S -> RR : (29) UPDATE status=REPAIRING
-else [Luồng B — lỗi tenant]
-  Manager -> FE : (26') Report fault
-  FE -> C : (27') POST .../report-fault
-  C -> S : (28') reportFault → admin-review / charge / self-repair
-end
+== C. Bắt đầu xử lý — bắt buộc quét QR ==
 
-Manager -> FE : (30) Complete + handover photos
-FE -> C : (31) POST .../{id}/complete
+Manager -> FE : (14) Quét QR món đồ
+FE -> C : (15) PUT .../{id}/confirm-arrival\n{ qrCode }
 activate C
-C -> S : (32) complete(id, MaintenanceCompleteRequest)
-activate S
-S -> DB : (33) BeginTransaction()
-S -> RR : (34) save(COMPLETED, actualCost, doneAt)
-RR -> DB : (35) UPDATE MaintenanceRequest
-opt [có equipment]
-  S -> ER : (36) update equipment history
-  ER -> DB : (37) INSERT EquipmentMaintenanceHistory
-end
-S -> HR : (38) append COMPLETED
-break
-  S -> DB : RollbackTransaction()
-end
-S -> DB : (39) CommitTransaction()
-S --> C : (40) MaintenanceResponse
-deactivate S
-C --> FE : (41) Resolved
+C -> S : (16) confirmArrival
+S -> S : (17) assertQrMatchesEquipment
+S -> DB : (18) UPDATE visitArrivalConfirmedAt
+S --> C : (19) OK
 deactivate C
-FE --> Tenant : (42) Thông báo hoàn tất
-FE --> Manager : (43) Ticket đóng
+
+== D. Chẩn đoán (không thêm ảnh lỗi) ==
+
+Manager -> FE : (20) Diagnose\n(WEAR / TENANT_MISUSE)\n1 lần chi phí
+FE -> C : (21) PUT .../{id}/diagnose
+activate C
+C -> S : (22) diagnose
+note right of S
+  Dùng ảnh tenant báo
+  + xác nhận hiện trường.
+  Không bắt buộc faultEvidenceImages.
+end note
+
+alt [Luồng A — hao mòn / công ty chịu]
+  S -> DB : (23) UPDATE IN_REPAIR / REPAIR_SCHEDULED
+else [Luồng B — lỗi tenant, khách trả]
+  S -> CS : (24) issue invoice (due = +3 ngày)
+  CS -> DB : (25) INSERT TenantInvoice MAINTENANCE
+  S -> DB : (26) UPDATE TENANT_FAULT / REPAIR_SCHEDULED\n+ chargeInvoiceId
+end
+S --> C : (27) Response + issuedInvoice?
+C --> FE : (28) OK
+deactivate C
+
+== E. Sửa chữa (không chờ thanh toán) ==
+
+Manager -> FE : (29) Start repair
+FE -> C : (30) PUT .../{id}/start-repair
+C -> S : (31) startRepair\n(cần hoá đơn đã lập, không cần PAID)
+S -> DB : (32) UPDATE IN_REPAIR / TENANT_FAULT
+
+Tenant -> FE : (33) Thanh toán hoá đơn\n(trễ nhất 3 ngày)
+FE -> C : (34) POST /tenant/me/invoices/{id}/payment
+
+== F. Hoàn tất — ghi history thiết bị ==
+
+Manager -> FE : (35) Complete + AFTER photos
+FE -> C : (36) PUT .../{id}/complete
+activate C
+C -> S : (37) complete
+S -> DB : (38) UPDATE CLOSED
+S -> DB : (39) INSERT EquipmentMaintenanceHistory\n(+ photoUrls, repairCost)
+S -> DB : (40) UPDATE Equipment.maintenanceCount
+S --> C : (41) MaintenanceResponse
+deactivate C
+
+Admin -> FE : (42) Trang quản lý equipment
+FE -> EC : (43) GET /api/v1/equipment/{id}\nGET .../maintenance-history
+EC --> FE : (44) khấu hao, BH, history + ảnh
+
+Tenant -> FE : (45) Mobile: thiết bị của tôi
+FE -> EC : (46) GET /tenant/me/equipments\nGET .../{id}/maintenance-history
+EC --> FE : (47) cùng bộ thông tin + ảnh
 
 @enduml

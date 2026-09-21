@@ -41,6 +41,15 @@ public class MaintenanceRequestResponse {
 
     private Long equipmentId;
     private String equipmentName;
+    /**
+     * Snapshot thiết bị trên màn xem phiếu (không cần quét QR):
+     * số lần bảo trì, khấu hao còn lại, ngày mua, thời hạn BH còn lại.
+     */
+    private EquipmentResponse equipment;
+    /**
+     * true = manager xem được phiếu nhưng phải quét QR (confirm-arrival) trước khi chẩn đoán / duyệt.
+     */
+    private Boolean qrScanRequiredToProcess;
 
     private UUID assignedManagerId;
     private String assignedManagerName;

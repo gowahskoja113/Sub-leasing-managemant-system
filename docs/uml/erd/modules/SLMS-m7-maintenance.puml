@@ -1,0 +1,41 @@
+@startuml SLMS_M7_Maintenance
+title Figure — SLMS Module 7: Maintenance\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "7. Maintenance" {
+  class MaintenanceRequest
+  class MaintenanceImage
+  class MaintenanceHistory
+  class MaintenanceTimeline
+  class EquipmentMaintenanceHistory
+  class OutstandingDamageRecord
+}
+
+class Tenant <<external>>
+class Property <<external>>
+class Room <<external>>
+class TenantContract <<external>>
+class Equipment <<external>>
+
+Tenant "1" -- "*" MaintenanceRequest : requests >
+Property "1" -- "*" MaintenanceRequest : on >
+Room "0..1" -- "*" MaintenanceRequest : on >
+TenantContract "0..1" -- "*" MaintenanceRequest : under >
+Equipment "0..1" -- "*" MaintenanceRequest : concerns >
+MaintenanceRequest "1" o-- "*" MaintenanceImage : has >
+MaintenanceRequest "1" o-- "*" MaintenanceHistory : has >
+MaintenanceRequest "1" o-- "*" MaintenanceTimeline : has >
+Equipment "1" o-- "*" EquipmentMaintenanceHistory : has >
+MaintenanceRequest "1" -- "*" EquipmentMaintenanceHistory : logged as >
+MaintenanceRequest "0..1" .. "*" OutstandingDamageRecord : may create (soft FK) >
+TenantContract "0..1" .. "*" OutstandingDamageRecord : charged to (soft FK) >
+
+@enduml

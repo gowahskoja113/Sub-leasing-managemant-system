@@ -1,0 +1,202 @@
+@startuml SLMS_System_Domain_Class
+title Figure — SLMS System Domain Class Diagram (Overview)\nUML 2.1 — Conceptual model mapped from JPA @Entity\nFull relations: see modules/SLMS-m*.puml
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam packageStyle rectangle
+skinparam package {
+  BackgroundColor White
+  BorderColor Black
+  FontStyle bold
+  FontSize 12
+}
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+  FontSize 11
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #F9A825
+}
+skinparam legend {
+  BackgroundColor White
+  BorderColor Black
+}
+
+' Portrait / 2-column grid — tránh canvas quá rộng bị cắt trên web
+top to bottom direction
+
+package "1. Identity & Access" as P1 {
+  class User
+  class Admin
+  class Owner
+  class Tenant
+  class OperationManagement
+  class Notification
+  class OtpVerification
+}
+
+package "2. Zone & Property" as P2 {
+  class Zone
+  class Property
+  class Room
+  class InboundContract
+  class MasterLease
+  class PropertyViewingLead
+  class ViewingLeadProperty
+}
+
+package "3. Renovation & Equipment" as P3 {
+  class RenovationCategory
+  class RenovationSession
+  class RenovationLine
+  class DepreciationResult
+  class EquipmentCatalog
+  class EquipmentManifest
+  class HandoverEquipment
+  class Equipment
+}
+
+package "4. Tenant Contract" as P4 {
+  class TenantContract
+  class HouseholdMember
+  class TenantContractEquipment
+  class ExtensionRequest
+  class DepositAuditLog
+}
+
+package "5. Meter & Utility" as P5 {
+  class MeterReading
+  class MonthlyReading
+  class UtilityBill
+  class UtilityInvoice
+  class InvoiceDispute
+}
+
+package "6. Tenant Invoice & Payment" as P6 {
+  class TenantInvoice
+  class TenantPayment
+  class TenantPaymentClaim
+  class TenantInvoicePayosOrder
+  class TenantPendingCharge
+  class Expense
+  class HostExpense
+}
+
+package "7. Maintenance" as P7 {
+  class MaintenanceRequest
+  class MaintenanceImage
+  class MaintenanceHistory
+  class MaintenanceTimeline
+  class EquipmentMaintenanceHistory
+  class OutstandingDamageRecord
+}
+
+package "8. Checkout & Settlement" as P8 {
+  class CheckoutRequest
+  class CheckoutInspection
+  class CheckoutDamageItem
+  class CheckoutSettlement
+  class CheckoutSettlementInvoice
+  class CheckoutSettlementAdjustment
+}
+
+'── Force 2×4 grid (hidden layout edges) ──
+P1 -[hidden]right- P2
+P3 -[hidden]right- P4
+P5 -[hidden]right- P6
+P7 -[hidden]right- P8
+P1 -[hidden]down- P3
+P3 -[hidden]down- P5
+P5 -[hidden]down- P7
+P2 -[hidden]down- P4
+P4 -[hidden]down- P6
+P6 -[hidden]down- P8
+
+'── Intra-package ──
+User "1" -- "0..1" Admin
+User "1" -- "0..1" Owner
+User "1" -- "0..1" Tenant
+User "1" -- "0..1" OperationManagement
+User "1" o-- "*" Notification
+User "1" o-- "*" OtpVerification
+
+Zone "1" o-- "*" Zone : parent >
+Zone "1" o-- "*" Property
+Property "1" o-- "*" Room
+Property "1" o-- "0..1" InboundContract
+Property "1" o-- "*" MasterLease
+PropertyViewingLead "1" o-- "*" ViewingLeadProperty
+Property "1" -- "*" ViewingLeadProperty
+Room "0..1" -- "*" ViewingLeadProperty
+
+RenovationCategory "1" o-- "*" RenovationLine
+RenovationSession "0..1" o-- "*" RenovationLine
+EquipmentCatalog "1" o-- "*" EquipmentManifest
+EquipmentCatalog "1" o-- "*" HandoverEquipment
+EquipmentCatalog "1" o-- "*" Equipment
+
+TenantContract "1" o-- "*" HouseholdMember
+TenantContract "1" o-- "*" TenantContractEquipment
+TenantContract "1" o-- "*" ExtensionRequest
+TenantContract "1" .. "*" DepositAuditLog : soft FK >
+
+UtilityInvoice "1" -- "*" InvoiceDispute
+
+TenantInvoice "1" o-- "0..1" TenantPayment
+TenantInvoice "1" o-- "*" TenantPaymentClaim
+TenantInvoice "1" o-- "*" TenantInvoicePayosOrder
+TenantInvoice "0..1" -- "*" TenantPendingCharge
+
+MaintenanceRequest "1" o-- "*" MaintenanceImage
+MaintenanceRequest "1" o-- "*" MaintenanceHistory
+MaintenanceRequest "1" o-- "*" MaintenanceTimeline
+MaintenanceRequest "1" -- "*" EquipmentMaintenanceHistory
+
+CheckoutRequest "1" o-- "0..1" CheckoutInspection
+CheckoutInspection "1" o-- "*" CheckoutDamageItem
+CheckoutRequest "1" o-- "0..1" CheckoutSettlement
+CheckoutSettlement "1" o-- "*" CheckoutSettlementInvoice
+CheckoutSettlement "1" o-- "*" CheckoutSettlementAdjustment
+
+'── Hub bridges (short / adjacent packages where possible) ──
+OperationManagement "*" -- "*" Zone : manages >
+Property "1" o-- "*" Equipment
+Property "1" o-- "*" RenovationSession
+Property "1" -- "*" TenantContract : has leases >
+Tenant "0..1" -- "*" TenantContract : signs >
+TenantContract "1" o-- "*" TenantInvoice
+TenantContract "1" o-- "*" CheckoutRequest
+Tenant "1" -- "*" MaintenanceRequest : requests >
+Property "1" -- "*" MaintenanceRequest
+
+note bottom of Property
+  **Property** = domain hub
+  Soft: operationManagerId (UUID)
+  Detail → modules m2, m3, m5–m7
+end note
+
+note bottom of TenantContract
+  **TenantContract** = lease hub
+  Room 0..1 when whole-house
+  Detail → modules m4–m8
+end note
+
+legend bottom
+  |= UML 2.1 |= Meaning |
+  | A "1" -- "0..1" B | Association (optional one) |
+  | A "1" -- "*" B | Association (many) |
+  | A "1" o-- "*" B | Aggregation (whole–part) |
+  | A "*" -- "*" B | Many-to-many |
+  | A .. B | Soft FK (no @ManyToOne) |
+  | modules/SLMS-m*.puml | Full relations per package |
+  | Omitted | MeterOverride*, InvoiceUnlock*, ZoneManager*, |
+  | | UserPushToken, HostNotification, PricingConfig, Invoice |
+endlegend
+
+@enduml

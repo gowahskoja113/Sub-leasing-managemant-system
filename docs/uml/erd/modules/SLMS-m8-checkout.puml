@@ -1,0 +1,31 @@
+@startuml SLMS_M8_Checkout
+title Figure — SLMS Module 8: Checkout & Settlement\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "8. Checkout & Settlement" {
+  class CheckoutRequest
+  class CheckoutInspection
+  class CheckoutDamageItem
+  class CheckoutSettlement
+  class CheckoutSettlementInvoice
+  class CheckoutSettlementAdjustment
+}
+
+class TenantContract <<external>>
+
+TenantContract "1" o-- "*" CheckoutRequest : requests >
+CheckoutRequest "1" o-- "0..1" CheckoutInspection : has >
+CheckoutInspection "1" o-- "*" CheckoutDamageItem : finds >
+CheckoutRequest "1" o-- "0..1" CheckoutSettlement : settles >
+CheckoutSettlement "1" o-- "*" CheckoutSettlementInvoice : includes >
+CheckoutSettlement "1" o-- "*" CheckoutSettlementAdjustment : adjusts >
+
+@enduml

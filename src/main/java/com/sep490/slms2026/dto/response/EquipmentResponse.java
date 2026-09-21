@@ -32,6 +32,8 @@ public class EquipmentResponse {
     private String equipmentName;
     private String category;
     private LocalDate installationDate;
+    /** Ngày mua / lắp (installationDate, fallback warrantyStartDate). */
+    private LocalDate purchasedAt;
     private LocalDate warrantyExpiredDate;
     private int maintenanceCount;
     private LocalDateTime lastMaintenanceDate;
@@ -42,6 +44,15 @@ public class EquipmentResponse {
     private java.time.LocalDate warrantyEndDate;
     /** Mức phạt cố định (VNĐ) khi hết bảo hành. */
     private java.math.BigDecimal penaltyFee;
+
+    /** Giá trị còn lại sau khấu hao đường thẳng theo thời hạn bảo hành. */
+    private java.math.BigDecimal remainingDepreciationAmount;
+    /** Tổng số tháng bảo hành còn lại (≥ 0). */
+    private Integer remainingWarrantyMonths;
+    /** Phần năm của thời hạn còn lại (remainingWarrantyMonths / 12). */
+    private Integer remainingWarrantyYears;
+    /** Ví dụ: "Còn 1 năm 3 tháng", "Còn 8 tháng", "Hết bảo hành". */
+    private String remainingWarrantyLabel;
 
 
     /** ACTIVE | DISABLED — áp dụng cho các thiết bị vận hành */

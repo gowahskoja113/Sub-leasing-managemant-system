@@ -1,0 +1,39 @@
+@startuml SLMS_M6_Invoice_Payment
+title Figure — SLMS Module 6: Tenant Invoice & Payment\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "6. Tenant Invoice & Payment" {
+  class TenantInvoice
+  class TenantPayment
+  class TenantPaymentClaim
+  class TenantInvoicePayosOrder
+  class TenantPendingCharge
+  class Expense
+  class HostExpense
+}
+
+class TenantContract <<external>>
+class Property <<external>>
+class UtilityInvoice <<external>>
+class InvoiceDispute <<external>>
+
+TenantContract "1" o-- "*" TenantInvoice : has >
+TenantInvoice "1" o-- "0..1" TenantPayment : paid by >
+TenantInvoice "1" o-- "*" TenantPaymentClaim : claimed as >
+TenantInvoice "1" o-- "*" TenantInvoicePayosOrder : paid via >
+TenantContract "1" o-- "*" TenantPendingCharge : accrues >
+TenantInvoice "0..1" -- "*" TenantPendingCharge : settles >
+Property "1" o-- "*" Expense : has >
+Property "1" o-- "*" HostExpense : has >
+UtilityInvoice "0..1" -- "*" TenantInvoice : generates >
+InvoiceDispute "0..1" -- "*" TenantInvoice : links >
+
+@enduml

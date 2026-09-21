@@ -36,6 +36,9 @@ public interface EquipmentService {
     /** GET /api/v1/equipment/{id}/maintenance-history — lịch sử bảo trì thiết bị */
     List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistory(Long equipmentId);
 
+    /** GET /api/v1/equipment/{id}/maintenance-history — TENANT chỉ xem thiết bị thuộc HĐ ACTIVE */
+    List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistoryForCaller(Long equipmentId);
+
     EquipmentResponse reassignEquipment(Long propertyId, Long equipmentId, ReassignEquipmentRequest request);
     EquipmentResponse createAddedEquipment(Long propertyId, com.sep490.slms2026.dto.request.CreateAddedEquipmentRequest request);
 

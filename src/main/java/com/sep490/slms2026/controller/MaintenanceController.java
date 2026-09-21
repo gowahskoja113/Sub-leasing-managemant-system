@@ -178,8 +178,10 @@ public class MaintenanceController {
 
     @PutMapping("/{id}/confirm-arrival")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public MaintenanceRequestResponse confirmArrival(@PathVariable Long id) {
-        return maintenanceService.confirmArrival(id);
+    public MaintenanceRequestResponse confirmArrival(
+            @PathVariable Long id,
+            @RequestBody(required = false) MaintenanceConfirmArrivalRequest request) {
+        return maintenanceService.confirmArrival(id, request);
     }
 
     @PutMapping("/{id}/send-for-inspection")

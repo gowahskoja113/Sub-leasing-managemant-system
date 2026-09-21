@@ -70,8 +70,8 @@ public interface MaintenanceService {
     /** Tenant/manager đổi lịch hẹn xem (OPEN, chưa xác nhận có mặt, còn trước ngày hẹn). */
     MaintenanceRequestResponse rescheduleVisit(Long id, MaintenanceRescheduleVisitRequest request);
 
-    /** Manager xác nhận có mặt — chỉ ghi visitArrivalConfirmedAt, không đổi status. */
-    MaintenanceRequestResponse confirmArrival(Long id);
+    /** Manager quét QR thiết bị khi bắt đầu xử lý — chỉ ghi visitArrivalConfirmedAt, không đổi status. GET phiếu không cần QR. */
+    MaintenanceRequestResponse confirmArrival(Long id, MaintenanceConfirmArrivalRequest request);
 
     /**
      * Mang đi kiểm tra thêm: OPEN → REPAIR_SCHEDULED, chưa cần nguyên nhân/giá.

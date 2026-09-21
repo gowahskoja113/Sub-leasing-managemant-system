@@ -33,4 +33,8 @@ public class EquipmentMaintenanceHistory {
 
     @Column(columnDefinition = "TEXT")
     private String note;
+
+    /** CSV URL ảnh lần bảo trì (BEFORE/AFTER/INVOICE). */
+    @Column(name = "photo_urls", columnDefinition = "TEXT")
+    private String photoUrls;
 }

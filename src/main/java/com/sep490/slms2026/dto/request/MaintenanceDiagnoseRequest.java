@@ -15,9 +15,9 @@ import java.util.List;
 public class MaintenanceDiagnoseRequest {
 
     /**
-     * Khi {@link #equipmentNeedsReplacement} = false/null: giá thợ báo (bắt buộc, ≥ 0) —
-     * lưu vào estimatedDamageAmount.
-     * Khi thay thiết bị: chi phí phát sinh thêm tuỳ chọn (vd lắp đặt) — lưu vào invoiceAmount.
+     * Chi phí sửa chữa / bồi thường — nhập 1 lần duy nhất (không có chi phí phát sinh thêm).
+     * Không thay thiết bị: bắt buộc ≥ 0 → estimatedDamageAmount + invoiceAmount.
+     * Khi thay thiết bị: tuỳ chọn; nếu trống BE lấy khấu hao còn lại.
      */
     private BigDecimal quotedRepairAmount;
 
@@ -28,8 +28,7 @@ public class MaintenanceDiagnoseRequest {
     private Boolean equipmentNeedsReplacement;
 
     /**
-     * Bắt buộc khi {@link #equipmentNeedsReplacement} = true.
-     * FE tự tính (khấu hao còn lại / penaltyFee), BE không tự tính lại.
+     * Khi thay mới: số tiền bồi thường. Null → BE lấy khấu hao còn lại / penaltyFee.
      */
     private BigDecimal estimatedDamageAmount;
 
@@ -41,7 +40,7 @@ public class MaintenanceDiagnoseRequest {
 
     /**
      * Bắt buộc khi damageCause = TENANT_MISUSE.
-     * true = khách đồng ý trả → lập hoá đơn + gate thanh toán.
+     * true = khách đồng ý trả → lập hoá đơn (hạn 3 ngày), rồi sửa (không chờ thanh toán).
      * false = khách từ chối → companyAbsorbedFault, công ty trả hộ, không hoá đơn.
      */
     private Boolean tenantAgreesToPay;
@@ -49,7 +48,7 @@ public class MaintenanceDiagnoseRequest {
     /** Bắt buộc khi lỗi do khách. */
     private String faultReason;
 
-    /** Bắt buộc khi lỗi do khách — ảnh/video bằng chứng. */
+    /** Tuỳ chọn — ảnh tenant báo + manager xác nhận đã đủ, không bắt buộc thêm. */
     private List<String> faultEvidenceImages;
 
     /** Tuỳ chọn — tóm tắt thoả thuận khi khách từ chối trả. */

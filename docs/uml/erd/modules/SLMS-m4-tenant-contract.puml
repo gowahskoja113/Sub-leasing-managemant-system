@@ -1,0 +1,54 @@
+@startuml SLMS_M4_Tenant_Contract
+title Figure — SLMS Module 4: Tenant Contract\nUML 2.1 — Full associations (lease hub)
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "4. Tenant Contract" {
+  class TenantContract
+  class HouseholdMember
+  class TenantContractEquipment
+  class ExtensionRequest
+  class DepositAuditLog
+}
+
+class Tenant <<external>>
+class Property <<external>>
+class Room <<external>>
+class Equipment <<external>>
+class UtilityInvoice <<external>>
+class InvoiceDispute <<external>>
+class TenantInvoice <<external>>
+class TenantPendingCharge <<external>>
+class MaintenanceRequest <<external>>
+class OutstandingDamageRecord <<external>>
+class CheckoutRequest <<external>>
+
+Tenant "0..1" -- "*" TenantContract : signs >
+Property "1" -- "*" TenantContract : has leases >
+Room "0..1" -- "*" TenantContract : assigned to >
+TenantContract "1" o-- "*" HouseholdMember : has >
+TenantContract "1" o-- "*" TenantContractEquipment : includes >
+Equipment "1" -- "*" TenantContractEquipment : listed in >
+TenantContract "1" o-- "*" ExtensionRequest : has >
+TenantContract "1" .. "*" DepositAuditLog : audits (soft FK) >
+
+TenantContract "0..1" -- "*" UtilityInvoice : billed to >
+TenantContract "1" -- "*" InvoiceDispute : raises >
+TenantContract "1" o-- "*" TenantInvoice : has >
+TenantContract "1" o-- "*" TenantPendingCharge : accrues >
+TenantContract "0..1" -- "*" MaintenanceRequest : under >
+TenantContract "0..1" .. "*" OutstandingDamageRecord : charged to (soft FK) >
+TenantContract "1" o-- "*" CheckoutRequest : requests >
+
+note bottom of TenantContract
+  Room multiplicity 0..1 when whole-house lease
+end note
+
+@enduml

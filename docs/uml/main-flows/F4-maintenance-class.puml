@@ -1,5 +1,5 @@
 @startuml F4_Maintenance_Class
-title Figure — Maintenance Class Diagram\nUML 2.1 — Happy path Submit → Diagnose → Repair → Complete
+title Figure — Maintenance Class Diagram\nUML 2.1 — View without QR → Scan to process → Single cost invoice → History
 
 skinparam classAttributeIconSize 0
 skinparam linetype ortho
@@ -9,38 +9,39 @@ together {
   class MaintenanceController {
     - maintenanceService: MaintenanceService
     + create(req: MaintenanceCreateRequest): MaintenanceResponse
-    + confirmArrival(id: Long): MaintenanceResponse
+    + getById(id: Long): MaintenanceResponse
+    + confirmArrival(id: Long, req: MaintenanceConfirmArrivalRequest): MaintenanceResponse
     + diagnose(id: Long, req: MaintenanceDiagnoseRequest): MaintenanceResponse
-    + approve(id: Long, req: MaintenanceApproveRequest): MaintenanceResponse
     + startRepair(id: Long): MaintenanceResponse
     + complete(id: Long, req: MaintenanceCompleteRequest): MaintenanceResponse
-    + reportFault(id: Long, req: MaintenanceReportFaultRequest): MaintenanceResponse
-    + adminReview(id: Long, req: MaintenanceAdminReviewRequest): MaintenanceResponse
   }
 
   class MaintenanceCreateRequest {
     + propertyId: Long
     + roomId: Long
+    + equipmentId: Long
     + title: String
     + description: String
-    + category: String
-    + priority: String
     + visitAppointmentAt: LocalDateTime
     + photoUrls: List~String~
   }
 
+  class MaintenanceConfirmArrivalRequest {
+    + qrCode: String
+  }
+
   class MaintenanceDiagnoseRequest {
-    + diagnosis: String
+    + quotedRepairAmount: BigDecimal
     + damageCause: DamageCause
-    + estimatedCost: BigDecimal
-    + flowType: MaintenanceFlowType
+    + tenantAgreesToPay: Boolean
+    + faultReason: String
+    + equipmentNeedsReplacement: Boolean
   }
 
   class MaintenanceCompleteRequest {
     + resolutionNote: String
-    + actualCost: BigDecimal
-    + costPaidBy: CostPaidBy
-    + handoverPhotoUrls: List~String~
+    + repairDescription: String
+    + afterImages: List~String~
   }
 }
 
@@ -48,54 +49,51 @@ together {
   interface MaintenanceService
   class MaintenanceServiceImpl {
     - maintenanceRequestRepository: MaintenanceRequestRepository
-    - maintenanceImageRepository: MaintenanceImageRepository
-    - maintenanceHistoryRepository: MaintenanceHistoryRepository
     - equipmentRepository: EquipmentRepository
-    - tenantBillingService: TenantBillingService
+    - equipmentHistoryRepository: EquipmentMaintenanceHistoryRepository
+    - tenantPendingChargeService: TenantPendingChargeService
     + create(...): MaintenanceResponse
+    + getRequestById(...): MaintenanceResponse
+    + confirmArrival(...): MaintenanceResponse
     + diagnose(...): MaintenanceResponse
-    + approve(...): MaintenanceResponse
+    + startRepair(...): MaintenanceResponse
     + complete(...): MaintenanceResponse
-    + reportFault(...): MaintenanceResponse
   }
 }
 
 note right of MaintenanceServiceImpl
   «@Transactional»
-  Realtime notify tenant/manager
-  Branch tenant-fault → admin-review
+  GET ticket: no QR
+  confirm-arrival: QR required
+  diagnose: no extra fault photos
+  tenant-fault: 1 cost → invoice due +3d → repair
+  complete: write EquipmentMaintenanceHistory + photos
 end note
 
 together {
   interface MaintenanceRequestRepository
   interface MaintenanceImageRepository
-  interface MaintenanceHistoryRepository
   interface EquipmentRepository
-  interface OutstandingDamageRecordRepository
+  interface EquipmentMaintenanceHistoryRepository
 }
 
 interface JpaRepository<T,ID>
 MaintenanceRequestRepository --|> JpaRepository
 MaintenanceImageRepository --|> JpaRepository
-MaintenanceHistoryRepository --|> JpaRepository
 EquipmentRepository --|> JpaRepository
-OutstandingDamageRecordRepository --|> JpaRepository
+EquipmentMaintenanceHistoryRepository --|> JpaRepository
 
 together {
   class MaintenanceRequest {
     + id: Long
     + requestCode: String
-    + title: String
-    + description: String
     + status: MaintenanceStatus
     + flowType: MaintenanceFlowType
     + damageCause: DamageCause
-    + faultResolutionPath: FaultResolutionPath
-    + estimatedCost: BigDecimal
-    + actualCost: BigDecimal
+    + estimatedDamageAmount: BigDecimal
+    + invoiceAmount: BigDecimal
     + chargeInvoiceId: Long
-    + createdAt: LocalDateTime
-    + doneAt: LocalDateTime
+    + visitArrivalConfirmedAt: LocalDateTime
   }
 
   class MaintenanceImage {
@@ -104,65 +102,68 @@ together {
     + photoType: MaintenancePhotoType
   }
 
-  class MaintenanceHistory {
-    + id: Long
-    + action: String
-    + note: String
-    + createdAt: LocalDateTime
-  }
-
   class Equipment {
     + id: Long
     + name: String
-    + status: EquipmentStatus
+    + price: BigDecimal
+    + installationDate: LocalDate
+    + warrantyMonths: Integer
+    + warrantyEndDate: LocalDate
+    + maintenanceCount: int
+    + remainingDepreciationAmount: BigDecimal
+    + remainingWarrantyLabel: String
+    + qrCode: String
   }
 
   class EquipmentMaintenanceHistory {
     + id: Long
+    + maintenanceDate: LocalDateTime
+    + repairCost: Long
     + note: String
+    + photoUrls: String
   }
 
-  class OutstandingDamageRecord {
+  class TenantInvoice {
     + id: Long
-    + amount: BigDecimal
-    + settled: Boolean
+    + dueDate: LocalDate
+    + grandTotal: BigDecimal
+    + status: TenantInvoiceStatus
   }
 
   class Tenant
   class Property
   class Room
-  class TenantContract
 
   enum MaintenanceStatus {
     OPEN
-    VISITING
-    DIAGNOSED
-    REPAIRING
-    COMPLETED
+    REPAIR_SCHEDULED
+    IN_REPAIR
+    TENANT_FAULT
+    CLOSED
     ...
   }
 }
 
 MaintenanceController --> MaintenanceService
 MaintenanceController ..> MaintenanceCreateRequest
+MaintenanceController ..> MaintenanceConfirmArrivalRequest
 MaintenanceController ..> MaintenanceDiagnoseRequest
 MaintenanceController ..> MaintenanceCompleteRequest
 MaintenanceService <|.. MaintenanceServiceImpl
 MaintenanceServiceImpl --> MaintenanceRequestRepository
 MaintenanceServiceImpl --> MaintenanceImageRepository
-MaintenanceServiceImpl --> MaintenanceHistoryRepository
 MaintenanceServiceImpl --> EquipmentRepository
-MaintenanceServiceImpl --> TenantBillingService
+MaintenanceServiceImpl --> EquipmentMaintenanceHistoryRepository
+MaintenanceServiceImpl --> TenantPendingChargeService
 
 Tenant "1" o-- "*" MaintenanceRequest
 Property "1" o-- "*" MaintenanceRequest
 Room "0..1" o-- "*" MaintenanceRequest
-TenantContract "0..1" o-- "*" MaintenanceRequest
 Equipment "0..1" o-- "*" MaintenanceRequest
 MaintenanceRequest "1" o-- "*" MaintenanceImage
-MaintenanceRequest "1" o-- "*" MaintenanceHistory
 Equipment "1" o-- "*" EquipmentMaintenanceHistory
-MaintenanceRequest "0..1" o-- "0..1" OutstandingDamageRecord
+MaintenanceRequest "1" -- "*" EquipmentMaintenanceHistory
+MaintenanceRequest "0..1" .. "0..1" TenantInvoice : chargeInvoiceId >
 MaintenanceRequest --> MaintenanceStatus
 
 @enduml

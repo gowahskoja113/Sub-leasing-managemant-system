@@ -73,6 +73,19 @@ public class TenantMeController {
         return ResponseEntity.ok(equipmentService.getEquipmentsForCurrentTenant(contractId));
     }
 
+    @GetMapping("/equipments/{id}")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<EquipmentResponse> myEquipment(@PathVariable Long id) {
+        return ResponseEntity.ok(equipmentService.getEquipmentByIdForCaller(id));
+    }
+
+    @GetMapping("/equipments/{id}/maintenance-history")
+    @PreAuthorize("hasRole('TENANT')")
+    public ResponseEntity<List<com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse>> myEquipmentHistory(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(equipmentService.getEquipmentMaintenanceHistoryForCaller(id));
+    }
+
     private static UUID currentUserId() {
         CustomUserDetails user = SecurityUtils.requireCurrentUser();
         return user.getId();

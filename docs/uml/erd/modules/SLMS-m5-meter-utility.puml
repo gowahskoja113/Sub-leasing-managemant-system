@@ -1,0 +1,39 @@
+@startuml SLMS_M5_Meter_Utility
+title Figure — SLMS Module 5: Meter & Utility\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "5. Meter & Utility" {
+  class MeterReading
+  class MonthlyReading
+  class UtilityBill
+  class UtilityInvoice
+  class InvoiceDispute
+}
+
+class Property <<external>>
+class Room <<external>>
+class TenantContract <<external>>
+class TenantInvoice <<external>>
+
+Property "1" o-- "*" MeterReading : has >
+Property "1" o-- "*" MonthlyReading : has >
+Room "0..1" -- "*" MeterReading : has >
+Room "0..1" -- "*" MonthlyReading : has >
+Property "1" o-- "*" UtilityBill : has >
+Property "1" o-- "*" UtilityInvoice : has >
+Room "0..1" -- "*" UtilityInvoice : for >
+TenantContract "0..1" -- "*" UtilityInvoice : billed to >
+UtilityInvoice "1" -- "*" InvoiceDispute : disputed as >
+TenantContract "1" -- "*" InvoiceDispute : raises >
+UtilityInvoice "0..1" -- "*" TenantInvoice : generates >
+InvoiceDispute "0..1" -- "*" TenantInvoice : links >
+
+@enduml

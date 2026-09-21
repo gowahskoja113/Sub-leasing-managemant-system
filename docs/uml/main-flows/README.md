@@ -37,3 +37,17 @@ java -jar plantuml.jar -charset UTF-8 -tpng *.puml
 ## Không đưa vào bộ này
 
 Bulk import, zone CRUD, viewing lead, user admin CRUD, dispute/unlock edge — ngoài 6 luồng proposal.
+
+## F4 — quy tắc luồng bảo trì (chốt)
+
+1. Tenant tạo phiếu như cũ (`POST /maintenance`).
+2. Manager **xem phiếu không cần quét QR**. Quét QR chỉ khi **bắt đầu xử lý** (`PUT /{id}/confirm-arrival` + `qrCode` khớp thiết bị).
+3. GET phiếu trả snapshot thiết bị: số lần bảo trì, khấu hao còn lại, ngày mua, thời hạn BH, BH còn lại.
+4. Chẩn đoán / phân lỗi **không bắt buộc thêm ảnh** (đã có ảnh tenant báo + xác nhận hiện trường).
+5. Nhập **một lần chi phí** → lập hoá đơn ngay; tenant thanh toán **trễ nhất 3 ngày** kể từ lúc tạo hoá đơn; sau khi ra hoá đơn thì sửa (không chờ PAID).
+6. Complete ghi `EquipmentMaintenanceHistory` kèm ảnh. Admin xem trên web `GET /equipment/{id}` + `.../maintenance-history`. Tenant xem trên mobile `GET /tenant/me/equipments`.
+
+
+## System domain class diagram (UML 2.1)
+
+Xem `docs/uml/erd/` — `SLMS-core-erd.puml` (overview) và `SLMS-system-erd.puml` (đầy đủ theo package).

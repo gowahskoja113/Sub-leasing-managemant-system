@@ -8,4 +8,6 @@ import java.util.List;
 public interface EquipmentMaintenanceHistoryRepository extends JpaRepository<EquipmentMaintenanceHistory, Long> {
 
     List<EquipmentMaintenanceHistory> findByEquipmentIdOrderByMaintenanceDateDesc(Long equipmentId);
+
+    boolean existsByMaintenanceRequestId(Long maintenanceRequestId);
 }

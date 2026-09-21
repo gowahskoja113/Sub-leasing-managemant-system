@@ -27,6 +27,7 @@ import com.sep490.slms2026.security.SecurityUtils;
 import com.sep490.slms2026.service.EquipmentService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.enums.ContractStatus;
+import com.sep490.slms2026.util.EquipmentAssetCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -221,6 +222,19 @@ public class EquipmentServiceImpl implements EquipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<EquipmentMaintenanceHistoryResponse> getEquipmentMaintenanceHistoryForCaller(Long equipmentId) {
+        Equipment equipment = equipmentRepository.findById(equipmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + equipmentId));
+        CustomUserDetails user = SecurityUtils.requireCurrentUser();
+        String role = user.getAuthorities().iterator().next().getAuthority();
+        if ("ROLE_TENANT".equals(role)) {
+            assertTenantCanAccessEquipment(user.getId(), equipment);
+        }
+        return getEquipmentMaintenanceHistory(equipmentId);
+    }
+
+    @Override
     @Transactional
     public EquipmentResponse reassignEquipment(Long propertyId,
                                                Long equipmentId,
@@ -255,6 +269,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 ? equipment.getRenovationSession().getSessionNumber() : null;
         com.sep490.slms2026.enums.EquipmentOperationalStatus opStatus = equipment.getOperationalStatus() != null
                 ? equipment.getOperationalStatus() : com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE;
+        int remainingMonths = EquipmentAssetCalculator.remainingWarrantyMonths(equipment);
         return EquipmentResponse.builder()
                 .id(equipment.getId())
                 .propertyId(equipment.getProperty().getId())
@@ -272,6 +287,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .category(equipment.getEquipmentCategory())
                 .qrCode(equipment.getQrCode())
                 .installationDate(equipment.getInstallationDate())
+                .purchasedAt(EquipmentAssetCalculator.purchasedAt(equipment))
                 .warrantyExpiredDate(equipment.getWarrantyExpiredDate())
                 .maintenanceCount(equipment.getMaintenanceCount())
                 .lastMaintenanceDate(equipment.getLastMaintenanceDate())
@@ -279,6 +295,11 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .warrantyStartDate(equipment.getWarrantyStartDate())
                 .warrantyEndDate(equipment.getWarrantyEndDate())
                 .penaltyFee(equipment.getPenaltyFee())
+                .remainingDepreciationAmount(
+                        EquipmentAssetCalculator.remainingDepreciationAmount(equipment, remainingMonths))
+                .remainingWarrantyMonths(remainingMonths)
+                .remainingWarrantyYears(EquipmentAssetCalculator.remainingWarrantyYears(remainingMonths))
+                .remainingWarrantyLabel(EquipmentAssetCalculator.remainingWarrantyLabel(remainingMonths))
                 .operationalStatus(opStatus.name())
                 .currentEffective(opStatus == com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
                 .renovationSessionNumber(sessionNumber)
@@ -297,7 +318,18 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .maintenanceDate(history.getMaintenanceDate())
                 .repairCost(history.getRepairCost())
                 .note(history.getNote())
+                .photoUrls(splitCsv(history.getPhotoUrls()))
                 .build();
+    }
+
+    private static List<String> splitCsv(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     @Override

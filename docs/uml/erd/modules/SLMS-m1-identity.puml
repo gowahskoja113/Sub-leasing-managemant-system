@@ -1,0 +1,42 @@
+@startuml SLMS_M1_Identity
+title Figure — SLMS Module 1: Identity & Access\nUML 2.1 — Full associations
+
+skinparam classAttributeIconSize 0
+skinparam linetype polyline
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+package "1. Identity & Access" {
+  class User
+  class Admin
+  class Owner
+  class Tenant
+  class OperationManagement
+  class Notification
+  class OtpVerification
+}
+
+class Zone <<external>>
+class TenantContract <<external>>
+class MaintenanceRequest <<external>>
+
+User "1" -- "0..1" Admin : is >
+User "1" -- "0..1" Owner : is >
+User "1" -- "0..1" Tenant : is >
+User "1" -- "0..1" OperationManagement : is >
+User "1" o-- "*" Notification : has >
+User "1" o-- "*" OtpVerification : has >
+
+OperationManagement "*" -- "*" Zone : manages >
+Tenant "0..1" -- "*" TenantContract : signs >
+Tenant "1" -- "*" MaintenanceRequest : requests >
+
+legend right
+  <<external>> = class belonging to another module
+endlegend
+
+@enduml
