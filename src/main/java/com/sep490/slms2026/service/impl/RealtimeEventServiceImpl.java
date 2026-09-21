@@ -207,6 +207,7 @@ public class RealtimeEventServiceImpl implements RealtimeEventService {
                  EVT_MAINTENANCE_REJECT_FAULT,
                  EVT_MAINTENANCE_VERIFY_REPAIR,
                  EVT_MAINTENANCE_COMPLETED,
+                 EVT_MAINTENANCE_WAITING_PAYMENT,
                  EVT_MAINTENANCE_CANCELLED_BY_MANAGER -> sendByUserId(tenantUserId, MAINTENANCE_USER_DESTINATION, event, sent);
 
             case EVT_MAINTENANCE_FAULT_REPORTED -> {

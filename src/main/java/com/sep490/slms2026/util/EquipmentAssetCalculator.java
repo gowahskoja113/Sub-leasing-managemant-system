@@ -1,6 +1,7 @@
 package com.sep490.slms2026.util;
 
 import com.sep490.slms2026.entity.Equipment;
+import com.sep490.slms2026.exception.BusinessException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -10,6 +11,13 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * Tính khấu hao còn lại + thời hạn bảo hành còn lại của một món thiết bị (đường thẳng theo tháng bảo hành).
+ * <p>
+ * Quy tắc đền bù:
+ * <ul>
+ *   <li>Còn bảo hành → giá mua × (tháng còn lại / tổng tháng BH)</li>
+ *   <li>Hết BH / không có kỳ BH → {@code penaltyFee} (bắt buộc trên mọi thiết bị)</li>
+ *   <li>Không bao giờ fallback về nguyên giá mua</li>
+ * </ul>
  */
 public final class EquipmentAssetCalculator {
 
@@ -81,8 +89,8 @@ public final class EquipmentAssetCalculator {
     }
 
     /**
-     * Khấu hao còn lại = giá mua × (tháng BH còn lại / tổng tháng BH).
-     * Hết BH hoặc không có kỳ BH → dùng penaltyFee (residual), không thì 0.
+     * Khấu hao / giá trị đền còn lại để hiển thị.
+     * Hết BH → {@code penaltyFee}; thiếu penaltyFee → {@code 0} (không trả nguyên giá mua).
      */
     public static BigDecimal remainingDepreciationAmount(Equipment eq) {
         return remainingDepreciationAmount(eq, remainingWarrantyMonths(eq));
@@ -96,10 +104,30 @@ public final class EquipmentAssetCalculator {
             return price.multiply(BigDecimal.valueOf(remainingMonths))
                     .divide(BigDecimal.valueOf(totalMonths), 0, RoundingMode.HALF_UP);
         }
-        if (remainingMonths <= 0 && eq.getPenaltyFee() != null
-                && eq.getPenaltyFee().compareTo(BigDecimal.ZERO) > 0) {
+        if (eq.getPenaltyFee() != null && eq.getPenaltyFee().compareTo(BigDecimal.ZERO) >= 0) {
             return eq.getPenaltyFee();
         }
-        return price != null ? price : BigDecimal.ZERO;
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * Số tiền đền khi lập hoá đơn / thay thiết bị — bắt buộc có penaltyFee nếu hết BH.
+     */
+    public static BigDecimal requireCompensationAmount(Equipment eq) {
+        BigDecimal amount = remainingDepreciationAmount(eq);
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(
+                    "Thiết bị thiếu penaltyFee hợp lệ — mọi thiết bị phải có mức đền bù khi hết bảo hành");
+        }
+        return amount;
+    }
+
+    public static void requirePenaltyFeePresent(BigDecimal penaltyFee) {
+        if (penaltyFee == null) {
+            throw new BusinessException("penaltyFee là bắt buộc trên mọi thiết bị");
+        }
+        if (penaltyFee.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("penaltyFee không được âm");
+        }
     }
 }

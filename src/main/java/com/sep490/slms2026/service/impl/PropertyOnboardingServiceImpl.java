@@ -248,6 +248,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
         }
         validateEquipmentStatus(request.getStatus());
         validateEquipmentPlacement(request.getRoomId(), request.getHouseArea());
+        com.sep490.slms2026.util.EquipmentAssetCalculator.requirePenaltyFeePresent(request.getPenaltyFee());
 
         EquipmentImportAction importAction = request.getImportAction() != null
                 ? request.getImportAction()

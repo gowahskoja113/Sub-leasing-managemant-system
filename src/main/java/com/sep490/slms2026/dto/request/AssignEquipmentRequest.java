@@ -49,9 +49,10 @@ public class AssignEquipmentRequest {
     private java.time.LocalDate warrantyEndDate;
 
     /**
-     * Mức phạt cố định (VNĐ) khi thiết bị hết bảo hành.
+     * Mức phạt cố định (VNĐ) khi thiết bị hết bảo hành — bắt buộc trên mọi thiết bị.
      * Dùng cho luồng maintain — không tính từ đơn giá.
      */
+    @NotNull(message = "penaltyFee là bắt buộc")
     @DecimalMin(value = "0", inclusive = true)
     private BigDecimal penaltyFee;
 

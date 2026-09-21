@@ -1,6 +1,7 @@
 package com.sep490.slms2026.service.impl;
 
 import com.sep490.slms2026.dto.request.*;
+import com.sep490.slms2026.dto.response.EquipmentResponse;
 import com.sep490.slms2026.dto.response.MaintenanceDashboardResponse;
 import com.sep490.slms2026.dto.response.MaintenancePhotoHistoryResponse;
 import com.sep490.slms2026.dto.response.MaintenanceRequestResponse;
@@ -16,7 +17,6 @@ import com.sep490.slms2026.exception.ResourceNotFoundException;
 import com.sep490.slms2026.repository.*;
 import com.sep490.slms2026.security.CustomUserDetails;
 import com.sep490.slms2026.security.SecurityUtils;
-import com.sep490.slms2026.service.EquipmentService;
 import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.PropertyImageStorage;
 import com.sep490.slms2026.service.RealtimeEventService;
@@ -66,7 +66,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private final PropertyRepository propertyRepository;
     private final EquipmentRepository equipmentRepository;
     private final EquipmentMaintenanceHistoryRepository equipmentHistoryRepository;
-    private final EquipmentService equipmentService;
     private final TenantContractRepository tenantContractRepository;
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
@@ -739,10 +738,17 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             applyEquipmentReplacementOnComplete(req, replacementCtx, chargeToTenant);
         }
 
+        boolean chargeToTenant = !req.isCompanyAbsorbedFault()
+                && req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
+                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
+
         MaintenanceStatus old = req.getStatus();
-        req.setStatus(MaintenanceStatus.CLOSED);
+        MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
+        req.setStatus(next);
         req.setDoneAt(LocalDateTime.now());
-        req.setResolvedAt(LocalDateTime.now());
+        if (next == MaintenanceStatus.CLOSED) {
+            req.setResolvedAt(LocalDateTime.now());
+        }
         repository.save(req);
         restoreRoomStatus(req);
         recordEquipmentMaintenanceHistory(req);
@@ -754,10 +760,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     ? ", giá trị " + req.getEstimatedDamageAmount() + "đ" : "")
                     + ")";
         }
-        addTimeline(req, old, MaintenanceStatus.CLOSED, handoverNote);
-        notifyTenantOnComplete(req, false);
-        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
-
+        if (next == MaintenanceStatus.WAITING_PAYMENT) {
+            handoverNote += " — chờ tenant thanh toán (hạn "
+                    + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày)";
+        }
+        addTimeline(req, old, next, handoverNote);
+        notifyAfterWorkDone(req, next, chargeToTenant);
         return convertToResponse(req);
     }
 
@@ -801,13 +809,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
             applyInvoiceOnComplete(req, request, needsReplacement);
         } else {
-            // Already charged, just set repairDescription if present
             if (request.getRepairDescription() != null) {
                 req.setRepairDescription(trimToNull(request.getRepairDescription()));
             }
         }
-
-
 
         if (needsReplacement) {
             applyEquipmentReplacementOnComplete(req, request, chargeToTenant);
@@ -816,18 +821,23 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         MaintenanceStatus old = req.getStatus();
         req.setResolutionNote(trimToNull(request.getResolutionNote()));
         req.setRepairDescription(trimToNull(request.getRepairDescription()));
-        req.setStatus(MaintenanceStatus.CLOSED);
-        req.setDoneAt(LocalDateTime.now());
-        req.setResolvedAt(LocalDateTime.now());
-        repository.save(req);
-        restoreRoomStatus(req);
-        recordEquipmentMaintenanceHistory(req);
 
         TenantInvoiceResponse issuedInvoice = null;
         if (chargeToTenant && req.getChargeInvoiceId() == null) {
             BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
             issuedInvoice = issueMaintenanceCharge(req, chargeAmount);
+            req.setChargeInvoiceId(issuedInvoice.getId());
         }
+
+        MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
+        req.setStatus(next);
+        req.setDoneAt(LocalDateTime.now());
+        if (next == MaintenanceStatus.CLOSED) {
+            req.setResolvedAt(LocalDateTime.now());
+        }
+        repository.save(req);
+        restoreRoomStatus(req);
+        recordEquipmentMaintenanceHistory(req);
 
         String note = request.getRepairDescription() != null
                 ? "Manager hoàn tất sửa chữa: " + request.getRepairDescription()
@@ -841,17 +851,47 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (Boolean.TRUE.equals(request.getChargeToTenant()) && normalFlow) {
             note += " — thu phí tenant (Luồng A)";
         }
-        if (req.getChargeInvoiceId() != null) {
-            note += " — hoá đơn đã lập (tenant thanh toán trong "
+        if (next == MaintenanceStatus.WAITING_PAYMENT) {
+            note += " — chờ tenant thanh toán (hạn "
                     + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày)";
+        } else if (req.getChargeInvoiceId() != null) {
+            note += " — hoá đơn đã thanh toán";
         }
-        addTimeline(req, old, MaintenanceStatus.CLOSED, note);
-        notifyTenantOnComplete(req, chargeToTenant && req.getChargeInvoiceId() == null);
-        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
+        addTimeline(req, old, next, note);
+        notifyAfterWorkDone(req, next, chargeToTenant);
 
         MaintenanceRequestResponse response = convertToResponse(req);
-        response.setIssuedInvoice(issuedInvoice);
+        if (issuedInvoice != null) {
+            response.setIssuedInvoice(issuedInvoice);
+        }
         return response;
+    }
+
+    @Override
+    @Transactional
+    public void closeWaitingPaymentAfterInvoicePaid(Long invoiceId) {
+        if (invoiceId == null) {
+            return;
+        }
+        repository.findByChargeInvoiceIdAndDeletedFalse(invoiceId).ifPresent(req -> {
+            if (req.getStatus() != MaintenanceStatus.WAITING_PAYMENT) {
+                return;
+            }
+            MaintenanceStatus old = req.getStatus();
+            req.setStatus(MaintenanceStatus.CLOSED);
+            req.setResolvedAt(LocalDateTime.now(VN_ZONE));
+            if (req.getDoneAt() == null) {
+                req.setDoneAt(LocalDateTime.now(VN_ZONE));
+            }
+            repository.save(req);
+            addTimeline(req, old, MaintenanceStatus.CLOSED,
+                    "Tenant đã thanh toán hoá đơn — đóng phiếu bảo trì");
+            notifyTenant(req,
+                    "Bảo trì đã hoàn tất — " + req.getTitle(),
+                    "Yêu cầu #" + req.getId() + " đã đóng sau khi thanh toán hoá đơn.",
+                    "MAINTENANCE_COMPLETED");
+            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
+        });
     }
 
     @Override
@@ -1630,18 +1670,86 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getEquipmentId() == null) {
             return;
         }
-        String scanned = trimToNull(scannedQr);
+        String scanned = normalizeEquipmentQr(scannedQr);
         if (scanned == null) {
             throw new BusinessException("Cần quét mã QR thiết bị trước khi bắt đầu xử lý phiếu");
         }
         Equipment eq = equipmentRepository.findById(req.getEquipmentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thiết bị của phiếu"));
-        String expected = trimToNull(eq.getQrCode());
+        String expected = normalizeEquipmentQr(eq.getQrCode());
         String fallback = "EQ-" + eq.getId();
         boolean match = scanned.equalsIgnoreCase(fallback)
                 || (expected != null && scanned.equalsIgnoreCase(expected));
         if (!match) {
             throw new BusinessException("Mã QR không khớp thiết bị được báo trên phiếu này");
+        }
+    }
+
+    /**
+     * Chuẩn hoá QR về dạng EQ-&lt;id&gt; khi nhận số trần hoặc deep link chứa EQ-xxx / số id cuối.
+     * FE gửi EQ-&lt;id&gt; là đủ; BE cũng chấp nhận biến thể phổ biến.
+     */
+    private static String normalizeEquipmentQr(String raw) {
+        String s = trimToNull(raw);
+        if (s == null) {
+            return null;
+        }
+        int scheme = s.indexOf("://");
+        if (scheme >= 0) {
+            s = s.substring(scheme + 3);
+            int q = s.indexOf('?');
+            if (q >= 0) {
+                s = s.substring(0, q);
+            }
+            int slash = s.lastIndexOf('/');
+            if (slash >= 0 && slash < s.length() - 1) {
+                s = s.substring(slash + 1);
+            }
+        }
+        s = s.trim();
+        if (s.matches("(?i)EQ-\\d+")) {
+            return s.toUpperCase(Locale.ROOT);
+        }
+        if (s.matches("\\d+")) {
+            return "EQ-" + s;
+        }
+        return s;
+    }
+
+    private MaintenanceStatus resolveStatusAfterWorkDone(MaintenanceRequest req, boolean chargeToTenant) {
+        if (!chargeToTenant) {
+            return MaintenanceStatus.CLOSED;
+        }
+        if (isTenantChargeInvoicePaid(req)) {
+            return MaintenanceStatus.CLOSED;
+        }
+        return MaintenanceStatus.WAITING_PAYMENT;
+    }
+
+    private boolean isTenantChargeInvoicePaid(MaintenanceRequest req) {
+        if (req.getChargeInvoiceId() == null) {
+            return false;
+        }
+        return tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                .map(inv -> inv.getStatus() == TenantInvoiceStatus.PAID)
+                .orElse(false);
+    }
+
+    private void notifyAfterWorkDone(MaintenanceRequest req, MaintenanceStatus next, boolean chargeToTenant) {
+        if (next == MaintenanceStatus.WAITING_PAYMENT) {
+            notifyTenant(req,
+                    "Sửa chữa xong — chờ thanh toán",
+                    "Yêu cầu #" + req.getId() + " đã sửa/bàn giao. Vui lòng thanh toán hoá đơn trong "
+                            + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS
+                            + " ngày kể từ lúc tạo hoá đơn.",
+                    "MAINTENANCE_WAITING_PAYMENT");
+            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_WAITING_PAYMENT);
+            return;
+        }
+        notifyTenantOnComplete(req, false);
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
+        if (chargeToTenant) {
+            // already paid path — no extra charge notice
         }
     }
 
@@ -1674,7 +1782,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             return null;
         }
         return equipmentRepository.findById(req.getEquipmentId())
-                .map(EquipmentAssetCalculator::remainingDepreciationAmount)
+                .map(EquipmentAssetCalculator::requireCompensationAmount)
                 .orElse(null);
     }
 
@@ -2336,17 +2444,15 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getStatus() == MaintenanceStatus.OUTSTANDING_DAMAGE) {
             return MaintenanceBillingHint.DEPOSIT_DEDUCTION_PENDING;
         }
+        if (req.getStatus() == MaintenanceStatus.WAITING_PAYMENT) {
+            return MaintenanceBillingHint.TENANT_CHARGE_PENDING;
+        }
         if (req.isCompanyAbsorbedFault() && req.getStatus() == MaintenanceStatus.CLOSED) {
             return MaintenanceBillingHint.HOST_PAID;
         }
         if (req.getStatus() == MaintenanceStatus.CLOSED
-                && hasMaintenanceCharge(req.getId())) {
-            return MaintenanceBillingHint.TENANT_CHARGE_PENDING;
-        }
-        if (req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR
-                && !req.isCompanyAbsorbedFault()
-                && req.getStatus() == MaintenanceStatus.CLOSED) {
+                && hasMaintenanceCharge(req.getId())
+                && !isTenantChargeInvoicePaid(req)) {
             return MaintenanceBillingHint.TENANT_CHARGE_PENDING;
         }
         if (req.getStatus() == MaintenanceStatus.CLOSED && req.getFlowType() == MaintenanceFlowType.NORMAL_WEAR) {
@@ -2527,7 +2633,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .visitArrivalConfirmedAt(req.getVisitArrivalConfirmedAt())
                 .repairAppointmentAt(req.getRepairAppointmentAt())
                 .repairStartedAt(req.getRepairStartedAt())
-                .qrScanRequiredToProcess(req.getVisitAppointmentAt() != null
+                .qrScanRequiredToProcess(req.getEquipmentId() != null
+                        && req.getVisitAppointmentAt() != null
                         && req.getVisitArrivalConfirmedAt() == null)
                 .createdAt(req.getCreatedAt())
                 .updatedAt(req.getUpdatedAt())
@@ -2556,29 +2663,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
         }
         if (req.getEquipmentId() != null) {
-            try {
-                var snap = equipmentService.getEquipmentById(req.getEquipmentId());
-                res.setEquipmentId(snap.getId());
-                String name = snap.getEquipmentName();
-                if (isBlank(name)) {
-                    name = snap.getCatalogName();
-                }
+            equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
+                res.setEquipmentId(eq.getId());
+                String name = !isBlank(eq.getEquipmentName())
+                        ? eq.getEquipmentName()
+                        : (eq.getCatalog() != null ? eq.getCatalog().getName() : null);
                 res.setEquipmentName(name);
-                res.setEquipment(snap);
-                if (snap.getRoomId() != null && req.getRoom() == null) {
-                    res.setRoomId(snap.getRoomId());
-                    res.setRoomName(snap.getRoomNumber());
+                res.setEquipment(toEquipmentSnapshot(eq));
+                if (eq.getRoom() != null && req.getRoom() == null) {
+                    res.setRoomId(eq.getRoom().getId());
+                    res.setRoomName(eq.getRoom().getRoomNumber());
                 }
-            } catch (Exception ignored) {
-                equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
-                    res.setEquipmentId(eq.getId());
-                    res.setEquipmentName(eq.getCatalog() != null ? eq.getCatalog().getName() : null);
-                    if (eq.getRoom() != null && req.getRoom() == null) {
-                        res.setRoomId(eq.getRoom().getId());
-                        res.setRoomName(eq.getRoom().getRoomNumber());
-                    }
-                });
-            }
+            });
         }
         if (req.getAdminReviewedBy() != null) {
             userRepository.findById(req.getAdminReviewedBy()).ifPresent(admin ->
@@ -2648,5 +2744,38 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    /** Snapshot nhẹ cho list/detail phiếu — không gọi EquipmentService (tránh N+1 nặng). */
+    private static EquipmentResponse toEquipmentSnapshot(Equipment eq) {
+        int remainingMonths = EquipmentAssetCalculator.remainingWarrantyMonths(eq);
+        return EquipmentResponse.builder()
+                .id(eq.getId())
+                .propertyId(eq.getProperty() != null ? eq.getProperty().getId() : null)
+                .roomId(eq.getRoom() != null ? eq.getRoom().getId() : null)
+                .roomName(eq.getRoom() != null ? eq.getRoom().getRoomNumber() : null)
+                .roomNumber(eq.getRoom() != null ? eq.getRoom().getRoomNumber() : null)
+                .catalogId(eq.getCatalog() != null ? eq.getCatalog().getId() : null)
+                .catalogName(eq.getCatalog() != null ? eq.getCatalog().getName() : null)
+                .status(eq.getStatus())
+                .price(eq.getPrice())
+                .equipmentName(eq.getEquipmentName())
+                .category(eq.getEquipmentCategory())
+                .qrCode(eq.getQrCode())
+                .installationDate(eq.getInstallationDate())
+                .purchasedAt(EquipmentAssetCalculator.purchasedAt(eq))
+                .warrantyExpiredDate(eq.getWarrantyExpiredDate())
+                .maintenanceCount(eq.getMaintenanceCount())
+                .lastMaintenanceDate(eq.getLastMaintenanceDate())
+                .warrantyMonths(eq.getWarrantyMonths())
+                .warrantyStartDate(eq.getWarrantyStartDate())
+                .warrantyEndDate(eq.getWarrantyEndDate())
+                .penaltyFee(eq.getPenaltyFee())
+                .remainingDepreciationAmount(
+                        EquipmentAssetCalculator.remainingDepreciationAmount(eq, remainingMonths))
+                .remainingWarrantyMonths(remainingMonths)
+                .remainingWarrantyYears(EquipmentAssetCalculator.remainingWarrantyYears(remainingMonths))
+                .remainingWarrantyLabel(EquipmentAssetCalculator.remainingWarrantyLabel(remainingMonths))
+                .build();
     }
 }

@@ -354,6 +354,8 @@ public class EquipmentServiceImpl implements EquipmentService {
                     return equipmentCatalogRepository.save(newCatalog);
                 });
 
+        com.sep490.slms2026.util.EquipmentAssetCalculator.requirePenaltyFeePresent(request.getPenaltyFee());
+
         Equipment equipment = Equipment.builder()
                 .property(property)
                 .room(room)
@@ -362,6 +364,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .status(com.sep490.slms2026.enums.EquipmentStatus.NEW)
                 .operationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.ACTIVE)
                 .price(request.getCost() != null ? request.getCost() : java.math.BigDecimal.ZERO)
+                .penaltyFee(request.getPenaltyFee())
                 .build();
 
         return toResponse(persistWithQrCode(equipment));

@@ -68,7 +68,7 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'OPEN' AND m.deleted = false")
     long countOpen();
 
-    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false")
+    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR', 'WAITING_PAYMENT') AND m.deleted = false")
     long countInProgress();
 
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CLOSED' AND m.deleted = false")
@@ -86,7 +86,7 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'OPEN' AND m.deleted = false AND m.property.operationManagerId = :managerId")
     long countOpenByManager(@Param("managerId") UUID managerId);
 
-    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR') AND m.deleted = false AND m.property.operationManagerId = :managerId")
+    @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status IN ('REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT', 'PENDING_TENANT_REPAIR', 'WAITING_PAYMENT') AND m.deleted = false AND m.property.operationManagerId = :managerId")
     long countInProgressByManager(@Param("managerId") UUID managerId);
 
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.status = 'CLOSED' AND m.deleted = false AND m.property.operationManagerId = :managerId")
@@ -102,6 +102,8 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
             MaintenanceStatus status, LocalDate deadline);
             
     List<MaintenanceRequest> findByStatusAndDeletedFalse(MaintenanceStatus status);
+
+    java.util.Optional<MaintenanceRequest> findByChargeInvoiceIdAndDeletedFalse(Long chargeInvoiceId);
 
     boolean existsByRoomIdAndStatusNotInAndIdNotAndDeletedFalse(
             Long roomId, List<MaintenanceStatus> excludedStatuses, Long excludedId);

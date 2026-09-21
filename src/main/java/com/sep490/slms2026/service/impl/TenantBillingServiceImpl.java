@@ -16,6 +16,7 @@ import com.sep490.slms2026.service.PayosService;
 import com.sep490.slms2026.service.PropertyAccessService;
 import com.sep490.slms2026.service.RealtimeEventService;
 import com.sep490.slms2026.service.InvoiceDisputeService;
+import com.sep490.slms2026.service.MaintenanceService;
 import com.sep490.slms2026.service.TenantBillingService;
 import com.sep490.slms2026.service.UserPushTokenService;
 import com.sep490.slms2026.util.ContractBillingCalendar;
@@ -73,6 +74,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final ApplicationEventPublisher applicationEventPublisher;
     private final com.sep490.slms2026.service.PushNotificationService pushNotificationService;
     private final InvoiceDisputeService invoiceDisputeService;
+    private final MaintenanceService maintenanceService;
 
     @Value("${billing.first-cycle-grace-days:3}")
     private long firstCycleGraceDays;
@@ -864,6 +866,13 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         }
         InvoicePaymentContext ctx = context != null ? context : InvoicePaymentContext.selfQr();
         realtimeEventService.publishInvoicePaid(invoice, ctx);
+        if (invoice.getInvoiceType() == TenantInvoiceType.MAINTENANCE) {
+            try {
+                maintenanceService.closeWaitingPaymentAfterInvoicePaid(invoice.getId());
+            } catch (Exception e) {
+                log.error("Failed to close WAITING_PAYMENT maintenance for invoice {}", invoiceId, e);
+            }
+        }
     }
 
     @Override

@@ -44,8 +44,9 @@ Bulk import, zone CRUD, viewing lead, user admin CRUD, dispute/unlock edge — n
 2. Manager **xem phiếu không cần quét QR**. Quét QR chỉ khi **bắt đầu xử lý** (`PUT /{id}/confirm-arrival` + `qrCode` khớp thiết bị).
 3. GET phiếu trả snapshot thiết bị: số lần bảo trì, khấu hao còn lại, ngày mua, thời hạn BH, BH còn lại.
 4. Chẩn đoán / phân lỗi **không bắt buộc thêm ảnh** (đã có ảnh tenant báo + xác nhận hiện trường).
-5. Nhập **một lần chi phí** → lập hoá đơn ngay; tenant thanh toán **trễ nhất 3 ngày** kể từ lúc tạo hoá đơn; sau khi ra hoá đơn thì sửa (không chờ PAID).
+5. Nhập **một lần chi phí** → lập hoá đơn → sửa ngay → `WAITING_PAYMENT` nếu thu tenant; **CLOSED chỉ khi PAID** (hạn 3 ngày; quá hạn giữ phiếu + cron escalate).
 6. Complete ghi `EquipmentMaintenanceHistory` kèm ảnh. Admin xem trên web `GET /equipment/{id}` + `.../maintenance-history`. Tenant xem trên mobile `GET /tenant/me/equipments`.
+7. `penaltyFee` bắt buộc trên mọi thiết bị; hết BH đền theo `penaltyFee` (không fallback giá mua).
 
 
 ## System domain class diagram (UML 2.1)

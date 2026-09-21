@@ -404,7 +404,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
     }
 
     private static final String MAINTENANCE_REDESIGN_STATUS_IN =
-            "'OPEN','REPAIR_SCHEDULED','IN_REPAIR','TENANT_FAULT','PENDING_TENANT_REPAIR','OUTSTANDING_DAMAGE','CLOSED','CANCELLED'";
+            "'OPEN','REPAIR_SCHEDULED','IN_REPAIR','TENANT_FAULT','PENDING_TENANT_REPAIR','OUTSTANDING_DAMAGE','WAITING_PAYMENT','CLOSED','CANCELLED'";
 
     /** Đồng bộ CHECK status theo enum redesign — gọi sau migrateMaintenanceStatusesToRedesignFlow(). */
     private void ensureMaintenanceRequestsStatusConstraint() {
