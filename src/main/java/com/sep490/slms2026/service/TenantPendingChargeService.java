@@ -25,5 +25,5 @@ public interface TenantPendingChargeService {
             String note);
 
     /** Số ngày hạn thanh toán hoá đơn bồi thường bảo trì (tenant tự trả). */
-    int MAINTENANCE_CHARGE_DUE_DAYS = 3;
+    int MAINTENANCE_CHARGE_DUE_DAYS = 5;
 }

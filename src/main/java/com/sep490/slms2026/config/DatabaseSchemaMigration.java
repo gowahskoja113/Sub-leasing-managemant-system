@@ -163,6 +163,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureUtilityInvoiceTenantViewedAtColumn();
         ensureMeterReadingLockColumns();
         backfillEquipmentMaintenanceFromClosedTickets();
+        stripUnpaidInvoiceLateFees();
 
         syncEnumCheck("room_price_history", "change_type", "room_price_history_change_type_check",
                 com.sep490.slms2026.enums.RoomPriceChangeType.values());
@@ -1274,6 +1275,42 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             jdbcTemplate.execute(
                     "ALTER TABLE " + table + " RENAME COLUMN " + oldColumn + " TO " + newColumn);
             log.info("Renamed column {}.{} to {}", table, oldColumn, newColumn);
+        }
+    }
+
+    /**
+     * Chính sách 24/09/2026: bỏ phí trễ hạn 2% — xoá lateFee trên hoá đơn chưa trả
+     * và đặt grandTotal = totalAmount (xoá QR PayOS cũ nếu có).
+     */
+    private void stripUnpaidInvoiceLateFees() {
+        try {
+            Boolean tableExists = jdbcTemplate.queryForObject(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'tenant_invoices'
+                    )
+                    """,
+                    Boolean.class);
+            if (!Boolean.TRUE.equals(tableExists)) {
+                return;
+            }
+            int updated = jdbcTemplate.update("""
+                    UPDATE tenant_invoices
+                    SET late_fee = 0,
+                        grand_total = total_amount,
+                        payos_order_code = NULL,
+                        payos_checkout_url = NULL,
+                        payos_qr_code = NULL
+                    WHERE status IN ('PENDING', 'PARTIAL', 'OVERDUE')
+                      AND late_fee IS NOT NULL
+                      AND late_fee > 0
+                    """);
+            if (updated > 0) {
+                log.info("Stripped lateFee from {} unpaid tenant invoices (policy 2026-09-24)", updated);
+            }
+        } catch (Exception e) {
+            log.debug("stripUnpaidInvoiceLateFees skipped: {}", e.getMessage());
         }
     }
 

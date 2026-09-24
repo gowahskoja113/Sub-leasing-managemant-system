@@ -1096,13 +1096,22 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         if (request.getType() == com.sep490.slms2026.enums.ContractTerminationType.VIOLATION) {
-            boolean hasOverdueInvoice = tenantInvoiceRepository.findForTenant(contract.getTenant().getUser().getId(), TenantInvoiceStatus.OVERDUE, TenantInvoiceType.RENT)
+            LocalDate today = LocalDate.now();
+            // Tiền nhà: quá hạn > 3 ngày (dueDate trước today-2) như luật cũ
+            boolean hasOverdueRent = tenantInvoiceRepository
+                    .findForTenant(contract.getTenant().getUser().getId(), TenantInvoiceStatus.OVERDUE, TenantInvoiceType.RENT)
                     .stream()
-                    .anyMatch(inv -> inv.getTenantContract().getId().equals(contractId) 
+                    .anyMatch(inv -> inv.getTenantContract().getId().equals(contractId)
                             && inv.getDueDate() != null
-                            && inv.getDueDate().isBefore(LocalDate.now().minusDays(2)));
-            if (!hasOverdueInvoice) {
-                throw new BusinessException("Không thể đơn phương chấm dứt hợp đồng (lỗi vi phạm) nếu không có hoá đơn tiền phòng quá hạn trên 3 ngày.");
+                            && inv.getDueDate().isBefore(today.minusDays(2)));
+            // Hoá đơn khác RENT: bất kỳ trạng thái OVERDUE là đủ mở quyền chấm dứt
+            boolean hasOverdueNonRent = tenantInvoiceRepository.findByTenantContractId(contractId).stream()
+                    .anyMatch(inv -> inv.getStatus() == TenantInvoiceStatus.OVERDUE
+                            && inv.getInvoiceType() != null
+                            && inv.getInvoiceType() != TenantInvoiceType.RENT);
+            if (!hasOverdueRent && !hasOverdueNonRent) {
+                throw new BusinessException(
+                        "Không thể đơn phương chấm dứt hợp đồng (vi phạm) nếu không có hoá đơn tiền phòng quá hạn trên 3 ngày, hoặc hoá đơn điện/nước/sửa chữa/dịch vụ đã quá hạn.");
             }
         }
 

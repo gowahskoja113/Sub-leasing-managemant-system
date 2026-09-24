@@ -76,7 +76,10 @@ public class TenantPendingChargeServiceImpl implements TenantPendingChargeServic
         }
 
         YearMonth ym = YearMonth.now();
-        LocalDate dueDate = request.getDueDate() != null ? request.getDueDate() : ym.atEndOfMonth();
+        LocalDate issuedOn = LocalDate.now();
+        LocalDate dueDate = request.getDueDate() != null
+                ? request.getDueDate()
+                : issuedOn.plusDays(MAINTENANCE_CHARGE_DUE_DAYS);
         
         TenantInvoice invoice = TenantInvoice.builder()
                 .code("HD-MAINT-" + contract.getId() + "-" + System.currentTimeMillis())

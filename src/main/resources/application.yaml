@@ -151,8 +151,10 @@ springdoc:
 billing:
   # Catch-up billing khi app start — tắt local nếu DevTools restart liên tục: BILLING_STARTUP_SWEEP=false
   startup-sweep-enabled: ${BILLING_STARTUP_SWEEP:true}
-  reminder-days-before: 3
-  late-fee-percent: 2
+  # Nhắc trước hạn 2 ngày + ngày hạn (hạn thanh toán utility/maintenance/service = phát hành + 5)
+  reminder-days-before: 2
+  # Chính sách 24/09/2026: bỏ phí trễ hạn 2%
+  late-fee-percent: 0
   overdue-renotify-days: 7
   # Legacy tên: KHÔNG còn nhắc/quá hạn/chấm dứt kỳ đầu (QR onboard đã thu FIRST).
   # Không nhầm với graceDays admin (BillingRulesCard).
@@ -164,6 +166,8 @@ billing:
     # Nhắc trước phát hành (D-N … D-1); N=2 → ngày 30 và 31 khi phát hành mùng 1
     issue-reminder-lead-days: 2
   utility:
+    # Hạn thanh toán điện/nước = ngày phát hành + N ngày
+    payment-window-days: 5
     # Trần tổng phòng = totalQuantity × (1 + % này). Đọc trễ vài ngày so với chốt EVN vẫn lọt.
     room-sum-tolerance-percent: ${BILLING_UTILITY_ROOM_SUM_TOLERANCE_PERCENT:10}
 

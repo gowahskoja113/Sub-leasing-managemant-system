@@ -863,8 +863,11 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
 
         String typeStr = type == com.sep490.slms2026.enums.UtilityType.ELECTRIC ? "Điện" : "Nước";
         String title = "Hoá đơn " + typeStr + " chốt trả phòng";
-        String content = String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                typeStr, billingPeriod, invoice.getAmount().longValue());
+        java.time.LocalDate dueHint = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(5);
+        String content = String.format(
+                "Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ. Hạn thanh toán %s (5 ngày). Không tính phí trễ hạn, nhưng quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
+                typeStr, billingPeriod, invoice.getAmount().longValue(),
+                dueHint.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM")));
 
         if (isNew || oldAmount == null || oldAmount.compareTo(invoice.getAmount()) != 0) {
             if (contract.getTenant() != null && contract.getTenant().getUser() != null) {

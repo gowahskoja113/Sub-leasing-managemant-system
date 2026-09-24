@@ -50,6 +50,8 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1041,20 +1043,27 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                         periodLabel = String.format("%02d/%d", ym.getMonthValue(), ym.getYear());
                     }
                     String unit = utilityType == UtilityType.WATER ? "m³" : "kWh";
+                    LocalDate dueHint = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(5);
                     title = "Hoá đơn " + typeStr.toLowerCase() + " kỳ " + periodLabel;
-                    content = String.format("Hoá đơn %s · %s %s · %sđ",
+                    content = String.format(
+                            "Hoá đơn %s · %s %s · %sđ. Hạn thanh toán %s (5 ngày). Không tính phí trễ hạn, nhưng quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
                             typeStr.toLowerCase(),
                             formatQty(request.getConsumption()),
                             unit,
-                            formatCurrency(request.getAmount()));
+                            formatCurrency(request.getAmount()),
+                            dueHint.format(DateTimeFormatter.ofPattern("dd/MM")));
                 } else {
                     title = "Hoá đơn " + typeStr + " mới";
                     boolean adminIssued = Boolean.TRUE.equals(property.getWholeHouse()) && room == null;
+                    LocalDate dueHint = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(5);
+                    String dueStr = dueHint.format(DateTimeFormatter.ofPattern("dd/MM"));
                     content = adminIssued
-                            ? String.format("Admin vừa phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue())
-                            : String.format("Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ.",
-                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue());
+                            ? String.format(
+                                    "Admin vừa phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ. Hạn thanh toán %s (5 ngày). Không tính phí trễ hạn, nhưng quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
+                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue(), dueStr)
+                            : String.format(
+                                    "Quản lý vừa chốt số và phát hành hoá đơn %s kỳ %s. Số tiền: %,dđ. Hạn thanh toán %s (5 ngày). Không tính phí trễ hạn, nhưng quá hạn thì quản lý được quyền chấm dứt hợp đồng.",
+                                    typeStr, request.getBillingPeriod(), request.getAmount().longValue(), dueStr);
                 }
 
                 String dedupeKey = "utility-invoice:" + invoice.getId() + ":created";

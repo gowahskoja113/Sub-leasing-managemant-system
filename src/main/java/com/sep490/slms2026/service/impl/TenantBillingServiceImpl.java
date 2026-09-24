@@ -82,7 +82,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     @Value("${billing.manager-payment-qr.ttl-minutes:15}")
     private int managerPaymentQrTtlMinutes;
 
-    @Value("${billing.utility.payment-window-days:2}")
+    @Value("${billing.utility.payment-window-days:5}")
     private int utilityPaymentWindowDays;
 
     @Override
@@ -331,8 +331,8 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                         "Hoá đơn kỳ này khách đã thanh toán — không sửa lại chỉ số được.");
             }
             existing.setTotalAmount(utilityInvoice.getAmount());
-            existing.setGrandTotal(utilityInvoice.getAmount().add(
-                    existing.getLateFee() != null ? existing.getLateFee() : BigDecimal.ZERO));
+            existing.setLateFee(BigDecimal.ZERO);
+            existing.setGrandTotal(utilityInvoice.getAmount());
             existing.setBillingPeriod(utilityInvoice.getBillingPeriod());
             existing.setKwhUsed(type == TenantInvoiceType.ELECTRICITY ? utilityInvoice.getConsumption() : null);
             existing.setElectricityRate(type == TenantInvoiceType.ELECTRICITY ? utilityInvoice.getUnitPrice() : null);
@@ -783,7 +783,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .lateFee(BigDecimal.ZERO)
                 .grandTotal(property.getServiceFee())
                 .status(TenantInvoiceStatus.PENDING)
-                .dueDate(ym.atEndOfMonth().plusDays(5))
+                .dueDate(LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(5))
                 .createdAt(LocalDateTime.now())
                 .build());
     }
