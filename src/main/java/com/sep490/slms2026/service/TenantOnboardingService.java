@@ -117,11 +117,17 @@ public interface TenantOnboardingService {
     int backfillMissingAssignedManagers();
 
     /**
-     * Tự động hủy HĐ nháp/chờ (DRAFT/PENDING) mà khách không đến nhận nhà quá hạn (no-show):
+     * Tự động hủy HĐ onboard chưa ACTIVE mà khách không đến nhận nhà quá hạn (no-show):
      * {@code moveInDate + noShowGraceDays < hôm nay}. Ghi {@code terminationType = NO_SHOW},
      * giải phóng phòng/căn + notify quản lý. Trả về số HĐ đã hủy.
      */
     int autoCancelNoShowContracts();
+
+    /**
+     * Cron: {@code DRAFT → AWAITING_ONBOARD} khi tới ngày đón
+     * ({@code expectedReceptionDate ?? moveInDate} ≤ hôm nay).
+     */
+    int promoteDraftsDueForOnboard();
 
     /**
      * Cron 07:15: nhắc quản lý đón khách (mai / hôm nay / quá hạn 1-3-7 ngày).

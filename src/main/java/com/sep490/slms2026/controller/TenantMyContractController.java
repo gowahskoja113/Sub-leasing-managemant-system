@@ -37,7 +37,7 @@ public class TenantMyContractController {
     }
 
     /**
-     * HĐ PENDING + PAID đang chờ tenant xác nhận — RootNavigator dùng để ép vào màn confirm.
+     * HĐ AWAITING_CONFIRM + PAID đang chờ tenant xác nhận — RootNavigator dùng để ép vào màn confirm.
      * 204 nếu không có.
      */
     @GetMapping("/pending-confirm")

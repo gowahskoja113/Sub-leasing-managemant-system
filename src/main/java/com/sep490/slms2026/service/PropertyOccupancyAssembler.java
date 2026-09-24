@@ -24,7 +24,8 @@ import java.util.Set;
 public class PropertyOccupancyAssembler {
 
     private static final List<ContractStatus> HOLDING_STATUSES =
-            List.of(ContractStatus.DRAFT, ContractStatus.PENDING);
+            List.of(ContractStatus.DRAFT, ContractStatus.AWAITING_ONBOARD,
+                    ContractStatus.AWAITING_PAYMENT, ContractStatus.AWAITING_CONFIRM);
 
     private final RoomRepository roomRepository;
     private final TenantContractRepository tenantContractRepository;
@@ -107,6 +108,7 @@ public class PropertyOccupancyAssembler {
     /** Nhà nguyên căn đang bị HĐ DRAFT/PENDING/ACTIVE giữ (room IS NULL). */
     public Set<Long> wholeHouseHeldPropertyIds() {
         return Set.copyOf(tenantContractRepository.findPropertyIdsWithWholeHouseContractsInStatuses(
-                List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE)));
+                List.of(ContractStatus.DRAFT, ContractStatus.AWAITING_ONBOARD,
+                        ContractStatus.AWAITING_PAYMENT, ContractStatus.AWAITING_CONFIRM, ContractStatus.ACTIVE)));
     }
 }

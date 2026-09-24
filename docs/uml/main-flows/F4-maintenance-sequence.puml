@@ -1,5 +1,5 @@
 @startuml F4_Maintenance_Sequence
-title Figure — Maintenance Sequence Diagram\nCreate → View (no QR) → Scan QR to process → Diagnose → Invoice (3 days) → Repair → History
+title Figure — Maintenance Sequence Diagram\nCreate → QR confirm → Diagnose → Repair → Complete (+ invoice 5 days) → History
 
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
@@ -10,105 +10,219 @@ actor Admin
 participant "Front-end" as FE
 participant "MaintenanceController" as C
 participant "EquipmentController" as EC
+participant "TenantMeController" as TC
 participant "MaintenanceServiceImpl" as S
 participant "EquipmentServiceImpl" as ES
 participant "TenantPendingChargeService" as CS
+participant "PayosWebhookController" as WC
 database DB
 
-== A. Tenant tạo phiếu ==
+== A. Tenant create request ==
 
 Tenant -> FE : (1) Submit maintenance\n(+ photos, appointment)
+activate Tenant
+activate FE
 FE -> C : (2) POST /api/v1/maintenance
 activate C
-C -> S : (3) create(MaintenanceCreateRequest)
+C -> S : (3) createRequest(MaintenanceCreateRequest)
 activate S
 S -> DB : (4) INSERT MaintenanceRequest OPEN\n+ MaintenanceImage BEFORE
-S --> C : (5) MaintenanceResponse
+activate DB
+DB --> S : (5) return OK
+deactivate DB
+S --> C : (6) return MaintenanceRequestResponse
 deactivate S
-C --> FE : (6) Created + notify Manager
+C --> FE : (7) return Created + notify Manager
 deactivate C
+FE --> Tenant : (8) return Request OPEN
+deactivate FE
+deactivate Tenant
 
-== B. Manager xem phiếu — không quét QR ==
+== B. Manager view ticket (QR not required) ==
 
-Manager -> FE : (7) Mở ticket
-FE -> C : (8) GET /api/v1/maintenance/{id}
+Manager -> FE : (9) Open ticket
+activate Manager
+activate FE
+FE -> C : (10) GET /api/v1/maintenance/{id}
 activate C
-C -> S : (9) getRequestById
-S -> ES : (10) equipment snapshot
-ES -> DB : (11) SELECT Equipment
-note right
+C -> S : (11) getRequestById
+activate S
+S -> ES : (12) equipment snapshot
+activate ES
+ES -> DB : (13) SELECT Equipment
+activate DB
+DB --> ES : (14) return Equipment
+deactivate DB
+ES --> S : (15) return snapshot
+deactivate ES
+note right of S
   maintenanceCount
   remainingDepreciation
-  purchasedAt
   warrantyMonths
   remainingWarranty
 end note
-S --> C : (12) ticket + equipment
-C --> FE : (13) qrScanRequiredToProcess=true
+S --> C : (16) return ticket + equipment
+deactivate S
+C --> FE : (17) return qrScanRequiredToProcess=true
 deactivate C
+FE --> Manager : (18) return Ticket detail
+deactivate FE
+deactivate Manager
 
-== C. Bắt đầu xử lý — bắt buộc quét QR ==
+== C. Start process — QR scan required ==
 
-Manager -> FE : (14) Quét QR món đồ
-FE -> C : (15) PUT .../{id}/confirm-arrival\n{ qrCode }
+Manager -> FE : (19) Scan equipment QR
+activate Manager
+activate FE
+FE -> C : (20) PUT /api/v1/maintenance/{id}/confirm-arrival\n{ qrCode }
 activate C
-C -> S : (16) confirmArrival
-S -> S : (17) assertQrMatchesEquipment
-S -> DB : (18) UPDATE visitArrivalConfirmedAt
-S --> C : (19) OK
+C -> S : (21) confirmArrival
+activate S
+S -> S : (22) assertQrMatchesEquipment
+S -> DB : (23) UPDATE visitArrivalConfirmedAt
+activate DB
+DB --> S : (24) return OK
+deactivate DB
+S --> C : (25) return OK
+deactivate S
+C --> FE : (26) return Response
 deactivate C
+FE --> Manager : (27) return Arrival confirmed
+deactivate FE
+deactivate Manager
 
-== D. Chẩn đoán (không thêm ảnh lỗi) ==
+== D. Diagnose (no invoice yet) ==
 
-Manager -> FE : (20) Diagnose\n(WEAR / TENANT_MISUSE)\n1 lần chi phí
-FE -> C : (21) PUT .../{id}/diagnose
+Manager -> FE : (28) Diagnose\n(WEAR / TENANT_MISUSE)
+activate Manager
+activate FE
+FE -> C : (29) PUT /api/v1/maintenance/{id}/diagnose
 activate C
-C -> S : (22) diagnose
+C -> S : (30) diagnose
+activate S
 note right of S
-  Dùng ảnh tenant báo
-  + xác nhận hiện trường.
-  Không bắt buộc faultEvidenceImages.
+  Use tenant photos + on-site check.
+  Tenant-fault invoice is issued
+  at complete/handover — not at diagnose.
 end note
-
-alt [Luồng A — hao mòn / công ty chịu]
-  S -> DB : (23) UPDATE IN_REPAIR / REPAIR_SCHEDULED
-else [Luồng B — lỗi tenant, khách trả]
-  S -> CS : (24) issue invoice (due = +3 ngày)
-  CS -> DB : (25) INSERT TenantInvoice MAINTENANCE
-  S -> DB : (26) UPDATE TENANT_FAULT / REPAIR_SCHEDULED\n+ chargeInvoiceId
+alt [WEAR — company pays]
+  S -> DB : (31) UPDATE IN_REPAIR\nor REPAIR_SCHEDULED
+  activate DB
+  DB --> S : (32) return OK
+  deactivate DB
+else [TENANT_MISUSE]
+  S -> DB : (33) UPDATE TENANT_FAULT\n/ REPAIR_SCHEDULED\n(+ tenantAgreesToPay)
+  activate DB
+  DB --> S : (34) return OK
+  deactivate DB
 end
-S --> C : (27) Response + issuedInvoice?
-C --> FE : (28) OK
+S --> C : (35) return Response\n(no issuedInvoice yet)
+deactivate S
+C --> FE : (36) return OK
 deactivate C
+FE --> Manager : (37) return Diagnosed
+deactivate FE
+deactivate Manager
 
-== E. Sửa chữa (không chờ thanh toán) ==
+== E. Repair (payment not required) ==
 
-Manager -> FE : (29) Start repair
-FE -> C : (30) PUT .../{id}/start-repair
-C -> S : (31) startRepair\n(cần hoá đơn đã lập, không cần PAID)
-S -> DB : (32) UPDATE IN_REPAIR / TENANT_FAULT
-
-Tenant -> FE : (33) Thanh toán hoá đơn\n(trễ nhất 3 ngày)
-FE -> C : (34) POST /tenant/me/invoices/{id}/payment
-
-== F. Hoàn tất — ghi history thiết bị ==
-
-Manager -> FE : (35) Complete + AFTER photos
-FE -> C : (36) PUT .../{id}/complete
+Manager -> FE : (38) Start repair
+activate Manager
+activate FE
+FE -> C : (39) PUT /api/v1/maintenance/{id}/start-repair
 activate C
-C -> S : (37) complete
-S -> DB : (38) UPDATE CLOSED
-S -> DB : (39) INSERT EquipmentMaintenanceHistory\n(+ photoUrls, repairCost)
-S -> DB : (40) UPDATE Equipment.maintenanceCount
-S --> C : (41) MaintenanceResponse
+C -> S : (40) startRepair\n(REPAIR_SCHEDULED → IN_REPAIR / TENANT_FAULT)
+activate S
+S -> DB : (41) UPDATE status
+activate DB
+DB --> S : (42) return OK
+deactivate DB
+S --> C : (43) return OK
+deactivate S
+C --> FE : (44) return Response
 deactivate C
+FE --> Manager : (45) return In repair
+deactivate FE
+deactivate Manager
 
-Admin -> FE : (42) Trang quản lý equipment
-FE -> EC : (43) GET /api/v1/equipment/{id}\nGET .../maintenance-history
-EC --> FE : (44) khấu hao, BH, history + ảnh
+== F. Complete — issue invoice (if charge tenant) + history ==
 
-Tenant -> FE : (45) Mobile: thiết bị của tôi
-FE -> EC : (46) GET /tenant/me/equipments\nGET .../{id}/maintenance-history
-EC --> FE : (47) cùng bộ thông tin + ảnh
+Manager -> FE : (46) Complete + AFTER + INVOICE photos
+activate Manager
+activate FE
+FE -> C : (47) PUT /api/v1/maintenance/{id}/complete
+activate C
+C -> S : (48) complete
+activate S
+S -> DB : (49) UPDATE CLOSED\nor WAITING_PAYMENT
+activate DB
+DB --> S : (50) return OK
+opt [chargeToTenant && no invoice yet]
+  S -> CS : (51) issue invoice\n(due = +5 days)
+  activate CS
+  CS -> DB : (52) INSERT TenantInvoice MAINTENANCE
+  DB --> CS : (53) return OK
+  CS --> S : (54) return issuedInvoice
+  deactivate CS
+end
+S -> DB : (55) INSERT EquipmentMaintenanceHistory\n+ UPDATE maintenanceCount
+DB --> S : (56) return OK
+deactivate DB
+S --> C : (57) return MaintenanceRequestResponse\n(+ issuedInvoice?)
+deactivate S
+C --> FE : (58) return OK
+deactivate C
+FE --> Manager : (59) return Completed
+deactivate FE
+deactivate Manager
+
+opt [WAITING_PAYMENT]
+  Tenant -> FE : (60) Pay invoice\n(due within 5 days)
+  activate Tenant
+  activate FE
+  FE -> TC : (61) POST /api/v1/tenant/me/invoices/{id}/payment
+  activate TC
+  TC --> FE : (62) return QR
+  deactivate TC
+  FE --> Tenant : (63) return Payment QR
+  deactivate FE
+  Tenant -> WC : (64) PayOS webhook PAID
+  activate WC
+  WC -> S : (65) closeWaitingPaymentAfterInvoicePaid
+  activate S
+  S -> DB : (66) UPDATE CLOSED
+  activate DB
+  DB --> S : (67) return OK
+  deactivate DB
+  S --> WC : (68) return OK
+  deactivate S
+  WC --> Tenant : (69) return Paid / CLOSED
+  deactivate WC
+  deactivate Tenant
+end
+
+== G. View equipment history ==
+
+Admin -> FE : (70) Open equipment management
+activate Admin
+activate FE
+FE -> EC : (71) GET /api/v1/equipment/{id}\nGET .../maintenance-history
+activate EC
+EC --> FE : (72) return depreciation, warranty,\nhistory + photos
+deactivate EC
+FE --> Admin : (73) return History
+deactivate FE
+deactivate Admin
+
+Tenant -> FE : (74) Mobile: my equipments
+activate Tenant
+activate FE
+FE -> EC : (75) GET /tenant/me/equipments\nGET .../{id}/maintenance-history
+activate EC
+EC --> FE : (76) return same info + photos
+deactivate EC
+FE --> Tenant : (77) return History
+deactivate FE
+deactivate Tenant
 
 @enduml

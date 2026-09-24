@@ -1,5 +1,5 @@
 @startuml F2_TenantOnboard_Sequence
-title Figure — Tenant Onboarding Sequence Diagram\nDraft → Deposit PayOS → OTP Confirm → Activate
+title Figure — Tenant Onboarding Sequence Diagram\nDraft → [Host approve] → Deposit PayOS → Dual OTP → Activate
 
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
@@ -8,7 +8,9 @@ actor Manager
 actor Tenant
 actor Host
 participant "Front-end" as FE
-participant "TenantContractController\n/ActionController" as C
+participant "TenantContractController" as TC
+participant "TenantContractActionController" as AC
+participant "TenantMyContractController" as TMC
 participant "HostController" as HC
 participant "PayosWebhookController" as WC
 participant "TenantOnboardingServiceImpl" as S
@@ -18,80 +20,199 @@ participant "OtpService" as OTP
 participant "TenantContractRepository" as CR
 database DB
 
-== A. Manager tạo HĐ draft + chỉ số đầu ==
+== A. Manager create draft contract ==
 
 Manager -> FE : (1) Onboard tenant\n(room condition + meters)
-FE -> C : (2) POST .../tenant-contract\nOnboardTenantRequest
-activate C
-C -> S : (3) createDraftContract(req)
+activate Manager
+activate FE
+FE -> TC : (2) POST /api/v1/properties/{id}/rooms/{roomId}/tenant-contract
+activate TC
+TC -> S : (3) onboardTenant(propertyId, roomId, req)
 activate S
 S -> DB : (4) BeginTransaction()
+activate DB
 S -> S : (5) validate occupancy\n(1 ACTIVE contract / room)
 S -> CR : (6) save(TenantContract DRAFT)\n+ evidence photos + meters
+activate CR
 CR -> DB : (7) INSERT TenantContract...
-DB --> CR : (8) OK
-S -> DB : (9) CommitTransaction()
-S --> C : (10) TenantContractResponse
+DB --> CR : (8) return OK
+CR --> S : (9) return Contract
+deactivate CR
+S -> DB : (10) CommitTransaction()
+DB --> S : (11) return Committed
+deactivate DB
+S --> TC : (12) return TenantContractResponse
 deactivate S
-C --> FE : (11) Created
-deactivate C
+TC --> FE : (13) return Created
+deactivate TC
+FE --> Manager : (14) return Contract DRAFT
+deactivate FE
+deactivate Manager
 
-== B. Cọc qua PayOS + Webhook ==
-
-Manager -> FE : (12) Tạo QR cọc
-FE -> C : (13) POST .../deposit-payment
-C -> S : (14) createDepositPayment(contractId)
-S -> PayOS : (15) createPaymentLink
-PayOS --> S : (16) checkoutUrl / orderCode
-S -> CR : (17) save(payosOrderCode, PENDING_DEPOSIT)
-S --> C : (18) PaymentLinkResponse
-C --> FE : (19) QR
-FE --> Tenant : (20) Thanh toán cọc
-
-Tenant -> PayOS : (21) Pay
-PayOS -> WC : (22) POST /api/v1/payos/webhook
-activate WC
-WC -> S : (23) markDepositPaid(orderCode)
-S -> DB : (24) BeginTransaction()
-S -> CR : (25) UPDATE paymentStatus=PAID\n(+ TenantInvoice cọc nếu có)
-S -> DB : (26) CommitTransaction()
-WC --> PayOS : (27) 200 OK
-deactivate WC
-
-== C. OTP + Host approve + Activate ==
+== B. [Optional] Host approve price ==
 
 opt [requireHostPriceApproval]
-  Host -> FE : (28) Approve giá HĐ
-  FE -> HC : (29) PUT /host/contracts/{id}/approve
-  HC -> HS : (30) approveContract(id)
-  HS -> CR : (31) UPDATE priceApprovalStatus
+  Host -> FE : (15) Approve contract price
+  activate Host
+  activate FE
+  FE -> HC : (16) PUT /api/v1/host/contracts/{id}/approve
+  activate HC
+  HC -> HS : (17) approveContract(id)
+  activate HS
+  HS -> CR : (18) UPDATE priceApprovalStatus\n→ APPROVED_AWAITING_DEPOSIT
+  activate CR
+  CR -> DB : (19) UPDATE
+  activate DB
+  DB --> CR : (20) return OK
+  deactivate DB
+  CR --> HS : (21) return OK
+  deactivate CR
+  HS --> HC : (22) return HostContractDto
+  deactivate HS
+  HC --> FE : (23) return OK
+  deactivate HC
+  FE --> Host : (24) return Price approved
+  deactivate FE
+  deactivate Host
 end
 
-Manager -> FE : (32) Gửi OTP xác nhận
-FE -> C : (33) POST .../send-otp
-C -> S : (34) sendConfirmOtp
-S -> OTP : (35) send SMS (Twilio)
-OTP --> S : (36) OK
+== C. Deposit via PayOS + Webhook ==
 
-Tenant -> FE : (37) Nhập OTP
-FE -> C : (38) POST .../confirm {otp}
-activate C
-C -> S : (39) confirmContract(id, otp)
+Manager -> FE : (25) Create deposit QR\n(deposit + first-rent pro-rata)
+activate Manager
+activate FE
+FE -> AC : (26) POST /api/v1/tenant-contracts/{id}/deposit-payment
+activate AC
+AC -> S : (27) createDepositPayment(contractId)
+activate S
+S -> PayOS : (28) createPaymentLink
+activate PayOS
+PayOS --> S : (29) return checkoutUrl / orderCode
+deactivate PayOS
+S -> CR : (30) save(payosOrderCode,\nstatus=PENDING, payment=PENDING)
+activate CR
+CR -> DB : (31) UPDATE
+activate DB
+DB --> CR : (32) return OK
+deactivate DB
+CR --> S : (33) return OK
+deactivate CR
+S --> AC : (34) return TenantContractResponse
+deactivate S
+AC --> FE : (35) return QR
+deactivate AC
+FE --> Tenant : (36) return Pay deposit
+activate Tenant
+deactivate FE
+deactivate Manager
+
+Tenant -> PayOS : (37) Pay success
+activate PayOS
+PayOS -> WC : (38) POST /api/v1/payos/webhook
+activate WC
+WC -> S : (39) markDepositPaid(orderCode)
 activate S
 S -> DB : (40) BeginTransaction()
-S -> OTP : (41) verifyOtp
-OTP --> S : (42) valid
-S -> CR : (43) UPDATE status=ACTIVE,\nactivatedAt, room OCCUPIED
-CR -> DB : (44) UPDATE
+activate DB
+S -> CR : (41) UPDATE paymentStatus=PAID\n(+ TenantInvoice OTHER if any)
+activate CR
+CR -> DB : (42) UPDATE / INSERT
+DB --> CR : (43) return OK
+CR --> S : (44) return OK
+deactivate CR
+S -> DB : (45) CommitTransaction()
+DB --> S : (46) return Committed
+deactivate DB
+S --> WC : (47) return OK
+deactivate S
+WC --> PayOS : (48) return 200 OK
+deactivate WC
+PayOS --> Tenant : (49) return Deposit PAID
+deactivate PayOS
+deactivate Tenant
+
+== D. Dual OTP (Tenant + Manager) → Activate ==
+
+Tenant -> FE : (50) Send dual confirm OTP
+activate Tenant
+activate FE
+FE -> TMC : (51) POST /api/v1/tenant/me/contracts/{id}/send-confirm-otp
+activate TMC
+TMC -> S : (52) sendDualContractConfirmOtps(id)
+activate S
+S -> OTP : (53) send SMS\n(CONTRACT_CONFIRM_TENANT\n+ CONTRACT_CONFIRM_MANAGER)
+activate OTP
+OTP --> S : (54) return OK
+deactivate OTP
+S --> TMC : (55) return OK
+deactivate S
+TMC --> FE : (56) return OK
+deactivate TMC
+deactivate FE
+deactivate Tenant
+
+Tenant -> FE : (57) Enter tenant OTP
+activate Tenant
+activate FE
+FE -> TMC : (58) POST .../confirm-otp {otp}
+activate TMC
+TMC -> S : (59) confirmContractByTenant(id, otp)
+activate S
+S -> OTP : (60) verify OTP tenant
+activate OTP
+OTP --> S : (61) return valid
+deactivate OTP
+S -> CR : (62) save tenantOtpVerifiedAt
+activate CR
+CR -> DB : (63) UPDATE
+activate DB
+DB --> CR : (64) return OK
+deactivate DB
+CR --> S : (65) return OK
+deactivate CR
+S --> TMC : (66) return Response\n(not ACTIVE until manager OTP)
+deactivate S
+TMC --> FE : (67) return OK
+deactivate TMC
+FE --> Tenant : (68) return Tenant OTP OK
+deactivate FE
+deactivate Tenant
+
+Manager -> FE : (69) Enter manager OTP
+activate Manager
+activate FE
+FE -> AC : (70) POST /api/v1/tenant-contracts/{id}/confirm {otp}
+activate AC
+AC -> S : (71) confirmContract(id, otp)
+activate S
+S -> DB : (72) BeginTransaction()
+activate DB
+S -> OTP : (73) verify OTP manager
+activate OTP
+OTP --> S : (74) return valid
+deactivate OTP
+S -> S : (75) both OTPs verified\n→ activateContract()
+S -> CR : (76) UPDATE status=ACTIVE,\nactivatedAt, room→RENTED
+activate CR
+CR -> DB : (77) UPDATE
+DB --> CR : (78) return OK
+CR --> S : (79) return Contract
+deactivate CR
 break
   S -> DB : RollbackTransaction()
 end
-S -> DB : (45) CommitTransaction()
-S --> C : (46) TenantContractResponse ACTIVE
+S -> DB : (80) CommitTransaction()
+DB --> S : (81) return Committed
+deactivate DB
+S --> AC : (82) return TenantContractResponse ACTIVE
 deactivate S
-C --> FE : (47) Success
-deactivate C
-FE --> Tenant : (48) Hợp đồng đã kích hoạt
-FE --> Manager : (49) Onboarding hoàn tất
+AC --> FE : (83) return Success
+deactivate AC
+FE --> Manager : (84) return Onboarding complete
+FE --> Tenant : (85) return Contract activated
+activate Tenant
+deactivate Tenant
+deactivate FE
+deactivate Manager
 
 @enduml

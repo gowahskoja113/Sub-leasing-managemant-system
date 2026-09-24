@@ -137,11 +137,11 @@ public class TenantActivationServiceImpl implements TenantActivationService {
                 .orElseThrow(() -> new BusinessException(check.getMessage()));
     }
 
-    /** Cho phép kích hoạt khi đã ACTIVE hoặc PENDING+PAID (chờ dual-OTP confirm). */
+    /** Cho phép kích hoạt khi đã ACTIVE hoặc AWAITING_CONFIRM+PAID (chờ dual-OTP). */
     private boolean hasEligibleContract(User user) {
         return tenantContractRepository.findByTenantId(user.getId()).stream()
                 .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
-                        || (c.getStatus() == ContractStatus.PENDING
+                        || (c.getStatus() == ContractStatus.AWAITING_CONFIRM
                         && c.getPaymentStatus() == PaymentStatus.PAID));
     }
 

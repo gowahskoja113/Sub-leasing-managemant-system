@@ -197,8 +197,11 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         ContractStatus initStatus;
         if (request.isDraft()) {
             initStatus = ContractStatus.DRAFT;
+        } else if (request.isRequireDepositPayment() || request.isRequireHostPriceApproval()) {
+            // Onboard ngay (không draft): đã có hiện trạng trên request → chờ thanh toán.
+            initStatus = ContractStatus.AWAITING_PAYMENT;
         } else {
-            initStatus = request.isRequireDepositPayment() || request.isRequireHostPriceApproval() ? ContractStatus.PENDING : ContractStatus.ACTIVE;
+            initStatus = ContractStatus.ACTIVE;
         }
 
         TenantContract contract = TenantContract.builder()
@@ -336,12 +339,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Transactional
     public TenantContractResponse createDepositPayment(Long contractId) {
         TenantContract contract = findContract(contractId);
-        if (contract.getStatus() == ContractStatus.DRAFT) {
-            ensureRoomAvailableForDeposit(contract);
-            if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
-                throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
-            }
-            contract.setStatus(ContractStatus.PENDING);
+        if (contract.getStatus() != ContractStatus.AWAITING_PAYMENT) {
+            throw new BusinessException(
+                    "Chỉ thu tiền khi HĐ ở AWAITING_PAYMENT (đã chụp hiện trạng). Hiện tại: "
+                            + contract.getStatus());
+        }
+        if (contract.getPaymentStatus() == PaymentStatus.PAID) {
+            throw new BusinessException("Hợp đồng đã thanh toán — chờ xác nhận OTP");
+        }
+
+        ensureRoomAvailableForDeposit(contract);
+        if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
+            throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
         }
 
         ensureDepositPaymentAllowed(contract);
@@ -482,7 +491,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Transactional(readOnly = true)
     public java.util.Optional<TenantContractResponse> findPendingConfirmForTenant(UUID tenantUserId) {
         return tenantContractRepository.findByTenantId(tenantUserId).stream()
-                .filter(c -> c.getStatus() == ContractStatus.PENDING
+                .filter(c -> c.getStatus() == ContractStatus.AWAITING_CONFIRM
                         && c.getPaymentStatus() == PaymentStatus.PAID)
                 .findFirst()
                 .map(this::toResponse);
@@ -504,8 +513,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (contract.getPaymentStatus() != PaymentStatus.PAID) {
             throw new BusinessException("Chưa thanh toán onboard, không thể xác nhận hợp đồng");
         }
-        if (contract.getStatus() != ContractStatus.PENDING && contract.getStatus() != ContractStatus.DRAFT) {
-            throw new BusinessException("Hợp đồng không ở trạng thái chờ xác nhận");
+        if (contract.getStatus() != ContractStatus.AWAITING_CONFIRM) {
+            throw new BusinessException(
+                    "Hợp đồng không ở trạng thái chờ xác nhận (AWAITING_CONFIRM). Hiện tại: "
+                            + contract.getStatus());
         }
         return contract;
     }
@@ -692,6 +703,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         if (contract.getDepositMethod() == null || contract.getDepositMethod().isBlank()) {
             contract.setDepositMethod(method);
+        }
+        if (contract.getStatus() == ContractStatus.AWAITING_PAYMENT
+                || contract.getStatus() == ContractStatus.PENDING) {
+            contract.setStatus(ContractStatus.AWAITING_CONFIRM);
         }
 
         // Tạo / gắn tài khoản tenant ngay khi tiền vào — khách kích hoạt TK rồi vào app xác nhận HĐ.
@@ -998,16 +1013,24 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         java.util.UUID managerUserId = com.sep490.slms2026.security.SecurityUtils.requireCurrentUser().getId();
         List<TenantContract> contracts;
         if (status != null && !status.isBlank()) {
-            try {
-                ContractStatus contractStatus = ContractStatus.valueOf(status.toUpperCase());
-                contracts = tenantContractRepository.findManagedContractsByStatus(managerUserId, contractStatus);
-            } catch (IllegalArgumentException notContractStatus) {
+            String key = status.trim().toUpperCase();
+            if ("RECEPTION".equals(key) || "ONBOARD".equals(key) || "PIPELINE".equals(key)) {
+                contracts = new ArrayList<>();
+                for (ContractStatus cs : ContractStatus.onboardInProgress()) {
+                    contracts.addAll(tenantContractRepository.findManagedContractsByStatus(managerUserId, cs));
+                }
+            } else {
                 try {
-                    com.sep490.slms2026.enums.PriceApprovalStatus enumStatus =
-                            com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(status.toUpperCase());
-                    contracts = tenantContractRepository.findManagedContractsByApprovalStatus(managerUserId, enumStatus);
-                } catch (IllegalArgumentException e) {
-                    contracts = new ArrayList<>();
+                    ContractStatus contractStatus = ContractStatus.valueOf(key);
+                    contracts = tenantContractRepository.findManagedContractsByStatus(managerUserId, contractStatus);
+                } catch (IllegalArgumentException notContractStatus) {
+                    try {
+                        com.sep490.slms2026.enums.PriceApprovalStatus enumStatus =
+                                com.sep490.slms2026.enums.PriceApprovalStatus.valueOf(key);
+                        contracts = tenantContractRepository.findManagedContractsByApprovalStatus(managerUserId, enumStatus);
+                    } catch (IllegalArgumentException e) {
+                        contracts = new ArrayList<>();
+                    }
                 }
             }
         } else {
@@ -1069,7 +1092,9 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Transactional
     public void deleteContract(Long contractId) {
         TenantContract contract = findContract(contractId);
-        if (contract.getStatus() == ContractStatus.ACTIVE || contract.getStatus() == ContractStatus.PENDING) {
+        if (contract.getStatus() == ContractStatus.ACTIVE
+                || ContractStatus.onboardInProgress().contains(contract.getStatus())
+                || contract.getStatus() == ContractStatus.PENDING) {
             releaseContractOccupancy(contract);
         }
         
@@ -1260,8 +1285,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         boolean conThue = tenantContractRepository.findByTenantId(user.getId()).stream()
                 .filter(c -> exceptContractId == null || !exceptContractId.equals(c.getId()))
                 .anyMatch(c -> c.getStatus() == ContractStatus.ACTIVE
-                            || c.getStatus() == ContractStatus.PENDING
-                            || c.getStatus() == ContractStatus.DRAFT
+                            || ContractStatus.onboardInProgress().contains(c.getStatus())
                             || c.getStatus() == ContractStatus.EXPIRED);
         if (!conThue) {
             user.setStatus(UserStatus.DISABLE);
@@ -1293,8 +1317,16 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (status == null || status.isBlank()) {
             return tenantContractRepository.findAll().stream().map(this::toResponse).toList();
         }
+        String key = status.trim().toUpperCase();
+        // Alias cho màn Admin "Hồ sơ đón khách": mọi bước onboard trước ACTIVE.
+        if ("RECEPTION".equals(key) || "ONBOARD".equals(key) || "PIPELINE".equals(key)) {
+            return tenantContractRepository.findByStatusIn(ContractStatus.onboardInProgress())
+                    .stream()
+                    .map(this::toResponse)
+                    .toList();
+        }
         try {
-            ContractStatus cs = ContractStatus.valueOf(status.toUpperCase());
+            ContractStatus cs = ContractStatus.valueOf(key);
             return tenantContractRepository.findByStatus(cs).stream().map(this::toResponse).toList();
         } catch (IllegalArgumentException e) {
             return new ArrayList<>();
@@ -1305,8 +1337,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Transactional
     public TenantContractResponse updateDraftContract(Long contractId, com.sep490.slms2026.dto.request.UpdateDraftContractRequest request) {
         TenantContract contract = findContract(contractId);
-        if (contract.getStatus() != ContractStatus.DRAFT) {
-            throw new BusinessException("Chỉ có thể cập nhật hợp đồng ở trạng thái nháp");
+        if (!contract.getStatus().isCaptureEditable()) {
+            throw new BusinessException(
+                    "Chỉ cập nhật hiện trạng khi HĐ ở DRAFT hoặc AWAITING_ONBOARD. Hiện tại: "
+                            + contract.getStatus());
         }
         
         if (request.getRentAmount() != null) {
@@ -1400,10 +1434,60 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         InboundContract lease = requireInboundLease(contract.getProperty().getId());
         InboundLeaseRules.assertOccupancyWindow(contract.getMoveInDate(), contract.getEndDate(), lease);
 
+        if (Boolean.TRUE.equals(request.getCompleteCapture())) {
+            completeOnboardCapture(contract);
+        }
+
         TenantContract saved = tenantContractRepository.save(contract);
         unitPriceService.applyContractRent(saved, com.sep490.slms2026.enums.RoomPriceChangeType.HOP_DONG,
                 "Sửa HĐ nháp " + saved.getContractCode());
         return withLeaseHandoverWarning(toResponse(saved), lease);
+    }
+
+    /** Chụp xong → AWAITING_PAYMENT. */
+    private void completeOnboardCapture(TenantContract contract) {
+        if (contract.getStatus() != ContractStatus.AWAITING_ONBOARD
+                && contract.getStatus() != ContractStatus.DRAFT) {
+            throw new BusinessException(
+                    "completeCapture chỉ dùng khi HĐ ở AWAITING_ONBOARD (hoặc DRAFT đã tới ngày). Hiện tại: "
+                            + contract.getStatus());
+        }
+        if (contract.getStatus() == ContractStatus.DRAFT) {
+            LocalDate due = contract.getExpectedReceptionDate() != null
+                    ? contract.getExpectedReceptionDate()
+                    : contract.getMoveInDate();
+            if (due == null || due.isAfter(LocalDate.now())) {
+                throw new BusinessException(
+                        "Chưa tới ngày đón khách — không thể hoàn tất chụp (completeCapture)");
+            }
+            contract.setStatus(ContractStatus.AWAITING_ONBOARD);
+        }
+        boolean hasElectric = contract.getInitialElectricReading() != null
+                && (hasText(contract.getElectricMeterImageUrl())
+                || hasMeterOverrideRecord(contract, true));
+        boolean hasWater = contract.getInitialWaterReading() != null
+                && (hasText(contract.getWaterMeterImageUrl())
+                || hasMeterOverrideRecord(contract, false));
+        boolean hasCondition = contract.getRoomConditionPhotos() != null
+                && !contract.getRoomConditionPhotos().isEmpty();
+        if (!hasElectric || !hasWater) {
+            throw new BusinessException("Cần đủ chỉ số + ảnh (hoặc override) điện và nước trước khi chờ thanh toán");
+        }
+        if (!hasCondition) {
+            throw new BusinessException("Cần ít nhất 1 ảnh hiện trạng phòng trước khi chờ thanh toán");
+        }
+        contract.setStatus(ContractStatus.AWAITING_PAYMENT);
+    }
+
+    private boolean hasMeterOverrideRecord(TenantContract contract, boolean electric) {
+        if (electric) {
+            return contract.getInitialElectricReading() != null && !hasText(contract.getElectricMeterImageUrl());
+        }
+        return contract.getInitialWaterReading() != null && !hasText(contract.getWaterMeterImageUrl());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     @Override
@@ -1418,7 +1502,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
         List<TenantContract> contracts = tenantContractRepository.findByPropertyIdAndStatusIn(
                 propertyId,
-                List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE));
+                ContractStatus.occupyingOrHolding());
         int count = 0;
         for (TenantContract contract : contracts) {
             UUID previousManagerId = contract.getAssignedManager() != null
@@ -1461,7 +1545,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Transactional
     public int backfillMissingAssignedManagers() {
         List<TenantContract> contracts = tenantContractRepository.findMissingAssignedManager(
-                List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE));
+                ContractStatus.occupyingOrHolding());
         int count = 0;
         for (TenantContract contract : contracts) {
             UUID managerId = contract.getProperty().getOperationManagerId();
@@ -1484,10 +1568,32 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
 
     @Override
     @Transactional
+    public int promoteDraftsDueForOnboard() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        List<TenantContract> drafts = tenantContractRepository.findByStatus(ContractStatus.DRAFT);
+        int count = 0;
+        for (TenantContract contract : drafts) {
+            LocalDate due = contract.getExpectedReceptionDate() != null
+                    ? contract.getExpectedReceptionDate()
+                    : contract.getMoveInDate();
+            if (due == null || due.isAfter(today)) {
+                continue;
+            }
+            contract.setStatus(ContractStatus.AWAITING_ONBOARD);
+            tenantContractRepository.save(contract);
+            count++;
+            log.info("Promote HĐ #{} ({}) DRAFT → AWAITING_ONBOARD (due={})",
+                    contract.getId(), contract.getContractCode(), due);
+        }
+        return count;
+    }
+
+    @Override
+    @Transactional
     public int autoCancelNoShowContracts() {
         LocalDate cutoff = LocalDate.now().minusDays(noShowGraceDays);
         List<TenantContract> stale = tenantContractRepository.findByStatusInAndMoveInDateBefore(
-                List.of(ContractStatus.DRAFT, ContractStatus.PENDING), cutoff);
+                ContractStatus.onboardInProgress(), cutoff);
         int count = 0;
         for (TenantContract contract : stale) {
             releaseContractOccupancy(contract);
@@ -1522,7 +1628,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 today.minusDays(3),
                 today.minusDays(7));
         List<TenantContract> contracts = tenantContractRepository.findPendingReceptionOnDates(
-                List.of(ContractStatus.DRAFT, ContractStatus.PENDING), dates);
+                ContractStatus.onboardInProgress(), dates);
         int count = 0;
         for (TenantContract contract : contracts) {
             LocalDate receptionDate = contract.getExpectedReceptionDate() != null
@@ -2004,6 +2110,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
                 .status(c.getStatus())
+                .statusLabel(c.getStatus() != null ? c.getStatus().displayLabelVi() : null)
                 .effective(TenantContractStatusHelper.isEffective(c.getStatus(), c.getEndDate()))
                 .effectiveLabel(TenantContractStatusHelper.effectiveLabel(c.getStatus(), c.getEndDate()))
                 .equipmentSnapshot(c.getEquipmentSnapshot())

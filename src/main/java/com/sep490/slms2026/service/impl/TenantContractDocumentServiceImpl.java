@@ -150,8 +150,10 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
     }
 
     private void assertCanGenerateDraft(TenantContract contract) {
-        if (contract.getStatus() != ContractStatus.DRAFT) {
-            throw new BusinessException("Chỉ xuất file nháp khi hợp đồng đang ở trạng thái DRAFT");
+        if (contract.getStatus() != ContractStatus.DRAFT
+                && contract.getStatus() != ContractStatus.AWAITING_ONBOARD) {
+            throw new BusinessException(
+                    "Chỉ xuất file nháp khi hợp đồng đang DRAFT hoặc AWAITING_ONBOARD");
         }
     }
 
@@ -409,6 +411,7 @@ public class TenantContractDocumentServiceImpl implements TenantContractDocument
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
                 .status(c.getStatus())
+                .statusLabel(c.getStatus() != null ? c.getStatus().displayLabelVi() : null)
                 .effective(TenantContractStatusHelper.isEffective(c.getStatus(), c.getEndDate()))
                 .effectiveLabel(TenantContractStatusHelper.effectiveLabel(c.getStatus(), c.getEndDate()))
                 .equipmentSnapshot(c.getEquipmentSnapshot())

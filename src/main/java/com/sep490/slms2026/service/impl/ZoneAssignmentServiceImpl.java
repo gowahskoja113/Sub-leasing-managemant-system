@@ -251,16 +251,17 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
     }
 
     /**
-     * Chặn DELETE khi còn việc phải làm. Đếm hợp đồng DRAFT/PENDING/ACTIVE — không đếm
+     * Chặn DELETE khi còn việc phải làm. Đếm hợp đồng onboard/ACTIVE — không đếm
      * PropertyStatus.RENTED (nhà chia phòng có khách vẫn mang status ACTIVE).
      * EXPIRED không chặn.
      */
     private void assertNoLiveContracts(UUID zoneId) {
         List<TenantContract> stillLive = tenantContractRepository.findActiveAndPendingByZoneId(zoneId);
         long active = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.ACTIVE).count();
-        long pending = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.PENDING).count();
-        long draft = stillLive.stream().filter(c -> c.getStatus() == ContractStatus.DRAFT).count();
-        if (active == 0 && pending == 0 && draft == 0) {
+        long onboard = stillLive.stream()
+                .filter(c -> ContractStatus.onboardInProgress().contains(c.getStatus()))
+                .count();
+        if (active == 0 && onboard == 0) {
             return;
         }
 
@@ -268,11 +269,8 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
         if (active > 0) {
             reasons.add(active + " hợp đồng đang có khách ở");
         }
-        if (pending > 0) {
-            reasons.add(pending + " hợp đồng đã chốt chưa nhận khách");
-        }
-        if (draft > 0) {
-            reasons.add(draft + " hợp đồng chờ đón khách");
+        if (onboard > 0) {
+            reasons.add(onboard + " hợp đồng đang onboard / chờ đón khách");
         }
 
         throw new BusinessException(
@@ -314,7 +312,7 @@ public class ZoneAssignmentServiceImpl implements ZoneAssignmentService {
 
         if (toManagerId != null) {
             long pendingOnboards = affected.stream()
-                    .filter(c -> c.getStatus() == ContractStatus.DRAFT || c.getStatus() == ContractStatus.PENDING)
+                    .filter(c -> ContractStatus.onboardInProgress().contains(c.getStatus()))
                     .count();
             LocalDate nearest = affected.stream()
                     .filter(c -> c.getExpectedReceptionDate() != null)

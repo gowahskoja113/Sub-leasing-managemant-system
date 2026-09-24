@@ -85,7 +85,10 @@ public class HostPortalServiceImpl implements HostPortalService {
         long vacant = countRoomsByStatus(RoomStatus.AVAILABLE);
         BigDecimal occupancyRate = rate(occupied, totalRooms);
 
-        long pendingContracts = tenantContractRepository.findByStatus(ContractStatus.PENDING).size();
+        long pendingContracts = 0;
+        for (ContractStatus s : ContractStatus.onboardInProgress()) {
+            pendingContracts += tenantContractRepository.findByStatus(s).size();
+        }
         long expiringLeases = countExpiringMasterLeases();
         long activeManagers = userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE).size();
         List<HostInvoiceDto> outstanding = buildInvoices(ym, "UNPAID");
@@ -711,7 +714,9 @@ public class HostPortalServiceImpl implements HostPortalService {
                     "Căn \"" + property.getPropertyName() + "\" đang chờ Host xác nhận giá.",
                     "HIGH");
         }
-        for (TenantContract contract : tenantContractRepository.findByStatus(ContractStatus.PENDING)) {
+        for (TenantContract contract : tenantContractRepository.findByPriceApprovalStatus(
+                com.sep490.slms2026.enums.PriceApprovalStatus.PENDING_PRICE_APPROVAL,
+                org.springframework.data.domain.Pageable.unpaged()).getContent()) {
             ensureNotification(userId, "tenant-contract:" + contract.getId(),
                     "CONTRACT_PENDING",
                     "Hợp đồng chờ duyệt",

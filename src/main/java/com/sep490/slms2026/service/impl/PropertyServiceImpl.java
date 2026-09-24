@@ -135,8 +135,10 @@ public class PropertyServiceImpl implements PropertyService {
     public Page<PropertyResponse> getAllProperties(Pageable pageable, Boolean hasAvailableRooms) {
         Page<Property> page = Boolean.TRUE.equals(hasAvailableRooms)
                 ? propertyRepository.findWithAvailableCapacity(
-                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING, ContractStatus.ACTIVE),
-                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING),
+                        List.of(ContractStatus.DRAFT, ContractStatus.AWAITING_ONBOARD,
+                                ContractStatus.AWAITING_PAYMENT, ContractStatus.AWAITING_CONFIRM, ContractStatus.ACTIVE),
+                        List.of(ContractStatus.DRAFT, ContractStatus.AWAITING_ONBOARD,
+                                ContractStatus.AWAITING_PAYMENT, ContractStatus.AWAITING_CONFIRM),
                         pageable)
                 : propertyRepository.findAll(pageable);
 
@@ -157,7 +159,8 @@ public class PropertyServiceImpl implements PropertyService {
         // Tòa có ít nhất 1 phòng trống thật (AVAILABLE không bị DRAFT/PENDING giữ)
         Set<Long> propertyIdsWithAvailableRooms = new HashSet<>(
                 roomRepository.findPropertyIdsWithTrulyAvailableRooms(
-                        List.of(ContractStatus.DRAFT, ContractStatus.PENDING)));
+                        List.of(ContractStatus.DRAFT, ContractStatus.AWAITING_ONBOARD,
+                                ContractStatus.AWAITING_PAYMENT, ContractStatus.AWAITING_CONFIRM)));
 
         List<PropertyResponse> result = new ArrayList<>();
         for (Property p : propertyRepository.findAll()) {

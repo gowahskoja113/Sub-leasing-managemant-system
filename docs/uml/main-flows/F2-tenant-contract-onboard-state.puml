@@ -1,0 +1,34 @@
+@startuml F2_TenantContract_Onboard_State
+title Tenant Contract State Machine (Onboard)\nBoxes = ContractStatus enum · Arrows = verbs\n1 start · 1 end
+
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #333333
+skinparam ArrowFontColor #333333
+skinparam ArrowFontSize 12
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+[*] --> DRAFT : Import
+
+DRAFT --> AWAITING_ONBOARD : Promote\n[reception day]
+DRAFT --> TERMINATED : Cancel
+
+AWAITING_ONBOARD --> AWAITING_PAYMENT : Capture
+AWAITING_ONBOARD --> TERMINATED : Cancel
+
+AWAITING_PAYMENT --> AWAITING_CONFIRM : Collect
+AWAITING_PAYMENT --> TERMINATED : Cancel
+
+AWAITING_CONFIRM --> ACTIVE : Confirm
+AWAITING_CONFIRM --> TERMINATED : Cancel
+
+ACTIVE --> [*]
+TERMINATED --> [*]
+
+@enduml

@@ -69,7 +69,8 @@ public class UnitPriceServiceImpl implements UnitPriceService {
     private static final List<ContractStatus> OCCUPYING_STATUSES =
             List.of(ContractStatus.ACTIVE, ContractStatus.EXPIRED);
     private static final List<ContractStatus> ESCALATION_STATUSES =
-            List.of(ContractStatus.ACTIVE, ContractStatus.PENDING);
+            List.of(ContractStatus.ACTIVE, ContractStatus.AWAITING_PAYMENT,
+                    ContractStatus.AWAITING_CONFIRM);
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final RoomRepository roomRepository;

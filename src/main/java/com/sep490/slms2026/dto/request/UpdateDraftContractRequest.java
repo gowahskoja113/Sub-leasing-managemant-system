@@ -80,4 +80,10 @@ public class UpdateDraftContractRequest {
     private String rentEscalationType;
     private BigDecimal rentEscalationPercent;
     private List<com.sep490.slms2026.dto.request.RentScheduleItemRequest> rentSchedule;
+
+    /**
+     * {@code true} = manager đã chụp xong hiện trạng + chỉ số → chuyển
+     * {@code AWAITING_ONBOARD → AWAITING_PAYMENT}. Chỉ hợp lệ khi HĐ đang AWAITING_ONBOARD.
+     */
+    private Boolean completeCapture;
 }

@@ -25,7 +25,8 @@ import java.util.UUID;
 public class TenantHandoverServiceImpl implements TenantHandoverService {
 
     private static final List<ContractStatus> READABLE =
-            List.of(ContractStatus.ACTIVE, ContractStatus.PENDING);
+            List.of(ContractStatus.ACTIVE, ContractStatus.AWAITING_PAYMENT,
+                    ContractStatus.AWAITING_CONFIRM, ContractStatus.AWAITING_ONBOARD);
 
     private static final Comparator<TenantContract> CONTRACT_SORT = Comparator
             .comparing(TenantContract::getStartDate, Comparator.nullsLast(Comparator.reverseOrder()))

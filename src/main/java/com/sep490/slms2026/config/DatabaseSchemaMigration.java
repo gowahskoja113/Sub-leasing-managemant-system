@@ -1491,13 +1491,31 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
 
     private void ensureTenantContractsStatusConstraint() {
         try {
+            // Tách PENDING (legacy tenant) → bước onboard mới trước khi siết CHECK.
+            int toConfirm = jdbcTemplate.update("""
+                    UPDATE tenant_contracts
+                    SET status = 'AWAITING_CONFIRM'
+                    WHERE status = 'PENDING' AND payment_status = 'PAID'
+                    """);
+            int toPayment = jdbcTemplate.update("""
+                    UPDATE tenant_contracts
+                    SET status = 'AWAITING_PAYMENT'
+                    WHERE status = 'PENDING'
+                      AND (payment_status IS NULL OR payment_status <> 'PAID')
+                    """);
+            if (toConfirm > 0 || toPayment > 0) {
+                log.info("Migrated legacy tenant PENDING → AWAITING_CONFIRM={}, AWAITING_PAYMENT={}",
+                        toConfirm, toPayment);
+            }
+
             jdbcTemplate.execute("ALTER TABLE tenant_contracts DROP CONSTRAINT IF EXISTS tenant_contracts_status_check");
             jdbcTemplate.execute("""
                     ALTER TABLE tenant_contracts ADD CONSTRAINT tenant_contracts_status_check CHECK (status IN (
-                        'DRAFT', 'PENDING', 'ACTIVE', 'EXPIRED', 'TERMINATED'
+                        'DRAFT', 'AWAITING_ONBOARD', 'AWAITING_PAYMENT', 'AWAITING_CONFIRM',
+                        'PENDING', 'ACTIVE', 'EXPIRED', 'TERMINATED'
                     ))
                     """);
-            log.info("Migrated tenant_contracts_status_check constraint");
+            log.info("Migrated tenant_contracts_status_check constraint (onboard statuses)");
         } catch (Exception e) {
             log.warn("Could not migrate tenant_contracts_status_check constraint: {}", e.getMessage());
         }

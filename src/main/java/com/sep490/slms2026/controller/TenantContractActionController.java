@@ -46,7 +46,10 @@ public class TenantContractActionController {
         return com.sep490.slms2026.enums.Role.ROLE_TENANT.name();
     }
 
-    /** GET / — danh sách HĐ (vd list DRAFT). Admin và Host thấy toàn bộ; manager chỉ HĐ phụ trách. */
+    /** GET / — danh sách HĐ. Admin/Owner thấy toàn bộ; manager chỉ HĐ phụ trách.
+     * {@code status}: DRAFT | AWAITING_ONBOARD | AWAITING_PAYMENT | AWAITING_CONFIRM | ACTIVE | …
+     * Alias màn Hồ sơ đón khách: {@code status=RECEPTION} (hoặc ONBOARD) = mọi bước onboard trước ACTIVE.
+     */
     @GetMapping
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN','OWNER')")
     public ResponseEntity<java.util.List<TenantContractResponse>> listAll(
@@ -200,8 +203,9 @@ public class TenantContractActionController {
     /**
      * GET /managed — hợp đồng manager phụ trách.
      * Không {@code status}: pipeline chờ xử lý (duyệt giá / nháp / pending).
-     * {@code ?status=ACTIVE} (hoặc DRAFT/PENDING/EXPIRED/TERMINATED): lọc theo {@code ContractStatus}.
-     * Cũng nhận {@code PriceApprovalStatus} (PENDING_PRICE_APPROVAL, …).
+     * {@code ?status=ACTIVE} (hoặc DRAFT, AWAITING_ONBOARD, AWAITING_PAYMENT,
+     * AWAITING_CONFIRM, EXPIRED, TERMINATED): lọc theo {@code ContractStatus}.
+     * Cũng nhận {@code PriceApprovalStatus} (PENDING_PRICE_APPROVAL, ...).
      */
     @GetMapping("/managed")
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")

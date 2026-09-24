@@ -100,6 +100,8 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
     // Cascade đổi quản lý: lấy HĐ chưa kết thúc của nhà để gán lại assignedManager
     List<TenantContract> findByPropertyIdAndStatusIn(Long propertyId, java.util.Collection<ContractStatus> statuses);
 
+    List<TenantContract> findByStatusIn(java.util.Collection<ContractStatus> statuses);
+
     // Auto-cancel no-show: HĐ nháp/chờ có moveInDate đã quá hạn
     List<TenantContract> findByStatusInAndMoveInDateBefore(
             java.util.Collection<ContractStatus> statuses, LocalDate moveInDate);
@@ -168,7 +170,12 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
             LEFT JOIN FETCH t.user
             WHERE (p.operationManagerId = :managerUserId OR p.operationManagerId = :managerUserId)
               AND (c.priceApprovalStatus IN :statuses 
-                   OR c.status IN (com.sep490.slms2026.enums.ContractStatus.PENDING, com.sep490.slms2026.enums.ContractStatus.DRAFT))
+                   OR c.status IN (
+                        com.sep490.slms2026.enums.ContractStatus.DRAFT,
+                        com.sep490.slms2026.enums.ContractStatus.AWAITING_ONBOARD,
+                        com.sep490.slms2026.enums.ContractStatus.AWAITING_PAYMENT,
+                        com.sep490.slms2026.enums.ContractStatus.AWAITING_CONFIRM,
+                        com.sep490.slms2026.enums.ContractStatus.PENDING))
             """)
     List<TenantContract> findManagedContractsByApprovalStatuses(
             @Param("managerUserId") UUID managerUserId, 

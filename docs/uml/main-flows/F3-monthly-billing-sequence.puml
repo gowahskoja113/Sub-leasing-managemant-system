@@ -22,75 +22,136 @@ participant "UtilityBillRepository" as UBR
 participant "TenantInvoiceRepository" as TIR
 database DB
 
-== A. Manager chốt chỉ số ==
+== A. Manager lock meter reading ==
 
-Manager -> FE : (1) Chốt chỉ số (ảnh / override)
+Manager -> FE : (1) Lock meter reading\n(photo / override)
+activate Manager
+activate FE
 FE -> MC : (2) POST /api/v1/manager/meter-readings
 activate MC
 MC -> MRS : (3) saveLockedReading(req)
 activate MRS
 MRS -> DB : (4) BeginTransaction()
+activate DB
 MRS -> MRS : (5) validate period, reading,\ncontract ACTIVE
-alt [không ảnh]
+alt [no photo]
   MRS -> MRS : (6) consumeOverrideIfPresent(...)
 end
 MRS -> MRR : (7) save(MeterReading)
+activate MRR
 MRR -> DB : (8) INSERT/UPDATE
-opt [UtilityBill đã PUBLISHED]
-  MRS -> UIS : (9) issue*FromSavedReading
-  UIS -> DB : (10) INSERT UtilityInvoice\n+ TenantInvoice
+DB --> MRR : (9) return OK
+MRR --> MRS : (10) return MeterReading
+deactivate MRR
+opt [UtilityBill already PUBLISHED]
+  MRS -> UIS : (11) issue*FromSavedReading
+  activate UIS
+  UIS -> DB : (12) INSERT UtilityInvoice\n+ TenantInvoice (PENDING)
+  DB --> UIS : (13) return OK
+  UIS --> MRS : (14) return issued
+  deactivate UIS
 end
-MRS -> DB : (11) CommitTransaction()
-MRS --> MC : (12) SavedMeterReadingItem
+MRS -> DB : (15) CommitTransaction()
+DB --> MRS : (16) return Committed
+deactivate DB
+MRS --> MC : (17) return SavedMeterReadingItem
 deactivate MRS
-MC --> FE : (13) 201 Created
+MC --> FE : (18) return 201 Created
 deactivate MC
+FE --> Manager : (19) return Meter locked
+deactivate FE
+deactivate Manager
 
-== B. Admin publish giấy EVN/nước ==
+== B. Admin publish EVN/water bill ==
 
-Admin -> FE : (14) Publish UtilityBill
-FE -> AC : (15) POST /api/v1/admin/utility-bills
+Admin -> FE : (20) Publish UtilityBill
+activate Admin
+activate FE
+FE -> AC : (21) POST /api/v1/admin/utility-bills
 activate AC
-AC -> UBS : (16) createUtilityBill(req)
+AC -> UBS : (22) createUtilityBill(req)
 activate UBS
-UBS -> DB : (17) BeginTransaction()
-UBS -> UBR : (18) save(status=PUBLISHED)
-UBR -> DB : (19) INSERT UtilityBill
-UBS -> UIS : (20) issueElectric/WaterFromSavedReadings
-UIS -> DB : (21) INSERT invoices từ readings đã chốt
-UBS -> DB : (22) CommitTransaction()
-UBS --> AC : (23) UtilityBillResponse
+UBS -> DB : (23) BeginTransaction()
+activate DB
+UBS -> UBR : (24) save(status=PUBLISHED)
+activate UBR
+UBR -> DB : (25) INSERT UtilityBill
+DB --> UBR : (26) return OK
+UBR --> UBS : (27) return UtilityBill
+deactivate UBR
+UBS -> UIS : (28) issueElectric/WaterFromSavedReadings
+activate UIS
+UIS -> DB : (29) INSERT invoices from locked readings
+DB --> UIS : (30) return OK
+UIS --> UBS : (31) return issued
+deactivate UIS
+UBS -> DB : (32) CommitTransaction()
+DB --> UBS : (33) return Committed
+deactivate DB
+UBS --> AC : (34) return UtilityBillResponse
 deactivate UBS
-AC --> FE : (24) OK
+AC --> FE : (35) return OK
 deactivate AC
+FE --> Admin : (36) return Published + invoices issued
+deactivate FE
+deactivate Admin
 
-== C. Tenant thanh toán PayOS ==
+== C. Tenant pay via PayOS ==
 
-Tenant -> FE : (25) Pay invoice
-FE -> TC : (26) POST /tenant/me/invoices/{id}/payment
+Tenant -> FE : (37) Pay invoice
+activate Tenant
+activate FE
+FE -> TC : (38) POST /api/v1/tenant/me/invoices/{id}/payment
 activate TC
-TC -> TBS : (27) createPaymentLink(invoiceId)
-TBS -> PayOS : (28) createPaymentLink
-PayOS --> TBS : (29) QR / orderCode
-TBS -> TIR : (30) save PayosOrder
-TBS --> TC : (31) PaymentLinkResponse
+TC -> TBS : (39) createPayment(invoiceId)
+activate TBS
+TBS -> PayOS : (40) createPaymentLink
+activate PayOS
+PayOS --> TBS : (41) return QR / orderCode
+deactivate PayOS
+TBS -> TIR : (42) save PayosOrder
+activate TIR
+TIR -> DB : (43) INSERT/UPDATE
+activate DB
+DB --> TIR : (44) return OK
+deactivate DB
+TIR --> TBS : (45) return OK
+deactivate TIR
+TBS --> TC : (46) return PaymentLinkResponse
+deactivate TBS
+TC --> FE : (47) return QR
 deactivate TC
-FE --> Tenant : (32) QR
+FE --> Tenant : (48) return Payment QR
+deactivate FE
 
-Tenant -> PayOS : (33) Pay success
-PayOS -> WC : (34) POST /payos/webhook
+Tenant -> PayOS : (49) Pay success
+activate PayOS
+PayOS -> WC : (50) POST /api/v1/payos/webhook
 activate WC
-WC -> TBS : (35) markInvoicePaidByPayosOrderCode
-TBS -> DB : (36) BeginTransaction()
-TBS -> TIR : (37) UPDATE TenantInvoice PAID\n+ INSERT TenantPayment
-TBS -> DB : (38) CommitTransaction()
-WC --> PayOS : (39) 200
+WC -> TBS : (51) markInvoicePaidByPayosOrderCode
+activate TBS
+TBS -> DB : (52) BeginTransaction()
+activate DB
+TBS -> TIR : (53) UPDATE TenantInvoice PAID\n+ INSERT TenantPayment
+activate TIR
+TIR -> DB : (54) UPDATE / INSERT
+DB --> TIR : (55) return OK
+TIR --> TBS : (56) return OK
+deactivate TIR
+TBS -> DB : (57) CommitTransaction()
+DB --> TBS : (58) return Committed
+deactivate DB
+TBS --> WC : (59) return OK
+deactivate TBS
+WC --> PayOS : (60) return 200
 deactivate WC
-FE --> Tenant : (40) Đã thanh toán
+PayOS --> Tenant : (61) return Payment success
+deactivate PayOS
+deactivate Tenant
 
 note over MRS, TBS
   Cron BillingCronServiceImpl.runDailySweep
-  (08:00): phát hành tiền thuê + nhắc nợ
+  (08:00 Asia/Ho_Chi_Minh): issue rent + overdue reminders
 end note
 
 @enduml

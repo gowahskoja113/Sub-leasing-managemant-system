@@ -1,5 +1,5 @@
 @startuml F6_CashFlow_Sequence
-title Figure — Cash Flow Sequence Diagram\nRecord MasterLease / HostExpense → Aggregate income vs expense → PnL
+title Figure — Cash Flow Sequence Diagram\nRecord InboundContract / HostExpense → Aggregate rent vs expense → PnL
 
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
@@ -8,79 +8,123 @@ actor Owner
 participant "Front-end" as FE
 participant "HostController" as C
 participant "HostPortalServiceImpl" as S
-participant "MasterLeaseRepository" as MLR
+participant "InboundContractRepository" as ICR
 participant "HostExpenseRepository" as HER
-participant "TenantInvoiceRepository" as TIR
-participant "TenantPaymentRepository" as TPR
+participant "TenantContractRepository" as TCR
 participant "PropertyRepository" as PR
 database DB
 
-== A. Ghi chi phí thuê nhà lớn (MasterLease) ==
+== A. Record master lease (InboundContract) ==
 
-Owner -> FE : (1) Upsert master lease
+Owner -> FE : (1) Create master lease
+activate Owner
+activate FE
 FE -> C : (2) POST /api/v1/host/master-leases\nMasterLeaseUpsertRequest
 activate C
-C -> S : (3) upsertMasterLease(req)
+C -> S : (3) createMasterLease(req)
 activate S
 S -> DB : (4) BeginTransaction()
+activate DB
 S -> PR : (5) findById(propertyId)
+activate PR
 PR -> DB : (6) SELECT Property
-S -> MLR : (7) save(MasterLease ACTIVE)
-MLR -> DB : (8) INSERT/UPDATE MasterLease
+DB --> PR : (7) return Property
+PR --> S : (8) return Property
+deactivate PR
+S -> ICR : (9) save(InboundContract)
+activate ICR
+ICR -> DB : (10) INSERT InboundContract
+DB --> ICR : (11) return OK
+ICR --> S : (12) return InboundContract
+deactivate ICR
 break
   S -> DB : RollbackTransaction()
 end
-S -> DB : (9) CommitTransaction()
-S --> C : (10) MasterLeaseResponse
+S -> DB : (13) CommitTransaction()
+DB --> S : (14) return Committed
+deactivate DB
+S --> C : (15) return MasterLeaseDto
 deactivate S
-C --> FE : (11) OK
+C --> FE : (16) return OK
 deactivate C
+FE --> Owner : (17) return Master lease saved
+deactivate FE
+deactivate Owner
 
-== B. Ghi chi phí phát sinh (HostExpense) ==
+== B. Record HostExpense ==
 
-Owner -> FE : (12) Add monthly expense
-FE -> C : (13) POST /api/v1/host/expenses\nHostExpenseUpsertRequest
+Owner -> FE : (18) Add monthly expense
+activate Owner
+activate FE
+FE -> C : (19) POST /api/v1/host/expenses\nHostExpenseUpsertRequest
 activate C
-C -> S : (14) upsertExpense(req)
+C -> S : (20) createExpense(req)
 activate S
-S -> DB : (15) BeginTransaction()
-S -> HER : (16) save(HostExpense)
-HER -> DB : (17) INSERT HostExpense
-S -> DB : (18) CommitTransaction()
-S --> C : (19) HostExpenseResponse
+S -> DB : (21) BeginTransaction()
+activate DB
+S -> HER : (22) save(HostExpense)
+activate HER
+HER -> DB : (23) INSERT HostExpense
+DB --> HER : (24) return OK
+HER --> S : (25) return HostExpense
+deactivate HER
+S -> DB : (26) CommitTransaction()
+DB --> S : (27) return Committed
+deactivate DB
+S --> C : (28) return HostExpenseDto
 deactivate S
-C --> FE : (20) OK
+C --> FE : (29) return OK
 deactivate C
+FE --> Owner : (30) return Expense saved
+deactivate FE
+deactivate Owner
 
-== C. Xem cash flow / PnL (đối chiếu doanh thu phòng) ==
+== C. View cash flow / PnL ==
 
-Owner -> FE : (21) Open cash flow dashboard
-FE -> C : (22) GET /api/v1/host/finance/cashflow\n?from&to&propertyId
+Owner -> FE : (31) Open cash flow dashboard
+activate Owner
+activate FE
+FE -> C : (32) GET /api/v1/host/finance/cashflow?from&to
 activate C
-C -> S : (23) getCashflow(filters)
+C -> S : (33) getCashflow(from, to)
 activate S
-S -> TIR : (24) sum PAID TenantInvoice\n(in period)
-TIR -> DB : (25) SELECT aggregates
-DB --> TIR : (26) income
-TIR --> S : (27) totalIncome
-S -> TPR : (28) optional payment cross-check
-S -> MLR : (29) sum MasterLease.monthlyRent\n(+ prorate)
-MLR -> DB : (30) SELECT
-MLR --> S : (31) leaseExpense
-S -> HER : (32) sum HostExpense in period
-HER -> DB : (33) SELECT
-HER --> S : (34) otherExpense
-S -> S : (35) netProfit = income\n- (leaseExpense + otherExpense)
-S --> C : (36) HostCashflowResponse
+S -> TCR : (34) sum rentAmount\n(ACTIVE contracts in month)
+activate TCR
+TCR -> DB : (35) SELECT TenantContract ACTIVE
+activate DB
+DB --> TCR : (36) return rows
+deactivate DB
+TCR --> S : (37) return revenue
+deactivate TCR
+S -> ICR : (38) sum monthlyLeaseCost\n(InboundContract)
+activate ICR
+ICR -> DB : (39) SELECT
+activate DB
+DB --> ICR : (40) return rows
+deactivate DB
+ICR --> S : (41) return leaseExpense
+deactivate ICR
+S -> HER : (42) sum HostExpense in month
+activate HER
+HER -> DB : (43) SELECT aggregates
+activate DB
+DB --> HER : (44) return otherExpense
+deactivate DB
+HER --> S : (45) return otherExpense
+deactivate HER
+S -> S : (46) net = revenue\n- (leaseExpense + otherExpense)
+S --> C : (47) return HostCashflowResponse
 deactivate S
-C --> FE : (37) Response
+C --> FE : (48) return Response
 deactivate C
-FE --> Owner : (38) Hiển thị Income / Expense / Net\n(+ export report nếu cần)
+FE --> Owner : (49) return Revenue / Expense / Net\n(+ property-pnl / expense-breakdown)
+deactivate FE
+deactivate Owner
 
 note over S
-  Income phát sinh từ luồng Billing
-  (TenantInvoice PAID qua PayOS).
-  Sequence này chỉ đọc + ghi expense.
+  Revenue = sum of rentAmount for ACTIVE contracts in month
+  (not from TenantInvoice PAID).
+  Expense = InboundContract lease + HostExpense.
 end note
 
 @enduml

@@ -1,0 +1,35 @@
+@startuml F1_PropertyOnboarding_State
+title Property Onboarding State Machine\nBoxes = PropertyStatus enum · Arrows = verbs
+
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #333333
+skinparam ArrowFontColor #333333
+skinparam ArrowFontSize 12
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 14
+  FontStyle bold
+}
+
+[*] --> DRAFT : Import
+
+DRAFT --> PENDING : Sign
+
+PENDING --> UNDER_RENOVATION : Configure
+
+UNDER_RENOVATION --> RENOVATION_COMPLETED : Skip\n[no renovation]
+UNDER_RENOVATION --> PENDING_EQUIPMENT_INSTALLATION : Import\n[renovation]
+
+PENDING_EQUIPMENT_INSTALLATION --> RENOVATION_COMPLETED : Complete
+
+RENOVATION_COMPLETED --> PENDING_HOST_REVIEW : Submit
+
+PENDING_HOST_REVIEW --> ACTIVE : Confirm
+
+ACTIVE --> UNDER_RENOVATION : Renovate\n[supplement]
+ACTIVE --> [*]
+
+@enduml

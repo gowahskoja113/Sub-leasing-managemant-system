@@ -1,5 +1,5 @@
 @startuml F1_InitialSetup_Sequence
-title Figure — Initial Setup Sequence Diagram\nSubmit to Host → Host Confirm Pricing → Assign Operation Manager
+title Figure — Initial Setup Sequence Diagram\nSubmit to Host → Host Confirm (auto OM) → [Optional] Assign/Change OM
 
 skinparam sequenceMessageAlign center
 skinparam responseMessageBelowArrow true
@@ -9,77 +9,137 @@ actor Host
 participant "Front-end" as FE
 participant "PropertyOnboardingController" as C
 participant "PropertyOnboardingServiceImpl" as S
+participant "DepreciationService" as DS
 participant "PropertyRepository" as PR
 participant "RoomRepository" as RR
+participant "ZoneManagerRepository" as ZMR
 participant "OperationManagementRepository" as OMR
 database DB
 
-== A. Admin nộp hồ sơ cho Host ==
+== A. Admin submit to Host ==
 
 Admin -> FE : (1) Click "Submit to Host"
+activate Admin
+activate FE
 FE -> C : (2) POST /api/v1/properties/{id}/submit-to-host
 activate C
 C -> S : (3) submitToHost(propertyId)
 activate S
 S -> DB : (4) BeginTransaction()
-DB --> S : (5) Success
-S -> PR : (6) findById(propertyId)
-PR -> DB : (7) SELECT Property
-DB --> PR : (8) Property
-PR --> S : (9) Property
-S -> S : (10) validate structure / equipment / pricing ready
-S -> PR : (11) save(status=PENDING_HOST,\nsubmittedToHostAt=now)
-PR -> DB : (12) UPDATE Property
-DB --> PR : (13) OK
-PR --> S : (14) Property
+activate DB
+S -> PR : (5) findById(propertyId)
+activate PR
+PR -> DB : (6) SELECT Property
+DB --> PR : (7) return Property
+PR --> S : (8) return Property
+deactivate PR
+S -> S : (9) validate RENOVATION_COMPLETED\n+ structure / equipment / lease
+S -> DS : (10) calculate(propertyId)
+activate DS
+DS -> DB : (11) INSERT/UPDATE DepreciationResult
+DB --> DS : (12) return OK
+DS --> S : (13) return OK
+deactivate DS
+S -> PR : (14) save(status=PENDING_HOST_REVIEW,\nsubmittedToHostAt=now)
+activate PR
+PR -> DB : (15) UPDATE Property
+DB --> PR : (16) return OK
+PR --> S : (17) return Property
+deactivate PR
 break
   S -> DB : RollbackTransaction()
 end
-S -> DB : (15) CommitTransaction()
-DB --> S : (16) Committed
-S --> C : (17) PropertyResponse
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) return Committed
+deactivate DB
+S --> C : (20) return OnboardingSummaryResponse
 deactivate S
-C --> FE : (18) Response
+C --> FE : (21) return Response
 deactivate C
-FE --> Admin : (19) Chờ Host xác nhận
+FE --> Admin : (22) return Waiting for Host
+deactivate FE
+deactivate Admin
 
-== B. Host xác nhận giá ==
+== B. Host confirm pricing (auto-assign zone OM → ACTIVE) ==
 
-Host -> FE : (20) Confirm appliedPrice / roomPrices
-FE -> C : (21) POST /api/v1/properties/{id}/host-confirm
+Host -> FE : (23) Confirm appliedPrice / roomPrices\n+ contingencyPercent
+activate Host
+activate FE
+FE -> C : (24) POST /api/v1/properties/{id}/host-confirm
 activate C
-C -> S : (22) hostConfirm(id, HostConfirmRequest)
+C -> S : (25) hostConfirm(id, HostConfirmRequest)
 activate S
-S -> DB : (23) BeginTransaction()
-S -> PR : (24) findById + validate PENDING_HOST
-S -> RR : (25) update room prices
-RR -> DB : (26) UPDATE Room
-S -> PR : (27) save(appliedPrice, status=READY)
-PR -> DB : (28) UPDATE Property
-S -> DB : (29) CommitTransaction()
-S --> C : (30) PropertyResponse
+S -> DB : (26) BeginTransaction()
+activate DB
+S -> PR : (27) findById + validate PENDING_HOST_REVIEW
+activate PR
+PR -> DB : (28) SELECT Property
+DB --> PR : (29) return Property
+PR --> S : (30) return Property
+deactivate PR
+S -> ZMR : (31) findById(zoneId)\n(throw ZONE_HAS_NO_MANAGER if missing)
+activate ZMR
+ZMR -> DB : (32) SELECT ZoneManager
+DB --> ZMR : (33) return ZoneManager
+ZMR --> S : (34) return managerId
+deactivate ZMR
+S -> RR : (35) update room prices / appliedPrice
+activate RR
+RR -> DB : (36) UPDATE Room
+DB --> RR : (37) return OK
+RR --> S : (38) return OK
+deactivate RR
+S -> PR : (39) save(operationManagerId=zoneOM,\nstatus=ACTIVE, open DRAFT rooms)
+activate PR
+PR -> DB : (40) UPDATE Property + Room
+DB --> PR : (41) return OK
+PR --> S : (42) return Property
+deactivate PR
+S -> DB : (43) CommitTransaction()
+DB --> S : (44) return Committed
+deactivate DB
+S --> C : (45) return PropertyActivationResponse
 deactivate S
-C --> FE : (31) Response
+C --> FE : (46) return Response
 deactivate C
-FE --> Host : (32) Đã xác nhận giá
+FE --> Host : (47) return Property ACTIVE
+deactivate FE
+deactivate Host
 
-== C. Admin gán Operation Manager ==
+== C. [Optional] Assign / change Operation Manager ==
 
-Admin -> FE : (33) Chọn manager
-FE -> C : (34) PATCH /api/v1/properties/{id}/operation-manager
-activate C
-C -> S : (35) assignOperationManager(id, req)
-activate S
-S -> DB : (36) BeginTransaction()
-S -> OMR : (37) save(OperationManagement)
-OMR -> DB : (38) INSERT OperationManagement
-S -> PR : (39) save(operationManagerId,\nstatus→OPERATING)
-PR -> DB : (40) UPDATE Property
-S -> DB : (41) CommitTransaction()
-S --> C : (42) PropertyResponse
-deactivate S
-C --> FE : (43) Response
-deactivate C
-FE --> Admin : (44) Nhà sẵn sàng vận hành
+opt [PENDING_OPERATION_MANAGER or change OM when ACTIVE/RENTED]
+  Admin -> FE : (48) Select / change manager
+  activate Admin
+  activate FE
+  FE -> C : (49) PATCH /api/v1/properties/{id}/operation-manager
+  activate C
+  C -> S : (50) assignOperationManager(id, req)
+  activate S
+  S -> DB : (51) BeginTransaction()
+  activate DB
+  S -> OMR : (52) upsert ZoneManager / OM
+  activate OMR
+  OMR -> DB : (53) INSERT/UPDATE
+  DB --> OMR : (54) return OK
+  OMR --> S : (55) return OK
+  deactivate OMR
+  S -> PR : (56) save(operationManagerId,\nPENDING_OPERATION_MANAGER→ACTIVE)
+  activate PR
+  PR -> DB : (57) UPDATE Property
+  DB --> PR : (58) return OK
+  PR --> S : (59) return Property
+  deactivate PR
+  S -> DB : (60) CommitTransaction()
+  DB --> S : (61) return Committed
+  deactivate DB
+  S --> C : (62) return PropertyActivationResponse
+  deactivate S
+  C --> FE : (63) return Response
+  deactivate C
+  FE --> Admin : (64) return OM assigned
+  deactivate FE
+  deactivate Admin
+end
 
 @enduml

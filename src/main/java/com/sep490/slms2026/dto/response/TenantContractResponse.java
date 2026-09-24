@@ -97,6 +97,9 @@ public class TenantContractResponse {
     private LocalDate endDate;
     private ContractStatus status;
 
+    /** Nhãn tiếng Việt của {@link #status} — dùng badge màn hồ sơ đón khách. */
+    private String statusLabel;
+
     /** true nếu status ACTIVE và chưa quá endDate. */
     private Boolean effective;
     /** "Còn hiệu lực" / "Không còn hiệu lực". */

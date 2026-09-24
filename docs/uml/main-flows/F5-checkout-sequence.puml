@@ -11,6 +11,7 @@ participant "Front-end" as FE
 participant "TenantMeLifecycleController" as TC
 participant "CheckoutRequestController" as CC
 participant "CheckoutProcessController" as PC
+participant "TenantCheckoutProcessController" as TPC
 participant "TenantCheckoutServiceImpl" as CS
 participant "CheckoutProcessServiceImpl" as PS
 participant "CheckoutRequestRepository" as RR
@@ -19,81 +20,216 @@ participant "CheckoutSettlementRepository" as SR
 participant "DepositAuditLogRepository" as DR
 database DB
 
-Tenant -> FE : (1) Yêu cầu trả phòng
-FE -> TC : (2) POST /tenant/me/checkout-requests
+== A. Tenant create request ==
+
+Tenant -> FE : (1) Request checkout
+activate Tenant
+activate FE
+FE -> TC : (2) POST /api/v1/tenant/me/checkout-requests
 activate TC
-TC -> CS : (3) create(CreateCheckoutRequest)
+TC -> CS : (3) createRequest(CreateCheckoutRequest)
 activate CS
 CS -> DB : (4) BeginTransaction()
+activate DB
 CS -> RR : (5) save(status=PENDING)
+activate RR
 RR -> DB : (6) INSERT CheckoutRequest
-CS -> DB : (7) CommitTransaction()
-CS --> TC : (8) CheckoutResponse
+DB --> RR : (7) return OK
+RR --> CS : (8) return CheckoutRequest
+deactivate RR
+CS -> DB : (9) CommitTransaction()
+DB --> CS : (10) return Committed
+deactivate DB
+CS --> TC : (11) return CheckoutResponse
 deactivate CS
-TC --> FE : (9) Created
+TC --> FE : (12) return Created
 deactivate TC
+FE --> Tenant : (13) return Request submitted
+deactivate FE
+deactivate Tenant
 
-Manager -> FE : (10) Approve
-FE -> CC : (11) POST .../{id}/approve
-CC -> CS : (12) approve(...)
-CS -> RR : (13) UPDATE status=APPROVED
+== B. Manager approve ==
 
-Manager -> FE : (14) Inspection + damages
-FE -> PC : (15) POST .../{id}/inspection
+Manager -> FE : (14) Approve
+activate Manager
+activate FE
+FE -> CC : (15) POST /api/v1/checkout-requests/{id}/approve
+activate CC
+CC -> CS : (16) approveRequest(...)
+activate CS
+CS -> RR : (17) UPDATE status=APPROVED\n(+ endDate / prorate rent)
+activate RR
+RR -> DB : (18) UPDATE
+activate DB
+DB --> RR : (19) return OK
+deactivate DB
+RR --> CS : (20) return OK
+deactivate RR
+CS --> CC : (21) return OK
+deactivate CS
+CC --> FE : (22) return OK
+deactivate CC
+FE --> Manager : (23) return Approved
+deactivate FE
+deactivate Manager
+
+== C. Inspection + damages ==
+
+Manager -> FE : (24) Inspection + damages
+activate Manager
+activate FE
+FE -> PC : (25) POST /api/v1/checkout-requests/{id}/inspection
 activate PC
-PC -> PS : (16) saveInspection(req)
+PC -> PS : (26) saveInspection(req)
 activate PS
-PS -> DB : (17) BeginTransaction()
-PS -> IR : (18) save(CheckoutInspection\n+ DamageItems)
-IR -> DB : (19) INSERT
-PS -> RR : (20) UPDATE status=INSPECTING
-PS -> DB : (21) CommitTransaction()
-PS --> PC : (22) OK
+PS -> DB : (27) BeginTransaction()
+activate DB
+PS -> IR : (28) save(CheckoutInspection\n+ DamageItems)
+activate IR
+IR -> DB : (29) INSERT
+DB --> IR : (30) return OK
+IR --> PS : (31) return OK
+deactivate IR
+PS -> RR : (32) UPDATE status=INSPECTING
+activate RR
+RR -> DB : (33) UPDATE
+DB --> RR : (34) return OK
+RR --> PS : (35) return OK
+deactivate RR
+PS -> DB : (36) CommitTransaction()
+DB --> PS : (37) return Committed
+deactivate DB
+PS --> PC : (38) return OK
 deactivate PS
+PC --> FE : (39) return OK
 deactivate PC
+FE --> Manager : (40) return Inspection saved
+deactivate FE
+deactivate Manager
 
-Manager -> FE : (23) Submit settlement
-FE -> PC : (24) POST .../settlement/submit
-PC -> PS : (25) submitSettlement
-PS -> SR : (26) save(CheckoutSettlement\ndeposit - unpaid - damage)
-SR -> DB : (27) INSERT
-PS -> RR : (28) UPDATE WAITING_TENANT
+== D. Settlement ==
 
-Tenant -> FE : (29) Accept settlement
-FE -> PC : (30) POST .../settlement/accept
-PC -> PS : (31) acceptSettlement
-PS -> RR : (32) UPDATE SETTLING
-
-Owner -> FE : (33) Ghi nhận hoàn cọc + proof
-FE -> PC : (34) POST .../{id}/refund
+Manager -> FE : (41) Submit settlement
+activate Manager
+activate FE
+FE -> PC : (42) POST .../settlement/submit
 activate PC
-PC -> PS : (35) recordRefund(CheckoutRefundRequest)
+PC -> PS : (43) submitSettlement
 activate PS
-PS -> DB : (36) BeginTransaction()
-PS -> SR : (37) UPDATE refundAmount, proofUrl
-PS -> DR : (38) INSERT DepositAuditLog
-DR -> DB : (39) INSERT
+PS -> SR : (44) save(CheckoutSettlement\ndeposit - unpaid - damage)
+activate SR
+SR -> DB : (45) INSERT
+activate DB
+DB --> SR : (46) return OK
+deactivate DB
+SR --> PS : (47) return Settlement
+deactivate SR
+PS -> RR : (48) UPDATE WAITING_TENANT
+activate RR
+RR -> DB : (49) UPDATE
+activate DB
+DB --> RR : (50) return OK
+deactivate DB
+RR --> PS : (51) return OK
+deactivate RR
+PS --> PC : (52) return OK
+deactivate PS
+PC --> FE : (53) return OK
+deactivate PC
+FE --> Manager : (54) return Waiting for tenant
+deactivate FE
+deactivate Manager
+
+Tenant -> FE : (55) Accept settlement
+activate Tenant
+activate FE
+FE -> TPC : (56) POST /api/v1/tenant/me/checkout-requests/{id}/settlement/accept
+activate TPC
+TPC -> PS : (57) acceptSettlement(id, tenantId)
+activate PS
+PS -> RR : (58) UPDATE SETTLING
+activate RR
+RR -> DB : (59) UPDATE
+activate DB
+DB --> RR : (60) return OK
+deactivate DB
+RR --> PS : (61) return OK
+deactivate RR
+PS --> TPC : (62) return OK
+deactivate PS
+TPC --> FE : (63) return OK
+deactivate TPC
+FE --> Tenant : (64) return Settlement accepted
+deactivate FE
+deactivate Tenant
+
+== E. Owner record refund ==
+
+Owner -> FE : (65) Record refund + proof
+activate Owner
+activate FE
+FE -> PC : (66) POST /api/v1/checkout-requests/{id}/refund
+activate PC
+PC -> PS : (67) refund(CheckoutRefundRequest)
+activate PS
+PS -> DB : (68) BeginTransaction()
+activate DB
+PS -> SR : (69) UPDATE refundAmount, proofUrl
+activate SR
+SR -> DB : (70) UPDATE
+DB --> SR : (71) return OK
+SR --> PS : (72) return OK
+deactivate SR
+PS -> DR : (73) INSERT DepositAuditLog
+activate DR
+DR -> DB : (74) INSERT
+DB --> DR : (75) return OK
+DR --> PS : (76) return OK
+deactivate DR
 break
   PS -> DB : RollbackTransaction()
 end
-PS -> DB : (40) CommitTransaction()
-PS --> PC : (41) OK
+PS -> DB : (77) CommitTransaction()
+DB --> PS : (78) return Committed
+deactivate DB
+PS --> PC : (79) return DepositRefundResponse
 deactivate PS
+PC --> FE : (80) return OK
 deactivate PC
+FE --> Owner : (81) return Refund recorded
+deactivate FE
+deactivate Owner
 
-Manager -> FE : (42) Complete checkout
-FE -> CC : (43) POST .../{id}/complete
+== F. Manager complete ==
+
+Manager -> FE : (82) Complete checkout
+activate Manager
+activate FE
+FE -> CC : (83) POST /api/v1/checkout-requests/{id}/complete
 activate CC
-CC -> CS : (44) complete(...)
+CC -> CS : (84) completeRequest(...)
 activate CS
-CS -> DB : (45) BeginTransaction()
-CS -> RR : (46) UPDATE COMPLETED
-CS -> CS : (47) terminate contract,\nroom → AVAILABLE
-CS -> DB : (48) CommitTransaction()
-CS --> CC : (49) CheckoutResponse
+CS -> DB : (85) BeginTransaction()
+activate DB
+CS -> RR : (86) UPDATE COMPLETED
+activate RR
+RR -> DB : (87) UPDATE
+DB --> RR : (88) return OK
+RR --> CS : (89) return OK
+deactivate RR
+CS -> CS : (90) terminateActiveContract,\nroom → AVAILABLE
+CS -> DB : (91) CommitTransaction()
+DB --> CS : (92) return Committed
+deactivate DB
+CS --> CC : (93) return CheckoutResponse
 deactivate CS
-CC --> FE : (50) Done
+CC --> FE : (94) return Done
 deactivate CC
-FE --> Tenant : (51) Trả phòng hoàn tất
+FE --> Manager : (95) return Completed
+FE --> Tenant : (96) return Checkout complete
+activate Tenant
+deactivate Tenant
+deactivate FE
+deactivate Manager
 
 @enduml
