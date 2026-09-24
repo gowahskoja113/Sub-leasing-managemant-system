@@ -117,9 +117,9 @@ public interface TenantOnboardingService {
     int backfillMissingAssignedManagers();
 
     /**
-     * Tự động hủy HĐ onboard chưa ACTIVE mà khách không đến nhận nhà quá hạn (no-show):
-     * {@code moveInDate + noShowGraceDays < hôm nay}. Ghi {@code terminationType = NO_SHOW},
-     * giải phóng phòng/căn + notify quản lý. Trả về số HĐ đã hủy.
+     * Tự động hủy HĐ onboard chưa ACTIVE khi đón khách trễ quá hạn:
+     * {@code (expectedReceptionDate ?? moveInDate) + noShowGraceDays ≤ hôm nay} (mặc định 3 ngày).
+     * Ghi {@code terminationType = NO_SHOW}, giải phóng phòng/căn + notify. Trả về số HĐ đã hủy.
      */
     int autoCancelNoShowContracts();
 

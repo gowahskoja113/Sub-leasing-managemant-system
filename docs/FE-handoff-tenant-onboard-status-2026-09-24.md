@@ -166,3 +166,11 @@ Có thể 1 bảng + filter chips theo 4 bước + Active.
 | Tạo QR | `POST /tenant-contracts/{id}/deposit-payment` | vẫn `AWAITING_PAYMENT` |
 | Thanh toán OK | PayOS webhook | `AWAITING_CONFIRM` |
 | Dual OTP | `POST .../confirm` + tenant `confirm-otp` | `ACTIVE` |
+| Đón trễ ≥ 3 ngày | Cron `08:05` `autoCancelNoShowContracts` | `TERMINATED` → end |
+
+### Rule đón khách trễ (no-show)
+
+- Mốc: `expectedReceptionDate ?? moveInDate`
+- Nếu HĐ còn trong onboard (`DRAFT` / `AWAITING_ONBOARD` / `AWAITING_PAYMENT` / `AWAITING_CONFIRM`)
+  và **trễ ≥ 3 ngày** → tự hủy `TERMINATED` (`terminationType=NO_SHOW`)
+- Config: `contract.no-show-grace-days: 3` (`application.yaml`)

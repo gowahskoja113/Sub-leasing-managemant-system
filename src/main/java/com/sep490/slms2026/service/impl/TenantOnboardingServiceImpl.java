@@ -93,8 +93,8 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @org.springframework.beans.factory.annotation.Value("${contract.max-early-move-in-days:3}")
     private int maxEarlyMoveInDays;
 
-    /** Quá số ngày này kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show). */
-    @org.springframework.beans.factory.annotation.Value("${contract.no-show-grace-days:10}")
+    /** Quá số ngày này kể từ ngày đón mà HĐ chưa ACTIVE → tự động hủy (đón khách trễ). */
+    @org.springframework.beans.factory.annotation.Value("${contract.no-show-grace-days:3}")
     private int noShowGraceDays;
 
     private final EntityManager entityManager;
@@ -1591,11 +1591,24 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     @Override
     @Transactional
     public int autoCancelNoShowContracts() {
-        LocalDate cutoff = LocalDate.now().minusDays(noShowGraceDays);
-        List<TenantContract> stale = tenantContractRepository.findByStatusInAndMoveInDateBefore(
-                ContractStatus.onboardInProgress(), cutoff);
+        ZoneId vn = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate today = LocalDate.now(vn);
+        List<TenantContract> candidates = tenantContractRepository.findByStatusIn(
+                ContractStatus.onboardInProgress());
         int count = 0;
-        for (TenantContract contract : stale) {
+        for (TenantContract contract : candidates) {
+            LocalDate receptionDate = contract.getExpectedReceptionDate() != null
+                    ? contract.getExpectedReceptionDate()
+                    : contract.getMoveInDate();
+            if (receptionDate == null) {
+                continue;
+            }
+            long daysLate = ChronoUnit.DAYS.between(receptionDate, today);
+            if (daysLate < noShowGraceDays) {
+                continue;
+            }
+
+            ContractStatus previousStatus = contract.getStatus();
             releaseContractOccupancy(contract);
             contract.setStatus(ContractStatus.TERMINATED);
             contract.setTerminatedAt(LocalDateTime.now());
@@ -1603,16 +1616,18 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                 contract.setPaymentStatus(PaymentStatus.CANCELLED);
             }
             contract.setTerminationType(com.sep490.slms2026.enums.ContractTerminationType.NO_SHOW);
-            contract.setTerminationReason("Tự động hủy: khách không đến nhận nhà quá " + noShowGraceDays
-                    + " ngày kể từ ngày vào ở dự kiến (" + contract.getMoveInDate() + ")");
+            contract.setTerminationReason(
+                    "Tự động hủy: đón khách trễ / không hoàn tất onboard quá " + noShowGraceDays
+                            + " ngày kể từ ngày đón (" + receptionDate + "). Status trước hủy: "
+                            + previousStatus);
             tenantContractRepository.save(contract);
             if (contract.getTenant() != null && contract.getTenant().getUser() != null) {
                 disableTenantAccountIfNoActiveContracts(contract.getTenant().getUser(), contract.getId());
             }
             notifyContractAutoCancelled(contract);
             count++;
-            log.info("Auto-cancel HĐ #{} ({}) — no-show quá {} ngày (moveInDate={})",
-                    contract.getId(), contract.getContractCode(), noShowGraceDays, contract.getMoveInDate());
+            log.info("Auto-cancel HĐ #{} ({}) — đón trễ {} ngày (reception={}, grace={})",
+                    contract.getId(), contract.getContractCode(), daysLate, receptionDate, noShowGraceDays);
         }
         return count;
     }
@@ -1785,9 +1800,10 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         if (tenantName == null || tenantName.isBlank()) {
             tenantName = "khách";
         }
-        String title = "Hợp đồng tự động hủy (no-show)";
+        String title = "Hợp đồng tự động hủy (đón khách trễ)";
         String body = "HĐ " + contract.getContractCode() + " của " + tenantName
-                + " đã tự động hủy do khách không đến nhận nhà quá " + noShowGraceDays + " ngày.";
+                + " đã tự động hủy vì không hoàn tất onboard quá " + noShowGraceDays
+                + " ngày kể từ ngày đón.";
         notificationRepository.save(com.sep490.slms2026.entity.Notification.builder()
                 .userId(manager.getId())
                 .title(title)

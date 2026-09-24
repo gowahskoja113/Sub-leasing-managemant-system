@@ -180,8 +180,9 @@ maintenance:
 contract:
   # Cho phép khách nhận nhà sớm tối đa N ngày so với ngày vào ở dự kiến (những ngày sớm được free)
   max-early-move-in-days: 3
-  # Quá N ngày kể từ ngày vào ở dự kiến mà HĐ chưa ACTIVE → tự động hủy (no-show)
-  no-show-grace-days: 10
+  # Quá N ngày kể từ ngày đón (expectedReceptionDate ?? moveInDate) mà HĐ chưa ACTIVE
+  # → tự động hủy (đón khách trễ / no-show). Mặc định 3 ngày.
+  no-show-grace-days: 3
 
 # Meter override: admin gen OTP passcode → manager verify 1 lần → overrideToken
 manager:

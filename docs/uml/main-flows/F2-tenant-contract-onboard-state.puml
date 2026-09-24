@@ -18,15 +18,19 @@ skinparam state {
 
 DRAFT --> AWAITING_ONBOARD : Promote\n[reception day]
 DRAFT --> TERMINATED : Cancel
+DRAFT --> TERMINATED : Expire\n[late ≥ 3 days]
 
 AWAITING_ONBOARD --> AWAITING_PAYMENT : Capture
 AWAITING_ONBOARD --> TERMINATED : Cancel
+AWAITING_ONBOARD --> TERMINATED : Expire\n[late ≥ 3 days]
 
 AWAITING_PAYMENT --> AWAITING_CONFIRM : Collect
 AWAITING_PAYMENT --> TERMINATED : Cancel
+AWAITING_PAYMENT --> TERMINATED : Expire\n[late ≥ 3 days]
 
 AWAITING_CONFIRM --> ACTIVE : Confirm
 AWAITING_CONFIRM --> TERMINATED : Cancel
+AWAITING_CONFIRM --> TERMINATED : Expire\n[late ≥ 3 days]
 
 ACTIVE --> [*]
 TERMINATED --> [*]
