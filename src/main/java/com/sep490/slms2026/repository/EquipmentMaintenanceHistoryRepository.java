@@ -9,5 +9,7 @@ public interface EquipmentMaintenanceHistoryRepository extends JpaRepository<Equ
 
     List<EquipmentMaintenanceHistory> findByEquipmentIdOrderByMaintenanceDateDesc(Long equipmentId);
 
+    long countByEquipmentId(Long equipmentId);
+
     boolean existsByMaintenanceRequestId(Long maintenanceRequestId);
 }

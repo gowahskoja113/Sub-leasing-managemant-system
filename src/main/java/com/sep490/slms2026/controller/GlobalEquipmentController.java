@@ -29,8 +29,9 @@ public class GlobalEquipmentController {
     }
 
     @GetMapping("/{id}/maintenance-history")
-    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.EquipmentMaintenanceHistoryResponse>> getEquipmentMaintenanceHistory(@PathVariable Long id) {
-        return ResponseEntity.ok(equipmentService.getEquipmentMaintenanceHistoryForCaller(id));
+    public ResponseEntity<java.util.List<com.sep490.slms2026.dto.response.MaintenanceRequestResponse>> getEquipmentMaintenanceHistory(@PathVariable Long id) {
+        // Trả phiếu bảo trì theo equipment_id (không phụ thuộc bảng history riêng).
+        return ResponseEntity.ok(maintenanceService.getEquipmentMaintenanceHistory(id));
     }
 
     @GetMapping("/{id}/maintenance-tickets")

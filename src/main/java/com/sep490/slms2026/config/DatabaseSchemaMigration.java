@@ -129,6 +129,8 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         addColumnIfNotExists("rooms", "elec_decimal_digits", "INTEGER DEFAULT 1");
         addColumnIfNotExists("rooms", "water_integer_digits", "INTEGER DEFAULT 5");
         addColumnIfNotExists("rooms", "water_decimal_digits", "INTEGER DEFAULT 3");
+        addColumnIfNotExists("rooms", "has_open_maintenance", "BOOLEAN NOT NULL DEFAULT FALSE");
+        backfillRentedRoomsWithOpenMaintenance();
         // Multi-device Expo push tokens (1 account → nhiều máy)
         ensureUserPushTokensTable();
         ensureBillingConfigTable();
@@ -160,6 +162,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         ensureMaintenanceDiagnoseReplacementColumn();
         ensureUtilityInvoiceTenantViewedAtColumn();
         ensureMeterReadingLockColumns();
+        backfillEquipmentMaintenanceFromClosedTickets();
 
         syncEnumCheck("room_price_history", "change_type", "room_price_history_change_type_check",
                 com.sep490.slms2026.enums.RoomPriceChangeType.values());
@@ -1271,6 +1274,107 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
             jdbcTemplate.execute(
                     "ALTER TABLE " + table + " RENAME COLUMN " + oldColumn + " TO " + newColumn);
             log.info("Renamed column {}.{} to {}", table, oldColumn, newColumn);
+        }
+    }
+
+    /**
+     * Phiếu CLOSED cũ không cập nhật status/count thiết bị:
+     * - NEW/MAINTENANCE + không còn phiếu mở → GOOD
+     * - còn phiếu mở → MAINTENANCE
+     * - đồng bộ maintenance_count = số phiếu CLOSED
+     */
+    private void backfillEquipmentMaintenanceFromClosedTickets() {
+        try {
+            Boolean tableExists = jdbcTemplate.queryForObject(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'maintenance_requests'
+                    )
+                    """,
+                    Boolean.class);
+            if (!Boolean.TRUE.equals(tableExists)) {
+                return;
+            }
+
+            int toGood = jdbcTemplate.update("""
+                    UPDATE equipments e
+                    SET status = 'GOOD'
+                    WHERE e.status IN ('NEW', 'MAINTENANCE')
+                      AND EXISTS (
+                            SELECT 1 FROM maintenance_requests m
+                            WHERE m.equipment_id = e.id
+                              AND COALESCE(m.deleted, FALSE) = FALSE
+                              AND m.status = 'CLOSED'
+                      )
+                      AND NOT EXISTS (
+                            SELECT 1 FROM maintenance_requests m
+                            WHERE m.equipment_id = e.id
+                              AND COALESCE(m.deleted, FALSE) = FALSE
+                              AND m.status NOT IN ('CLOSED', 'CANCELLED', 'OUTSTANDING_DAMAGE')
+                      )
+                    """);
+
+            int toMaint = jdbcTemplate.update("""
+                    UPDATE equipments e
+                    SET status = 'MAINTENANCE'
+                    WHERE e.status IN ('NEW', 'GOOD')
+                      AND EXISTS (
+                            SELECT 1 FROM maintenance_requests m
+                            WHERE m.equipment_id = e.id
+                              AND COALESCE(m.deleted, FALSE) = FALSE
+                              AND m.status NOT IN ('CLOSED', 'CANCELLED', 'OUTSTANDING_DAMAGE')
+                      )
+                    """);
+
+            int counts = jdbcTemplate.update("""
+                    UPDATE equipments e
+                    SET maintenance_count = (
+                            SELECT COUNT(*) FROM maintenance_requests m
+                            WHERE m.equipment_id = e.id
+                              AND COALESCE(m.deleted, FALSE) = FALSE
+                              AND m.status = 'CLOSED'
+                    )
+                    WHERE EXISTS (
+                            SELECT 1 FROM maintenance_requests m
+                            WHERE m.equipment_id = e.id
+                              AND COALESCE(m.deleted, FALSE) = FALSE
+                    )
+                    """);
+
+            if (toGood > 0 || toMaint > 0 || counts > 0) {
+                log.info(
+                        "Backfilled equipment maintenance: {} → GOOD, {} → MAINTENANCE, {} count synced",
+                        toGood, toMaint, counts);
+            }
+        } catch (Exception e) {
+            log.debug("backfillEquipmentMaintenanceFromClosedTickets skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Phòng đang thuê nhưng bị đẩy sang MAINTENANCE vì phiếu sửa thiết bị:
+     * trả về RENTED và bật has_open_maintenance.
+     */
+    private void backfillRentedRoomsWithOpenMaintenance() {
+        try {
+            int updated = jdbcTemplate.update("""
+                    UPDATE rooms r
+                    SET status = 'RENTED',
+                        has_open_maintenance = TRUE
+                    WHERE r.is_deleted = FALSE
+                      AND r.status = 'MAINTENANCE'
+                      AND EXISTS (
+                            SELECT 1 FROM tenant_contracts tc
+                            WHERE tc.room_id = r.id
+                              AND tc.status = 'ACTIVE'
+                      )
+                    """);
+            if (updated > 0) {
+                log.info("Backfilled {} rented rooms: MAINTENANCE → RENTED + has_open_maintenance", updated);
+            }
+        } catch (Exception e) {
+            log.debug("backfillRentedRoomsWithOpenMaintenance skipped: {}", e.getMessage());
         }
     }
 

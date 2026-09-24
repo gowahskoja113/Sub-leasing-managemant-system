@@ -34,6 +34,8 @@ public class RoomResponse {
     private String imageUrls;
     private PropertyType propertyType;
     private RoomStatus status;
+    /** true = đang có phiếu bảo trì/sửa thiết bị mở (kể cả khi status vẫn RENTED). */
+    private Boolean hasOpenMaintenance;
     private String electricMeterCode;
     private String waterMeterCode;
     /** Số chữ số phần nguyên điện (default 5). */

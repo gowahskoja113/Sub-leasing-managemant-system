@@ -20,6 +20,7 @@ public interface RoomMapper {
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "appliedPrice", ignore = true)
     @Mapping(target = "deleted", ignore = true)
+    @Mapping(target = "hasOpenMaintenance", ignore = true)
     Room toEntity(AddRoomRequest request);
 
     @Mapping(target = "id", ignore = true)
@@ -27,6 +28,7 @@ public interface RoomMapper {
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "appliedPrice", ignore = true)
     @Mapping(target = "deleted", ignore = true)
+    @Mapping(target = "hasOpenMaintenance", ignore = true)
     void updateEntity(UpdateRoomRequest request, @MappingTarget Room room);
 
     // Entity → Response

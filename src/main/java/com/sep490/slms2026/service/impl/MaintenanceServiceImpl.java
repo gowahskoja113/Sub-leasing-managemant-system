@@ -220,6 +220,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
         req = repository.save(req);
         appendPhotoHistory(req, MaintenancePhotoType.BEFORE, request.getImages());
+        markEquipmentMaintenance(req);
 
         String timelineNote = category != null
                 ? "Khách thuê tạo yêu cầu [" + category + "], hẹn xem "
@@ -316,6 +317,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
 
     @Override
     public List<MaintenanceRequestResponse> getEquipmentMaintenanceHistory(Long equipmentId) {
+        if (!equipmentRepository.existsById(equipmentId)) {
+            throw new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + equipmentId);
+        }
         return repository.findByEquipmentIdAndDeletedFalseOrderByCreatedAtDesc(equipmentId)
                 .stream().map(this::convertToResponse).collect(Collectors.toList());
     }
@@ -629,6 +633,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setResolvedAt(LocalDateTime.now());
             repository.save(req);
             restoreRoomStatus(req);
+            recordEquipmentMaintenanceHistory(req);
+            restoreEquipmentAfterMaintenance(req);
             String note = trimToNull(request.getNote());
             addTimeline(req, old, MaintenanceStatus.CLOSED,
                     "Manager xác nhận khách đã tự sửa xong" + (note != null ? ": " + note : ""));
@@ -752,6 +758,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         repository.save(req);
         restoreRoomStatus(req);
         recordEquipmentMaintenanceHistory(req);
+        restoreEquipmentAfterMaintenance(req);
 
         String handoverNote = "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra";
         if (req.isEquipmentReplacementFlagged()) {
@@ -838,6 +845,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         repository.save(req);
         restoreRoomStatus(req);
         recordEquipmentMaintenanceHistory(req);
+        restoreEquipmentAfterMaintenance(req);
 
         String note = request.getRepairDescription() != null
                 ? "Manager hoàn tất sửa chữa: " + request.getRepairDescription()
@@ -919,6 +927,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         req.setStatus(MaintenanceStatus.CANCELLED);
         repository.save(req);
         restoreRoomStatus(req);
+        restoreEquipmentAfterMaintenance(req);
         String timelineNote = tenantSelfCancel
                 ? (isBlank(reason) ? "Khách thuê tự hủy yêu cầu" : reason.trim())
                 : (isBlank(reason) ? "Manager hủy yêu cầu" : reason.trim());
@@ -1585,6 +1594,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setStatus(MaintenanceStatus.CANCELLED);
             repository.save(req);
             restoreRoomStatus(req);
+            restoreEquipmentAfterMaintenance(req);
             addTimeline(req, old, MaintenanceStatus.CANCELLED,
                     "Tự động huỷ — quá 2 giờ chưa xác nhận có mặt");
             notifyTenant(req,
@@ -2169,6 +2179,11 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             requireTenantOwner(req);
         } else if ("ROLE_MANAGER".equals(role)) {
             requireManagerAccess(req);
+        } else if ("ROLE_OWNER".equals(role) || "ROLE_ADMIN".equals(role)) {
+            // Host/admin: chỉ đọc — một host toàn hệ thống, không lọc theo vùng
+            return;
+        } else {
+            throw new AccessDeniedException("Không có quyền xem yêu cầu bảo trì này");
         }
     }
 
@@ -2186,11 +2201,26 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
+    /**
+     * Đánh dấu phòng đang sửa thiết bị.
+     * Phòng đang thuê (RENTED / có HĐ ACTIVE) giữ RENTED + bật {@code hasOpenMaintenance};
+     * phòng trống mới chuyển sang MAINTENANCE.
+     */
     private void markRoomMaintenance(MaintenanceRequest req) {
-        if (req.getRoom() != null) {
-            req.getRoom().setStatus(RoomStatus.MAINTENANCE);
-            roomRepository.save(req.getRoom());
+        markEquipmentMaintenance(req);
+        if (req.getRoom() == null) {
+            return;
         }
+        Room room = req.getRoom();
+        boolean occupied = room.getStatus() == RoomStatus.RENTED
+                || tenantContractRepository.existsByRoomIdAndStatus(room.getId(), ContractStatus.ACTIVE);
+        room.setHasOpenMaintenance(true);
+        if (occupied) {
+            room.setStatus(RoomStatus.RENTED);
+        } else {
+            room.setStatus(RoomStatus.MAINTENANCE);
+        }
+        roomRepository.save(room);
     }
 
     private void restoreRoomStatus(MaintenanceRequest req) {
@@ -2204,9 +2234,54 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
             boolean hasActiveContract = tenantContractRepository.existsByRoomIdAndStatus(
                     req.getRoom().getId(), ContractStatus.ACTIVE);
+            req.getRoom().setHasOpenMaintenance(false);
             req.getRoom().setStatus(hasActiveContract ? RoomStatus.RENTED : RoomStatus.AVAILABLE);
             roomRepository.save(req.getRoom());
         }
+    }
+
+    /** Mở phiếu / vào sửa: NEW hoặc GOOD → MAINTENANCE (không đè BROKEN/DISPOSED). */
+    private void markEquipmentMaintenance(MaintenanceRequest req) {
+        if (req.getEquipmentId() == null) {
+            return;
+        }
+        equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
+            if (eq.getStatus() == EquipmentStatus.NEW || eq.getStatus() == EquipmentStatus.GOOD) {
+                eq.setStatus(EquipmentStatus.MAINTENANCE);
+                equipmentRepository.save(eq);
+            }
+        });
+    }
+
+    /**
+     * Đóng/hủy phiếu: NEW hoặc MAINTENANCE → GOOD.
+     * Thay mới giữ NEW; còn phiếu mở khác thì giữ MAINTENANCE.
+     */
+    private void restoreEquipmentAfterMaintenance(MaintenanceRequest req) {
+        if (req.getEquipmentId() == null) {
+            return;
+        }
+        if (req.isEquipmentReplacementFlagged()
+                && (req.getStatus() == MaintenanceStatus.CLOSED
+                || req.getStatus() == MaintenanceStatus.WAITING_PAYMENT)) {
+            return;
+        }
+        boolean stillOpen = repository
+                .findFirstByEquipmentIdAndStatusNotInAndDeletedFalseOrderByIdDesc(
+                        req.getEquipmentId(),
+                        List.of(MaintenanceStatus.CLOSED, MaintenanceStatus.CANCELLED,
+                                MaintenanceStatus.OUTSTANDING_DAMAGE))
+                .filter(other -> !other.getId().equals(req.getId()))
+                .isPresent();
+        if (stillOpen) {
+            return;
+        }
+        equipmentRepository.findById(req.getEquipmentId()).ifPresent(eq -> {
+            if (eq.getStatus() == EquipmentStatus.MAINTENANCE || eq.getStatus() == EquipmentStatus.NEW) {
+                eq.setStatus(EquipmentStatus.GOOD);
+                equipmentRepository.save(eq);
+            }
+        });
     }
 
     private void addTimeline(MaintenanceRequest req, MaintenanceStatus oldStatus, MaintenanceStatus newStatus, String note) {
@@ -2747,7 +2822,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     /** Snapshot nhẹ cho list/detail phiếu — không gọi EquipmentService (tránh N+1 nặng). */
-    private static EquipmentResponse toEquipmentSnapshot(Equipment eq) {
+    private EquipmentResponse toEquipmentSnapshot(Equipment eq) {
         int remainingMonths = EquipmentAssetCalculator.remainingWarrantyMonths(eq);
         return EquipmentResponse.builder()
                 .id(eq.getId())
@@ -2765,7 +2840,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .installationDate(eq.getInstallationDate())
                 .purchasedAt(EquipmentAssetCalculator.purchasedAt(eq))
                 .warrantyExpiredDate(eq.getWarrantyExpiredDate())
-                .maintenanceCount(eq.getMaintenanceCount())
+                .maintenanceCount(resolveEquipmentMaintenanceCount(eq))
                 .lastMaintenanceDate(eq.getLastMaintenanceDate())
                 .warrantyMonths(eq.getWarrantyMonths())
                 .warrantyStartDate(eq.getWarrantyStartDate())
@@ -2777,5 +2852,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .remainingWarrantyYears(EquipmentAssetCalculator.remainingWarrantyYears(remainingMonths))
                 .remainingWarrantyLabel(EquipmentAssetCalculator.remainingWarrantyLabel(remainingMonths))
                 .build();
+    }
+
+    private int resolveEquipmentMaintenanceCount(Equipment eq) {
+        return (int) repository.countCompletedByEquipmentId(eq.getId());
     }
 }

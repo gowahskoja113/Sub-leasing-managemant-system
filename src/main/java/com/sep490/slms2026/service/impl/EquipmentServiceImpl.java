@@ -215,9 +215,15 @@ public class EquipmentServiceImpl implements EquipmentService {
         if (!equipmentRepository.existsById(equipmentId)) {
             throw new ResourceNotFoundException("Không tìm thấy thiết bị ID=" + equipmentId);
         }
-        return equipmentHistoryRepository.findByEquipmentIdOrderByMaintenanceDateDesc(equipmentId)
+        List<EquipmentMaintenanceHistory> histories =
+                equipmentHistoryRepository.findByEquipmentIdOrderByMaintenanceDateDesc(equipmentId);
+        if (!histories.isEmpty()) {
+            return histories.stream().map(this::toHistoryResponse).toList();
+        }
+        // Fallback: bảng history trống nhưng đã có phiếu — suy từ maintenance_requests để không trả []
+        return maintenanceRequestRepository.findByEquipmentIdAndDeletedFalseOrderByCreatedAtDesc(equipmentId)
                 .stream()
-                .map(this::toHistoryResponse)
+                .map(this::toHistoryResponseFromTicket)
                 .toList();
     }
 
@@ -289,7 +295,7 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .installationDate(equipment.getInstallationDate())
                 .purchasedAt(EquipmentAssetCalculator.purchasedAt(equipment))
                 .warrantyExpiredDate(equipment.getWarrantyExpiredDate())
-                .maintenanceCount(equipment.getMaintenanceCount())
+                .maintenanceCount(resolveMaintenanceCount(equipment))
                 .lastMaintenanceDate(equipment.getLastMaintenanceDate())
                 .warrantyMonths(equipment.getWarrantyMonths())
                 .warrantyStartDate(equipment.getWarrantyStartDate())
@@ -320,6 +326,37 @@ public class EquipmentServiceImpl implements EquipmentService {
                 .note(history.getNote())
                 .photoUrls(splitCsv(history.getPhotoUrls()))
                 .build();
+    }
+
+    private EquipmentMaintenanceHistoryResponse toHistoryResponseFromTicket(MaintenanceRequest req) {
+        java.math.BigDecimal cost = req.getInvoiceAmount() != null
+                ? req.getInvoiceAmount()
+                : req.getEstimatedDamageAmount();
+        String note = req.getRepairDescription() != null
+                ? req.getRepairDescription()
+                : (req.getResolutionNote() != null ? req.getResolutionNote() : req.getDescription());
+        List<String> photos = new java.util.ArrayList<>();
+        photos.addAll(splitCsv(req.getBeforeImageUrls()));
+        photos.addAll(splitCsv(req.getAfterImageUrls()));
+        photos.addAll(splitCsv(req.getInvoiceImageUrls()));
+        LocalDateTime date = req.getDoneAt() != null
+                ? req.getDoneAt()
+                : (req.getResolvedAt() != null ? req.getResolvedAt() : req.getCreatedAt());
+        return EquipmentMaintenanceHistoryResponse.builder()
+                .id(req.getId())
+                .equipmentId(req.getEquipmentId())
+                .maintenanceRequestId(req.getId())
+                .requestCode(req.getRequestCode())
+                .maintenanceDate(date)
+                .repairCost(cost != null ? cost.longValue() : null)
+                .note(note)
+                .photoUrls(photos.stream().filter(u -> u != null && !u.isBlank()).distinct().toList())
+                .build();
+    }
+
+    /** Đếm số phiếu CLOSED theo equipment_id (không dùng cột cache có thể lệch). */
+    private int resolveMaintenanceCount(Equipment equipment) {
+        return (int) maintenanceRequestRepository.countCompletedByEquipmentId(equipment.getId());
     }
 
     private static List<String> splitCsv(String csv) {

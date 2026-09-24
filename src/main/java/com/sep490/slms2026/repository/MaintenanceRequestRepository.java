@@ -62,6 +62,15 @@ public interface MaintenanceRequestRepository extends JpaRepository<MaintenanceR
 
     List<MaintenanceRequest> findByEquipmentIdAndDeletedFalseOrderByCreatedAtDesc(Long equipmentId);
 
+    /** Số phiếu CLOSED theo thiết bị — dùng cho maintenanceCount. */
+    @Query("""
+            SELECT COUNT(m) FROM MaintenanceRequest m
+            WHERE m.equipmentId = :equipmentId
+              AND m.deleted = false
+              AND m.status = com.sep490.slms2026.enums.MaintenanceStatus.CLOSED
+            """)
+    long countCompletedByEquipmentId(@Param("equipmentId") Long equipmentId);
+
     @Query("SELECT COUNT(m) FROM MaintenanceRequest m WHERE m.deleted = false")
     long countAll();
 

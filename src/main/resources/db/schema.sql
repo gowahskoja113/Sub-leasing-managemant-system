@@ -211,7 +211,8 @@ CREATE TABLE IF NOT EXISTS rooms (
     elec_decimal_digits     INTEGER DEFAULT 1,
     water_integer_digits    INTEGER DEFAULT 5,
     water_decimal_digits    INTEGER DEFAULT 3,
-    is_deleted              BOOLEAN NOT NULL DEFAULT FALSE
+    is_deleted              BOOLEAN NOT NULL DEFAULT FALSE,
+    has_open_maintenance    BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS inbound_contracts (

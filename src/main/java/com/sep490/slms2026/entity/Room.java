@@ -99,6 +99,14 @@ public class Room implements Serializable {
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
 
+    /**
+     * Có phiếu bảo trì/sửa thiết bị đang mở. Phòng đang thuê giữ {@link RoomStatus#RENTED}
+     * và dùng cờ này thay vì đẩy cả phòng sang {@link RoomStatus#MAINTENANCE}.
+     */
+    @Column(name = "has_open_maintenance", nullable = false)
+    @Builder.Default
+    private boolean hasOpenMaintenance = false;
+
     @PrePersist
     @PreUpdate
     private void applyMeterDigitDefaults() {

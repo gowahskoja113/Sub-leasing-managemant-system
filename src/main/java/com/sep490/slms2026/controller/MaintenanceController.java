@@ -28,7 +28,7 @@ public class MaintenanceController {
     private final MaintenanceService maintenanceService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT', 'OWNER')")
     public Page<MaintenanceRequestResponse> getRequests(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String priority,
@@ -80,7 +80,7 @@ public class MaintenanceController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'TENANT', 'OWNER')")
     public MaintenanceRequestResponse getRequestById(@PathVariable Long id) {
         return maintenanceService.getRequestById(id);
     }
