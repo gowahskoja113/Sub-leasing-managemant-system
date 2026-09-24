@@ -724,29 +724,45 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             throw new BusinessException("Chưa có kết quả chẩn đoán — gọi /diagnose trước khi bàn giao");
         }
 
-        requireInvoiceIssuedBeforeRepair(req);
-
         if (request != null && request.getHandoverImages() != null && !request.getHandoverImages().isEmpty()) {
             appendCsv(req, "after", request.getHandoverImages());
             appendPhotoHistory(req, MaintenancePhotoType.AFTER, request.getHandoverImages());
+        }
+        if (request != null && request.getInvoiceImages() != null && !request.getInvoiceImages().isEmpty()) {
+            appendCsv(req, "invoice", request.getInvoiceImages());
+            appendPhotoHistory(req, MaintenancePhotoType.INVOICE, request.getInvoiceImages());
         }
 
         if (isBlank(req.getAfterImageUrls())) {
             throw new BusinessException("Bắt buộc phải có ảnh bàn giao (AFTER)");
         }
 
+        boolean chargeToTenant = !req.isCompanyAbsorbedFault()
+                && req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
+                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
+        boolean needsReplacement = req.isEquipmentReplacementFlagged();
+
         if (req.isEquipmentReplacementFlagged()) {
-            boolean chargeToTenant = !req.isCompanyAbsorbedFault()
-                    && req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                    && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
             MaintenanceCompleteRequest replacementCtx = new MaintenanceCompleteRequest();
             replacementCtx.setEstimatedDamageAmount(req.getEstimatedDamageAmount());
             applyEquipmentReplacementOnComplete(req, replacementCtx, chargeToTenant);
         }
 
-        boolean chargeToTenant = !req.isCompanyAbsorbedFault()
-                && req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
+        // Lỗi do khách + đồng ý trả: lập hoá đơn SAU khi bàn giao (1 lần chi phí), giống complete().
+        // companyAbsorbedFault / WEAR: không lập hoá đơn thu khách.
+        TenantInvoiceResponse issuedInvoice = null;
+        if (chargeToTenant && req.getChargeInvoiceId() == null) {
+            if (isBlank(req.getInvoiceImageUrls())) {
+                throw new BusinessException("Bắt buộc phải có ảnh hóa đơn (INVOICE)");
+            }
+            MaintenanceCompleteRequest invoiceCtx = toCompleteInvoiceContext(request);
+            applyInvoiceOnComplete(req, invoiceCtx, needsReplacement);
+            BigDecimal chargeAmount = resolveMaintenanceChargeAmount(req, needsReplacement);
+            issuedInvoice = issueMaintenanceCharge(req, chargeAmount);
+            req.setChargeInvoiceId(issuedInvoice.getId());
+        } else if (request != null && request.getRepairDescription() != null) {
+            req.setRepairDescription(trimToNull(request.getRepairDescription()));
+        }
 
         MaintenanceStatus old = req.getStatus();
         MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
@@ -773,7 +789,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
         addTimeline(req, old, next, handoverNote);
         notifyAfterWorkDone(req, next, chargeToTenant);
-        return convertToResponse(req);
+
+        MaintenanceRequestResponse response = convertToResponse(req);
+        if (issuedInvoice != null) {
+            response.setIssuedInvoice(issuedInvoice);
+        }
+        return response;
     }
 
     @Override
@@ -790,8 +811,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     "Yêu cầu phải ở trạng thái IN_REPAIR hoặc TENANT_FAULT (manager sửa hộ). Hiện tại: "
                             + req.getStatus());
         }
-
-        requireInvoiceIssuedBeforeRepair(req);
 
         if (request.getAfterImages() != null && !request.getAfterImages().isEmpty()) {
             appendCsv(req, "after", request.getAfterImages());
@@ -1363,10 +1382,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             return convertToResponse(req);
         }
 
-        // Khách đồng ý trả — lập hoá đơn 1 lần, hạn 3 ngày, rồi sửa (không chờ thanh toán)
-        BigDecimal tenantQuoted = needsReplacement
-                ? req.getEstimatedDamageAmount()
-                : request.getQuotedRepairAmount();
+        // Khách đồng ý trả — sửa trước, lập hoá đơn 1 lần lúc complete()/handover() (không lập sớm tại diagnose).
         if (fromInspection || repairAt != null) {
             if (repairAt != null) {
                 UUID managerId = requireManagerId(req);
@@ -1378,18 +1394,14 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setStatus(MaintenanceStatus.TENANT_FAULT);
         }
         repository.save(req);
-        issueTenantRepairInvoiceIfNeeded(req);
         addTimeline(req, old, req.getStatus(),
                 "Chẩn đoán: lỗi khách — khách đồng ý trả. " + amountNote
                         + (repairAt != null ? ", hẹn giao " + repairAt : "")
-                        + " — đã lập hoá đơn, hạn "
-                        + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày");
+                        + " — hoá đơn sẽ lập sau khi hoàn tất sửa chữa");
         notifyTenant(req,
                 "Yêu cầu bảo trì — lỗi do khách thuê",
-                "Lý do: " + req.getFaultReason() + ". Chi phí: "
-                        + tenantQuoted + "đ. Thanh toán trong "
-                        + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS
-                        + " ngày kể từ lúc lập hoá đơn. Quản lý sẽ tiến hành sửa.",
+                "Lý do: " + req.getFaultReason()
+                        + ". Quản lý sẽ tiến hành sửa chữa. Hoá đơn chi phí sẽ được gửi sau khi hoàn tất.",
                 "MAINTENANCE_TENANT_FAULT");
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_REJECT_FAULT);
         if (req.getStatus() == MaintenanceStatus.REPAIR_SCHEDULED) {
@@ -1399,9 +1411,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     /**
-     * Gán số tiền — chỉ 1 lần chi phí, không cộng chi phí phát sinh thêm.
-     * Thay mới: estimatedDamageAmount hoặc khấu hao còn lại của thiết bị.
-     * Không thay: quotedRepairAmount bắt buộc ≥ 0.
+     * Gán số tiền lúc chẩn đoán.
+     * Thay mới: estimatedDamageAmount hoặc khấu hao còn lại của thiết bị (giữ nguyên).
+     * Không thay: bỏ qua quotedRepairAmount — chi phí nhập 1 lần lúc complete()/handover().
      */
     private void applyDiagnoseAmountFields(
             MaintenanceRequest req, MaintenanceDiagnoseRequest request, boolean needsReplacement) {
@@ -1447,12 +1459,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             return;
         }
 
-        if (request.getQuotedRepairAmount() == null
-                || request.getQuotedRepairAmount().compareTo(BigDecimal.ZERO) < 0) {
-            throw new BusinessException("quotedRepairAmount là bắt buộc và không được âm");
-        }
-        req.setEstimatedDamageAmount(request.getQuotedRepairAmount());
-        req.setInvoiceAmount(request.getQuotedRepairAmount());
+        // Không thay thiết bị: chi phí thật nhập lúc complete()/handover — không set số ở diagnose.
         req.setEquipmentReplacementFlagged(false);
     }
 
@@ -1460,7 +1467,10 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (needsReplacement) {
             return "cần thay mới, giá trị còn lại " + req.getEstimatedDamageAmount() + "đ";
         }
-        return "chi phí sửa chữa " + req.getEstimatedDamageAmount() + "đ";
+        if (req.getEstimatedDamageAmount() != null) {
+            return "chi phí sửa chữa " + req.getEstimatedDamageAmount() + "đ";
+        }
+        return "chi phí sửa chữa sẽ xác định khi hoàn tất";
     }
 
     @Override
@@ -1506,8 +1516,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getDamageCause() == null) {
             throw new BusinessException("Chưa có kết quả chẩn đoán — gọi /diagnose trước khi bắt đầu sửa");
         }
-
-        requireInvoiceIssuedBeforeRepair(req);
 
         MaintenanceStatus old = req.getStatus();
         // Công ty trả hộ đi IN_REPAIR (không gate thanh toán); khách trả → TENANT_FAULT
@@ -1654,28 +1662,6 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
-    /**
-     * Lỗi tenant: phải đã lập hoá đơn trước khi sửa. Không chặn vì chưa thanh toán —
-     * tenant có {@link TenantPendingChargeService#MAINTENANCE_CHARGE_DUE_DAYS} ngày.
-     */
-    private void requireInvoiceIssuedBeforeRepair(MaintenanceRequest req) {
-        if (req.isCompanyAbsorbedFault()) {
-            return;
-        }
-        if (req.getFlowType() != MaintenanceFlowType.TENANT_FAULT
-                || req.getFaultResolutionPath() != FaultResolutionPath.MANAGER_REPAIR) {
-            return;
-        }
-        if (bypassPaymentCheck) {
-            return;
-        }
-        if (req.getChargeInvoiceId() == null) {
-            throw new BusinessException(
-                    "Cần lập hoá đơn chi phí sửa chữa trước khi bắt đầu sửa. Tenant thanh toán trong "
-                            + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày.");
-        }
-    }
-
     private void assertQrMatchesEquipment(MaintenanceRequest req, String scannedQr) {
         if (req.getEquipmentId() == null) {
             return;
@@ -1763,28 +1749,18 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
     }
 
-    private void issueTenantRepairInvoiceIfNeeded(MaintenanceRequest req) {
-        if (req.isCompanyAbsorbedFault() || req.getChargeInvoiceId() != null) {
-            return;
+    private static MaintenanceCompleteRequest toCompleteInvoiceContext(MaintenanceHandoverRequest request) {
+        MaintenanceCompleteRequest ctx = new MaintenanceCompleteRequest();
+        if (request == null) {
+            return ctx;
         }
-        boolean chargeTenant = req.getFlowType() == MaintenanceFlowType.TENANT_FAULT
-                && req.getFaultResolutionPath() == FaultResolutionPath.MANAGER_REPAIR;
-        if (!chargeTenant) {
-            return;
-        }
-        BigDecimal amount = resolveMaintenanceChargeAmount(req, req.isEquipmentReplacementFlagged());
-        if (req.getInvoiceDate() == null) {
-            req.setInvoiceDate(LocalDate.now(VN_ZONE));
-        }
-        TenantInvoiceResponse issued = issueMaintenanceCharge(req, amount);
-        req.setChargeInvoiceId(issued.getId());
-        repository.save(req);
-        notifyTenant(req,
-                "Đã phát hành hóa đơn sửa chữa",
-                "Yêu cầu #" + req.getId() + " — khoản " + amount + "đ cần thanh toán trong "
-                        + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS
-                        + " ngày kể từ lúc tạo hoá đơn.",
-                "MAINTENANCE_CHARGE_ISSUED");
+        ctx.setInvoiceVendor(request.getInvoiceVendor());
+        ctx.setInvoiceNumber(request.getInvoiceNumber());
+        ctx.setInvoiceDate(request.getInvoiceDate());
+        ctx.setInvoiceAmount(request.getInvoiceAmount());
+        ctx.setRepairDescription(request.getRepairDescription());
+        ctx.setInvoiceImages(request.getInvoiceImages());
+        return ctx;
     }
 
     private BigDecimal remainingDepreciationOf(MaintenanceRequest req) {

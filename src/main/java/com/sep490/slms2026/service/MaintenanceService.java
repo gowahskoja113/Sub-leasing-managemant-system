@@ -49,13 +49,21 @@ public interface MaintenanceService {
     /** Manager verify tenant đã tự sửa. */
     MaintenanceRequestResponse verifyRepair(Long id, MaintenanceVerifyRepairRequest request);
 
-    /** Manager hoàn tất sửa — CLOSED nếu không thu tenant / đã PAID; WAITING_PAYMENT nếu còn nợ. */
+    /** Manager hoàn tất sửa — CLOSED nếu không thu tenant / đã PAID; WAITING_PAYMENT nếu còn nợ.
+     *  Lập hoá đơn MAINTENANCE tại đây (1 lần chi phí) khi thu tenant và chưa có chargeInvoiceId. */
     MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request);
 
-    /** Tạo hoá đơn thanh toán bảo trì trước khi sửa (Luồng A & B) */
+    /**
+     * Lập hoá đơn tay phòng hờ (không thuộc happy path mới).
+     * Happy path: chi phí nhập lúc {@link #complete} / {@link #handover}.
+     */
     MaintenanceRequestResponse chargeBeforeRepair(Long id, MaintenanceChargeRequest request);
 
-    /** Bàn giao thiết bị — CLOSED nếu đã PAID / không thu; WAITING_PAYMENT nếu còn nợ. */
+    /**
+     * Bàn giao thiết bị sau kiểm tra/sửa ngoài.
+     * Khi thu tenant và chưa có hoá đơn: nhận invoice* giống complete rồi lập MAINTENANCE.
+     * CLOSED nếu đã PAID / không thu; WAITING_PAYMENT nếu còn nợ.
+     */
     MaintenanceRequestResponse handover(Long id, MaintenanceHandoverRequest request);
 
     /** Sau khi hoá đơn MAINTENANCE PAID: WAITING_PAYMENT → CLOSED. */
