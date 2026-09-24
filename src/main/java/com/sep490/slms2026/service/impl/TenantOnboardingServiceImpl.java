@@ -349,9 +349,7 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
         }
 
         ensureRoomAvailableForDeposit(contract);
-        if (contract.getMoveInDate() == null || contract.getMoveInDate().isBefore(LocalDate.now())) {
-            throw new BusinessException("Ngày vào ở không hợp lệ để thu cọc");
-        }
+        assertDepositPaymentDateWindow(contract);
 
         ensureDepositPaymentAllowed(contract);
 
@@ -1456,9 +1454,16 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             LocalDate due = contract.getExpectedReceptionDate() != null
                     ? contract.getExpectedReceptionDate()
                     : contract.getMoveInDate();
-            if (due == null || due.isAfter(LocalDate.now())) {
+            if (due == null) {
                 throw new BusinessException(
-                        "Chưa tới ngày đón khách — không thể hoàn tất chụp (completeCapture)");
+                        "Thiếu ngày đón / ngày vào ở — không thể hoàn tất chụp (completeCapture)");
+            }
+            // Cho phép đón sớm trong cửa sổ max-early-move-in-days (đồng bộ config + bước OTP).
+            LocalDate earliest = due.minusDays(Math.max(0, maxEarlyMoveInDays));
+            if (LocalDate.now().isBefore(earliest)) {
+                throw new BusinessException(
+                        "Chưa tới cửa sổ đón khách (sớm tối đa " + maxEarlyMoveInDays
+                                + " ngày trước ngày đón " + due + ")");
             }
             contract.setStatus(ContractStatus.AWAITING_ONBOARD);
         }
@@ -1576,14 +1581,19 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
             LocalDate due = contract.getExpectedReceptionDate() != null
                     ? contract.getExpectedReceptionDate()
                     : contract.getMoveInDate();
-            if (due == null || due.isAfter(today)) {
+            if (due == null) {
+                continue;
+            }
+            // Promote sớm trong cửa sổ max-early-move-in-days (manager có thể đón sớm).
+            LocalDate earliest = due.minusDays(Math.max(0, maxEarlyMoveInDays));
+            if (today.isBefore(earliest)) {
                 continue;
             }
             contract.setStatus(ContractStatus.AWAITING_ONBOARD);
             tenantContractRepository.save(contract);
             count++;
-            log.info("Promote HĐ #{} ({}) DRAFT → AWAITING_ONBOARD (due={})",
-                    contract.getId(), contract.getContractCode(), due);
+            log.info("Promote HĐ #{} ({}) DRAFT → AWAITING_ONBOARD (due={}, earliest={})",
+                    contract.getId(), contract.getContractCode(), due, earliest);
         }
         return count;
     }
@@ -1593,10 +1603,14 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
     public int autoCancelNoShowContracts() {
         ZoneId vn = ZoneId.of("Asia/Ho_Chi_Minh");
         LocalDate today = LocalDate.now(vn);
+        // Chỉ hủy bước chưa thu tiền. AWAITING_CONFIRM (đã PAID) để manager xử lý tay / hoàn.
         List<TenantContract> candidates = tenantContractRepository.findByStatusIn(
-                ContractStatus.onboardInProgress());
+                ContractStatus.unpaidOnboardCancelable());
         int count = 0;
         for (TenantContract contract : candidates) {
+            if (contract.getPaymentStatus() == PaymentStatus.PAID) {
+                continue;
+            }
             LocalDate receptionDate = contract.getExpectedReceptionDate() != null
                     ? contract.getExpectedReceptionDate()
                     : contract.getMoveInDate();
@@ -1630,6 +1644,32 @@ public class TenantOnboardingServiceImpl implements TenantOnboardingService {
                     contract.getId(), contract.getContractCode(), daysLate, receptionDate, noShowGraceDays);
         }
         return count;
+    }
+
+    /**
+     * Cửa sổ tạo QR cọc: sớm tối đa {@code maxEarlyMoveInDays}, trễ &lt; {@code noShowGraceDays}
+     * kể từ {@code expectedReceptionDate ?? moveInDate}.
+     */
+    private void assertDepositPaymentDateWindow(TenantContract contract) {
+        LocalDate receptionDate = contract.getExpectedReceptionDate() != null
+                ? contract.getExpectedReceptionDate()
+                : contract.getMoveInDate();
+        if (receptionDate == null) {
+            throw new BusinessException("Thiếu ngày đón / ngày vào ở — không thể thu cọc");
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate earliest = receptionDate.minusDays(Math.max(0, maxEarlyMoveInDays));
+        if (today.isBefore(earliest)) {
+            throw new BusinessException(
+                    "Chưa tới cửa sổ thu cọc (sớm tối đa " + maxEarlyMoveInDays
+                            + " ngày trước ngày đón " + receptionDate + ")");
+        }
+        long daysLate = ChronoUnit.DAYS.between(receptionDate, today);
+        if (daysLate >= noShowGraceDays) {
+            throw new BusinessException(
+                    "Đã quá hạn đón khách (" + noShowGraceDays
+                            + " ngày kể từ " + receptionDate + ") — không thể tạo QR thu cọc");
+        }
     }
 
     @Override

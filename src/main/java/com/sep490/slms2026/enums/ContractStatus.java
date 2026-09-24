@@ -46,6 +46,14 @@ public enum ContractStatus {
         return List.of(DRAFT, AWAITING_ONBOARD, AWAITING_PAYMENT, AWAITING_CONFIRM);
     }
 
+    /**
+     * HĐ chưa thu tiền — cron no-show được hủy tự động.
+     * Không gồm {@code AWAITING_CONFIRM} (đã PAID): hủy nhầm sẽ để tiền treo, không có bước hoàn.
+     */
+    public static List<ContractStatus> unpaidOnboardCancelable() {
+        return List.of(DRAFT, AWAITING_ONBOARD, AWAITING_PAYMENT);
+    }
+
     /** HĐ tenant còn sống (giữ chỗ hoặc đang thuê). */
     public static List<ContractStatus> occupyingOrHolding() {
         return List.of(DRAFT, AWAITING_ONBOARD, AWAITING_PAYMENT, AWAITING_CONFIRM, ACTIVE);

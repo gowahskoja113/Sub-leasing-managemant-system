@@ -178,10 +178,12 @@ maintenance:
 
 # Vòng đời hợp đồng thuê
 contract:
-  # Cho phép khách nhận nhà sớm tối đa N ngày so với ngày vào ở dự kiến (những ngày sớm được free)
+  # Cho phép khách nhận nhà sớm tối đa N ngày so với ngày đón dự kiến
+  # (cron promote + completeCapture + tạo QR cọc cùng cửa sổ)
   max-early-move-in-days: 3
-  # Quá N ngày kể từ ngày đón (expectedReceptionDate ?? moveInDate) mà HĐ chưa ACTIVE
-  # → tự động hủy (đón khách trễ / no-show). Mặc định 3 ngày.
+  # Quá N ngày kể từ ngày đón (expectedReceptionDate ?? moveInDate) mà HĐ còn
+  # DRAFT/AWAITING_ONBOARD/AWAITING_PAYMENT (chưa PAID) → tự động hủy no-show.
+  # Không hủy AWAITING_CONFIRM (đã thu tiền).
   no-show-grace-days: 3
 
 # Meter override: admin gen OTP passcode → manager verify 1 lần → overrideToken

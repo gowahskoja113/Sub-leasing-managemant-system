@@ -171,6 +171,8 @@ Có thể 1 bảng + filter chips theo 4 bước + Active.
 ### Rule đón khách trễ (no-show)
 
 - Mốc: `expectedReceptionDate ?? moveInDate`
-- Nếu HĐ còn trong onboard (`DRAFT` / `AWAITING_ONBOARD` / `AWAITING_PAYMENT` / `AWAITING_CONFIRM`)
-  và **trễ ≥ 3 ngày** → tự hủy `TERMINATED` (`terminationType=NO_SHOW`)
+- Chỉ hủy bước **chưa thu tiền**: `DRAFT` / `AWAITING_ONBOARD` / `AWAITING_PAYMENT`
+  (không hủy `AWAITING_CONFIRM` đã PAID — tránh tiền treo không hoàn tự động)
+- Trễ ≥ 3 ngày → tự hủy `TERMINATED` (`terminationType=NO_SHOW`)
 - Config: `contract.no-show-grace-days: 3` (`application.yaml`)
+- Đón sớm: cửa sổ `contract.max-early-move-in-days: 3` — cron promote + `completeCapture` + tạo QR được phép sớm tối đa N ngày
