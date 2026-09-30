@@ -1,145 +1,15 @@
 @startuml F1_InitialSetup_Sequence
-title Figure — Initial Setup Sequence Diagram\nSubmit to Host → Host Confirm (auto OM) → [Optional] Assign/Change OM
+title Figure F1 — Initial Setup (index)\nĐã tách thành 3 hình riêng
 
-skinparam sequenceMessageAlign center
-skinparam responseMessageBelowArrow true
+note as N1
+  **F1a** — Admin Submit to Host
+  file: F1a-submit-to-host-sequence.puml
 
-actor Admin
-actor Host
-participant "Front-end" as FE
-participant "PropertyOnboardingController" as C
-participant "PropertyOnboardingServiceImpl" as S
-participant "DepreciationService" as DS
-participant "PropertyRepository" as PR
-participant "RoomRepository" as RR
-participant "ZoneManagerRepository" as ZMR
-participant "OperationManagementRepository" as OMR
-database DB
+  **F1b** — Host Confirm Pricing (auto OM → ACTIVE)
+  file: F1b-host-confirm-sequence.puml
 
-== A. Admin submit to Host ==
-
-Admin -> FE : (1) Click "Submit to Host"
-activate Admin
-activate FE
-FE -> C : (2) POST /api/v1/properties/{id}/submit-to-host
-activate C
-C -> S : (3) submitToHost(propertyId)
-activate S
-S -> DB : (4) BeginTransaction()
-activate DB
-S -> PR : (5) findById(propertyId)
-activate PR
-PR -> DB : (6) SELECT Property
-DB --> PR : (7) return Property
-PR --> S : (8) return Property
-deactivate PR
-S -> S : (9) validate RENOVATION_COMPLETED\n+ structure / equipment / lease
-S -> DS : (10) calculate(propertyId)
-activate DS
-DS -> DB : (11) INSERT/UPDATE DepreciationResult
-DB --> DS : (12) return OK
-DS --> S : (13) return OK
-deactivate DS
-S -> PR : (14) save(status=PENDING_HOST_REVIEW,\nsubmittedToHostAt=now)
-activate PR
-PR -> DB : (15) UPDATE Property
-DB --> PR : (16) return OK
-PR --> S : (17) return Property
-deactivate PR
-break
-  S -> DB : RollbackTransaction()
-end
-S -> DB : (18) CommitTransaction()
-DB --> S : (19) return Committed
-deactivate DB
-S --> C : (20) return OnboardingSummaryResponse
-deactivate S
-C --> FE : (21) return Response
-deactivate C
-FE --> Admin : (22) return Waiting for Host
-deactivate FE
-deactivate Admin
-
-== B. Host confirm pricing (auto-assign zone OM → ACTIVE) ==
-
-Host -> FE : (23) Confirm appliedPrice / roomPrices\n+ contingencyPercent
-activate Host
-activate FE
-FE -> C : (24) POST /api/v1/properties/{id}/host-confirm
-activate C
-C -> S : (25) hostConfirm(id, HostConfirmRequest)
-activate S
-S -> DB : (26) BeginTransaction()
-activate DB
-S -> PR : (27) findById + validate PENDING_HOST_REVIEW
-activate PR
-PR -> DB : (28) SELECT Property
-DB --> PR : (29) return Property
-PR --> S : (30) return Property
-deactivate PR
-S -> ZMR : (31) findById(zoneId)\n(throw ZONE_HAS_NO_MANAGER if missing)
-activate ZMR
-ZMR -> DB : (32) SELECT ZoneManager
-DB --> ZMR : (33) return ZoneManager
-ZMR --> S : (34) return managerId
-deactivate ZMR
-S -> RR : (35) update room prices / appliedPrice
-activate RR
-RR -> DB : (36) UPDATE Room
-DB --> RR : (37) return OK
-RR --> S : (38) return OK
-deactivate RR
-S -> PR : (39) save(operationManagerId=zoneOM,\nstatus=ACTIVE, open DRAFT rooms)
-activate PR
-PR -> DB : (40) UPDATE Property + Room
-DB --> PR : (41) return OK
-PR --> S : (42) return Property
-deactivate PR
-S -> DB : (43) CommitTransaction()
-DB --> S : (44) return Committed
-deactivate DB
-S --> C : (45) return PropertyActivationResponse
-deactivate S
-C --> FE : (46) return Response
-deactivate C
-FE --> Host : (47) return Property ACTIVE
-deactivate FE
-deactivate Host
-
-== C. [Optional] Assign / change Operation Manager ==
-
-opt [PENDING_OPERATION_MANAGER or change OM when ACTIVE/RENTED]
-  Admin -> FE : (48) Select / change manager
-  activate Admin
-  activate FE
-  FE -> C : (49) PATCH /api/v1/properties/{id}/operation-manager
-  activate C
-  C -> S : (50) assignOperationManager(id, req)
-  activate S
-  S -> DB : (51) BeginTransaction()
-  activate DB
-  S -> OMR : (52) upsert ZoneManager / OM
-  activate OMR
-  OMR -> DB : (53) INSERT/UPDATE
-  DB --> OMR : (54) return OK
-  OMR --> S : (55) return OK
-  deactivate OMR
-  S -> PR : (56) save(operationManagerId,\nPENDING_OPERATION_MANAGER→ACTIVE)
-  activate PR
-  PR -> DB : (57) UPDATE Property
-  DB --> PR : (58) return OK
-  PR --> S : (59) return Property
-  deactivate PR
-  S -> DB : (60) CommitTransaction()
-  DB --> S : (61) return Committed
-  deactivate DB
-  S --> C : (62) return PropertyActivationResponse
-  deactivate S
-  C --> FE : (63) return Response
-  deactivate C
-  FE --> Admin : (64) return OM assigned
-  deactivate FE
-  deactivate Admin
-end
+  **F1c** — [Optional] Assign / Change OM
+  file: F1c-assign-om-sequence.puml
+end note
 
 @enduml

@@ -1,0 +1,41 @@
+@startuml F2a_CreateDraftContract_Sequence
+title Figure F2a — Manager Create Draft Contract
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+participant "Front-end" as FE
+participant "TenantContractController" as TC
+participant "TenantOnboardingServiceImpl" as S
+participant "TenantContractRepository" as CR
+database DB
+
+Manager -> FE : (1) Onboard tenant\n(room condition + meters)
+activate Manager
+activate FE
+FE -> TC : (2) POST /api/v1/properties/{id}/rooms/{roomId}/tenant-contract
+activate TC
+TC -> S : (3) onboardTenant(propertyId, roomId, req)
+activate S
+S -> DB : (4) BeginTransaction()
+activate DB
+S -> S : (5) validate occupancy\n(1 ACTIVE contract / room)
+S -> CR : (6) save(TenantContract DRAFT)\n+ evidence photos + meters
+activate CR
+CR -> DB : (7) INSERT TenantContract...
+DB --> CR : (8) return OK
+CR --> S : (9) return Contract
+deactivate CR
+S -> DB : (10) CommitTransaction()
+DB --> S : (11) return Committed
+deactivate DB
+S --> TC : (12) return TenantContractResponse
+deactivate S
+TC --> FE : (13) return Created
+deactivate TC
+FE --> Manager : (14) return Contract DRAFT
+deactivate FE
+deactivate Manager
+
+@enduml

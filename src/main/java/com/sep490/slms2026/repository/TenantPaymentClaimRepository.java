@@ -18,6 +18,9 @@ public interface TenantPaymentClaimRepository extends JpaRepository<TenantPaymen
     Optional<TenantPaymentClaim> findByTenantInvoiceIdAndStatus(
             Long tenantInvoiceId, PaymentClaimStatus status);
 
+    List<TenantPaymentClaim> findAllByTenantInvoiceIdAndStatus(
+            Long tenantInvoiceId, PaymentClaimStatus status);
+
     @Query("""
             SELECT c FROM TenantPaymentClaim c
             JOIN FETCH c.tenantInvoice i

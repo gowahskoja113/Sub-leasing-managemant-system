@@ -1,0 +1,22 @@
+@startuml ClassDiagram_TenantOnboarding
+title Figure — Class Diagram: Tenant Onboarding (index)\nĐã tách thành 4 hình riêng theo sequence
+
+note as N1
+  **F2a** — Manager Create Draft Contract
+  class: 02a_CreateDraftContract.puml
+  ↔ sequence: ../main-flows/F2a-create-draft-contract-sequence.puml
+
+  **F2b** — [Optional] Host Approve Price
+  class: 02b_HostApprovePrice.puml
+  ↔ sequence: ../main-flows/F2b-host-approve-price-sequence.puml
+
+  **F2c** — Deposit via PayOS + Webhook
+  class: 02c_DepositPayOS.puml
+  ↔ sequence: ../main-flows/F2c-deposit-payos-sequence.puml
+
+  **F2d** — Dual OTP → Activate
+  class: 02d_DualOtpActivate.puml
+  ↔ sequence: ../main-flows/F2d-dual-otp-activate-sequence.puml
+end note
+
+@enduml

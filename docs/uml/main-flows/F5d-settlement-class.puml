@@ -1,0 +1,65 @@
+@startuml F5d_Settlement_Class
+title Figure F5d — Settlement Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class CheckoutProcessController {
+  - checkoutProcessService: CheckoutProcessService
+  + submitSettlement(id: Long): CheckoutSettlementResponse
+}
+
+class TenantCheckoutProcessController {
+  - checkoutProcessService: CheckoutProcessService
+  + acceptSettlement(id: Long): void
+}
+
+interface CheckoutProcessService {
+  + submitSettlement(id: Long): CheckoutSettlementResponse
+  + acceptSettlement(id: Long, tenantId: UUID): void
+}
+
+class CheckoutProcessServiceImpl {
+  - checkoutSettlementRepository: CheckoutSettlementRepository
+  - checkoutRequestRepository: CheckoutRequestRepository
+  + submitSettlement(id: Long): CheckoutSettlementResponse
+  + acceptSettlement(id: Long, tenantId: UUID): void
+}
+
+interface CheckoutSettlementRepository
+interface CheckoutRequestRepository
+interface JpaRepository<T,ID>
+
+class CheckoutRequest {
+  + id: Long
+  + status: CheckoutRequestStatus
+}
+
+class CheckoutSettlement {
+  + id: Long
+  + depositAmount: BigDecimal
+  + unpaidAmount: BigDecimal
+  + damageAmount: BigDecimal
+  + refundAmount: BigDecimal
+}
+
+enum CheckoutRequestStatus {
+  INSPECTING
+  WAITING_TENANT
+  SETTLING
+}
+
+CheckoutProcessController --> CheckoutProcessService
+TenantCheckoutProcessController --> CheckoutProcessService
+CheckoutProcessService <|.. CheckoutProcessServiceImpl
+CheckoutProcessServiceImpl --> CheckoutSettlementRepository
+CheckoutProcessServiceImpl --> CheckoutRequestRepository
+CheckoutSettlementRepository -up-|> JpaRepository
+CheckoutRequestRepository -up-|> JpaRepository
+CheckoutSettlementRepository ..> CheckoutSettlement
+CheckoutRequestRepository ..> CheckoutRequest
+CheckoutRequest "1" o-- "0..1" CheckoutSettlement
+CheckoutRequest --> CheckoutRequestStatus
+
+@enduml

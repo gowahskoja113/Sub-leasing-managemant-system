@@ -1,0 +1,115 @@
+@startuml ClassDiagram_F5e_OwnerRefund
+title Figure F5e — Owner Record Refund Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class CheckoutProcessController <<controller>> {
+  -checkoutProcessService : CheckoutProcessService
+  +refund(id: Long, request: RecordRefundRequest) : DepositRefundResponse
+}
+
+interface CheckoutProcessService {
+  +recordRefund(requestId: Long, managerUserId: UUID, request: RecordRefundRequest) : DepositRefundResponse
+}
+
+class CheckoutProcessServiceImpl <<service>> {
+  -checkoutRequestRepository : CheckoutRequestRepository
+  -checkoutSettlementRepository : CheckoutSettlementRepository
+  -depositAuditLogRepository : DepositAuditLogRepository
+  +recordRefund(requestId: Long, managerUserId: UUID, request: RecordRefundRequest) : DepositRefundResponse
+}
+
+interface CheckoutRequestRepository {
+  +findById(id: Long) : Optional<CheckoutRequest>
+}
+
+interface CheckoutSettlementRepository {
+  +save(s: CheckoutSettlement) : CheckoutSettlement
+}
+
+interface DepositAuditLogRepository {
+  +save(log: DepositAuditLog) : DepositAuditLog
+}
+
+class RecordRefundRequest <<dto>> {
+  -refundAmount : BigDecimal
+  -refundMethod : String
+  -refundProofUrl : String
+  -refundNote : String
+  -refundBankName : String
+  -refundBankAccount : String
+  -refundAccountHolder : String
+}
+
+class DepositRefundResponse <<dto>> {
+  -refundAmount : BigDecimal
+  -refundProofUrl : String
+  -refundPaidAt : LocalDateTime
+}
+
+class CheckoutRequest <<entity>> {
+  -id : Long {id}
+  -status : CheckoutRequestStatus
+  -refundBankName : String
+  -refundBankAccount : String
+  -refundAccountHolder : String
+  -refundDueDate : LocalDate
+}
+
+class CheckoutSettlement <<entity>> {
+  -id : Long {id}
+  -refundAmount : BigDecimal
+  -refundMethod : String
+  -refundProofUrl : String
+  -refundPaidAt : LocalDateTime
+  -refundNote : String
+  -refundProofHash : String
+}
+
+class DepositAuditLog <<entity>> {
+  -id : Long {id}
+  -contractId : Long
+  -action : String
+  -actorUserId : UUID
+  -actorRole : String
+  -at : LocalDateTime
+  -payloadJson : String
+}
+
+enum CheckoutRequestStatus <<enumeration>> {
+  SETTLING
+}
+
+CheckoutProcessController --> CheckoutProcessService : checkoutProcessService
+CheckoutProcessController ..> RecordRefundRequest : <<use>>
+CheckoutProcessController ..> DepositRefundResponse : <<use>>
+CheckoutProcessServiceImpl ..|> CheckoutProcessService
+CheckoutProcessServiceImpl --> CheckoutRequestRepository : checkoutRequestRepository
+CheckoutProcessServiceImpl --> CheckoutSettlementRepository : checkoutSettlementRepository
+CheckoutProcessServiceImpl --> DepositAuditLogRepository : depositAuditLogRepository
+CheckoutRequestRepository ..> CheckoutRequest : <<use>>
+CheckoutSettlementRepository ..> CheckoutSettlement : <<use>>
+DepositAuditLogRepository ..> DepositAuditLog : <<use>>
+CheckoutRequest "1" *-- "1" CheckoutSettlement
+DepositAuditLog ..> CheckoutRequest : <<use>>
+CheckoutRequest ..> CheckoutRequestStatus
+
+note right of CheckoutProcessServiceImpl
+  «@Transactional»
+  UPDATE refundAmount, proofUrl
+  → INSERT DepositAuditLog
+end note
+
+@enduml

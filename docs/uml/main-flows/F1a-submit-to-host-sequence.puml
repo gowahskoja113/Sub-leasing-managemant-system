@@ -1,0 +1,57 @@
+@startuml F1a_SubmitToHost_Sequence
+title Figure F1a — Admin Submit to Host
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Admin
+participant "Front-end" as FE
+participant "PropertyOnboardingController" as C
+participant "PropertyOnboardingServiceImpl" as S
+participant "DepreciationService" as DS
+participant "PropertyRepository" as PR
+database DB
+
+Admin -> FE : (1) Click "Submit to Host"
+activate Admin
+activate FE
+FE -> C : (2) POST /api/v1/properties/{id}/submit-to-host
+activate C
+C -> S : (3) submitToHost(propertyId)
+activate S
+S -> DB : (4) BeginTransaction()
+activate DB
+S -> PR : (5) findById(propertyId)
+activate PR
+PR -> DB : (6) SELECT Property
+DB --> PR : (7) return Property
+PR --> S : (8) return Property
+deactivate PR
+S -> S : (9) validate RENOVATION_COMPLETED\n+ structure / equipment / lease
+S -> DS : (10) calculate(propertyId)
+activate DS
+DS -> DB : (11) INSERT/UPDATE DepreciationResult
+DB --> DS : (12) return OK
+DS --> S : (13) return OK
+deactivate DS
+S -> PR : (14) save(status=PENDING_HOST_REVIEW,\nsubmittedToHostAt=now)
+activate PR
+PR -> DB : (15) UPDATE Property
+DB --> PR : (16) return OK
+PR --> S : (17) return Property
+deactivate PR
+break
+  S -> DB : RollbackTransaction()
+end
+S -> DB : (18) CommitTransaction()
+DB --> S : (19) return Committed
+deactivate DB
+S --> C : (20) return OnboardingSummaryResponse
+deactivate S
+C --> FE : (21) return Response
+deactivate C
+FE --> Admin : (22) return Waiting for Host
+deactivate FE
+deactivate Admin
+
+@enduml

@@ -1,6 +1,7 @@
 -- =============================================================================
 -- SLMS2026 — PostgreSQL schema (fresh install)
--- Khớp JPA entities + DatabaseSchemaMigration (ddl-auto=update vẫn chạy được sau script này)
+-- Đối soát với JPA entities (67 @Entity + element collections + join tables)
+-- + DatabaseSchemaMigration (ddl-auto=update vẫn chạy được sau script này)
 --
 -- Cách dùng:
 --   CREATE DATABASE slms2026;
@@ -135,6 +136,7 @@ CREATE TABLE IF NOT EXISTS pricing_config (
     new_year_price_lead_months    INTEGER NOT NULL DEFAULT 2,
     v_rate_pct                    NUMERIC(19, 4) NOT NULL DEFAULT 10,
     handover_buffer_months        INTEGER NOT NULL DEFAULT 1,
+    repair_reserve_pct_per_year   NUMERIC(19, 4) NOT NULL DEFAULT 10,
     updated_at                    TIMESTAMP,
     updated_by                    UUID
 );
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS pricing_config (
 CREATE TABLE IF NOT EXISTS properties (
     id                              BIGSERIAL PRIMARY KEY,
     property_name                   VARCHAR(255) NOT NULL,
+    property_code                   VARCHAR(32) NOT NULL UNIQUE,
     address                         VARCHAR(255) NOT NULL,
     zone_id                         UUID NOT NULL REFERENCES zone(id),
     area_size                       DOUBLE PRECISION,
@@ -159,7 +162,6 @@ CREATE TABLE IF NOT EXISTS properties (
     previous_status                 VARCHAR(50),
     created_by                      BIGINT,
     operation_manager_id            UUID,
-    managed_by                      UUID,
     descriptions                    VARCHAR(255) NOT NULL,
     price                           NUMERIC(19, 2),
     applied_price                   NUMERIC(19, 2),
@@ -320,6 +322,8 @@ CREATE TABLE IF NOT EXISTS equipments (
     penalty_fee             NUMERIC(19, 2),
     recommend_replacement   BOOLEAN NOT NULL DEFAULT FALSE,
     qr_code                 VARCHAR(64) UNIQUE,
+    replaced_equipment_id   BIGINT,
+    replaced_equipment_price NUMERIC(19, 2),
     CONSTRAINT equipments_status_check CHECK (status IN (
         'NEW', 'GOOD', 'DAMAGED', 'MAINTENANCE', 'BROKEN', 'DISPOSED'
     ))
@@ -335,12 +339,32 @@ CREATE TABLE IF NOT EXISTS depreciation_results (
     total_investment             NUMERIC(19, 2) NOT NULL,
     contract_months              INTEGER NOT NULL,
     monthly_depreciation         NUMERIC(19, 2) NOT NULL,
-    suggested_min_price          NUMERIC(19, 2) NOT NULL,
+    opex_share                   NUMERIC(19, 2),
     suggested_price_with_profit  NUMERIC(19, 2) NOT NULL,
     room_floor                   NUMERIC(19, 2),
     effective_m2                 DOUBLE PRECISION,
     weight                       DOUBLE PRECISION,
-    calculated_at                TIMESTAMP NOT NULL
+    calculated_at                TIMESTAMP NOT NULL,
+    pricing_version              INTEGER NOT NULL DEFAULT 1,
+    superseded_at                TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pricing_capital_items (
+    id                BIGSERIAL PRIMARY KEY,
+    property_id       BIGINT NOT NULL REFERENCES properties(id),
+    pricing_version   INTEGER NOT NULL,
+    kind              VARCHAR(30) NOT NULL,
+    source_id         BIGINT,
+    room_id           BIGINT REFERENCES rooms(id),
+    house_area        BOOLEAN,
+    amount            NUMERIC(19, 2) NOT NULL,
+    start_date        DATE NOT NULL,
+    months            INTEGER NOT NULL,
+    monthly_amount    NUMERIC(19, 2) NOT NULL,
+    created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT pricing_capital_items_kind_check CHECK (kind IN (
+        'RENT', 'RENOVATION', 'EQUIPMENT', 'EQUIPMENT_UPGRADE'
+    ))
 );
 
 -- -----------------------------------------------------------------------------
@@ -385,6 +409,7 @@ CREATE TABLE IF NOT EXISTS tenant_contracts (
     activated_at                        TIMESTAMP,
     tenant_otp_verified_at              TIMESTAMP,
     manager_otp_verified_at             TIMESTAMP,
+    confirm_requested_at                TIMESTAMP,
     deposit_cash_tenant_confirmed_at    TIMESTAMP,
     deposit_cash_manager_confirmed_at   TIMESTAMP,
     document_url                        VARCHAR(1024),
@@ -459,6 +484,34 @@ CREATE TABLE IF NOT EXISTS room_price_history (
     changed_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_room_price_history_property ON room_price_history(property_id, changed_at DESC);
+
+CREATE TABLE IF NOT EXISTS extension_requests (
+    id                  BIGSERIAL PRIMARY KEY,
+    tenant_contract_id  BIGINT NOT NULL REFERENCES tenant_contracts(id),
+    tenant_user_id      UUID NOT NULL,
+    months              INTEGER NOT NULL,
+    new_end_date        DATE NOT NULL,
+    note                TEXT,
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    reviewed_at         TIMESTAMP,
+    reviewed_by         UUID,
+    manager_note        TEXT,
+    reject_reason       TEXT,
+    CONSTRAINT extension_requests_status_check CHECK (status IN (
+        'PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'WITHDRAWN'
+    ))
+);
+
+CREATE TABLE IF NOT EXISTS deposit_audit_log (
+    id              BIGSERIAL PRIMARY KEY,
+    contract_id     BIGINT NOT NULL,
+    action          VARCHAR(255) NOT NULL,
+    actor_user_id   UUID,
+    actor_role      VARCHAR(255),
+    at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    payload_json    TEXT
+);
 
 -- -----------------------------------------------------------------------------
 -- Billing / utilities
@@ -623,20 +676,22 @@ CREATE TABLE IF NOT EXISTS tenant_pending_charges (
 );
 
 CREATE TABLE IF NOT EXISTS utility_bills (
-    id              BIGSERIAL PRIMARY KEY,
-    property_id     BIGINT NOT NULL REFERENCES properties(id),
-    type            VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC',
-    billing_period  VARCHAR(255) NOT NULL,
-    month           INTEGER NOT NULL,
-    year            INTEGER NOT NULL,
-    total_quantity  INTEGER NOT NULL,
-    total_amount    NUMERIC(19, 2) NOT NULL,
-    unit_price      NUMERIC(19, 8) NOT NULL,
-    image_url       VARCHAR(255),
-    status          VARCHAR(50) NOT NULL,
-    created_by      UUID,
-    created_at      TIMESTAMP,
-    reading_deadline DATE
+    id                          BIGSERIAL PRIMARY KEY,
+    property_id                 BIGINT NOT NULL REFERENCES properties(id),
+    type                        VARCHAR(20) NOT NULL DEFAULT 'ELECTRIC',
+    billing_period              VARCHAR(255) NOT NULL,
+    month                       INTEGER NOT NULL,
+    year                        INTEGER NOT NULL,
+    total_quantity              INTEGER NOT NULL,
+    total_amount                NUMERIC(19, 2) NOT NULL,
+    unit_price                  NUMERIC(19, 8) NOT NULL,
+    image_url                   VARCHAR(255),
+    status                      VARCHAR(50) NOT NULL,
+    created_by                  UUID,
+    created_at                  TIMESTAMP,
+    reading_deadline            DATE,
+    billed_to_tenant_quantity   NUMERIC(19, 4),
+    company_born_quantity       NUMERIC(19, 4)
 );
 
 CREATE TABLE IF NOT EXISTS utility_invoices (
@@ -739,48 +794,76 @@ CREATE TABLE IF NOT EXISTS host_expenses (
 -- -----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS maintenance_requests (
-    id                    BIGSERIAL PRIMARY KEY,
-    request_code          VARCHAR(255) UNIQUE,
-    tenant_id             UUID NOT NULL REFERENCES tenant(user_id),
-    property_id           BIGINT NOT NULL REFERENCES properties(id),
-    room_id               BIGINT REFERENCES rooms(id),
-    tenant_contract_id    BIGINT REFERENCES tenant_contracts(id),
-    equipment_id          BIGINT,
-    title                 VARCHAR(255),
-    description           TEXT,
-    assigned_manager_id   UUID REFERENCES "User"(id),
-    scheduled_date        TIMESTAMP,
-    category              VARCHAR(255),
-    priority              VARCHAR(255),
-    status                VARCHAR(50),
-    created_at            TIMESTAMP,
-    updated_at            TIMESTAMP,
-    acknowledged_at       TIMESTAMP,
-    scheduled_slots       TEXT,
-    confirmed_slot        VARCHAR(255),
-    on_hold_reason        TEXT,
-    approval_status       VARCHAR(50),
-    done_at               TIMESTAMP,
-    tenant_confirmed_at   TIMESTAMP,
-    resolved_at           TIMESTAMP,
-    reopen_count          INTEGER,
-    technician_id         VARCHAR(255),
-    cost_paid_by          VARCHAR(50),
-    cause                 VARCHAR(50),
-    repair_cost           NUMERIC(19, 2),
-    cost_agreement_status VARCHAR(50),
-    cost_dispute_reason   TEXT,
-    resolution_note       TEXT,
-    reject_reason         TEXT,
-    reject_image_urls     TEXT,
-    before_image_urls     TEXT,
-    after_image_urls      TEXT,
-    is_deleted            BOOLEAN NOT NULL DEFAULT FALSE,
-    CONSTRAINT maintenance_requests_cost_agreement_status_check CHECK (
-        cost_agreement_status IS NULL OR cost_agreement_status IN (
-            'NOT_APPLICABLE', 'PENDING', 'AGREED', 'DISPUTED', 'WAIVED'
-        )
-    )
+    id                              BIGSERIAL PRIMARY KEY,
+    request_code                    VARCHAR(255) UNIQUE,
+    tenant_id                       UUID NOT NULL REFERENCES tenant(user_id),
+    property_id                     BIGINT NOT NULL REFERENCES properties(id),
+    room_id                         BIGINT REFERENCES rooms(id),
+    tenant_contract_id              BIGINT REFERENCES tenant_contracts(id),
+    equipment_id                    BIGINT,
+    title                           VARCHAR(255),
+    description                     TEXT,
+    category                        VARCHAR(255),
+    priority                        VARCHAR(255),
+    status                          VARCHAR(50) NOT NULL DEFAULT 'OPEN',
+    flow_type                       VARCHAR(50),
+    created_at                      TIMESTAMP,
+    updated_at                      TIMESTAMP,
+    acknowledged_at                 TIMESTAMP,
+    done_at                         TIMESTAMP,
+    resolved_at                     TIMESTAMP,
+    visit_appointment_at            TIMESTAMP,
+    visit_arrival_confirmed_at      TIMESTAMP,
+    repair_appointment_at           TIMESTAMP,
+    repair_started_at               TIMESTAMP,
+    resolution_note                 TEXT,
+    repair_description              TEXT,
+    before_image_urls               TEXT,
+    after_image_urls                TEXT,
+    invoice_image_urls              TEXT,
+    invoice_vendor                  VARCHAR(255),
+    invoice_number                  VARCHAR(255),
+    invoice_date                    DATE,
+    invoice_amount                  NUMERIC(19, 2),
+    previous_request_id             BIGINT,
+    damage_cause                    VARCHAR(50),
+    fault_reason                    TEXT,
+    fault_resolution_path           VARCHAR(50),
+    self_repair_deadline            DATE,
+    estimated_damage_amount         NUMERIC(19, 2),
+    admin_reviewed_at               TIMESTAMP,
+    admin_reviewed_by               UUID,
+    admin_approved                  BOOLEAN,
+    admin_review_note               TEXT,
+    charge_invoice_id               BIGINT,
+    company_absorbed_fault          BOOLEAN NOT NULL DEFAULT FALSE,
+    company_absorbed_note           TEXT,
+    expected_return_at              TIMESTAMP,
+    equipment_replacement_flagged   BOOLEAN NOT NULL DEFAULT FALSE,
+    is_deleted                      BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT maintenance_requests_status_check CHECK (status IN (
+        'OPEN', 'REPAIR_SCHEDULED', 'IN_REPAIR', 'TENANT_FAULT',
+        'PENDING_TENANT_REPAIR', 'OUTSTANDING_DAMAGE', 'WAITING_PAYMENT',
+        'CLOSED', 'CANCELLED'
+    ))
+);
+
+CREATE TABLE IF NOT EXISTS outstanding_damage_records (
+    id                      BIGSERIAL PRIMARY KEY,
+    maintenance_request_id  BIGINT NOT NULL REFERENCES maintenance_requests(id),
+    tenant_contract_id      BIGINT NOT NULL REFERENCES tenant_contracts(id),
+    equipment_id            BIGINT,
+    label                   VARCHAR(255) NOT NULL,
+    estimated_amount        NUMERIC(19, 2) NOT NULL,
+    note                    TEXT,
+    resolved_at_checkout    BOOLEAN NOT NULL DEFAULT FALSE,
+    checkout_damage_item_id BIGINT,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS outstanding_damage_photos (
+    record_id BIGINT NOT NULL REFERENCES outstanding_damage_records(id) ON DELETE CASCADE,
+    photo_url VARCHAR(500) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_images (
@@ -834,6 +917,7 @@ CREATE TABLE IF NOT EXISTS checkout_requests (
     reason                  TEXT NOT NULL,
     note                    TEXT,
     status                  VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    origin                  VARCHAR(32),
     created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
     reviewed_at             TIMESTAMP,
     reviewed_by             UUID,
@@ -843,6 +927,10 @@ CREATE TABLE IF NOT EXISTS checkout_requests (
     dispute_count           INTEGER DEFAULT 0,
     dispute_reason          TEXT,
     disputed_at             TIMESTAMP,
+    refund_bank_name        VARCHAR(255),
+    refund_bank_account     VARCHAR(255),
+    refund_account_holder   VARCHAR(255),
+    refund_due_date         DATE,
     CONSTRAINT checkout_requests_status_check CHECK (status IN (
         'PENDING', 'APPROVED', 'INSPECTING', 'WAITING_TENANT',
         'DISPUTED', 'SETTLING', 'REJECTED', 'COMPLETED', 'CANCELLED'
@@ -877,7 +965,8 @@ CREATE TABLE IF NOT EXISTS checkout_damage_items (
     equipment_id            BIGINT,
     label                   VARCHAR(255) NOT NULL,
     amount                  NUMERIC(19, 2) NOT NULL,
-    note                    TEXT
+    note                    TEXT,
+    maintenance_request_id  BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS checkout_damage_item_photos (
@@ -886,21 +975,32 @@ CREATE TABLE IF NOT EXISTS checkout_damage_item_photos (
 );
 
 CREATE TABLE IF NOT EXISTS checkout_settlements (
-    id                       BIGSERIAL PRIMARY KEY,
-    checkout_request_id      BIGINT NOT NULL REFERENCES checkout_requests(id),
-    deposit_amount           NUMERIC(19, 2) NOT NULL,
-    unpaid_total             NUMERIC(19, 2) NOT NULL,
-    damage_total             NUMERIC(19, 2) NOT NULL,
-    adjustment_total         NUMERIC(19, 2) NOT NULL,
-    refund_amount            NUMERIC(19, 2) NOT NULL,
-    extra_charge_amount      NUMERIC(19, 2) NOT NULL,
-    extra_charge_invoice_id  BIGINT,
-    refund_method            VARCHAR(255),
-    refund_proof_url         VARCHAR(255),
-    refund_paid_at           TIMESTAMP,
-    refund_note              TEXT,
-    created_at               TIMESTAMP NOT NULL,
-    updated_at               TIMESTAMP
+    id                          BIGSERIAL PRIMARY KEY,
+    checkout_request_id         BIGINT NOT NULL REFERENCES checkout_requests(id),
+    deposit_amount              NUMERIC(19, 2) NOT NULL,
+    unpaid_total                NUMERIC(19, 2) NOT NULL,
+    damage_total                NUMERIC(19, 2) NOT NULL,
+    adjustment_total            NUMERIC(19, 2) NOT NULL,
+    refund_amount               NUMERIC(19, 2) NOT NULL,
+    extra_charge_amount         NUMERIC(19, 2) NOT NULL,
+    extra_charge_invoice_id     BIGINT,
+    refund_method               VARCHAR(255),
+    refund_proof_url            VARCHAR(255),
+    refund_paid_at              TIMESTAMP,
+    refund_note                 TEXT,
+    refund_confirmed_at         TIMESTAMP,
+    refund_due_date             DATE,
+    refund_disputed_at          TIMESTAMP,
+    refund_dispute_reason       TEXT,
+    refund_dispute_resolved_at  TIMESTAMP,
+    refund_dispute_outcome      TEXT,
+    refund_dispute_rejected_at  TIMESTAMP,
+    refund_proof_hash           VARCHAR(255),
+    force_settled_at            TIMESTAMP,
+    force_settled_by            UUID,
+    force_settle_reason         TEXT,
+    created_at                  TIMESTAMP NOT NULL,
+    updated_at                  TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS checkout_settlement_invoices (

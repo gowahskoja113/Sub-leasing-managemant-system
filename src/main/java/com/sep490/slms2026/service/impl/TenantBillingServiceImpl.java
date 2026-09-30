@@ -222,11 +222,10 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     @Override
     @Transactional
     public void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy) {
-        TenantInvoice invoice = claim.getTenantInvoice();
-        if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
-            throw new BusinessException("Hóa đơn đã được thanh toán qua kênh khác. Vui lòng 'Từ chối' yêu cầu này để tránh ghi trùng.");
+        if (supersedeClaimIfInvoicePaid(claim)) {
+            return;
         }
-        
+        TenantInvoice invoice = claim.getTenantInvoice();
         claim.setStatus(PaymentClaimStatus.VERIFIED);
         claim.setVerifiedAt(LocalDateTime.now());
         claim.setVerifiedBy(verifiedBy);
@@ -237,8 +236,22 @@ public class TenantBillingServiceImpl implements TenantBillingService {
 
     @Override
     @Transactional
+    public boolean supersedeClaimIfInvoicePaid(TenantPaymentClaim claim) {
+        TenantInvoice invoice = claim.getTenantInvoice();
+        if (claim.getStatus() != PaymentClaimStatus.PENDING_VERIFY
+                || invoice == null
+                || invoice.getStatus() != TenantInvoiceStatus.PAID) {
+            return false;
+        }
+        supersedeClaim(claim, invoice.getPaymentMethod(), LocalDateTime.now());
+        return true;
+    }
+
+    @Override
+    @Transactional
     public void createBankTransferClaim(TenantInvoice invoice, String transferContent) {
-        if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
+        if (invoice.getStatus() == TenantInvoiceStatus.PAID
+                || invoice.getStatus() == TenantInvoiceStatus.CANCELLED) {
             return;
         }
         var existing = tenantPaymentClaimRepository.findByTenantInvoiceIdAndStatus(
@@ -846,8 +859,42 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 utilityInvoiceRepository.save(utilityInvoice);
             });
         }
-        
+
+        supersedePendingClaims(invoice, method, now);
         checkAndSetRefundDueDate(invoice);
+    }
+
+    /**
+     * Claim "đã chuyển khoản" còn chờ duyệt mà hoá đơn đã trả qua kênh khác → đóng claim,
+     * không đánh dấu REJECTED để khách không nhận thông báo "bị từ chối".
+     */
+    private void supersedePendingClaims(TenantInvoice invoice, String paidMethod, LocalDateTime now) {
+        if (invoice.getId() == null) {
+            return;
+        }
+        for (TenantPaymentClaim claim : tenantPaymentClaimRepository.findAllByTenantInvoiceIdAndStatus(
+                invoice.getId(), PaymentClaimStatus.PENDING_VERIFY)) {
+            if (claim.getStatus() == PaymentClaimStatus.PENDING_VERIFY) {
+                supersedeClaim(claim, paidMethod, now);
+            }
+        }
+    }
+
+    private void supersedeClaim(TenantPaymentClaim claim, String paidMethod, LocalDateTime now) {
+        claim.setStatus(PaymentClaimStatus.SUPERSEDED);
+        claim.setRejectReason(supersededReason(paidMethod));
+        claim.setVerifiedAt(now);
+        tenantPaymentClaimRepository.save(claim);
+    }
+
+    private static String supersededReason(String paidMethod) {
+        if ("QR".equalsIgnoreCase(paidMethod)) {
+            return "Đã thanh toán qua PayOS";
+        }
+        if ("CASH".equalsIgnoreCase(paidMethod)) {
+            return "Đã thanh toán bằng tiền mặt";
+        }
+        return "Đã thanh toán qua kênh khác";
     }
 
     private TenantInvoice saveAndPublishPaidInvoice(TenantInvoice invoice, InvoicePaymentContext context) {

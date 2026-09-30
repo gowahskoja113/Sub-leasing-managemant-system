@@ -1,0 +1,82 @@
+@startuml ClassDiagram_F5a_CreateCheckoutRequest
+title Figure F5a — Tenant Create Checkout Request Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class TenantMeLifecycleController <<controller>> {
+  -tenantCheckoutService : TenantCheckoutService
+  +createCheckoutRequest(request: CreateCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface TenantCheckoutService {
+  +createRequest(tenantUserId: UUID, request: CreateCheckoutRequest) : CheckoutRequestResponse
+}
+
+class TenantCheckoutServiceImpl <<service>> {
+  -checkoutRequestRepository : CheckoutRequestRepository
+  +createRequest(tenantUserId: UUID, request: CreateCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface CheckoutRequestRepository {
+  +save(r: CheckoutRequest) : CheckoutRequest
+}
+
+class CreateCheckoutRequest <<dto>> {
+  -contractId : Long
+  -expectedMoveOutDate : LocalDate
+  -reason : String
+  -note : String
+}
+
+class CheckoutRequestResponse <<dto>> {
+  -id : Long
+  -status : CheckoutRequestStatus
+  -expectedMoveOutDate : LocalDate
+}
+
+class CheckoutRequest <<entity>> {
+  -id : Long {id}
+  -tenantUserId : UUID
+  -expectedMoveOutDate : LocalDate
+  -reason : String
+  -note : String
+  -status : CheckoutRequestStatus
+  -origin : CheckoutOrigin
+  -createdAt : LocalDateTime
+}
+
+enum CheckoutRequestStatus <<enumeration>> {
+  PENDING
+}
+
+enum CheckoutOrigin <<enumeration>> {
+  TENANT_REQUEST
+  CONTRACT_EXPIRED
+}
+
+TenantMeLifecycleController --> TenantCheckoutService : tenantCheckoutService
+TenantMeLifecycleController ..> CreateCheckoutRequest : <<use>>
+TenantCheckoutServiceImpl ..|> TenantCheckoutService
+TenantCheckoutServiceImpl --> CheckoutRequestRepository : checkoutRequestRepository
+CheckoutRequestRepository ..> CheckoutRequest : <<use>>
+CheckoutRequest ..> CheckoutRequestStatus
+CheckoutRequest ..> CheckoutOrigin
+
+note right of TenantCheckoutServiceImpl
+  «@Transactional»
+  save CheckoutRequest status=PENDING
+end note
+
+@enduml

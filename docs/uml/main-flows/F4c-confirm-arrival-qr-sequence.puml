@@ -1,0 +1,33 @@
+@startuml F4c_ConfirmArrivalQr_Sequence
+title Figure F4c — Start Process — QR Scan Required
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+database DB
+
+Manager -> FE : (1) Scan equipment QR
+activate Manager
+activate FE
+FE -> C : (2) PUT /api/v1/maintenance/{id}/confirm-arrival\n{ qrCode }
+activate C
+C -> S : (3) confirmArrival
+activate S
+S -> S : (4) assertQrMatchesEquipment
+S -> DB : (5) UPDATE visitArrivalConfirmedAt
+activate DB
+DB --> S : (6) return OK
+deactivate DB
+S --> C : (7) return OK
+deactivate S
+C --> FE : (8) return Response
+deactivate C
+FE --> Manager : (9) return Arrival confirmed
+deactivate FE
+deactivate Manager
+
+@enduml

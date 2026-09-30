@@ -1,0 +1,108 @@
+@startuml F1a_SubmitToHost_Class
+title Figure F1a — Admin Submit to Host Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class PropertyOnboardingController <<controller>> {
+  -propertyOnboardingService : PropertyOnboardingService
+  +submitToHost(propertyId: Long) : OnboardingSummaryResponse
+}
+
+interface PropertyOnboardingService {
+  +submitToHost(propertyId: Long) : OnboardingSummaryResponse
+}
+
+class PropertyOnboardingServiceImpl <<service>> {
+  -propertyRepository : PropertyRepository
+  -depreciationService : DepreciationService
+  +submitToHost(propertyId: Long) : OnboardingSummaryResponse
+}
+
+interface DepreciationService {
+  +calculate(propertyId: Long, request: CalculateDepreciationRequest) : DepreciationCalculationResponse
+}
+
+class CalculateDepreciationRequest <<dto>> {
+  -mode : PricingMode
+  -pDesired : BigDecimal
+  -roiExpected : BigDecimal
+  -oOperation : BigDecimal
+  -vRate : BigDecimal
+  -handoverBufferMonths : Integer
+}
+
+interface PropertyRepository {
+  +findById(id: Long) : Optional<Property>
+  +save(property: Property) : Property
+}
+
+class OnboardingSummaryResponse <<dto>> {
+  -propertyId : Long
+  -status : PropertyStatus
+  -wholeHouse : Boolean
+  -hasRenovation : Boolean
+  -totalFloor : Integer
+  -totalRooms : Integer
+  -renovationCompleted : boolean
+  -renovationStartDate : LocalDate
+  -renovationEndDate : LocalDate
+  -submittedToHostAt : LocalDateTime
+  -totalRenovationCost : BigDecimal
+  -pricing : DepreciationCalculationResponse
+}
+
+class Property <<entity>> {
+  -id : Long {id}
+  -status : PropertyStatus
+  -renovationCompleted : boolean
+  -submittedToHostAt : LocalDateTime
+}
+
+class DepreciationResult <<entity>> {
+  -id : Long {id}
+  -totalInvestment : BigDecimal
+  -monthlyDepreciation : BigDecimal
+  -suggestedPriceWithProfit : BigDecimal
+  -pricingVersion : Integer
+  -calculatedAt : LocalDateTime
+  -supersededAt : LocalDateTime
+}
+
+enum PropertyStatus <<enumeration>> {
+  RENOVATION_COMPLETED
+  PENDING_HOST_REVIEW
+}
+
+PropertyOnboardingController --> PropertyOnboardingService : propertyOnboardingService
+PropertyOnboardingController ..> OnboardingSummaryResponse : <<use>>
+PropertyOnboardingServiceImpl ..|> PropertyOnboardingService
+PropertyOnboardingServiceImpl --> PropertyRepository : propertyRepository
+PropertyOnboardingServiceImpl --> DepreciationService : depreciationService
+DepreciationService ..> CalculateDepreciationRequest : <<use>>
+DepreciationService ..> DepreciationResult : <<persist>>
+PropertyRepository ..> Property : <<use>>
+Property ..> PropertyStatus
+OnboardingSummaryResponse ..> PropertyStatus
+
+note right of PropertyOnboardingServiceImpl
+  «@Transactional»
+  validate RENOVATION_COMPLETED
+  + structure / equipment / lease
+  → DepreciationService.calculate
+  → status = PENDING_HOST_REVIEW
+  → submittedToHostAt = now
+end note
+
+@enduml

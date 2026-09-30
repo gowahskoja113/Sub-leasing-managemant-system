@@ -1,0 +1,41 @@
+@startuml F3_TenantInvoice_Billing_State
+title Tenant Invoice Billing / Payment State Machine\nBoxes = TenantInvoiceStatus enum only · Arrows = who + what\n1 start · ends at PAID / CANCELLED
+
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam ArrowColor #333333
+skinparam ArrowFontColor #333333
+skinparam ArrowFontSize 11
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #333333
+  FontSize 13
+  FontStyle bold
+}
+
+[*] --> PENDING : System / Manager issue invoice\n(rent cron, utility, service,\nmaintenance complete/handover,\nonboard deposit)
+
+PENDING --> PAID : Tenant pay PayOS QR\nOR Manager verify cash claim
+PENDING --> OVERDUE : System mark overdue\n(cron after due date)
+PENDING --> PARTIAL : System / payment\npartial amount
+PENDING --> CANCELLED : Admin / System cancel\n(void invoice)
+
+PARTIAL --> PAID : Tenant pay remaining
+PARTIAL --> OVERDUE : System mark overdue\n(cron)
+PARTIAL --> CANCELLED : Cancel
+
+OVERDUE --> PAID : Tenant pay PayOS\nOR Manager verify claim
+OVERDUE --> CANCELLED : Cancel
+
+note right of OVERDUE
+  MAINTENANCE overdue:
+  may set contract
+  terminationProposed
+  (BillingCron)
+end note
+
+PAID --> [*]
+CANCELLED --> [*]
+
+@enduml

@@ -1,0 +1,71 @@
+@startuml F5c_InspectionDamages_Class
+title Figure F5c — Inspection + Damages Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class CheckoutProcessController {
+  - checkoutProcessService: CheckoutProcessService
+  + saveInspection(id: Long, req: CheckoutInspectionRequest): void
+}
+
+class CheckoutInspectionRequest {
+  + finalElectricReading: BigDecimal
+  + finalWaterReading: BigDecimal
+  + roomNote: String
+  + photoUrls: List~String~
+  + damages: List~CheckoutDamageItemRequest~
+}
+
+interface CheckoutProcessService {
+  + saveInspection(id: Long, req: CheckoutInspectionRequest): void
+}
+
+class CheckoutProcessServiceImpl {
+  - checkoutInspectionRepository: CheckoutInspectionRepository
+  - checkoutRequestRepository: CheckoutRequestRepository
+  + saveInspection(id: Long, req: CheckoutInspectionRequest): void
+}
+
+interface CheckoutInspectionRepository
+interface CheckoutRequestRepository
+interface JpaRepository<T,ID>
+
+class CheckoutRequest {
+  + id: Long
+  + status: CheckoutRequestStatus
+}
+
+class CheckoutInspection {
+  + id: Long
+  + finalElectricReading: BigDecimal
+  + finalWaterReading: BigDecimal
+  + roomNote: String
+}
+
+class CheckoutDamageItem {
+  + id: Long
+  + description: String
+  + amount: BigDecimal
+}
+
+enum CheckoutRequestStatus {
+  APPROVED
+  INSPECTING
+}
+
+CheckoutProcessController --> CheckoutProcessService
+CheckoutProcessController ..> CheckoutInspectionRequest
+CheckoutProcessService <|.. CheckoutProcessServiceImpl
+CheckoutProcessServiceImpl --> CheckoutInspectionRepository
+CheckoutProcessServiceImpl --> CheckoutRequestRepository
+CheckoutInspectionRepository -up-|> JpaRepository
+CheckoutRequestRepository -up-|> JpaRepository
+CheckoutInspectionRepository ..> CheckoutInspection
+CheckoutRequestRepository ..> CheckoutRequest
+CheckoutRequest "1" o-- "0..1" CheckoutInspection
+CheckoutInspection "1" o-- "*" CheckoutDamageItem
+CheckoutRequest --> CheckoutRequestStatus
+
+@enduml

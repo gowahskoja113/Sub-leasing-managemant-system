@@ -1,0 +1,138 @@
+@startuml ClassDiagram_F2d_DualOtpActivate
+title Figure F2d — Dual OTP → Activate Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class TenantMyContractController <<controller>> {
+  -tenantOnboardingService : TenantOnboardingService
+  +sendConfirmOtp(id: Long) : Map<String,Object>
+  +confirmOtp(id: Long, request: ConfirmContractRequest) : TenantContractResponse
+}
+
+class TenantContractActionController <<controller>> {
+  -tenantOnboardingService : TenantOnboardingService
+  +sendOtp(id: Long) : Map<String,Object>
+  +confirm(id: Long, request: ConfirmContractRequest) : TenantContractResponse
+}
+
+interface TenantOnboardingService {
+  +sendDualContractConfirmOtps(contractId: Long) : void
+  +confirmContractByTenant(contractId: Long, otp: String) : TenantContractResponse
+  +confirmContract(contractId: Long, otp: String) : TenantContractResponse
+  +activateContract(contract: TenantContract) : TenantContractResponse
+}
+
+class TenantOnboardingServiceImpl <<service>> {
+  -tenantContractRepository : TenantContractRepository
+  -roomRepository : RoomRepository
+  -otpService : OtpService
+  +sendDualContractConfirmOtps(contractId: Long) : void
+  +confirmContractByTenant(contractId: Long, otp: String) : TenantContractResponse
+  +confirmContract(contractId: Long, otp: String) : TenantContractResponse
+  +activateContract(contract: TenantContract) : TenantContractResponse
+}
+
+interface OtpService {
+  +sendOtp(phone: String, purpose: OtpPurpose, referenceId: Long) : void
+  +verifyOtp(phone: String, purpose: OtpPurpose, code: String) : boolean
+}
+
+class OtpServiceImpl <<service>> {
+  -twilioService : TwilioService
+  +sendOtp(phone: String, purpose: OtpPurpose, referenceId: Long) : void
+  +verifyOtp(phone: String, purpose: OtpPurpose, code: String) : boolean
+}
+
+interface TenantContractRepository {
+  +findById(id: Long) : Optional<TenantContract>
+  +save(c: TenantContract) : TenantContract
+}
+
+interface RoomRepository {
+  +save(room: Room) : Room
+}
+
+class ConfirmContractRequest <<dto>> {
+  -otp : String
+}
+
+class TenantContractResponse <<dto>> {
+  -id : Long
+  -status : ContractStatus
+  -activatedAt : LocalDateTime
+}
+
+class TenantContract <<entity>> {
+  -id : Long {id}
+  -status : ContractStatus
+  -paymentStatus : PaymentStatus
+  -tenantOtpVerifiedAt : LocalDateTime
+  -managerOtpVerifiedAt : LocalDateTime
+  -confirmRequestedAt : LocalDateTime
+  -activatedAt : LocalDateTime
+  -onboardedAt : LocalDateTime
+}
+
+class Room <<entity>> {
+  -id : Long {id}
+  -status : RoomStatus
+}
+
+enum ContractStatus <<enumeration>> {
+  PENDING
+  ACTIVE
+}
+
+enum PaymentStatus <<enumeration>> {
+  PAID
+}
+
+enum RoomStatus <<enumeration>> {
+  AVAILABLE
+  RENTED
+}
+
+enum OtpPurpose <<enumeration>> {
+  CONTRACT_CONFIRM_TENANT
+  CONTRACT_CONFIRM_MANAGER
+}
+
+TenantMyContractController --> TenantOnboardingService : tenantOnboardingService
+TenantContractActionController --> TenantOnboardingService : tenantOnboardingService
+TenantMyContractController ..> ConfirmContractRequest : <<use>>
+TenantContractActionController ..> ConfirmContractRequest : <<use>>
+TenantOnboardingServiceImpl ..|> TenantOnboardingService
+OtpServiceImpl ..|> OtpService
+TenantOnboardingServiceImpl --> TenantContractRepository : tenantContractRepository
+TenantOnboardingServiceImpl --> RoomRepository : roomRepository
+TenantOnboardingServiceImpl --> OtpService : otpService
+TenantContractRepository ..> TenantContract : <<use>>
+RoomRepository ..> Room : <<use>>
+OtpServiceImpl ..> OtpPurpose : <<use>>
+TenantContract ..> ContractStatus
+TenantContract ..> PaymentStatus
+Room ..> RoomStatus
+Room "1" o-- "*" TenantContract
+
+note right of TenantOnboardingServiceImpl
+  «@Transactional»
+  send dual OTP (tenant + manager)
+  → tenant OTP: tenantOtpVerifiedAt
+  → manager OTP: both verified
+  → activateContract()
+  status=ACTIVE, room→RENTED
+end note
+
+@enduml

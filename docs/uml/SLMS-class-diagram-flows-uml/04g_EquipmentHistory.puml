@@ -1,0 +1,114 @@
+@startuml ClassDiagram_F4g_EquipmentHistory
+title Figure F4g — View Equipment History Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class EquipmentController <<controller>> {
+  -equipmentService : EquipmentService
+  +getById(id: Long) : EquipmentResponse
+  +getMaintenanceHistory(id: Long) : List<EquipmentMaintenanceHistoryResponse>
+  +getMyEquipments() : List<EquipmentResponse>
+  +getMyEquipmentHistory(id: Long) : List<EquipmentMaintenanceHistoryResponse>
+}
+
+interface EquipmentService {
+  +getById(id: Long) : EquipmentResponse
+  +getMaintenanceHistory(id: Long) : List<EquipmentMaintenanceHistoryResponse>
+}
+
+class EquipmentServiceImpl <<service>> {
+  -equipmentRepository : EquipmentRepository
+  -historyRepository : EquipmentMaintenanceHistoryRepository
+  +getById(id: Long) : EquipmentResponse
+  +getMaintenanceHistory(id: Long) : List<EquipmentMaintenanceHistoryResponse>
+}
+
+interface EquipmentRepository {
+  +findById(id: Long) : Optional<Equipment>
+}
+
+interface EquipmentMaintenanceHistoryRepository {
+  +findByEquipmentId(equipmentId: Long) : List<EquipmentMaintenanceHistory>
+}
+
+class EquipmentResponse <<dto>> {
+  -id : Long
+  -equipmentName : String
+  -maintenanceCount : int
+  -warrantyMonths : Integer
+  -warrantyEndDate : LocalDate
+  -remainingDepreciation : BigDecimal
+  -remainingWarranty : Integer
+  -status : EquipmentStatus
+}
+
+class EquipmentMaintenanceHistoryResponse <<dto>> {
+  -id : Long
+  -maintenanceRequestId : Long
+  -completedAt : LocalDateTime
+  -beforeImageUrls : List<String>
+  -afterImageUrls : List<String>
+  -invoiceImageUrls : List<String>
+}
+
+class Equipment <<entity>> {
+  -id : Long {id}
+  -equipmentName : String
+  -equipmentCategory : String
+  -qrCode : String {unique}
+  -maintenanceCount : int
+  -lastMaintenanceDate : LocalDateTime
+  -warrantyMonths : Integer
+  -warrantyStartDate : LocalDate
+  -warrantyEndDate : LocalDate
+  -price : BigDecimal
+  -status : EquipmentStatus
+}
+
+class EquipmentMaintenanceHistory <<entity>> {
+  -id : Long {id}
+  -equipmentId : Long
+  -maintenanceRequestId : Long
+  -completedAt : LocalDateTime
+  -note : String
+}
+
+enum EquipmentStatus <<enumeration>> {
+  NEW
+  GOOD
+  DAMAGED
+  MAINTENANCE
+  BROKEN
+  DISPOSED
+}
+
+EquipmentController --> EquipmentService : equipmentService
+EquipmentServiceImpl ..|> EquipmentService
+EquipmentServiceImpl --> EquipmentRepository : equipmentRepository
+EquipmentServiceImpl --> EquipmentMaintenanceHistoryRepository : historyRepository
+EquipmentRepository ..> Equipment : <<use>>
+EquipmentMaintenanceHistoryRepository ..> EquipmentMaintenanceHistory : <<use>>
+Equipment "1" o-- "*" EquipmentMaintenanceHistory
+Equipment ..> EquipmentStatus
+
+note right of EquipmentController
+  Admin: GET /equipment/{id}
+  + /maintenance-history
+
+  Tenant: GET /tenant/me/equipments
+  + /{id}/maintenance-history
+end note
+
+@enduml

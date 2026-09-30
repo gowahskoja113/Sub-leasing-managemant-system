@@ -1,0 +1,174 @@
+@startuml F1b_HostConfirm_Class
+title Figure F1b — Host Confirm Pricing Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class PropertyOnboardingController <<controller>> {
+  -propertyOnboardingService : PropertyOnboardingService
+  +hostConfirm(propertyId: Long, request: HostConfirmRequest) : PropertyActivationResponse
+}
+
+interface PropertyOnboardingService {
+  +hostConfirm(propertyId: Long, request: HostConfirmRequest) : PropertyActivationResponse
+}
+
+class PropertyOnboardingServiceImpl <<service>> {
+  -propertyRepository : PropertyRepository
+  -roomRepository : RoomRepository
+  -zoneManagerRepository : ZoneManagerRepository
+  -depreciationResultRepository : DepreciationResultRepository
+  +hostConfirm(propertyId: Long, request: HostConfirmRequest) : PropertyActivationResponse
+}
+
+interface PropertyRepository {
+  +findById(id: Long) : Optional<Property>
+  +save(property: Property) : Property
+}
+
+interface RoomRepository {
+  +findByPropertyId(propertyId: Long) : List<Room>
+  +save(room: Room) : Room
+  +saveAll(rooms: List<Room>) : List<Room>
+}
+
+interface ZoneManagerRepository {
+  +findById(zoneId: UUID) : Optional<ZoneManager>
+  +save(zoneManager: ZoneManager) : ZoneManager
+}
+
+interface DepreciationResultRepository {
+  +existsByPropertyId(propertyId: Long) : boolean
+}
+
+class HostConfirmRequest <<dto>> {
+  -contingencyPercent : BigDecimal
+  -propertyPrice : BigDecimal
+  -roomPrices : List<RoomPriceConfirm>
+  -operationManagerId : UUID
+}
+
+class RoomPriceConfirm <<dto>> {
+  -roomId : Long
+  -price : BigDecimal
+}
+
+class PropertyActivationResponse <<dto>> {
+  -propertyId : Long
+  -pricingScope : PricingScope
+  -propertyStatus : PropertyStatus
+  -propertyPrice : BigDecimal
+  -adminSuggestedPrice : BigDecimal
+  -hostContingencyPercent : BigDecimal
+  -operationManagerId : UUID
+  -operationManagerName : String
+  -rooms : List<ActivatedRoom>
+  -skippedRoomCount : Integer
+  -skippedRooms : List<SkippedRoom>
+}
+
+class ActivatedRoom <<dto>> {
+  -roomId : Long
+  -roomNumber : String
+  -price : BigDecimal
+  -adminSuggestedPrice : BigDecimal
+  -status : RoomStatus
+}
+
+class SkippedRoom <<dto>> {
+  -roomId : Long
+  -roomNumber : String
+  -reason : String
+}
+
+class Property <<entity>> {
+  -id : Long {id}
+  -zone : Zone
+  -wholeHouse : Boolean
+  -status : PropertyStatus
+  -operationManagerId : UUID
+  -price : BigDecimal
+  -appliedPrice : BigDecimal
+  -hostContingencyPercent : BigDecimal
+  -managerAcceptedAt : LocalDateTime
+}
+
+class Room <<entity>> {
+  -id : Long {id}
+  -roomNumber : String
+  -price : BigDecimal
+  -appliedPrice : BigDecimal
+  -status : RoomStatus
+}
+
+class Zone <<entity>> {
+  -id : UUID {id}
+  -name : String
+}
+
+class ZoneManager <<entity>> {
+  -zoneId : UUID {id}
+  -managerId : UUID
+  -assignedBy : UUID
+  -assignedAt : LocalDateTime
+}
+
+enum PropertyStatus <<enumeration>> {
+  PENDING_HOST_REVIEW
+  ACTIVE
+}
+
+enum RoomStatus <<enumeration>> {
+  DRAFT
+  AVAILABLE
+}
+
+PropertyOnboardingController --> PropertyOnboardingService : propertyOnboardingService
+PropertyOnboardingController ..> HostConfirmRequest : <<use>>
+PropertyOnboardingController ..> PropertyActivationResponse : <<use>>
+PropertyOnboardingServiceImpl ..|> PropertyOnboardingService
+PropertyOnboardingServiceImpl --> PropertyRepository : propertyRepository
+PropertyOnboardingServiceImpl --> RoomRepository : roomRepository
+PropertyOnboardingServiceImpl --> ZoneManagerRepository : zoneManagerRepository
+PropertyOnboardingServiceImpl --> DepreciationResultRepository : depreciationResultRepository
+PropertyOnboardingServiceImpl ..> HostConfirmRequest : <<use>>
+
+PropertyRepository ..> Property : <<use>>
+RoomRepository ..> Room : <<use>>
+ZoneManagerRepository ..> ZoneManager : <<use>>
+
+HostConfirmRequest "1" *-- "*" RoomPriceConfirm : roomPrices
+PropertyActivationResponse "1" *-- "*" ActivatedRoom : rooms
+PropertyActivationResponse "1" *-- "*" SkippedRoom : skippedRooms
+
+Property "1" --> "1" Zone : zone
+Property "1" o-- "*" Room : rooms
+Property ..> PropertyStatus
+Room ..> RoomStatus
+PropertyActivationResponse ..> PropertyStatus
+PropertyActivationResponse ..> RoomStatus
+ZoneManager ..> Zone : zoneId
+Property ..> ZoneManager : <<use>>\n(auto-assign OM from zone)
+
+note right of PropertyOnboardingServiceImpl
+  «@Transactional»
+  validate PENDING_HOST_REVIEW
+  + exists DepreciationResult
+  → ZoneManagerRepository.findById(zoneId)
+  → update Room prices / appliedPrice
+  → OM = zoneManager.managerId
+  → status = ACTIVE, open DRAFT rooms
+end note
+
+@enduml

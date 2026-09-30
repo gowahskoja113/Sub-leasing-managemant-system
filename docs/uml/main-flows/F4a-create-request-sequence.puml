@@ -1,0 +1,32 @@
+@startuml F4a_CreateRequest_Sequence
+title Figure F4a — Tenant Create Maintenance Request
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Tenant
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+database DB
+
+Tenant -> FE : (1) Submit maintenance\n(+ photos, appointment)
+activate Tenant
+activate FE
+FE -> C : (2) POST /api/v1/maintenance
+activate C
+C -> S : (3) createRequest(MaintenanceCreateRequest)
+activate S
+S -> DB : (4) INSERT MaintenanceRequest OPEN\n+ MaintenanceImage BEFORE
+activate DB
+DB --> S : (5) return OK
+deactivate DB
+S --> C : (6) return MaintenanceRequestResponse
+deactivate S
+C --> FE : (7) return Created + notify Manager
+deactivate C
+FE --> Tenant : (8) return Request OPEN
+deactivate FE
+deactivate Tenant
+
+@enduml

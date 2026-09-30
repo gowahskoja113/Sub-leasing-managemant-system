@@ -1,157 +1,18 @@
 @startuml F3_MonthlyBilling_Sequence
-title Figure — Monthly Billing Sequence Diagram\nLock meter → Publish bill → Issue invoice → PayOS pay
+title Figure F3 — Monthly Billing (index)\nĐã tách thành 3 hình riêng
 
-skinparam sequenceMessageAlign center
-skinparam responseMessageBelowArrow true
+note as N1
+  **F3a** — Manager Lock Meter Reading
+  file: F3a-lock-meter-reading-sequence.puml
 
-actor Manager
-actor Admin
-actor Tenant
-participant "Front-end" as FE
-participant "MeterReadingController" as MC
-participant "AdminUtilityBillController" as AC
-participant "TenantMeController" as TC
-participant "PayosWebhookController" as WC
-participant "MeterReadingServiceImpl" as MRS
-participant "UtilityBillServiceImpl" as UBS
-participant "UtilityInvoiceService" as UIS
-participant "TenantBillingServiceImpl" as TBS
-participant "PayosService" as PayOS
-participant "MeterReadingRepository" as MRR
-participant "UtilityBillRepository" as UBR
-participant "TenantInvoiceRepository" as TIR
-database DB
+  **F3b** — Admin Publish EVN/Water Bill
+  file: F3b-publish-utility-bill-sequence.puml
 
-== A. Manager lock meter reading ==
+  **F3c** — Tenant Pay via PayOS
+  file: F3c-tenant-pay-payos-sequence.puml
 
-Manager -> FE : (1) Lock meter reading\n(photo / override)
-activate Manager
-activate FE
-FE -> MC : (2) POST /api/v1/manager/meter-readings
-activate MC
-MC -> MRS : (3) saveLockedReading(req)
-activate MRS
-MRS -> DB : (4) BeginTransaction()
-activate DB
-MRS -> MRS : (5) validate period, reading,\ncontract ACTIVE
-alt [no photo]
-  MRS -> MRS : (6) consumeOverrideIfPresent(...)
-end
-MRS -> MRR : (7) save(MeterReading)
-activate MRR
-MRR -> DB : (8) INSERT/UPDATE
-DB --> MRR : (9) return OK
-MRR --> MRS : (10) return MeterReading
-deactivate MRR
-opt [UtilityBill already PUBLISHED]
-  MRS -> UIS : (11) issue*FromSavedReading
-  activate UIS
-  UIS -> DB : (12) INSERT UtilityInvoice\n+ TenantInvoice (PENDING)
-  DB --> UIS : (13) return OK
-  UIS --> MRS : (14) return issued
-  deactivate UIS
-end
-MRS -> DB : (15) CommitTransaction()
-DB --> MRS : (16) return Committed
-deactivate DB
-MRS --> MC : (17) return SavedMeterReadingItem
-deactivate MRS
-MC --> FE : (18) return 201 Created
-deactivate MC
-FE --> Manager : (19) return Meter locked
-deactivate FE
-deactivate Manager
-
-== B. Admin publish EVN/water bill ==
-
-Admin -> FE : (20) Publish UtilityBill
-activate Admin
-activate FE
-FE -> AC : (21) POST /api/v1/admin/utility-bills
-activate AC
-AC -> UBS : (22) createUtilityBill(req)
-activate UBS
-UBS -> DB : (23) BeginTransaction()
-activate DB
-UBS -> UBR : (24) save(status=PUBLISHED)
-activate UBR
-UBR -> DB : (25) INSERT UtilityBill
-DB --> UBR : (26) return OK
-UBR --> UBS : (27) return UtilityBill
-deactivate UBR
-UBS -> UIS : (28) issueElectric/WaterFromSavedReadings
-activate UIS
-UIS -> DB : (29) INSERT invoices from locked readings
-DB --> UIS : (30) return OK
-UIS --> UBS : (31) return issued
-deactivate UIS
-UBS -> DB : (32) CommitTransaction()
-DB --> UBS : (33) return Committed
-deactivate DB
-UBS --> AC : (34) return UtilityBillResponse
-deactivate UBS
-AC --> FE : (35) return OK
-deactivate AC
-FE --> Admin : (36) return Published + invoices issued
-deactivate FE
-deactivate Admin
-
-== C. Tenant pay via PayOS ==
-
-Tenant -> FE : (37) Pay invoice
-activate Tenant
-activate FE
-FE -> TC : (38) POST /api/v1/tenant/me/invoices/{id}/payment
-activate TC
-TC -> TBS : (39) createPayment(invoiceId)
-activate TBS
-TBS -> PayOS : (40) createPaymentLink
-activate PayOS
-PayOS --> TBS : (41) return QR / orderCode
-deactivate PayOS
-TBS -> TIR : (42) save PayosOrder
-activate TIR
-TIR -> DB : (43) INSERT/UPDATE
-activate DB
-DB --> TIR : (44) return OK
-deactivate DB
-TIR --> TBS : (45) return OK
-deactivate TIR
-TBS --> TC : (46) return PaymentLinkResponse
-deactivate TBS
-TC --> FE : (47) return QR
-deactivate TC
-FE --> Tenant : (48) return Payment QR
-deactivate FE
-
-Tenant -> PayOS : (49) Pay success
-activate PayOS
-PayOS -> WC : (50) POST /api/v1/payos/webhook
-activate WC
-WC -> TBS : (51) markInvoicePaidByPayosOrderCode
-activate TBS
-TBS -> DB : (52) BeginTransaction()
-activate DB
-TBS -> TIR : (53) UPDATE TenantInvoice PAID\n+ INSERT TenantPayment
-activate TIR
-TIR -> DB : (54) UPDATE / INSERT
-DB --> TIR : (55) return OK
-TIR --> TBS : (56) return OK
-deactivate TIR
-TBS -> DB : (57) CommitTransaction()
-DB --> TBS : (58) return Committed
-deactivate DB
-TBS --> WC : (59) return OK
-deactivate TBS
-WC --> PayOS : (60) return 200
-deactivate WC
-PayOS --> Tenant : (61) return Payment success
-deactivate PayOS
-deactivate Tenant
-
-note over MRS, TBS
-  Cron BillingCronServiceImpl.runDailySweep
-  (08:00 Asia/Ho_Chi_Minh): issue rent + overdue reminders
+  Cron: BillingCronServiceImpl.runDailySweep
+  (08:00 Asia/Ho_Chi_Minh) — issue rent + overdue reminders
 end note
 
 @enduml

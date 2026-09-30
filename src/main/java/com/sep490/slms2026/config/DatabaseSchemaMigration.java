@@ -853,6 +853,28 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 verified_at TIMESTAMP,
                 verified_by UUID
                 """);
+        try {
+            int n = jdbcTemplate.update(
+                    """
+                    UPDATE tenant_payment_claims c
+                    SET status = 'SUPERSEDED',
+                        reject_reason = CASE
+                            WHEN i.payment_method = 'QR' THEN 'Đã thanh toán qua PayOS'
+                            WHEN i.payment_method = 'CASH' THEN 'Đã thanh toán bằng tiền mặt'
+                            ELSE 'Đã thanh toán qua kênh khác'
+                        END,
+                        verified_at = COALESCE(i.paid_at, NOW())
+                    FROM tenant_invoices i
+                    WHERE c.tenant_invoice_id = i.id
+                      AND c.status = 'PENDING_VERIFY'
+                      AND i.status = 'PAID'
+                    """);
+            if (n > 0) {
+                log.info("Superseded {} pending payment claims on already-paid invoices", n);
+            }
+        } catch (Exception e) {
+            log.warn("Backfill superseded payment claims skipped: {}", e.getMessage());
+        }
     }
 
     private void ensureEquipmentRecommendReplacementColumn() {

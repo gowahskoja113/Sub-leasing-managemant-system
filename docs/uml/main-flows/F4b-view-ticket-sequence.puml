@@ -1,0 +1,43 @@
+@startuml F4b_ViewTicket_Sequence
+title Figure F4b — Manager View Ticket (QR not required)
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "MaintenanceServiceImpl" as S
+participant "EquipmentServiceImpl" as ES
+database DB
+
+Manager -> FE : (1) Open ticket
+activate Manager
+activate FE
+FE -> C : (2) GET /api/v1/maintenance/{id}
+activate C
+C -> S : (3) getRequestById
+activate S
+S -> ES : (4) equipment snapshot
+activate ES
+ES -> DB : (5) SELECT Equipment
+activate DB
+DB --> ES : (6) return Equipment
+deactivate DB
+ES --> S : (7) return snapshot
+deactivate ES
+note right of S
+  maintenanceCount
+  remainingDepreciation
+  warrantyMonths
+  remainingWarranty
+end note
+S --> C : (8) return ticket + equipment
+deactivate S
+C --> FE : (9) return qrScanRequiredToProcess=true
+deactivate C
+FE --> Manager : (10) return Ticket detail
+deactivate FE
+deactivate Manager
+
+@enduml

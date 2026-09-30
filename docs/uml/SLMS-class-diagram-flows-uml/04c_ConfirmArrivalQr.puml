@@ -1,0 +1,84 @@
+@startuml ClassDiagram_F4c_ConfirmArrivalQr
+title Figure F4c — Confirm Arrival (QR) Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class MaintenanceController <<controller>> {
+  -maintenanceService : MaintenanceService
+  +confirmArrival(id: Long, request: ConfirmArrivalRequest) : MaintenanceRequestResponse
+}
+
+interface MaintenanceService {
+  +confirmArrival(id: Long, qrCode: String) : MaintenanceRequestResponse
+}
+
+class MaintenanceServiceImpl <<service>> {
+  -repository : MaintenanceRequestRepository
+  -equipmentRepository : EquipmentRepository
+  +confirmArrival(id: Long, qrCode: String) : MaintenanceRequestResponse
+}
+
+interface MaintenanceRequestRepository {
+  +findById(id: Long) : Optional<MaintenanceRequest>
+  +save(r: MaintenanceRequest) : MaintenanceRequest
+}
+
+interface EquipmentRepository {
+  +findById(id: Long) : Optional<Equipment>
+}
+
+class ConfirmArrivalRequest <<dto>> {
+  -qrCode : String
+}
+
+class MaintenanceRequestResponse <<dto>> {
+  -id : Long
+  -status : MaintenanceStatus
+  -visitArrivalConfirmedAt : LocalDateTime
+}
+
+class MaintenanceRequest <<entity>> {
+  -id : Long {id}
+  -status : MaintenanceStatus
+  -equipmentId : Long
+  -visitArrivalConfirmedAt : LocalDateTime
+}
+
+class Equipment <<entity>> {
+  -id : Long {id}
+  -qrCode : String {unique}
+}
+
+enum MaintenanceStatus <<enumeration>> {
+  OPEN
+  REPAIR_SCHEDULED
+}
+
+MaintenanceController --> MaintenanceService : maintenanceService
+MaintenanceController ..> ConfirmArrivalRequest : <<use>>
+MaintenanceServiceImpl ..|> MaintenanceService
+MaintenanceServiceImpl --> MaintenanceRequestRepository : repository
+MaintenanceServiceImpl --> EquipmentRepository : equipmentRepository
+MaintenanceRequestRepository ..> MaintenanceRequest : <<use>>
+EquipmentRepository ..> Equipment : <<use>>
+MaintenanceRequest ..> Equipment : equipmentId
+MaintenanceRequest ..> MaintenanceStatus
+
+note right of MaintenanceServiceImpl
+  assertQrMatchesEquipment
+  → UPDATE visitArrivalConfirmedAt
+end note
+
+@enduml

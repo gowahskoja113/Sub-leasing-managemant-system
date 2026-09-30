@@ -1,177 +1,30 @@
 @startuml F5_Checkout_Class
-title Figure — Checkout Class Diagram\nUML 2.1 — Request → Inspection → Settlement → Refund → Complete
+title Figure F5 — Checkout Class Diagram (index)\nĐã tách thành 6 hình riêng theo sequence
 
-skinparam classAttributeIconSize 0
-skinparam linetype ortho
-skinparam shadowing false
+note as N1
+  **F5a** — Create Checkout Request
+  file: F5a-create-checkout-request-class.puml
+  ↔ F5a-create-checkout-request-sequence.puml
 
-together {
-  class TenantMeLifecycleController {
-    - tenantCheckoutService: TenantCheckoutService
-    + createCheckoutRequest(req: CreateCheckoutRequest): CheckoutResponse
-    + confirmRefund(id: Long): void
-    + disputeRefund(id: Long, req: DisputeRefundRequest): void
-  }
+  **F5b** — Manager Approve
+  file: F5b-manager-approve-class.puml
+  ↔ F5b-manager-approve-sequence.puml
 
-  class CheckoutRequestController {
-    - tenantCheckoutService: TenantCheckoutService
-    + approve(id: Long, req: ApproveCheckoutRequest): CheckoutResponse
-    + reject(id: Long, req: RejectCheckoutRequest): CheckoutResponse
-    + complete(id: Long, req: CompleteCheckoutRequest): CheckoutResponse
-  }
+  **F5c** — Inspection + Damages
+  file: F5c-inspection-damages-class.puml
+  ↔ F5c-inspection-damages-sequence.puml
 
-  class CheckoutProcessController {
-    - checkoutProcessService: CheckoutProcessService
-    + saveInspection(id: Long, req: CheckoutInspectionRequest): void
-    + submitSettlement(id: Long): CheckoutSettlementResponse
-    + recordRefund(id: Long, req: CheckoutRefundRequest): void
-  }
+  **F5d** — Settlement
+  file: F5d-settlement-class.puml
+  ↔ F5d-settlement-sequence.puml
 
-  class TenantCheckoutProcessController {
-    - checkoutProcessService: CheckoutProcessService
-    + acceptSettlement(id: Long): void
-    + disputeSettlement(id: Long, req: CheckoutDisputeRequest): void
-  }
+  **F5e** — Owner Refund
+  file: F5e-owner-refund-class.puml
+  ↔ F5e-owner-refund-sequence.puml
 
-  class CreateCheckoutRequest {
-    + contractId: Long
-    + expectedMoveOutDate: LocalDate
-    + reason: String
-    + note: String
-  }
-
-  class CheckoutInspectionRequest {
-    + finalElectricReading: BigDecimal
-    + finalWaterReading: BigDecimal
-    + roomNote: String
-    + photoUrls: List~String~
-    + damages: List~CheckoutDamageItemRequest~
-  }
-
-  class CheckoutRefundRequest {
-    + refundAmount: BigDecimal
-    + proofUrl: String
-    + note: String
-  }
-}
-
-together {
-  interface TenantCheckoutService
-  class TenantCheckoutServiceImpl {
-    - checkoutRequestRepository: CheckoutRequestRepository
-    - tenantContractRepository: TenantContractRepository
-    + create(...): CheckoutResponse
-    + approve(...): CheckoutResponse
-    + complete(...): CheckoutResponse
-  }
-
-  interface CheckoutProcessService
-  class CheckoutProcessServiceImpl {
-    - checkoutInspectionRepository: CheckoutInspectionRepository
-    - checkoutSettlementRepository: CheckoutSettlementRepository
-    - depositAuditLogRepository: DepositAuditLogRepository
-    + saveInspection(...): void
-    + submitSettlement(...): CheckoutSettlementResponse
-    + recordRefund(...): void
-  }
-}
-
-note right of CheckoutProcessServiceImpl
-  «@Transactional»
-  Status: PENDING → APPROVED →
-  INSPECTING → WAITING_TENANT →
-  SETTLING → COMPLETED
+  **F5f** — Manager Complete
+  file: F5f-manager-complete-class.puml
+  ↔ F5f-manager-complete-sequence.puml
 end note
-
-together {
-  interface CheckoutRequestRepository
-  interface CheckoutInspectionRepository
-  interface CheckoutSettlementRepository
-  interface DepositAuditLogRepository
-  interface OutstandingDamageRecordRepository
-}
-
-interface JpaRepository<T,ID>
-CheckoutRequestRepository --|> JpaRepository
-CheckoutInspectionRepository --|> JpaRepository
-CheckoutSettlementRepository --|> JpaRepository
-DepositAuditLogRepository --|> JpaRepository
-
-together {
-  class CheckoutRequest {
-    + id: Long
-    + expectedMoveOutDate: LocalDate
-    + reason: String
-    + status: CheckoutRequestStatus
-    + origin: CheckoutOrigin
-    + disputeCount: Integer
-    + completedAt: LocalDateTime
-  }
-
-  class CheckoutInspection {
-    + id: Long
-    + finalElectricReading: BigDecimal
-    + finalWaterReading: BigDecimal
-    + roomNote: String
-  }
-
-  class CheckoutDamageItem {
-    + id: Long
-    + description: String
-    + amount: BigDecimal
-  }
-
-  class CheckoutSettlement {
-    + id: Long
-    + depositAmount: BigDecimal
-    + unpaidAmount: BigDecimal
-    + damageAmount: BigDecimal
-    + adjustmentAmount: BigDecimal
-    + refundAmount: BigDecimal
-    + refundProofUrl: String
-  }
-
-  class DepositAuditLog {
-    + id: Long
-    + action: String
-    + amount: BigDecimal
-    + createdAt: LocalDateTime
-  }
-
-  class TenantContract {
-    + id: Long
-    + deposit: BigDecimal
-    + status: ContractStatus
-  }
-
-  enum CheckoutRequestStatus {
-    PENDING
-    APPROVED
-    INSPECTING
-    WAITING_TENANT
-    DISPUTED
-    SETTLING
-    COMPLETED
-  }
-}
-
-TenantMeLifecycleController --> TenantCheckoutService
-CheckoutRequestController --> TenantCheckoutService
-CheckoutProcessController --> CheckoutProcessService
-TenantCheckoutProcessController --> CheckoutProcessService
-
-TenantCheckoutService <|.. TenantCheckoutServiceImpl
-CheckoutProcessService <|.. CheckoutProcessServiceImpl
-TenantCheckoutServiceImpl --> CheckoutRequestRepository
-CheckoutProcessServiceImpl --> CheckoutInspectionRepository
-CheckoutProcessServiceImpl --> CheckoutSettlementRepository
-CheckoutProcessServiceImpl --> DepositAuditLogRepository
-
-TenantContract "1" o-- "*" CheckoutRequest
-CheckoutRequest "1" o-- "0..1" CheckoutInspection
-CheckoutInspection "1" o-- "*" CheckoutDamageItem
-CheckoutRequest "1" o-- "0..1" CheckoutSettlement
-CheckoutRequest "1" o-- "*" DepositAuditLog
-CheckoutRequest --> CheckoutRequestStatus
 
 @enduml

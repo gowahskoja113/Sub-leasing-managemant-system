@@ -1,0 +1,103 @@
+@startuml ClassDiagram_F5c_InspectionDamages
+title Figure F5c — Inspection + Damages Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class CheckoutProcessController <<controller>> {
+  -checkoutProcessService : CheckoutProcessService
+  +saveInspection(id: Long, request: CheckoutInspectionRequest) : void
+}
+
+interface CheckoutProcessService {
+  +saveInspection(requestId: Long, request: CheckoutInspectionRequest) : void
+}
+
+class CheckoutProcessServiceImpl <<service>> {
+  -checkoutRequestRepository : CheckoutRequestRepository
+  -checkoutInspectionRepository : CheckoutInspectionRepository
+  +saveInspection(requestId: Long, request: CheckoutInspectionRequest) : void
+}
+
+interface CheckoutRequestRepository {
+  +findById(id: Long) : Optional<CheckoutRequest>
+  +save(r: CheckoutRequest) : CheckoutRequest
+}
+
+interface CheckoutInspectionRepository {
+  +save(i: CheckoutInspection) : CheckoutInspection
+}
+
+class CheckoutInspectionRequest <<dto>> {
+  -roomConditionNote : String
+  -electricityFinalReading : Integer
+  -electricMeterImageUrl : String
+  -waterFinalReading : Integer
+  -waterMeterImageUrl : String
+  -damageItems : List<DamageItemRequest>
+}
+
+class DamageItemRequest <<dto>> {
+  -description : String
+  -amount : BigDecimal
+  -imageUrl : String
+}
+
+class CheckoutRequest <<entity>> {
+  -id : Long {id}
+  -status : CheckoutRequestStatus
+}
+
+class CheckoutInspection <<entity>> {
+  -id : Long {id}
+  -roomConditionNote : String
+  -electricityFinalReading : Integer
+  -electricMeterImageUrl : String
+  -waterFinalReading : Integer
+  -waterMeterImageUrl : String
+  -createdAt : LocalDateTime
+  -updatedAt : LocalDateTime
+}
+
+class CheckoutDamageItem <<entity>> {
+  -id : Long {id}
+  -description : String
+  -amount : BigDecimal
+  -imageUrl : String
+}
+
+enum CheckoutRequestStatus <<enumeration>> {
+  APPROVED
+  INSPECTING
+}
+
+CheckoutProcessController --> CheckoutProcessService : checkoutProcessService
+CheckoutProcessController ..> CheckoutInspectionRequest : <<use>>
+CheckoutProcessServiceImpl ..|> CheckoutProcessService
+CheckoutProcessServiceImpl --> CheckoutRequestRepository : checkoutRequestRepository
+CheckoutProcessServiceImpl --> CheckoutInspectionRepository : checkoutInspectionRepository
+CheckoutRequestRepository ..> CheckoutRequest : <<use>>
+CheckoutInspectionRepository ..> CheckoutInspection : <<use>>
+CheckoutInspectionRequest "1" *-- "*" DamageItemRequest : damageItems
+CheckoutRequest "1" *-- "1" CheckoutInspection
+CheckoutInspection "1" *-- "*" CheckoutDamageItem
+CheckoutRequest ..> CheckoutRequestStatus
+
+note right of CheckoutProcessServiceImpl
+  «@Transactional»
+  save CheckoutInspection + DamageItems
+  → status = INSPECTING
+end note
+
+@enduml

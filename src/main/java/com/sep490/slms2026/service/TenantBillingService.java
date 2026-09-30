@@ -35,6 +35,9 @@ public interface TenantBillingService {
 
     void approvePaymentClaim(TenantPaymentClaim claim, UUID verifiedBy);
 
+    /** Đóng claim sang SUPERSEDED nếu hoá đơn đã PAID; trả về true nếu đã đóng. */
+    boolean supersedeClaimIfInvoicePaid(TenantPaymentClaim claim);
+
     void createBankTransferClaim(TenantInvoice invoice, String transferContent);
 
     List<TenantInvoiceResponse> getRentInvoicesForProperty(Long propertyId, String month);

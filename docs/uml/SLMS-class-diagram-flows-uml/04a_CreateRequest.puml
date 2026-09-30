@@ -1,0 +1,119 @@
+@startuml ClassDiagram_F4a_CreateRequest
+title Figure F4a — Tenant Create Maintenance Request Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class MaintenanceController <<controller>> {
+  -maintenanceService : MaintenanceService
+  +createRequest(request: MaintenanceCreateRequest) : MaintenanceRequestResponse
+}
+
+interface MaintenanceService {
+  +createRequest(request: MaintenanceCreateRequest) : MaintenanceRequestResponse
+  +addTimeline(req: MaintenanceRequest, old: MaintenanceStatus, next: MaintenanceStatus, note: String) : void
+}
+
+class MaintenanceServiceImpl <<service>> {
+  -repository : MaintenanceRequestRepository
+  -maintenanceImageRepository : MaintenanceImageRepository
+  -maintenanceTimelineRepository : MaintenanceTimelineRepository
+  +createRequest(request: MaintenanceCreateRequest) : MaintenanceRequestResponse
+}
+
+interface MaintenanceRequestRepository {
+  +save(r: MaintenanceRequest) : MaintenanceRequest
+}
+
+interface MaintenanceImageRepository {
+  +saveAll(images: List<MaintenanceImage>) : List<MaintenanceImage>
+}
+
+interface MaintenanceTimelineRepository {
+  +save(t: MaintenanceTimeline) : MaintenanceTimeline
+}
+
+class MaintenanceCreateRequest <<dto>> {
+  -title : String
+  -description : String
+  -category : String
+  -priority : String
+  -equipmentId : Long
+  -visitAppointmentAt : LocalDateTime
+  -beforeImageUrls : List<String>
+}
+
+class MaintenanceRequestResponse <<dto>> {
+  -id : Long
+  -requestCode : String
+  -status : MaintenanceStatus
+}
+
+class MaintenanceRequest <<entity>> {
+  -id : Long {id}
+  -requestCode : String {unique}
+  -title : String
+  -description : String
+  -category : String
+  -priority : String
+  -status : MaintenanceStatus
+  -createdAt : LocalDateTime
+  -visitAppointmentAt : LocalDateTime
+  -equipmentId : Long
+}
+
+class MaintenanceImage <<entity>> {
+  -id : Long {id}
+  -imageUrl : String
+  -type : MaintenancePhotoType
+  -createdAt : LocalDateTime
+}
+
+class MaintenanceTimeline <<entity>> {
+  -id : Long {id}
+  -oldStatus : MaintenanceStatus
+  -newStatus : MaintenanceStatus
+  -note : String
+  -changedAt : LocalDateTime
+}
+
+enum MaintenanceStatus <<enumeration>> {
+  OPEN
+}
+
+enum MaintenancePhotoType <<enumeration>> {
+  BEFORE
+}
+
+MaintenanceController --> MaintenanceService : maintenanceService
+MaintenanceController ..> MaintenanceCreateRequest : <<use>>
+MaintenanceServiceImpl ..|> MaintenanceService
+MaintenanceServiceImpl --> MaintenanceRequestRepository : repository
+MaintenanceServiceImpl --> MaintenanceImageRepository : maintenanceImageRepository
+MaintenanceServiceImpl --> MaintenanceTimelineRepository : maintenanceTimelineRepository
+MaintenanceRequestRepository ..> MaintenanceRequest : <<use>>
+MaintenanceImageRepository ..> MaintenanceImage : <<use>>
+MaintenanceTimelineRepository ..> MaintenanceTimeline : <<use>>
+MaintenanceRequest "1" *-- "*" MaintenanceImage
+MaintenanceRequest "1" *-- "*" MaintenanceTimeline
+MaintenanceRequest ..> MaintenanceStatus
+MaintenanceImage ..> MaintenancePhotoType
+
+note right of MaintenanceServiceImpl
+  INSERT MaintenanceRequest OPEN
+  + MaintenanceImage BEFORE
+  → notify Manager
+end note
+
+@enduml

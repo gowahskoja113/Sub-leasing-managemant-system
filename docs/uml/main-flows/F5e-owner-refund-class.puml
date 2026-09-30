@@ -1,0 +1,56 @@
+@startuml F5e_OwnerRefund_Class
+title Figure F5e — Owner Record Refund Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class CheckoutProcessController {
+  - checkoutProcessService: CheckoutProcessService
+  + recordRefund(id: Long, req: CheckoutRefundRequest): DepositRefundResponse
+}
+
+class CheckoutRefundRequest {
+  + refundAmount: BigDecimal
+  + proofUrl: String
+  + note: String
+}
+
+interface CheckoutProcessService {
+  + refund(id: Long, req: CheckoutRefundRequest): DepositRefundResponse
+}
+
+class CheckoutProcessServiceImpl {
+  - checkoutSettlementRepository: CheckoutSettlementRepository
+  - depositAuditLogRepository: DepositAuditLogRepository
+  + refund(id: Long, req: CheckoutRefundRequest): DepositRefundResponse
+}
+
+interface CheckoutSettlementRepository
+interface DepositAuditLogRepository
+interface JpaRepository<T,ID>
+
+class CheckoutSettlement {
+  + id: Long
+  + refundAmount: BigDecimal
+  + refundProofUrl: String
+}
+
+class DepositAuditLog {
+  + id: Long
+  + action: String
+  + amount: BigDecimal
+  + createdAt: LocalDateTime
+}
+
+CheckoutProcessController --> CheckoutProcessService
+CheckoutProcessController ..> CheckoutRefundRequest
+CheckoutProcessService <|.. CheckoutProcessServiceImpl
+CheckoutProcessServiceImpl --> CheckoutSettlementRepository
+CheckoutProcessServiceImpl --> DepositAuditLogRepository
+CheckoutSettlementRepository -up-|> JpaRepository
+DepositAuditLogRepository -up-|> JpaRepository
+CheckoutSettlementRepository ..> CheckoutSettlement
+DepositAuditLogRepository ..> DepositAuditLog
+
+@enduml

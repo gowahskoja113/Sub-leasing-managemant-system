@@ -1,169 +1,34 @@
 @startuml F4_Maintenance_Class
-title Figure — Maintenance Class Diagram\nUML 2.1 — View without QR → Scan to process → Single cost invoice → History
+title Figure F4 — Maintenance Class Diagram (index)\nĐã tách thành 7 hình riêng theo sequence
 
-skinparam classAttributeIconSize 0
-skinparam linetype ortho
-skinparam shadowing false
+note as N1
+  **F4a** — Create Request
+  file: F4a-create-request-class.puml
+  ↔ F4a-create-request-sequence.puml
 
-together {
-  class MaintenanceController {
-    - maintenanceService: MaintenanceService
-    + create(req: MaintenanceCreateRequest): MaintenanceResponse
-    + getById(id: Long): MaintenanceResponse
-    + confirmArrival(id: Long, req: MaintenanceConfirmArrivalRequest): MaintenanceResponse
-    + diagnose(id: Long, req: MaintenanceDiagnoseRequest): MaintenanceResponse
-    + startRepair(id: Long): MaintenanceResponse
-    + complete(id: Long, req: MaintenanceCompleteRequest): MaintenanceResponse
-  }
+  **F4b** — View Ticket
+  file: F4b-view-ticket-class.puml
+  ↔ F4b-view-ticket-sequence.puml
 
-  class MaintenanceCreateRequest {
-    + propertyId: Long
-    + roomId: Long
-    + equipmentId: Long
-    + title: String
-    + description: String
-    + visitAppointmentAt: LocalDateTime
-    + photoUrls: List~String~
-  }
+  **F4c** — Confirm Arrival QR
+  file: F4c-confirm-arrival-qr-class.puml
+  ↔ F4c-confirm-arrival-qr-sequence.puml
 
-  class MaintenanceConfirmArrivalRequest {
-    + qrCode: String
-  }
+  **F4d** — Diagnose
+  file: F4d-diagnose-class.puml
+  ↔ F4d-diagnose-sequence.puml
 
-  class MaintenanceDiagnoseRequest {
-    + quotedRepairAmount: BigDecimal
-    + damageCause: DamageCause
-    + tenantAgreesToPay: Boolean
-    + faultReason: String
-    + equipmentNeedsReplacement: Boolean
-  }
+  **F4e** — Start Repair
+  file: F4e-start-repair-class.puml
+  ↔ F4e-start-repair-sequence.puml
 
-  class MaintenanceCompleteRequest {
-    + resolutionNote: String
-    + repairDescription: String
-    + afterImages: List~String~
-  }
-}
+  **F4f** — Complete + Invoice
+  file: F4f-complete-invoice-class.puml
+  ↔ F4f-complete-invoice-sequence.puml
 
-together {
-  interface MaintenanceService
-  class MaintenanceServiceImpl {
-    - maintenanceRequestRepository: MaintenanceRequestRepository
-    - equipmentRepository: EquipmentRepository
-    - equipmentHistoryRepository: EquipmentMaintenanceHistoryRepository
-    - tenantPendingChargeService: TenantPendingChargeService
-    + create(...): MaintenanceResponse
-    + getRequestById(...): MaintenanceResponse
-    + confirmArrival(...): MaintenanceResponse
-    + diagnose(...): MaintenanceResponse
-    + startRepair(...): MaintenanceResponse
-    + complete(...): MaintenanceResponse
-  }
-}
-
-note right of MaintenanceServiceImpl
-  «@Transactional»
-  GET ticket: no QR
-  confirm-arrival: QR required
-  diagnose: no extra fault photos
-  tenant-fault: 1 cost → invoice due +3d → repair
-  complete: write EquipmentMaintenanceHistory + photos
+  **F4g** — Equipment History
+  file: F4g-equipment-history-class.puml
+  ↔ F4g-equipment-history-sequence.puml
 end note
-
-together {
-  interface MaintenanceRequestRepository
-  interface MaintenanceImageRepository
-  interface EquipmentRepository
-  interface EquipmentMaintenanceHistoryRepository
-}
-
-interface JpaRepository<T,ID>
-MaintenanceRequestRepository --|> JpaRepository
-MaintenanceImageRepository --|> JpaRepository
-EquipmentRepository --|> JpaRepository
-EquipmentMaintenanceHistoryRepository --|> JpaRepository
-
-together {
-  class MaintenanceRequest {
-    + id: Long
-    + requestCode: String
-    + status: MaintenanceStatus
-    + flowType: MaintenanceFlowType
-    + damageCause: DamageCause
-    + estimatedDamageAmount: BigDecimal
-    + invoiceAmount: BigDecimal
-    + chargeInvoiceId: Long
-    + visitArrivalConfirmedAt: LocalDateTime
-  }
-
-  class MaintenanceImage {
-    + id: Long
-    + url: String
-    + photoType: MaintenancePhotoType
-  }
-
-  class Equipment {
-    + id: Long
-    + name: String
-    + price: BigDecimal
-    + installationDate: LocalDate
-    + warrantyMonths: Integer
-    + warrantyEndDate: LocalDate
-    + maintenanceCount: int
-    + remainingDepreciationAmount: BigDecimal
-    + remainingWarrantyLabel: String
-    + qrCode: String
-  }
-
-  class EquipmentMaintenanceHistory {
-    + id: Long
-    + maintenanceDate: LocalDateTime
-    + repairCost: Long
-    + note: String
-    + photoUrls: String
-  }
-
-  class TenantInvoice {
-    + id: Long
-    + dueDate: LocalDate
-    + grandTotal: BigDecimal
-    + status: TenantInvoiceStatus
-  }
-
-  class Tenant
-  class Property
-  class Room
-
-  enum MaintenanceStatus {
-    OPEN
-    REPAIR_SCHEDULED
-    IN_REPAIR
-    TENANT_FAULT
-    CLOSED
-    ...
-  }
-}
-
-MaintenanceController --> MaintenanceService
-MaintenanceController ..> MaintenanceCreateRequest
-MaintenanceController ..> MaintenanceConfirmArrivalRequest
-MaintenanceController ..> MaintenanceDiagnoseRequest
-MaintenanceController ..> MaintenanceCompleteRequest
-MaintenanceService <|.. MaintenanceServiceImpl
-MaintenanceServiceImpl --> MaintenanceRequestRepository
-MaintenanceServiceImpl --> MaintenanceImageRepository
-MaintenanceServiceImpl --> EquipmentRepository
-MaintenanceServiceImpl --> EquipmentMaintenanceHistoryRepository
-MaintenanceServiceImpl --> TenantPendingChargeService
-
-Tenant "1" o-- "*" MaintenanceRequest
-Property "1" o-- "*" MaintenanceRequest
-Room "0..1" o-- "*" MaintenanceRequest
-Equipment "0..1" o-- "*" MaintenanceRequest
-MaintenanceRequest "1" o-- "*" MaintenanceImage
-Equipment "1" o-- "*" EquipmentMaintenanceHistory
-MaintenanceRequest "1" -- "*" EquipmentMaintenanceHistory
-MaintenanceRequest "0..1" .. "0..1" TenantInvoice : chargeInvoiceId >
-MaintenanceRequest --> MaintenanceStatus
 
 @enduml

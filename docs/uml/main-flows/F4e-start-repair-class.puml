@@ -1,0 +1,36 @@
+@startuml F4e_StartRepair_Class
+title Figure F4e — Start Repair Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class MaintenanceController {
+  - maintenanceService: MaintenanceService
+  + startRepair(id: Long): MaintenanceRequestResponse
+}
+
+interface MaintenanceService {
+  + startRepair(id: Long): MaintenanceRequestResponse
+}
+
+class MaintenanceServiceImpl {
+  + startRepair(id: Long): MaintenanceRequestResponse
+}
+
+class MaintenanceRequest {
+  + id: Long
+  + status: MaintenanceStatus
+}
+
+enum MaintenanceStatus {
+  REPAIR_SCHEDULED
+  IN_REPAIR
+  TENANT_FAULT
+}
+
+MaintenanceController --> MaintenanceService
+MaintenanceService <|.. MaintenanceServiceImpl
+MaintenanceRequest --> MaintenanceStatus
+
+@enduml

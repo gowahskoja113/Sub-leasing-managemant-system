@@ -1,0 +1,18 @@
+@startuml ClassDiagram_InitialSetup
+title Figure — Class Diagram: Initial Setup (index)\nĐã tách thành 3 hình riêng theo sequence
+
+note as N1
+  **F1a** — Admin Submit to Host
+  class: ../main-flows/F1a-submit-to-host-class.puml
+  ↔ sequence: ../main-flows/F1a-submit-to-host-sequence.puml
+
+  **F1b** — Host Confirm Pricing (auto OM → ACTIVE)
+  class: ../main-flows/F1b-host-confirm-class.puml
+  ↔ sequence: ../main-flows/F1b-host-confirm-sequence.puml
+
+  **F1c** — [Optional] Assign / Change Operation Manager
+  class: ../main-flows/F1c-assign-om-class.puml
+  ↔ sequence: ../main-flows/F1c-assign-om-sequence.puml
+end note
+
+@enduml

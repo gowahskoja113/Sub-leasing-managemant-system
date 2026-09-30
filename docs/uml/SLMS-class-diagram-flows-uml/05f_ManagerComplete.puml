@@ -1,0 +1,110 @@
+@startuml ClassDiagram_F5f_ManagerComplete
+title Figure F5f — Manager Complete Checkout Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class CheckoutRequestController <<controller>> {
+  -tenantCheckoutService : TenantCheckoutService
+  +complete(id: Long, request: CompleteCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface TenantCheckoutService {
+  +completeRequest(requestId: Long, managerUserId: UUID, request: CompleteCheckoutRequest) : CheckoutRequestResponse
+}
+
+class TenantCheckoutServiceImpl <<service>> {
+  -checkoutRequestRepository : CheckoutRequestRepository
+  -tenantContractRepository : TenantContractRepository
+  -roomRepository : RoomRepository
+  +completeRequest(requestId: Long, managerUserId: UUID, request: CompleteCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface CheckoutRequestRepository {
+  +findById(id: Long) : Optional<CheckoutRequest>
+  +save(r: CheckoutRequest) : CheckoutRequest
+}
+
+interface TenantContractRepository {
+  +save(c: TenantContract) : TenantContract
+}
+
+interface RoomRepository {
+  +save(room: Room) : Room
+}
+
+class CompleteCheckoutRequest <<dto>> {
+  -note : String
+}
+
+class CheckoutRequestResponse <<dto>> {
+  -id : Long
+  -status : CheckoutRequestStatus
+  -completedAt : LocalDateTime
+}
+
+class CheckoutRequest <<entity>> {
+  -id : Long {id}
+  -status : CheckoutRequestStatus
+  -completedAt : LocalDateTime
+}
+
+class TenantContract <<entity>> {
+  -id : Long {id}
+  -status : ContractStatus
+  -terminatedAt : LocalDateTime
+  -terminationType : ContractTerminationType
+}
+
+class Room <<entity>> {
+  -id : Long {id}
+  -status : RoomStatus
+}
+
+enum CheckoutRequestStatus <<enumeration>> {
+  SETTLING
+  COMPLETED
+}
+
+enum ContractStatus <<enumeration>> {
+  ACTIVE
+  TERMINATED
+}
+
+enum RoomStatus <<enumeration>> {
+  RENTED
+  AVAILABLE
+}
+
+CheckoutRequestController --> TenantCheckoutService : tenantCheckoutService
+CheckoutRequestController ..> CompleteCheckoutRequest : <<use>>
+TenantCheckoutServiceImpl ..|> TenantCheckoutService
+TenantCheckoutServiceImpl --> CheckoutRequestRepository : checkoutRequestRepository
+TenantCheckoutServiceImpl --> TenantContractRepository : tenantContractRepository
+TenantCheckoutServiceImpl --> RoomRepository : roomRepository
+CheckoutRequestRepository ..> CheckoutRequest : <<use>>
+TenantContractRepository ..> TenantContract : <<use>>
+RoomRepository ..> Room : <<use>>
+CheckoutRequest ..> CheckoutRequestStatus
+TenantContract ..> ContractStatus
+Room ..> RoomStatus
+
+note right of TenantCheckoutServiceImpl
+  «@Transactional»
+  UPDATE COMPLETED
+  → terminateActiveContract
+  → room status = AVAILABLE
+end note
+
+@enduml

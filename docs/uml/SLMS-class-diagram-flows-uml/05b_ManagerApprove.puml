@@ -1,0 +1,82 @@
+@startuml ClassDiagram_F5b_ManagerApprove
+title Figure F5b — Manager Approve Checkout Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class CheckoutRequestController <<controller>> {
+  -tenantCheckoutService : TenantCheckoutService
+  +approve(id: Long, request: ApproveCheckoutRequest) : CheckoutRequestResponse
+  +reject(id: Long, request: RejectCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface TenantCheckoutService {
+  +approveRequest(requestId: Long, managerUserId: UUID) : CheckoutRequestResponse
+  +rejectRequest(requestId: Long, managerUserId: UUID, request: RejectCheckoutRequest) : CheckoutRequestResponse
+}
+
+class TenantCheckoutServiceImpl <<service>> {
+  -checkoutRequestRepository : CheckoutRequestRepository
+  +approveRequest(requestId: Long, managerUserId: UUID) : CheckoutRequestResponse
+  +rejectRequest(requestId: Long, managerUserId: UUID, request: RejectCheckoutRequest) : CheckoutRequestResponse
+}
+
+interface CheckoutRequestRepository {
+  +findById(id: Long) : Optional<CheckoutRequest>
+  +save(r: CheckoutRequest) : CheckoutRequest
+}
+
+class ApproveCheckoutRequest <<dto>> {
+  -managerNote : String
+  -endDate : LocalDate
+}
+
+class RejectCheckoutRequest <<dto>> {
+  -rejectReason : String
+}
+
+class CheckoutRequestResponse <<dto>> {
+  -id : Long
+  -status : CheckoutRequestStatus
+}
+
+class CheckoutRequest <<entity>> {
+  -id : Long {id}
+  -status : CheckoutRequestStatus
+  -reviewedAt : LocalDateTime
+  -reviewedBy : UUID
+  -managerNote : String
+  -rejectReason : String
+}
+
+enum CheckoutRequestStatus <<enumeration>> {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+CheckoutRequestController --> TenantCheckoutService : tenantCheckoutService
+CheckoutRequestController ..> ApproveCheckoutRequest : <<use>>
+CheckoutRequestController ..> RejectCheckoutRequest : <<use>>
+TenantCheckoutServiceImpl ..|> TenantCheckoutService
+TenantCheckoutServiceImpl --> CheckoutRequestRepository : checkoutRequestRepository
+CheckoutRequestRepository ..> CheckoutRequest : <<use>>
+CheckoutRequest ..> CheckoutRequestStatus
+
+note right of TenantCheckoutServiceImpl
+  UPDATE status=APPROVED
+  (+ endDate / prorate rent)
+end note
+
+@enduml

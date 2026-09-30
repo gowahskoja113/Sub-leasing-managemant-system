@@ -1,0 +1,30 @@
+@startuml ClassDiagram_Checkout
+title Figure — Class Diagram: Checkout (index)\nĐã tách thành 6 hình riêng theo sequence
+
+note as N1
+  **F5a** — Tenant Create Request
+  class: 05a_CreateCheckoutRequest.puml
+  ↔ sequence: ../main-flows/F5a-create-checkout-request-sequence.puml
+
+  **F5b** — Manager Approve
+  class: 05b_ManagerApprove.puml
+  ↔ sequence: ../main-flows/F5b-manager-approve-sequence.puml
+
+  **F5c** — Inspection + Damages
+  class: 05c_InspectionDamages.puml
+  ↔ sequence: ../main-flows/F5c-inspection-damages-sequence.puml
+
+  **F5d** — Settlement (Submit + Accept)
+  class: 05d_Settlement.puml
+  ↔ sequence: ../main-flows/F5d-settlement-sequence.puml
+
+  **F5e** — Owner Record Refund
+  class: 05e_OwnerRefund.puml
+  ↔ sequence: ../main-flows/F5e-owner-refund-sequence.puml
+
+  **F5f** — Manager Complete
+  class: 05f_ManagerComplete.puml
+  ↔ sequence: ../main-flows/F5f-manager-complete-sequence.puml
+end note
+
+@enduml

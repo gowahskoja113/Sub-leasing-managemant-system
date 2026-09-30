@@ -1,0 +1,160 @@
+@startuml F1c_AssignOM_Class
+title Figure F1c — Assign / Change Operation Manager Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class PropertyOnboardingController <<controller>> {
+  -propertyOnboardingService : PropertyOnboardingService
+  +assignOperationManager(propertyId: Long, request: AssignOperationManagerRequest) : PropertyActivationResponse
+}
+
+interface PropertyOnboardingService {
+  +assignOperationManager(propertyId: Long, request: AssignOperationManagerRequest) : PropertyActivationResponse
+}
+
+class PropertyOnboardingServiceImpl <<service>> {
+  -propertyRepository : PropertyRepository
+  -zoneManagerRepository : ZoneManagerRepository
+  -operationManagementRepository : OperationManagementRepository
+  -roomRepository : RoomRepository
+  +assignOperationManager(propertyId: Long, request: AssignOperationManagerRequest) : PropertyActivationResponse
+}
+
+interface PropertyRepository {
+  +findById(id: Long) : Optional<Property>
+  +save(property: Property) : Property
+}
+
+interface ZoneManagerRepository {
+  +findById(zoneId: UUID) : Optional<ZoneManager>
+  +save(zoneManager: ZoneManager) : ZoneManager
+}
+
+interface OperationManagementRepository {
+  +findById(id: UUID) : Optional<OperationManagement>
+  +save(om: OperationManagement) : OperationManagement
+}
+
+interface RoomRepository {
+  +findByPropertyId(propertyId: Long) : List<Room>
+  +saveAll(rooms: List<Room>) : List<Room>
+}
+
+class AssignOperationManagerRequest <<dto>> {
+  -operationManagerId : UUID
+}
+
+class PropertyActivationResponse <<dto>> {
+  -propertyId : Long
+  -propertyStatus : PropertyStatus
+  -operationManagerId : UUID
+  -operationManagerName : String
+  -rooms : List<ActivatedRoom>
+  -skippedRoomCount : Integer
+  -skippedRooms : List<SkippedRoom>
+}
+
+class ActivatedRoom <<dto>> {
+  -roomId : Long
+  -roomNumber : String
+  -price : BigDecimal
+  -status : RoomStatus
+}
+
+class SkippedRoom <<dto>> {
+  -roomId : Long
+  -roomNumber : String
+  -reason : String
+}
+
+class Property <<entity>> {
+  -id : Long {id}
+  -zone : Zone
+  -status : PropertyStatus
+  -operationManagerId : UUID
+  -managerAcceptedAt : LocalDateTime
+}
+
+class Zone <<entity>> {
+  -id : UUID {id}
+  -name : String
+}
+
+class ZoneManager <<entity>> {
+  -zoneId : UUID {id}
+  -managerId : UUID
+  -assignedBy : UUID
+  -assignedAt : LocalDateTime
+}
+
+class OperationManagement <<entity>> {
+  -id : UUID {id}
+  -startAt : LocalDateTime
+}
+
+class Room <<entity>> {
+  -id : Long {id}
+  -status : RoomStatus
+}
+
+enum PropertyStatus <<enumeration>> {
+  PENDING_OPERATION_MANAGER
+  ACTIVE
+  RENTED
+}
+
+enum RoomStatus <<enumeration>> {
+  DRAFT
+  AVAILABLE
+}
+
+PropertyOnboardingController --> PropertyOnboardingService : propertyOnboardingService
+PropertyOnboardingController ..> AssignOperationManagerRequest : <<use>>
+PropertyOnboardingController ..> PropertyActivationResponse : <<use>>
+PropertyOnboardingServiceImpl ..|> PropertyOnboardingService
+PropertyOnboardingServiceImpl --> PropertyRepository : propertyRepository
+PropertyOnboardingServiceImpl --> ZoneManagerRepository : zoneManagerRepository
+PropertyOnboardingServiceImpl --> OperationManagementRepository : operationManagementRepository
+PropertyOnboardingServiceImpl --> RoomRepository : roomRepository
+PropertyOnboardingServiceImpl ..> AssignOperationManagerRequest : <<use>>
+
+PropertyRepository ..> Property : <<use>>
+ZoneManagerRepository ..> ZoneManager : <<use>>
+OperationManagementRepository ..> OperationManagement : <<use>>
+RoomRepository ..> Room : <<use>>
+
+PropertyActivationResponse "1" *-- "*" ActivatedRoom : rooms
+PropertyActivationResponse "1" *-- "*" SkippedRoom : skippedRooms
+
+Property "1" --> "1" Zone : zone
+Property "1" o-- "*" Room : rooms
+Property ..> PropertyStatus
+Room ..> RoomStatus
+PropertyActivationResponse ..> PropertyStatus
+ZoneManager ..> Zone : zoneId
+Property ..> OperationManagement : <<use>>\n(operationManagerId)
+Property ..> ZoneManager : <<use>>\n(upsert zone OM)
+
+note right of PropertyOnboardingServiceImpl
+  «@Transactional»
+  validate PENDING_OPERATION_MANAGER
+  | ACTIVE | RENTED
+  → upsert ZoneManager / OM
+  → set operationManagerId
+  → PENDING_OPERATION_MANAGER → ACTIVE
+  → open DRAFT rooms (nếu ACTIVE)
+end note
+
+@enduml

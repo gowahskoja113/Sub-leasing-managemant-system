@@ -1,0 +1,122 @@
+@startuml ClassDiagram_F2c_DepositPayOS
+title Figure F2c — Deposit via PayOS + Webhook Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class TenantContractActionController <<controller>> {
+  -tenantOnboardingService : TenantOnboardingService
+  +createDepositPayment(id: Long) : TenantContractResponse
+}
+
+class PayosWebhookController <<controller>> {
+  -payosService : PayosService
+  -tenantOnboardingService : TenantOnboardingService
+  +handleWebhook(payload: PayosWebhookPayload) : ResponseEntity<Map>
+}
+
+interface TenantOnboardingService {
+  +createDepositPayment(contractId: Long) : TenantContractResponse
+  +markDepositPaid(orderCode: long) : void
+}
+
+class TenantOnboardingServiceImpl <<service>> {
+  -tenantContractRepository : TenantContractRepository
+  -payosService : PayosService
+  +createDepositPayment(contractId: Long) : TenantContractResponse
+  +markDepositPaid(orderCode: long) : void
+}
+
+interface PayosService {
+  +createPaymentLink(orderCode: long, amount: long, description: String) : PaymentLink
+}
+
+class PayosServiceImpl <<service>> {
+  +createPaymentLink(orderCode: long, amount: long, description: String) : PaymentLink
+}
+
+interface TenantContractRepository {
+  +findById(id: Long) : Optional<TenantContract>
+  +save(c: TenantContract) : TenantContract
+}
+
+class TenantContractResponse <<dto>> {
+  -id : Long
+  -status : ContractStatus
+  -paymentStatus : PaymentStatus
+  -payosOrderCode : Long
+  -checkoutUrl : String
+}
+
+class TenantContract <<entity>> {
+  -id : Long {id}
+  -deposit : BigDecimal
+  -status : ContractStatus
+  -paymentStatus : PaymentStatus
+  -payosOrderCode : Long
+  -onboardQrAmount : BigDecimal
+  -onboardQrDepositAmount : BigDecimal
+  -onboardQrFirstRentAmount : BigDecimal
+  -paidAt : LocalDateTime
+  -depositPaidAt : LocalDateTime
+}
+
+class TenantInvoice <<entity>> {
+  -id : Long {id}
+  -invoiceType : TenantInvoiceType
+  -totalAmount : BigDecimal
+  -status : TenantInvoiceStatus
+}
+
+enum ContractStatus <<enumeration>> {
+  DRAFT
+  PENDING
+}
+
+enum PaymentStatus <<enumeration>> {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum TenantInvoiceStatus <<enumeration>> {
+  PENDING
+  PAID
+}
+
+TenantContractActionController --> TenantOnboardingService : tenantOnboardingService
+PayosWebhookController --> PayosService : payosService
+PayosWebhookController --> TenantOnboardingService : tenantOnboardingService
+TenantOnboardingServiceImpl ..|> TenantOnboardingService
+PayosServiceImpl ..|> PayosService
+TenantOnboardingServiceImpl --> TenantContractRepository : tenantContractRepository
+TenantOnboardingServiceImpl --> PayosService : payosService
+TenantContractRepository ..> TenantContract : <<use>>
+TenantContract "1" o-- "0..*" TenantInvoice : OTHER (first rent)
+TenantContract ..> ContractStatus
+TenantContract ..> PaymentStatus
+TenantInvoice ..> TenantInvoiceStatus
+
+note right of TenantOnboardingServiceImpl
+  createDepositPayment:
+  PayOS link (deposit + first-rent)
+  → status=PENDING, payment=PENDING
+
+  webhook markDepositPaid:
+  → paymentStatus=PAID
+  (+ TenantInvoice OTHER if any)
+end note
+
+@enduml

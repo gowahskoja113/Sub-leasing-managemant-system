@@ -1,0 +1,71 @@
+@startuml F4f_CompleteInvoice_Sequence
+title Figure F4f — Complete — Issue Invoice (if charge tenant) + History
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+actor Tenant
+participant "Front-end" as FE
+participant "MaintenanceController" as C
+participant "TenantMeController" as TC
+participant "MaintenanceServiceImpl" as S
+participant "TenantPendingChargeService" as CS
+participant "PayosWebhookController" as WC
+database DB
+
+Manager -> FE : (1) Complete + AFTER + INVOICE photos
+activate Manager
+activate FE
+FE -> C : (2) PUT /api/v1/maintenance/{id}/complete
+activate C
+C -> S : (3) complete
+activate S
+S -> DB : (4) UPDATE CLOSED\nor WAITING_PAYMENT
+activate DB
+DB --> S : (5) return OK
+opt [chargeToTenant && no invoice yet]
+  S -> CS : (6) issue invoice\n(due = +5 days)
+  activate CS
+  CS -> DB : (7) INSERT TenantInvoice MAINTENANCE
+  DB --> CS : (8) return OK
+  CS --> S : (9) return issuedInvoice
+  deactivate CS
+end
+S -> DB : (10) INSERT EquipmentMaintenanceHistory\n+ UPDATE maintenanceCount
+DB --> S : (11) return OK
+deactivate DB
+S --> C : (12) return MaintenanceRequestResponse\n(+ issuedInvoice?)
+deactivate S
+C --> FE : (13) return OK
+deactivate C
+FE --> Manager : (14) return Completed
+deactivate FE
+deactivate Manager
+
+opt [WAITING_PAYMENT]
+  Tenant -> FE : (15) Pay invoice\n(due within 5 days)
+  activate Tenant
+  activate FE
+  FE -> TC : (16) POST /api/v1/tenant/me/invoices/{id}/payment
+  activate TC
+  TC --> FE : (17) return QR
+  deactivate TC
+  FE --> Tenant : (18) return Payment QR
+  deactivate FE
+  Tenant -> WC : (19) PayOS webhook PAID
+  activate WC
+  WC -> S : (20) closeWaitingPaymentAfterInvoicePaid
+  activate S
+  S -> DB : (21) UPDATE CLOSED
+  activate DB
+  DB --> S : (22) return OK
+  deactivate DB
+  S --> WC : (23) return OK
+  deactivate S
+  WC --> Tenant : (24) return Paid / CLOSED
+  deactivate WC
+  deactivate Tenant
+end
+
+@enduml

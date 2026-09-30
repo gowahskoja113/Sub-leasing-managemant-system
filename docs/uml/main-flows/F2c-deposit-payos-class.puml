@@ -1,0 +1,65 @@
+@startuml F2c_DepositPayOS_Class
+title Figure F2c — Deposit via PayOS Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class TenantContractActionController {
+  - tenantOnboardingService: TenantOnboardingService
+  + createDepositPayment(id: Long): TenantContractResponse
+}
+
+class PayosWebhookController {
+  - tenantOnboardingService: TenantOnboardingService
+  + handleWebhook(payload): void
+}
+
+interface TenantOnboardingService {
+  + createDepositPayment(contractId: Long): TenantContractResponse
+  + markDepositPaid(orderCode: String): void
+}
+
+class TenantOnboardingServiceImpl {
+  - tenantContractRepository: TenantContractRepository
+  - payosService: PayosService
+  + createDepositPayment(contractId: Long): TenantContractResponse
+  + markDepositPaid(orderCode: String): void
+}
+
+interface PayosService {
+  + createPaymentLink(...): PayosLink
+}
+
+interface TenantContractRepository
+interface JpaRepository<T,ID>
+
+class TenantContract {
+  + id: Long
+  + status: ContractStatus
+  + paymentStatus: PaymentStatus
+  + payosOrderCode: String
+}
+
+class TenantInvoice {
+  + id: Long
+  + invoiceType: TenantInvoiceType
+  + status: TenantInvoiceStatus
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+TenantContractActionController --> TenantOnboardingService
+PayosWebhookController --> TenantOnboardingService
+TenantOnboardingService <|.. TenantOnboardingServiceImpl
+TenantOnboardingServiceImpl --> TenantContractRepository
+TenantOnboardingServiceImpl --> PayosService
+TenantContractRepository -up-|> JpaRepository
+TenantContractRepository ..> TenantContract
+TenantContract "1" o-- "0..*" TenantInvoice
+TenantContract --> PaymentStatus
+
+@enduml

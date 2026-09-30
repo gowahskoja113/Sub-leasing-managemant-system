@@ -1,0 +1,37 @@
+@startuml F5b_ManagerApprove_Sequence
+title Figure F5b — Manager Approve Checkout
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+participant "Front-end" as FE
+participant "CheckoutRequestController" as CC
+participant "TenantCheckoutServiceImpl" as CS
+participant "CheckoutRequestRepository" as RR
+database DB
+
+Manager -> FE : (1) Approve
+activate Manager
+activate FE
+FE -> CC : (2) POST /api/v1/checkout-requests/{id}/approve
+activate CC
+CC -> CS : (3) approveRequest(...)
+activate CS
+CS -> RR : (4) UPDATE status=APPROVED\n(+ endDate / prorate rent)
+activate RR
+RR -> DB : (5) UPDATE
+activate DB
+DB --> RR : (6) return OK
+deactivate DB
+RR --> CS : (7) return OK
+deactivate RR
+CS --> CC : (8) return OK
+deactivate CS
+CC --> FE : (9) return OK
+deactivate CC
+FE --> Manager : (10) return Approved
+deactivate FE
+deactivate Manager
+
+@enduml

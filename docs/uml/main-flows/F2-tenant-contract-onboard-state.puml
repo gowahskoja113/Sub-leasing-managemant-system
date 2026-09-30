@@ -1,38 +1,45 @@
 @startuml F2_TenantContract_Onboard_State
-title Tenant Contract State Machine (Onboard)\nBoxes = ContractStatus enum · Arrows = verbs\n1 start · 1 end
+title Tenant Contract Onboard State Machine\nBoxes = ContractStatus enum · Arrows = who + what\n1 start · 1 end
 
 skinparam backgroundColor #FEFEFE
 skinparam shadowing false
 skinparam defaultFontName Arial
 skinparam ArrowColor #333333
 skinparam ArrowFontColor #333333
-skinparam ArrowFontSize 12
+skinparam ArrowFontSize 11
 skinparam state {
   BackgroundColor #FFFFFF
   BorderColor #333333
-  FontSize 14
+  FontSize 13
   FontStyle bold
 }
 
-[*] --> DRAFT : Import
+[*] --> DRAFT : Admin import draft contract\n(Excel / create draft)
 
-DRAFT --> AWAITING_ONBOARD : Promote\n[reception day]
-DRAFT --> TERMINATED : Cancel
-DRAFT --> TERMINATED : Expire\n[late ≥ 3 days]
+DRAFT --> AWAITING_ONBOARD : System promote on reception day\n(cron: expectedReceptionDate\nor moveInDate ≤ today)
+DRAFT --> TERMINATED : Admin / Manager cancel
+DRAFT --> TERMINATED : System auto-cancel\n(late ≥ 3 days after reception)
 
-AWAITING_ONBOARD --> AWAITING_PAYMENT : Capture
-AWAITING_ONBOARD --> TERMINATED : Cancel
-AWAITING_ONBOARD --> TERMINATED : Expire\n[late ≥ 3 days]
+AWAITING_ONBOARD --> AWAITING_PAYMENT : Manager finish capture\n(photos + electric/water meters)\nPUT + completeCapture=true
+AWAITING_ONBOARD --> TERMINATED : Admin / Manager cancel
+AWAITING_ONBOARD --> TERMINATED : System auto-cancel\n(late ≥ 3 days)
 
-AWAITING_PAYMENT --> AWAITING_CONFIRM : Collect
-AWAITING_PAYMENT --> TERMINATED : Cancel
-AWAITING_PAYMENT --> TERMINATED : Expire\n[late ≥ 3 days]
+AWAITING_PAYMENT --> AWAITING_CONFIRM : Tenant pay onboard QR\n(deposit + first rent via PayOS)
+AWAITING_PAYMENT --> TERMINATED : Admin / Manager cancel
+AWAITING_PAYMENT --> TERMINATED : System auto-cancel\n(late ≥ 3 days)
 
-AWAITING_CONFIRM --> ACTIVE : Confirm
-AWAITING_CONFIRM --> TERMINATED : Cancel
-AWAITING_CONFIRM --> TERMINATED : Expire\n[late ≥ 3 days]
+AWAITING_CONFIRM --> ACTIVE : Tenant + Manager confirm OTP\n(dual OTP both verified)
+AWAITING_CONFIRM --> TERMINATED : Admin / Manager cancel
+AWAITING_CONFIRM --> TERMINATED : System auto-cancel\n(late ≥ 3 days)
 
 ACTIVE --> [*]
 TERMINATED --> [*]
+
+note right of AWAITING_CONFIRM
+  If new tenant account:
+  activate (OTP + set password)
+  **before** contract confirm OTP
+  (User/firstLogin — not ContractStatus)
+end note
 
 @enduml

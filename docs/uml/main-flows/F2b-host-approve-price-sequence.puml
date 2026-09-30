@@ -1,0 +1,39 @@
+@startuml F2b_HostApprovePrice_Sequence
+title Figure F2b — [Optional] Host Approve Price
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Host
+participant "Front-end" as FE
+participant "HostController" as HC
+participant "HostPortalServiceImpl" as HS
+participant "TenantContractRepository" as CR
+database DB
+
+opt [requireHostPriceApproval]
+  Host -> FE : (1) Approve contract price
+  activate Host
+  activate FE
+  FE -> HC : (2) PUT /api/v1/host/contracts/{id}/approve
+  activate HC
+  HC -> HS : (3) approveContract(id)
+  activate HS
+  HS -> CR : (4) UPDATE priceApprovalStatus\n→ APPROVED_AWAITING_DEPOSIT
+  activate CR
+  CR -> DB : (5) UPDATE
+  activate DB
+  DB --> CR : (6) return OK
+  deactivate DB
+  CR --> HS : (7) return OK
+  deactivate CR
+  HS --> HC : (8) return HostContractDto
+  deactivate HS
+  HC --> FE : (9) return OK
+  deactivate HC
+  FE --> Host : (10) return Price approved
+  deactivate FE
+  deactivate Host
+end
+
+@enduml

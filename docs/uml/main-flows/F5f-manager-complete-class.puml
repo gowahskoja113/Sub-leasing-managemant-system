@@ -1,0 +1,74 @@
+@startuml F5f_ManagerComplete_Class
+title Figure F5f — Manager Complete Checkout Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class CheckoutRequestController {
+  - tenantCheckoutService: TenantCheckoutService
+  + complete(id: Long): CheckoutResponse
+}
+
+interface TenantCheckoutService {
+  + completeRequest(id: Long, ...): CheckoutResponse
+}
+
+class TenantCheckoutServiceImpl {
+  - checkoutRequestRepository: CheckoutRequestRepository
+  + completeRequest(id: Long, ...): CheckoutResponse
+  - terminateActiveContract(...): void
+}
+
+interface CheckoutRequestRepository
+interface JpaRepository<T,ID>
+
+class CheckoutRequest {
+  + id: Long
+  + status: CheckoutRequestStatus
+  + completedAt: LocalDateTime
+}
+
+class TenantContract {
+  + id: Long
+  + status: ContractStatus
+}
+
+class Room {
+  + id: Long
+  + status: RoomStatus
+}
+
+enum CheckoutRequestStatus {
+  SETTLING
+  COMPLETED
+}
+
+enum ContractStatus {
+  ACTIVE
+  TERMINATED
+}
+
+enum RoomStatus {
+  RENTED
+  AVAILABLE
+}
+
+note right of TenantCheckoutServiceImpl
+  «@Transactional»
+  terminateActiveContract
+  room → AVAILABLE
+end note
+
+CheckoutRequestController --> TenantCheckoutService
+TenantCheckoutService <|.. TenantCheckoutServiceImpl
+TenantCheckoutServiceImpl --> CheckoutRequestRepository
+CheckoutRequestRepository -up-|> JpaRepository
+CheckoutRequestRepository ..> CheckoutRequest
+TenantContract "1" o-- "*" CheckoutRequest
+Room "0..1" o-- "*" TenantContract
+CheckoutRequest --> CheckoutRequestStatus
+TenantContract --> ContractStatus
+Room --> RoomStatus
+
+@enduml

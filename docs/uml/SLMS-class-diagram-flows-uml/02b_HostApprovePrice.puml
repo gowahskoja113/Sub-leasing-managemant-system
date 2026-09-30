@@ -1,0 +1,77 @@
+@startuml ClassDiagram_F2b_HostApprovePrice
+title Figure F2b — Host Approve Price Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class HostController <<controller>> {
+  -hostPortalService : HostPortalService
+  +approveContract(id: Long) : HostContractDto
+  +rejectContract(id: Long, request: RejectReasonRequest) : HostContractDto
+}
+
+interface HostPortalService {
+  +approveContract(contractId: Long) : HostContractDto
+  +rejectContract(contractId: Long, reason: String) : HostContractDto
+}
+
+class HostPortalServiceImpl <<service>> {
+  -tenantContractRepository : TenantContractRepository
+  +approveContract(contractId: Long) : HostContractDto
+  +rejectContract(contractId: Long, reason: String) : HostContractDto
+}
+
+interface TenantContractRepository {
+  +findById(id: Long) : Optional<TenantContract>
+  +save(c: TenantContract) : TenantContract
+}
+
+class RejectReasonRequest <<dto>> {
+  -reason : String
+}
+
+class HostContractDto <<dto>> {
+  -id : Long
+  -priceApprovalStatus : PriceApprovalStatus
+  -priceRejectReason : String
+}
+
+class TenantContract <<entity>> {
+  -id : Long {id}
+  -rentAmount : BigDecimal
+  -priceApprovalStatus : PriceApprovalStatus
+  -priceRejectReason : String
+}
+
+enum PriceApprovalStatus <<enumeration>> {
+  PENDING_PRICE_APPROVAL
+  APPROVED_AWAITING_DEPOSIT
+  PRICE_REJECTED
+}
+
+HostController --> HostPortalService : hostPortalService
+HostController ..> RejectReasonRequest : <<use>>
+HostController ..> HostContractDto : <<use>>
+HostPortalServiceImpl ..|> HostPortalService
+HostPortalServiceImpl --> TenantContractRepository : tenantContractRepository
+TenantContractRepository ..> TenantContract : <<use>>
+TenantContract ..> PriceApprovalStatus
+
+note right of HostPortalServiceImpl
+  opt [requireHostPriceApproval]
+  → priceApprovalStatus
+  = APPROVED_AWAITING_DEPOSIT
+end note
+
+@enduml

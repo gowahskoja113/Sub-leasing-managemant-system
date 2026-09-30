@@ -1,0 +1,170 @@
+@startuml ClassDiagram_F4f_CompleteInvoice
+title Figure F4f — Complete + Invoice Class Diagram
+skinparam shadowing false
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor #F7FAFF
+  BorderColor #3B5B92
+  ArrowColor #3B5B92
+}
+skinparam interface {
+  BackgroundColor #FBF3E8
+  BorderColor #B07A2A
+}
+hide circle
+hide empty members
+
+class MaintenanceController <<controller>> {
+  -maintenanceService : MaintenanceService
+  +complete(id: Long, request: MaintenanceCompleteRequest) : MaintenanceRequestResponse
+}
+
+class TenantMeController <<controller>> {
+  -tenantBillingService : TenantBillingService
+  +createPayment(invoiceId: Long) : PaymentLinkResponse
+}
+
+class PayosWebhookController <<controller>> {
+  -tenantBillingService : TenantBillingService
+  -maintenanceService : MaintenanceService
+  +handleWebhook(payload: PayosWebhookPayload) : ResponseEntity<Map>
+}
+
+interface TenantBillingService {
+  +createPayment(invoiceId: Long) : PaymentLinkResponse
+}
+
+interface MaintenanceService {
+  +complete(id: Long, request: MaintenanceCompleteRequest) : MaintenanceRequestResponse
+  +closeWaitingPaymentAfterInvoicePaid(invoiceId: Long) : void
+}
+
+class MaintenanceServiceImpl <<service>> {
+  -repository : MaintenanceRequestRepository
+  -maintenanceImageRepository : MaintenanceImageRepository
+  -equipmentRepository : EquipmentRepository
+  -tenantPendingChargeService : TenantPendingChargeService
+  +complete(id: Long, request: MaintenanceCompleteRequest) : MaintenanceRequestResponse
+  +closeWaitingPaymentAfterInvoicePaid(invoiceId: Long) : void
+}
+
+interface TenantPendingChargeService {
+  +issueMaintenanceInvoice(request: MaintenanceRequest, dueDays: int) : TenantInvoice
+}
+
+interface MaintenanceRequestRepository {
+  +findById(id: Long) : Optional<MaintenanceRequest>
+  +save(r: MaintenanceRequest) : MaintenanceRequest
+}
+
+interface MaintenanceImageRepository {
+  +saveAll(images: List<MaintenanceImage>) : List<MaintenanceImage>
+}
+
+interface EquipmentRepository {
+  +findById(id: Long) : Optional<Equipment>
+  +save(e: Equipment) : Equipment
+}
+
+class MaintenanceCompleteRequest <<dto>> {
+  -resolutionNote : String
+  -repairDescription : String
+  -afterImageUrls : List<String>
+  -invoiceImageUrls : List<String>
+  -invoiceVendor : String
+  -invoiceNumber : String
+  -invoiceDate : LocalDate
+  -invoiceAmount : BigDecimal
+  -chargeToTenant : Boolean
+}
+
+class MaintenanceRequestResponse <<dto>> {
+  -id : Long
+  -status : MaintenanceStatus
+  -issuedInvoice : TenantInvoice
+}
+
+class MaintenanceRequest <<entity>> {
+  -id : Long {id}
+  -status : MaintenanceStatus
+  -doneAt : LocalDateTime
+  -resolvedAt : LocalDateTime
+  -resolutionNote : String
+  -invoiceAmount : BigDecimal
+  -chargeInvoiceId : Long
+  -equipmentId : Long
+}
+
+class MaintenanceImage <<entity>> {
+  -id : Long {id}
+  -imageUrl : String
+  -type : MaintenancePhotoType
+}
+
+class Equipment <<entity>> {
+  -id : Long {id}
+  -maintenanceCount : int
+  -lastMaintenanceDate : LocalDateTime
+}
+
+class EquipmentMaintenanceHistory <<entity>> {
+  -id : Long {id}
+  -equipmentId : Long
+  -maintenanceRequestId : Long
+  -completedAt : LocalDateTime
+}
+
+class TenantInvoice <<entity>> {
+  -id : Long {id}
+  -invoiceType : TenantInvoiceType
+  -grandTotal : BigDecimal
+  -dueDate : LocalDate
+  -status : TenantInvoiceStatus
+}
+
+enum MaintenanceStatus <<enumeration>> {
+  IN_REPAIR
+  TENANT_FAULT
+  WAITING_PAYMENT
+  CLOSED
+}
+
+enum MaintenancePhotoType <<enumeration>> {
+  AFTER
+  INVOICE
+}
+
+enum TenantInvoiceStatus <<enumeration>> {
+  PENDING
+  PAID
+}
+
+MaintenanceController --> MaintenanceService : maintenanceService
+TenantMeController --> TenantBillingService : tenantBillingService
+PayosWebhookController --> MaintenanceService : maintenanceService
+MaintenanceServiceImpl ..|> MaintenanceService
+MaintenanceServiceImpl --> MaintenanceRequestRepository : repository
+MaintenanceServiceImpl --> MaintenanceImageRepository : maintenanceImageRepository
+MaintenanceServiceImpl --> EquipmentRepository : equipmentRepository
+MaintenanceServiceImpl --> TenantPendingChargeService : tenantPendingChargeService
+MaintenanceRequestRepository ..> MaintenanceRequest : <<use>>
+MaintenanceImageRepository ..> MaintenanceImage : <<use>>
+EquipmentRepository ..> Equipment : <<use>>
+MaintenanceRequest "1" *-- "*" MaintenanceImage
+MaintenanceRequest ..> EquipmentMaintenanceHistory : <<insert>>
+MaintenanceRequest ..> TenantInvoice : chargeInvoiceId
+MaintenanceRequest ..> MaintenanceStatus
+
+note right of MaintenanceServiceImpl
+  UPDATE CLOSED or WAITING_PAYMENT
+  opt chargeToTenant:
+  → issue TenantInvoice MAINTENANCE
+  (due = +5 days)
+  → EquipmentMaintenanceHistory
+  + maintenanceCount++
+
+  webhook PAID → closeWaitingPayment
+end note
+
+@enduml

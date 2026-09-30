@@ -1,0 +1,53 @@
+@startuml F3a_LockMeterReading_Sequence
+title Figure F3a — Manager Lock Meter Reading
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Manager
+participant "Front-end" as FE
+participant "MeterReadingController" as MC
+participant "MeterReadingServiceImpl" as MRS
+participant "UtilityInvoiceService" as UIS
+participant "MeterReadingRepository" as MRR
+database DB
+
+Manager -> FE : (1) Lock meter reading\n(photo / override)
+activate Manager
+activate FE
+FE -> MC : (2) POST /api/v1/manager/meter-readings
+activate MC
+MC -> MRS : (3) saveLockedReading(req)
+activate MRS
+MRS -> DB : (4) BeginTransaction()
+activate DB
+MRS -> MRS : (5) validate period, reading,\ncontract ACTIVE
+alt [no photo]
+  MRS -> MRS : (6) consumeOverrideIfPresent(...)
+end
+MRS -> MRR : (7) save(MeterReading)
+activate MRR
+MRR -> DB : (8) INSERT/UPDATE
+DB --> MRR : (9) return OK
+MRR --> MRS : (10) return MeterReading
+deactivate MRR
+opt [UtilityBill already PUBLISHED]
+  MRS -> UIS : (11) issue*FromSavedReading
+  activate UIS
+  UIS -> DB : (12) INSERT UtilityInvoice\n+ TenantInvoice (PENDING)
+  DB --> UIS : (13) return OK
+  UIS --> MRS : (14) return issued
+  deactivate UIS
+end
+MRS -> DB : (15) CommitTransaction()
+DB --> MRS : (16) return Committed
+deactivate DB
+MRS --> MC : (17) return SavedMeterReadingItem
+deactivate MRS
+MC --> FE : (18) return 201 Created
+deactivate MC
+FE --> Manager : (19) return Meter locked
+deactivate FE
+deactivate Manager
+
+@enduml

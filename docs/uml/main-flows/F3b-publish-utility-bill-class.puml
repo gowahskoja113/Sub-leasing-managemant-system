@@ -1,0 +1,71 @@
+@startuml F3b_PublishUtilityBill_Class
+title Figure F3b — Admin Publish EVN/Water Bill Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class AdminUtilityBillController {
+  - utilityBillService: UtilityBillService
+  + create(req: CreateUtilityBillRequest): UtilityBillResponse
+}
+
+class CreateUtilityBillRequest {
+  + propertyId: Long
+  + type: String
+  + month: Integer
+  + year: Integer
+  + totalQuantity: Integer
+  + totalAmount: BigDecimal
+}
+
+interface UtilityBillService {
+  + createUtilityBill(req: CreateUtilityBillRequest): UtilityBillResponse
+}
+
+class UtilityBillServiceImpl {
+  - utilityBillRepository: UtilityBillRepository
+  - utilityInvoiceService: UtilityInvoiceService
+  + createUtilityBill(req): UtilityBillResponse
+}
+
+interface UtilityInvoiceService {
+  + issueElectricFromSavedReadings(bill): int
+  + issueWaterFromSavedReadings(bill): int
+}
+
+interface UtilityBillRepository
+interface JpaRepository<T,ID>
+
+class UtilityBill {
+  + id: Long
+  + type: UtilityType
+  + month: Integer
+  + year: Integer
+  + totalAmount: BigDecimal
+  + status: UtilityBillStatus
+}
+
+class UtilityInvoice {
+  + id: Long
+  + consumption: BigDecimal
+  + amount: BigDecimal
+  + status: UtilityInvoiceStatus
+}
+
+enum UtilityBillStatus {
+  PUBLISHED
+  REVOKED
+}
+
+AdminUtilityBillController --> UtilityBillService
+AdminUtilityBillController ..> CreateUtilityBillRequest
+UtilityBillService <|.. UtilityBillServiceImpl
+UtilityBillServiceImpl --> UtilityBillRepository
+UtilityBillServiceImpl --> UtilityInvoiceService
+UtilityBillRepository -up-|> JpaRepository
+UtilityBillRepository ..> UtilityBill
+UtilityBill "1" o-- "*" UtilityInvoice
+UtilityBill --> UtilityBillStatus
+
+@enduml

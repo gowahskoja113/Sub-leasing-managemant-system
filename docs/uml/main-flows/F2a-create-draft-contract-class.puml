@@ -1,0 +1,68 @@
+@startuml F2a_CreateDraftContract_Class
+title Figure F2a — Manager Create Draft Contract Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class TenantContractController {
+  - tenantOnboardingService: TenantOnboardingService
+  + onboardTenant(propertyId: Long, roomId: Long, req: OnboardTenantRequest): TenantContractResponse
+}
+
+class OnboardTenantRequest {
+  + fullName: String
+  + phone: String
+  + rentAmount: BigDecimal
+  + deposit: BigDecimal
+  + initialElectricReading: BigDecimal
+  + initialWaterReading: BigDecimal
+  + roomConditionPhotos: List~String~
+}
+
+interface TenantOnboardingService {
+  + onboardTenant(propertyId: Long, roomId: Long, req: OnboardTenantRequest): TenantContractResponse
+}
+
+class TenantOnboardingServiceImpl {
+  - tenantContractRepository: TenantContractRepository
+  + onboardTenant(...): TenantContractResponse
+}
+
+interface TenantContractRepository
+interface JpaRepository<T,ID>
+
+class TenantContract {
+  + id: Long
+  + status: ContractStatus
+  + rentAmount: BigDecimal
+  + deposit: BigDecimal
+  + initialElectricReading: BigDecimal
+  + initialWaterReading: BigDecimal
+}
+
+class ContractEvidencePhoto {
+  + id: Long
+  + photoUrl: String
+}
+
+enum ContractStatus {
+  DRAFT
+}
+
+note right of TenantOnboardingServiceImpl
+  «@Transactional»
+  validate occupancy
+  (1 ACTIVE contract / room)
+end note
+
+TenantContractController --> TenantOnboardingService
+TenantContractController ..> OnboardTenantRequest
+TenantOnboardingService <|.. TenantOnboardingServiceImpl
+TenantOnboardingServiceImpl --> TenantContractRepository
+TenantContractRepository -up-|> JpaRepository
+TenantContractRepository ..> TenantContract
+TenantContract "1" o-- "*" ContractEvidencePhoto
+TenantContract --> ContractStatus
+
+@enduml

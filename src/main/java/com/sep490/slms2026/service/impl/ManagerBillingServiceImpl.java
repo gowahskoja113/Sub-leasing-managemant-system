@@ -159,6 +159,9 @@ public class ManagerBillingServiceImpl implements ManagerBillingService {
         if (claim.getStatus() != PaymentClaimStatus.PENDING_VERIFY) {
             throw new BusinessException("Chỉ từ chối thanh toán đang chờ duyệt");
         }
+        if (tenantBillingService.supersedeClaimIfInvoicePaid(claim)) {
+            return toManagerPayment(claim);
+        }
         claim.setStatus(PaymentClaimStatus.REJECTED);
         claim.setRejectReason(reason);
         claim.setVerifiedAt(java.time.LocalDateTime.now());
