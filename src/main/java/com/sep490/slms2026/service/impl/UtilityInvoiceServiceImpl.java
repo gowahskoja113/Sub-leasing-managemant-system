@@ -215,117 +215,45 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
     @Override
     @Transactional
     public int issueElectricFromSavedReadings(UtilityBill bill) {
-        Property property = bill.getProperty();
-        if (Boolean.TRUE.equals(property.getWholeHouse())) {
-            return 0;
-        }
-        if (bill.getType() != UtilityType.ELECTRIC) {
-            return 0;
-        }
-        YearMonth month = YearMonth.of(bill.getYear(), bill.getMonth());
-        String normalized = ContractBillingCalendar.normalizePeriod(month);
-
-        List<MeterReading> pending = loadUnissuedReadings(property.getId(), normalized);
-        if (pending.isEmpty()) {
-            notifyManagerAutoIssued(property, bill, 0, eligibleElectricRoomCount(property.getId(), month));
-            return 0;
-        }
-
-        BigDecimal unitPrice = bill.getUnitPrice();
-        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
-        List<PendingIssue> toIssue = new java.util.ArrayList<>();
-        for (MeterReading reading : pending) {
-            Long roomId = reading.getRoom() != null ? reading.getRoom().getId() : null;
-            if (roomId == null) {
-                continue;
-            }
-            TenantContract contract = tenantContractRepository
-                    .findByRoomIdAndStatus(roomId, ContractStatus.ACTIVE)
-                    .orElse(null);
-            if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
-                continue;
-            }
-            BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
-            BigDecimal consumption = reading.getReading().subtract(prev);
-            if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            toIssue.add(new PendingIssue(reading, consumption));
-        }
-
-        assertBatchRoomSumWithinBill(property.getId(), bill, normalized, toIssue);
-
-        int issued = 0;
-        for (PendingIssue item : toIssue) {
-            issueOneFromReading(bill, property, item.reading(), item.consumption(), unitPrice, UtilityType.ELECTRIC);
-            issued++;
-        }
-
-        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
-        int eligible = eligibleElectricRoomCount(property.getId(), month);
-        notifyManagerAutoIssued(property, bill, issued, eligible);
-        return issued;
+        return issueFromSavedReadings(bill, UtilityType.ELECTRIC);
     }
 
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public UtilityInvoiceResponse issueElectricFromSavedReading(UtilityBill bill, Long meterReadingId) {
-        Property property = bill.getProperty();
-        MeterReading reading = meterReadingRepository.findById(meterReadingId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Không tìm thấy bản chốt chỉ số ID=" + meterReadingId));
-        if (reading.getUtilityInvoiceId() != null) {
-            return toResponse(utilityInvoiceRepository.findById(reading.getUtilityInvoiceId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy hoá đơn liên kết")));
-        }
-        if (reading.getRoom() == null) {
-            throw new BusinessException("INVALID_READING", "Bản chốt không gắn phòng.");
-        }
-        LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
-        TenantContract active = tenantContractRepository
-                .findByRoomIdAndStatus(reading.getRoom().getId(), ContractStatus.ACTIVE)
-                .orElse(null);
-        if (!ContractBillingCalendar.isContractInPeriod(active, periodEnd)) {
-            throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
-                    "Hợp đồng bắt đầu sau kỳ hoá đơn — không phát hành.");
-        }
-        BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
-        BigDecimal consumption = reading.getReading().subtract(prev);
-        if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("INVALID_READING", "Chỉ số mới phải lớn hơn chỉ số cũ.");
-        }
-
-        YearMonth month = YearMonth.of(bill.getYear(), bill.getMonth());
-        String normalized = ContractBillingCalendar.normalizePeriod(month);
-        assertRoomSumWithinBill(property.getId(), reading.getRoom().getId(), normalized,
-                UtilityType.ELECTRIC, consumption);
-
-        UtilityInvoiceResponse response = issueOneFromReading(
-                bill, property, reading, consumption, bill.getUnitPrice(), UtilityType.ELECTRIC);
-        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
-
-        int eligible = eligibleElectricRoomCount(property.getId(), month);
-        long done = utilityInvoiceRepository.countDistinctRoomsInvoiced(
-                property.getId(), bill.getBillingPeriod(), UtilityType.ELECTRIC);
-        notifyManagerAutoIssued(property, bill, (int) done, eligible);
-        return response;
+        return issueFromSavedReading(bill, meterReadingId, UtilityType.ELECTRIC);
     }
 
     @Override
     @Transactional
     public int issueWaterFromSavedReadings(UtilityBill bill) {
+        return issueFromSavedReadings(bill, UtilityType.WATER);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public UtilityInvoiceResponse issueWaterFromSavedReading(UtilityBill bill, Long meterReadingId) {
+        return issueFromSavedReading(bill, meterReadingId, UtilityType.WATER);
+    }
+
+    /**
+     * Điện và nước cùng một luồng: quản lý chụp chỉ số trước (ngày nào cũng được — hôm người ghi
+     * điện / ghi nước xuống), admin nhập giấy báo sau → mọi bản chốt chưa phát hành của nhà được
+     * tính theo giấy đó, không lọc theo tháng của bản chốt.
+     */
+    private int issueFromSavedReadings(UtilityBill bill, UtilityType type) {
         Property property = bill.getProperty();
         if (Boolean.TRUE.equals(property.getWholeHouse())) {
             return 0;
         }
-        if (bill.getType() != UtilityType.WATER) {
+        if (bill.getType() != type) {
             return 0;
         }
 
-        List<MeterReading> pending = loadUnissuedWaterReadings(property.getId());
+        List<MeterReading> pending = loadUnissuedReadings(property.getId(), type);
         LocalDate periodEnd = ContractBillingCalendar.periodEnd(bill.getYear(), bill.getMonth());
         if (pending.isEmpty()) {
-            notifyManagerAutoIssued(property, bill, 0, eligibleWaterRoomCount(property.getId(), periodEnd));
+            notifyManagerAutoIssued(property, bill, 0, eligibleRoomCount(property.getId(), periodEnd));
             return 0;
         }
 
@@ -350,23 +278,21 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             toIssue.add(new PendingIssue(reading, consumption));
         }
 
-        assertBatchRoomSumWithinBill(property.getId(), bill, bill.getBillingPeriod(), toIssue, UtilityType.WATER);
+        assertBatchRoomSumWithinBill(property.getId(), bill, bill.getBillingPeriod(), toIssue, type);
 
         int issued = 0;
         for (PendingIssue item : toIssue) {
-            issueOneFromReading(bill, property, item.reading(), item.consumption(), unitPrice, UtilityType.WATER);
+            issueOneFromReading(bill, property, item.reading(), item.consumption(), unitPrice, type);
             issued++;
         }
 
-        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
-        int eligible = eligibleWaterRoomCount(property.getId(), periodEnd);
+        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), type);
+        int eligible = eligibleRoomCount(property.getId(), periodEnd);
         notifyManagerAutoIssued(property, bill, issued, eligible);
         return issued;
     }
 
-    @Override
-    @Transactional(noRollbackFor = BusinessException.class)
-    public UtilityInvoiceResponse issueWaterFromSavedReading(UtilityBill bill, Long meterReadingId) {
+    private UtilityInvoiceResponse issueFromSavedReading(UtilityBill bill, Long meterReadingId, UtilityType type) {
         Property property = bill.getProperty();
         MeterReading reading = meterReadingRepository.findById(meterReadingId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -393,15 +319,15 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         }
 
         assertRoomSumWithinBillForBill(property.getId(), reading.getRoom().getId(), bill,
-                UtilityType.WATER, consumption);
+                type, consumption);
 
         UtilityInvoiceResponse response = issueOneFromReading(
-                bill, property, reading, consumption, bill.getUnitPrice(), UtilityType.WATER);
-        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
+                bill, property, reading, consumption, bill.getUnitPrice(), type);
+        reconcileIfComplete(property.getId(), bill.getBillingPeriod(), type);
 
-        int eligible = eligibleWaterRoomCount(property.getId(), periodEnd);
+        int eligible = eligibleRoomCount(property.getId(), periodEnd);
         long done = utilityInvoiceRepository.countDistinctRoomsInvoiced(
-                property.getId(), bill.getBillingPeriod(), UtilityType.WATER);
+                property.getId(), bill.getBillingPeriod(), type);
         notifyManagerAutoIssued(property, bill, (int) done, eligible);
         return response;
     }
@@ -444,11 +370,6 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
 
         return createAndSend(property, room, contract, utilityType, request,
                 false, true, reading.getId());
-    }
-
-    private void assertBatchRoomSumWithinBill(
-            Long propertyId, UtilityBill bill, String normalizedPeriod, List<PendingIssue> toIssue) {
-        assertBatchRoomSumWithinBill(propertyId, bill, normalizedPeriod, toIssue, UtilityType.ELECTRIC);
     }
 
     private void assertBatchRoomSumWithinBill(
@@ -554,35 +475,12 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
                 details);
     }
 
-    private List<MeterReading> loadUnissuedReadings(Long propertyId, String normalizedPeriod) {
-        List<MeterReading> result = new java.util.ArrayList<>();
-        Set<Long> seen = new HashSet<>();
-        YearMonth ym = YearMonth.parse(normalizedPeriod);
-        for (String alias : List.of(normalizedPeriod,
-                String.format("%02d/%d", ym.getMonthValue(), ym.getYear()))) {
-            for (MeterReading r : meterReadingRepository
-                    .findByPropertyIdAndUtilityTypeAndPeriodAndUtilityInvoiceIdIsNull(
-                            propertyId, UtilityType.ELECTRIC, alias)) {
-                if (r.getId() != null && seen.add(r.getId())) {
-                    result.add(r);
-                }
-            }
-        }
-        return result;
+    /** Mọi bản chốt chưa phát hành của nhà — không lọc theo period (ngày chụp linh hoạt). */
+    private List<MeterReading> loadUnissuedReadings(Long propertyId, UtilityType type) {
+        return meterReadingRepository.findByPropertyIdAndUtilityTypeAndUtilityInvoiceIdIsNull(propertyId, type);
     }
 
-    /** Nước: lấy mọi bản chốt chưa phát hành — không lọc theo period. */
-    private List<MeterReading> loadUnissuedWaterReadings(Long propertyId) {
-        return meterReadingRepository.findByPropertyIdAndUtilityTypeAndUtilityInvoiceIdIsNull(
-                propertyId, UtilityType.WATER);
-    }
-
-    private int eligibleElectricRoomCount(Long propertyId, YearMonth month) {
-        return meterReadingService.listEligibleForPeriod(
-                propertyId, ContractBillingCalendar.normalizePeriod(month), UtilityType.ELECTRIC).size();
-    }
-
-    private int eligibleWaterRoomCount(Long propertyId, LocalDate periodEnd) {
+    private int eligibleRoomCount(Long propertyId, LocalDate periodEnd) {
         return (int) tenantContractRepository.findActiveWithTenantByPropertyId(propertyId).stream()
                 .filter(c -> c.getRoom() != null)
                 .filter(c -> ContractBillingCalendar.isContractInPeriod(c, periodEnd))

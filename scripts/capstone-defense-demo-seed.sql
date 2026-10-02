@@ -1,22 +1,155 @@
 -- =============================================================================
--- SLMS2026 — Capstone Defense Demo Seed (ADDITIVE — GIỮ DATA CŨ)
+-- DEMO SEED — Bảo vệ capstone 04/10/2026 (additive, không đụng data production)
 --
--- AN TOÀN CHO PRODUCTION:
---   • KHÔNG TRUNCATE / DELETE data hiện có
---   • Chỉ INSERT thêm nhà/khách/HĐ/hoá đơn/bảo trì demo
---   • Prefix rõ ràng: property_code demo#101..106, username demo_* , phone 0988*
---   • Idempotent: chạy lại lần 2 → bỏ qua nếu đã có demo#101
+-- Tài khoản (mật khẩu 123456):
+--   owner01                       — Chủ nhà
+--   manager01                     — QLVH Bình Thạnh / Phú Nhuận / Quận 3 (demo#101,102,103,106), lương 12.000.000đ
+--   manager02                     — QLVH Gò Vấp / Quận 1 (demo#104,105), lương 9.000.000đ
+--   demo_tenant01..10             — Khách thuê (mọi nhà / mọi phòng đều có khách đang ở)
 --
--- CÁCH DÙNG (khi cần bảo vệ mới chạy):
---   1. API production đã chạy (schema + property_code đã có)
---   2. Backup DB nếu muốn chắc chắn
---   3. Supabase SQL Editor → paste file này → Run (without RLS nếu cần)
---   4. Login demo: demo_owner / demo_tenant01..07 / demo_manager01 — password 123456
---
--- GỠ DEMO SAU BẢO VỆ (tuỳ chọn): xem cuối file — block cleanup (comment sẵn)
+-- Mốc thời gian: "hôm nay" = đầu tháng 10/2026.
+--   - Tiền nhà + phí DV: đủ từng tháng từ lúc vào ở → 10/2026 (tháng đầu tính theo ngày).
+--   - Điện / nước: đủ từng kỳ → kỳ 08/2026. Không chốt cuối tháng nữa: kỳ tháng M được quản lý chụp
+--     công tơ ngày 04 tháng M+1, admin nhập giấy EVN / nước cùng ngày → hoá đơn khách phát hành, hạn +5 ngày.
+--     Kỳ 09/2026 để trống — demo chụp số + nhập giấy trực tiếp ngày 04/10.
+--   - Chỉ số công tơ cũ → mới mỗi tháng cho từng nhà từ lúc nhận nhà → kỳ 08/2026 (kể cả tháng nhà trống),
+--     kèm hoá đơn điện/nước của nhà (utility_bills) mỗi kỳ. Mã KH điện PE05150000110..115, nước 15015000110..115.
+--     Nhà theo phòng (#104, #105): mỗi phòng 1 chuỗi chỉ số riêng (kể cả phòng trống) + công tơ tổng của nhà.
+--   - Điện nước kỳ 08/2026 (hạn 09/09): mọi khách đã trả.
+--   - Tiền nhà + DV 10/2026 (cron tự phát hành ngày 01/10, hạn 05/10): An, Em, Giang đã trả, còn lại PENDING.
+--   - Ticket lỗi do khách (TENANT_FAULT) đều có hoá đơn MAINTENANCE.
 -- =============================================================================
 
 BEGIN;
+
+-- -----------------------------------------------------------------------------
+-- Helpers (pg_temp — tự huỷ khi đóng session)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pg_temp.demo_user(
+  p_tbl text, p_id uuid, p_username text, p_pw text, p_phone text,
+  p_email text, p_name text, p_role text
+) RETURNS uuid LANGUAGE plpgsql AS $f$
+DECLARE
+  v_id uuid;
+BEGIN
+  EXECUTE format('SELECT id FROM %I WHERE username = $1', p_tbl) INTO v_id USING p_username;
+  IF v_id IS NOT NULL THEN
+    -- vd. manager01/manager02 do DataSeeder tạo sẵn → dùng luôn account đó
+    IF v_id <> p_id THEN
+      RAISE NOTICE 'Username "%" đã có sẵn (id=%) — dùng lại account này.', p_username, v_id;
+    END IF;
+    RETURN v_id;
+  END IF;
+
+  -- account demo đời cũ (demo_owner / demo_manager0x) cùng UUID → đổi sang username mới
+  EXECUTE format('SELECT id FROM %I WHERE id = $1', p_tbl) INTO v_id USING p_id;
+  IF v_id IS NOT NULL THEN
+    EXECUTE format('UPDATE %I SET username = $2, email = $3, full_name = $4 WHERE id = $1', p_tbl)
+    USING p_id, p_username, p_email, p_name;
+    RETURN p_id;
+  END IF;
+
+  EXECUTE format('SELECT id FROM %I WHERE phone_number = $1', p_tbl) INTO v_id USING p_phone;
+  IF v_id IS NOT NULL THEN
+    RAISE EXCEPTION 'SĐT % đã thuộc account khác (id=%) — đổi SĐT demo trong script.', p_phone, v_id;
+  END IF;
+
+  EXECUTE format(
+    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, ''ACTIVE'', now(), false)', p_tbl)
+  USING p_id, p_username, p_pw, p_phone, p_email, p_name, p_role;
+  RETURN p_id;
+END $f$;
+
+-- Tạo tenant_invoice (+ tenant_payment nếu p_paid có giá trị). Trả về invoice id.
+CREATE OR REPLACE FUNCTION pg_temp.demo_invoice(
+  p_code text, p_tenant uuid, p_contract bigint, p_type text, p_cycle text,
+  p_prop text, p_room text, p_ym date, p_period text, p_note text,
+  p_amount numeric, p_due date, p_created timestamp, p_paid timestamp,
+  p_method text, p_manager uuid,
+  p_utility_id bigint DEFAULT NULL,
+  p_kwh numeric DEFAULT NULL, p_erate numeric DEFAULT NULL,
+  p_m3 numeric DEFAULT NULL, p_wrate numeric DEFAULT NULL
+) RETURNS bigint LANGUAGE plpgsql AS $f$
+DECLARE
+  v_id bigint;
+  v_txn text := CASE WHEN p_paid IS NOT NULL THEN 'DEMO-TXN-' || p_code END;
+BEGIN
+  INSERT INTO tenant_invoices (
+    code, tenant_user_id, tenant_contract_id, utility_invoice_id, invoice_type, cycle_type,
+    property_name, room_number, billing_month, billing_year, billing_period, note,
+    total_amount, late_fee, grand_total, status, due_date, created_at, paid_at,
+    payment_method, transaction_id, kwh_used, electricity_rate, m3_used, water_rate, auto_issued
+  ) VALUES (
+    p_code, p_tenant, p_contract, p_utility_id, p_type, p_cycle,
+    p_prop, p_room, EXTRACT(MONTH FROM p_ym)::int, EXTRACT(YEAR FROM p_ym)::int, p_period, p_note,
+    p_amount, 0, p_amount, CASE WHEN p_paid IS NOT NULL THEN 'PAID' ELSE 'PENDING' END,
+    p_due, p_created, p_paid,
+    CASE WHEN p_paid IS NOT NULL THEN p_method END, v_txn,
+    p_kwh, p_erate, p_m3, p_wrate, p_type <> 'MAINTENANCE'
+  ) RETURNING id INTO v_id;
+
+  IF p_paid IS NOT NULL THEN
+    INSERT INTO tenant_payments (
+      tenant_invoice_id, tenant_user_id, invoice_code, invoice_type, amount, method, paid_at,
+      transaction_id, property_name, room_number, collection_mode, facilitated_by, payment_note
+    ) VALUES (
+      v_id, p_tenant, p_code, p_type, p_amount, p_method, p_paid,
+      v_txn, p_prop, p_room,
+      CASE WHEN p_method = 'CASH' THEN 'MANAGER_CASH' ELSE 'SELF' END,
+      CASE WHEN p_method = 'CASH' THEN p_manager END,
+      'DEMO seed'
+    );
+  END IF;
+  RETURN v_id;
+END $f$;
+
+-- Hoá đơn bồi thường cho ticket lỗi do khách (giống MaintenanceServiceImpl.issueMaintenanceCharge).
+CREATE OR REPLACE FUNCTION pg_temp.demo_maint_charge(
+  p_mr bigint, p_amount numeric, p_issue timestamp, p_paid timestamp, p_method text
+) RETURNS bigint LANGUAGE plpgsql AS $f$
+DECLARE
+  r record;
+  v_inv bigint;
+BEGIN
+  SELECT m.request_code, m.tenant_id, m.tenant_contract_id, p.property_name,
+         COALESCE(rm.room_number, p.property_name) AS room_label,
+         tc.assigned_manager_id AS mgr
+    INTO r
+  FROM maintenance_requests m
+  JOIN tenant_contracts tc ON tc.id = m.tenant_contract_id
+  JOIN properties p ON p.id = m.property_id
+  LEFT JOIN rooms rm ON rm.id = tc.room_id
+  WHERE m.id = p_mr;
+
+  v_inv := pg_temp.demo_invoice(
+    'DEMO-MAINT-' || replace(r.request_code, 'DEMO-MR-', ''),
+    r.tenant_id, r.tenant_contract_id, 'MAINTENANCE', NULL,
+    r.property_name, r.room_label, date_trunc('month', p_issue)::date,
+    'Phí bảo trì', 'Bồi thường sửa chữa (lỗi do khách) — phiếu ' || r.request_code,
+    p_amount, p_issue::date + 5, p_issue, p_paid, p_method, r.mgr);
+
+  INSERT INTO tenant_pending_charges (
+    tenant_contract_id, invoice_id, amount, category, note, maintenance_request_id, status, created_at
+  ) VALUES (
+    r.tenant_contract_id, v_inv, p_amount, 'MAINTENANCE',
+    'Bồi thường sửa chữa — phiếu ' || r.request_code, p_mr, 'INVOICED', p_issue
+  );
+
+  UPDATE maintenance_requests SET charge_invoice_id = v_inv WHERE id = p_mr;
+  RETURN v_inv;
+END $f$;
+
+-- Ghi timeline vào cả maintenance_history lẫn maintenance_timelines.
+CREATE OR REPLACE FUNCTION pg_temp.demo_mr_step(
+  p_mr bigint, p_old text, p_new text, p_note text, p_by uuid, p_by_name text, p_at timestamp
+) RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  INSERT INTO maintenance_history (maintenance_request_id, old_status, new_status, note, changed_by, changed_at)
+  VALUES (p_mr, p_old, p_new, p_note, p_by, p_at);
+  INSERT INTO maintenance_timelines (maintenance_request_id, old_status, new_status, note, changed_by, changed_by_name, changed_at)
+  VALUES (p_mr, p_old, p_new, p_note, p_by, p_by_name, p_at);
+END $f$;
 
 DO $$
 DECLARE
@@ -52,6 +185,9 @@ DECLARE
   uid_t05     uuid := 'd0d00000-0000-4000-8000-000000000105'; -- Em
   uid_t06     uuid := 'd0d00000-0000-4000-8000-000000000106'; -- Phương
   uid_t07     uuid := 'd0d00000-0000-4000-8000-000000000107'; -- Huy
+  uid_t08     uuid := 'd0d00000-0000-4000-8000-000000000108'; -- Giang
+  uid_t09     uuid := 'd0d00000-0000-4000-8000-000000000109'; -- Khánh
+  uid_t10     uuid := 'd0d00000-0000-4000-8000-000000000110'; -- Linh
 
   -- properties / rooms / contracts / equipment
   p101 bigint; p102 bigint; p103 bigint; p104 bigint; p105 bigint; p106 bigint;
@@ -61,41 +197,54 @@ DECLARE
 
   c_an bigint; c_binh bigint; c_cuong bigint; c_dung bigint;
   c_em_old bigint; c_em_new bigint; c_phuong bigint; c_huy bigint;
+  c_giang bigint; c_khanh bigint; c_linh bigint;
 
   eq_101_ac bigint; eq_101_fr bigint; eq_101_wh bigint;
-  eq_102_fn bigint; eq_102_wh bigint;
+  eq_102_fn bigint; eq_102_wh bigint; eq_102_wd bigint;
   eq_104_ac bigint;
   eq_106_ac bigint; eq_106_wm bigint;
 
   mr_id bigint;
-  inv_id bigint;
-  inv_code text;
+
+  -- billing
+  demo_month  date      := DATE '2026-10-01';            -- tháng hiện tại (bảo vệ 04/10/2026)
+  util_month  date      := DATE '2026-08-01';            -- kỳ điện nước mới nhất (chụp số 04/09, phát hành 04/09)
+  pay_now_ts  timestamp := TIMESTAMP '2026-10-02 20:15'; -- khách trả sớm kỳ hiện tại
+
+  c_rec record;
   ym date;
-  end_ym date;
+  month_end date;
+  first_m date;
+  last_rent_m date;
+  last_util_m date;
+  dim int;
+  billed int;
+  mon int;
+  summer int;
+  amt numeric;
+  period_label text;
+  note_txt text;
+  cycle text;
   due date;
   created_ts timestamp;
   paid_ts timestamp;
-  st text;
-  rent numeric;
-  prop_name text;
-  room_no text;
-  tenant_uid uuid;
-  cycle text;
-  elec_used numeric;
-  water_used numeric;
-  elec_amt numeric;
-  water_amt numeric;
-  elec_price numeric;
-  water_price numeric;
-  svc_fee numeric;
-  contract_id bigint;
-  contract_status text;
-  start_d date;
-  end_d date;
+  pay_method text;
+  pays_now boolean;
+  p_start date;
+  p_end date;
+  prev_e numeric;
+  prev_w numeric;
+  kwh numeric;
+  m3 numeric;
+  issue_ts timestamp;
+  rec_ts timestamp;
+  ui_id bigint;
+  h_rec record;
+  admin_id uuid;
+  qty numeric;
+  billed_qty numeric;
 
-  has_damage_cause boolean;
-  has_flow_type boolean;
-  has_assigned_mgr boolean;
+  col_rec record;
 BEGIN
   -- -------------------------------------------------------------------------
   -- 0) Guards
@@ -104,39 +253,60 @@ BEGIN
     RAISE EXCEPTION 'Chưa có bảng zone. Restart API rồi chạy lại.';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'properties' AND column_name = 'property_code'
-  ) THEN
-    ALTER TABLE properties ADD COLUMN property_code VARCHAR(32);
-  END IF;
+  ALTER TABLE properties ADD COLUMN IF NOT EXISTS property_code VARCHAR(32);
 
   IF EXISTS (SELECT 1 FROM properties WHERE property_code = 'demo#101') THEN
-    RAISE NOTICE 'Demo seed đã có (demo#101). Bỏ qua — không đụng data.';
+    RAISE NOTICE 'Demo seed đã có (demo#101). Bỏ qua — muốn seed lại thì chạy block CLEANUP cuối file trước.';
     RETURN;
   END IF;
 
-  SELECT EXISTS (
+  -- DB tạo mới: Hibernate tạo cột NOT NULL không DEFAULT, DatabaseSchemaMigration bỏ qua vì cột đã tồn tại
+  FOR col_rec IN
+    SELECT c.table_name, c.column_name
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND c.data_type = 'boolean'
+      AND c.is_nullable = 'NO'
+      AND c.column_default IS NULL
+  LOOP
+    EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT FALSE', col_rec.table_name, col_rec.column_name);
+  END LOOP;
+
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='maintenance_requests' AND column_name='damage_cause'
-  ) INTO has_damage_cause;
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='maintenance_requests' AND column_name='flow_type'
-  ) INTO has_flow_type;
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='maintenance_requests' AND column_name='assigned_manager_id'
-  ) INTO has_assigned_mgr;
+    WHERE table_schema = 'public' AND table_name = 'equipments' AND column_name = 'maintenance_count'
+      AND column_default IS NULL
+  ) THEN
+    ALTER TABLE equipments ALTER COLUMN maintenance_count SET DEFAULT 0;
+  END IF;
+
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS flow_type VARCHAR(50);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS damage_cause VARCHAR(50);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS fault_reason TEXT;
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS fault_resolution_path VARCHAR(50);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS estimated_damage_amount NUMERIC(19, 2);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS charge_invoice_id BIGINT;
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS cost_agreement_status VARCHAR(50);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS repair_started_at TIMESTAMP;
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS repair_description TEXT;
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS invoice_vendor VARCHAR(255);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(255);
+  ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS invoice_date DATE;
 
   -- -------------------------------------------------------------------------
   -- 1) Zones — reuse production theo tên
   -- -------------------------------------------------------------------------
-  SELECT id INTO z_binhthanh FROM zone WHERE level = 2 AND lower(name) LIKE '%bình thạnh%' LIMIT 1;
-  SELECT id INTO z_phunhuan  FROM zone WHERE level = 2 AND lower(name) LIKE '%phú nhuận%' LIMIT 1;
-  SELECT id INTO z_quan3     FROM zone WHERE level = 2 AND lower(name) IN ('quận 3', 'quan 3') LIMIT 1;
-  SELECT id INTO z_govap     FROM zone WHERE level = 2 AND lower(name) LIKE '%gò vấp%' LIMIT 1;
-  SELECT id INTO z_quan1     FROM zone WHERE level = 2 AND lower(name) IN ('quận 1', 'quan 1') LIMIT 1;
+  -- trùng tên → ưu tiên zone admin đã phân công (zone_managers) để khớp trang Phân công khu vực
+  SELECT z.id INTO z_binhthanh FROM zone z WHERE z.level = 2 AND lower(z.name) LIKE '%bình thạnh%'
+  ORDER BY EXISTS (SELECT 1 FROM zone_managers zm WHERE zm.zone_id = z.id) DESC, z.id LIMIT 1;
+  SELECT z.id INTO z_phunhuan  FROM zone z WHERE z.level = 2 AND lower(z.name) LIKE '%phú nhuận%'
+  ORDER BY EXISTS (SELECT 1 FROM zone_managers zm WHERE zm.zone_id = z.id) DESC, z.id LIMIT 1;
+  SELECT z.id INTO z_quan3     FROM zone z WHERE z.level = 2 AND lower(z.name) IN ('quận 3', 'quan 3')
+  ORDER BY EXISTS (SELECT 1 FROM zone_managers zm WHERE zm.zone_id = z.id) DESC, z.id LIMIT 1;
+  SELECT z.id INTO z_govap     FROM zone z WHERE z.level = 2 AND lower(z.name) LIKE '%gò vấp%'
+  ORDER BY EXISTS (SELECT 1 FROM zone_managers zm WHERE zm.zone_id = z.id) DESC, z.id LIMIT 1;
+  SELECT z.id INTO z_quan1     FROM zone z WHERE z.level = 2 AND lower(z.name) IN ('quận 1', 'quan 1')
+  ORDER BY EXISTS (SELECT 1 FROM zone_managers zm WHERE zm.zone_id = z.id) DESC, z.id LIMIT 1;
 
   IF z_binhthanh IS NULL OR z_phunhuan IS NULL OR z_quan3 IS NULL OR z_govap IS NULL OR z_quan1 IS NULL THEN
     RAISE EXCEPTION
@@ -146,6 +316,18 @@ BEGIN
   -- -------------------------------------------------------------------------
   -- 2) Catalog — reuse theo tên
   -- -------------------------------------------------------------------------
+  INSERT INTO equipment_catalog (name, description, active) VALUES
+    ('Điều hòa', 'Máy lạnh / điều hòa không khí', true),
+    ('Tủ lạnh', 'Tủ lạnh các loại', true),
+    ('Máy giặt', 'Máy giặt', true),
+    ('Bàn ăn', 'Bàn ăn', true),
+    ('Giường', 'Giường ngủ', true),
+    ('Tủ quần áo', 'Tủ QA', true),
+    ('Bếp từ', 'Bếp từ', true),
+    ('Nóng lạnh', 'Máy nước nóng', true),
+    ('Quạt', 'Quạt điện', true)
+  ON CONFLICT (name) DO NOTHING;
+
   SELECT id INTO cat_ac       FROM equipment_catalog WHERE name = 'Điều hòa' LIMIT 1;
   SELECT id INTO cat_fridge   FROM equipment_catalog WHERE name = 'Tủ lạnh' LIMIT 1;
   SELECT id INTO cat_washer   FROM equipment_catalog WHERE name = 'Máy giặt' LIMIT 1;
@@ -156,58 +338,8 @@ BEGIN
   SELECT id INTO cat_heater   FROM equipment_catalog WHERE name = 'Nóng lạnh' LIMIT 1;
   SELECT id INTO cat_fan      FROM equipment_catalog WHERE name = 'Quạt' LIMIT 1;
 
-  IF cat_ac IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active)
-    VALUES ('Điều hòa', 'Máy lạnh / điều hòa không khí', true)
-    ON CONFLICT (name) DO NOTHING
-    RETURNING id INTO cat_ac;
-    IF cat_ac IS NULL THEN
-      SELECT id INTO cat_ac FROM equipment_catalog WHERE name = 'Điều hòa';
-    END IF;
-  END IF;
-  IF cat_fridge IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Tủ lạnh', 'Tủ lạnh các loại', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_fridge FROM equipment_catalog WHERE name = 'Tủ lạnh';
-  END IF;
-  IF cat_washer IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Máy giặt', 'Máy giặt', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_washer FROM equipment_catalog WHERE name = 'Máy giặt';
-  END IF;
-  IF cat_table IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Bàn ăn', 'Bàn ăn', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_table FROM equipment_catalog WHERE name = 'Bàn ăn';
-  END IF;
-  IF cat_bed IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Giường', 'Giường ngủ', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_bed FROM equipment_catalog WHERE name = 'Giường';
-  END IF;
-  IF cat_wardrobe IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Tủ quần áo', 'Tủ QA', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_wardrobe FROM equipment_catalog WHERE name = 'Tủ quần áo';
-  END IF;
-  IF cat_stove IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Bếp từ', 'Bếp từ', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_stove FROM equipment_catalog WHERE name = 'Bếp từ';
-  END IF;
-  IF cat_heater IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Nóng lạnh', 'Máy nước nóng', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_heater FROM equipment_catalog WHERE name = 'Nóng lạnh';
-  END IF;
-  IF cat_fan IS NULL THEN
-    INSERT INTO equipment_catalog (name, description, active) VALUES ('Quạt', 'Quạt điện', true)
-    ON CONFLICT (name) DO NOTHING;
-    SELECT id INTO cat_fan FROM equipment_catalog WHERE name = 'Quạt';
-  END IF;
-
   -- -------------------------------------------------------------------------
-  -- 3) Demo users (username/phone riêng — không đụng account production)
+  -- 3) Demo users — owner/manager đặt tên theo role + số thứ tự
   -- -------------------------------------------------------------------------
   SELECT tablename INTO user_tbl
   FROM pg_tables WHERE schemaname = 'public' AND lower(tablename) = 'user' LIMIT 1;
@@ -215,95 +347,23 @@ BEGIN
     RAISE EXCEPTION 'Không tìm thấy bảng User/user.';
   END IF;
 
-  -- Helper: insert user nếu chưa có username; luôn resolve id theo username
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_owner, 'demo_owner', pw, '0988000001', 'demo_owner@slms.local', 'Chủ Nhà Demo Bảo Vệ', 'ROLE_OWNER', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_mgr1, 'demo_manager01', pw, '0988000011', 'demo_mgr01@slms.local', 'QLVH Demo Hùng', 'ROLE_MANAGER', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_mgr2, 'demo_manager02', pw, '0988000012', 'demo_mgr02@slms.local', 'QLVH Demo Mai', 'ROLE_MANAGER', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t01, 'demo_tenant01', pw, '0988000101', 'demo_t01@slms.local', 'Nguyễn Văn An', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t02, 'demo_tenant02', pw, '0988000102', 'demo_t02@slms.local', 'Trần Thị Bình', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t03, 'demo_tenant03', pw, '0988000103', 'demo_t03@slms.local', 'Lê Minh Cường', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t04, 'demo_tenant04', pw, '0988000104', 'demo_t04@slms.local', 'Phạm Thị Dung', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t05, 'demo_tenant05', pw, '0988000105', 'demo_t05@slms.local', 'Hoàng Văn Em', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t06, 'demo_tenant06', pw, '0988000106', 'demo_t06@slms.local', 'Võ Thị Phương', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format(
-    'INSERT INTO %I (id, username, password, phone_number, email, full_name, role, status, create_at, is_first_login)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),false
-     WHERE NOT EXISTS (SELECT 1 FROM %I WHERE username = $2 OR phone_number = $4)',
-    user_tbl, user_tbl
-  ) USING uid_t07, 'demo_tenant07', pw, '0988000107', 'demo_t07@slms.local', 'Đặng Quốc Huy', 'ROLE_TENANT', 'ACTIVE';
-
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_owner') INTO uid_owner;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_manager01') INTO uid_mgr1;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_manager02') INTO uid_mgr2;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant01') INTO uid_t01;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant02') INTO uid_t02;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant03') INTO uid_t03;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant04') INTO uid_t04;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant05') INTO uid_t05;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant06') INTO uid_t06;
-  EXECUTE format('SELECT id FROM %I WHERE username = %L', user_tbl, 'demo_tenant07') INTO uid_t07;
-
-  IF uid_owner IS NULL OR uid_mgr1 IS NULL OR uid_t01 IS NULL THEN
-    RAISE EXCEPTION 'Không tạo/resolve được demo users (demo_owner / demo_manager01 / demo_tenant01).';
-  END IF;
+  uid_owner := pg_temp.demo_user(user_tbl, uid_owner, 'owner01',   pw, '0988000001', 'owner01@slms.local',   'Trần Quốc Bảo',   'ROLE_OWNER');
+  uid_mgr1  := pg_temp.demo_user(user_tbl, uid_mgr1,  'manager01', pw, '0988000011', 'manager01@slms.local', 'Nguyễn Văn Hùng', 'ROLE_MANAGER');
+  uid_mgr2  := pg_temp.demo_user(user_tbl, uid_mgr2,  'manager02', pw, '0988000012', 'manager02@slms.local', 'Lê Thị Mai',      'ROLE_MANAGER');
+  uid_t01 := pg_temp.demo_user(user_tbl, uid_t01, 'demo_tenant01', pw, '0988000101', 'demo_t01@slms.local', 'Nguyễn Văn An',  'ROLE_TENANT');
+  uid_t02 := pg_temp.demo_user(user_tbl, uid_t02, 'demo_tenant02', pw, '0988000102', 'demo_t02@slms.local', 'Trần Thị Bình',  'ROLE_TENANT');
+  uid_t03 := pg_temp.demo_user(user_tbl, uid_t03, 'demo_tenant03', pw, '0988000103', 'demo_t03@slms.local', 'Lê Minh Cường',  'ROLE_TENANT');
+  uid_t04 := pg_temp.demo_user(user_tbl, uid_t04, 'demo_tenant04', pw, '0988000104', 'demo_t04@slms.local', 'Phạm Thị Dung',  'ROLE_TENANT');
+  uid_t05 := pg_temp.demo_user(user_tbl, uid_t05, 'demo_tenant05', pw, '0988000105', 'demo_t05@slms.local', 'Hoàng Văn Em',   'ROLE_TENANT');
+  uid_t06 := pg_temp.demo_user(user_tbl, uid_t06, 'demo_tenant06', pw, '0988000106', 'demo_t06@slms.local', 'Võ Thị Phương',  'ROLE_TENANT');
+  uid_t07 := pg_temp.demo_user(user_tbl, uid_t07, 'demo_tenant07', pw, '0988000107', 'demo_t07@slms.local', 'Đặng Quốc Huy',  'ROLE_TENANT');
+  uid_t08 := pg_temp.demo_user(user_tbl, uid_t08, 'demo_tenant08', pw, '0988000108', 'demo_t08@slms.local', 'Bùi Thị Giang',  'ROLE_TENANT');
+  uid_t09 := pg_temp.demo_user(user_tbl, uid_t09, 'demo_tenant09', pw, '0988000109', 'demo_t09@slms.local', 'Ngô Minh Khánh', 'ROLE_TENANT');
+  uid_t10 := pg_temp.demo_user(user_tbl, uid_t10, 'demo_tenant10', pw, '0988000110', 'demo_t10@slms.local', 'Trịnh Mỹ Linh',  'ROLE_TENANT');
 
   INSERT INTO owner (user_id) VALUES (uid_owner) ON CONFLICT DO NOTHING;
   INSERT INTO operation_management (user_id, start_at) VALUES
-    (uid_mgr1, now()), (uid_mgr2, now())
+    (uid_mgr1, '2023-01-02 08:00:00'), (uid_mgr2, '2024-12-15 08:00:00')
   ON CONFLICT DO NOTHING;
   INSERT INTO tenant (user_id, cccd, date_of_birth, permanent_address) VALUES
     (uid_t01, '079203008001', '1995-03-12', 'Demo — Q.1'),
@@ -312,21 +372,90 @@ BEGIN
     (uid_t04, '079203008004', '1996-01-30', 'Demo — Phú Nhuận'),
     (uid_t05, '079203008005', '1993-09-18', 'Demo — Gò Vấp'),
     (uid_t06, '079203008006', '1997-12-02', 'Demo — Bình Thạnh'),
-    (uid_t07, '079203008007', '1994-06-25', 'Demo — Đồng Nai')
+    (uid_t07, '079203008007', '1994-06-25', 'Demo — Đồng Nai'),
+    (uid_t08, '079203008008', '1999-04-14', 'Demo — Long An'),
+    (uid_t09, '079203008009', '1997-08-09', 'Demo — Bình Dương'),
+    (uid_t10, '079203008010', '2001-02-27', 'Demo — Tiền Giang')
   ON CONFLICT DO NOTHING;
 
+  -- -------------------------------------------------------------------------
+  -- 3b) Phân công khu vực + lương quản lý vận hành
+  --     zone_managers (1 khu vực = 1 quản lý) là nguồn của trang admin "Phân công khu vực"
+  --     và trang owner "Quản lý vận hành" / "Lương quản lý" → phải khớp operation_manager_id của nhà.
+  -- -------------------------------------------------------------------------
+  EXECUTE format('SELECT id FROM %I WHERE username = $1', user_tbl) INTO admin_id USING 'admin01';
+
+  -- account demo đời cũ (demo_manager01/02) còn sót → khoá để không hiện trùng trong danh sách quản lý
+  EXECUTE format(
+    'UPDATE %I SET status = ''INACTIVE'' WHERE id IN ($1, $2) AND id NOT IN ($3, $4) AND role = ''ROLE_MANAGER''',
+    user_tbl)
+  USING 'd0d00000-0000-4000-8000-000000000011'::uuid, 'd0d00000-0000-4000-8000-000000000012'::uuid,
+        uid_mgr1, uid_mgr2;
+  EXECUTE format('UPDATE %I SET status = ''ACTIVE'' WHERE id IN ($1, $2)', user_tbl) USING uid_mgr1, uid_mgr2;
+
+  DELETE FROM manager_zones
+  WHERE zone_id IN (z_binhthanh, z_phunhuan, z_quan3, z_govap, z_quan1);
   INSERT INTO manager_zones (manager_id, zone_id) VALUES
     (uid_mgr1, z_binhthanh), (uid_mgr1, z_phunhuan), (uid_mgr1, z_quan3),
     (uid_mgr2, z_govap), (uid_mgr2, z_quan1)
   ON CONFLICT DO NOTHING;
 
-  INSERT INTO zone_managers (zone_id, manager_id, assigned_at)
-  VALUES (z_binhthanh, uid_mgr1, now())
-  ON CONFLICT (zone_id) DO NOTHING;
+  INSERT INTO zone_managers (zone_id, manager_id, assigned_by, assigned_at) VALUES
+    (z_binhthanh, uid_mgr1, admin_id, '2023-01-02 08:00:00'),
+    (z_phunhuan,  uid_mgr1, admin_id, '2025-07-01 08:00:00'),
+    (z_quan3,     uid_mgr1, admin_id, '2026-06-15 08:00:00'),
+    (z_govap,     uid_mgr2, admin_id, '2024-12-15 08:00:00'),
+    (z_quan1,     uid_mgr2, admin_id, '2026-05-01 08:00:00')
+  ON CONFLICT (zone_id) DO UPDATE
+    SET manager_id = EXCLUDED.manager_id, assigned_by = EXCLUDED.assigned_by, assigned_at = EXCLUDED.assigned_at;
+
+  -- nhà khác (không phải demo) đã gán quản lý trong 5 khu vực này → theo quản lý của khu vực
+  UPDATE properties p
+  SET operation_manager_id = CASE WHEN p.zone_id IN (z_govap, z_quan1) THEN uid_mgr2 ELSE uid_mgr1 END
+  WHERE p.zone_id IN (z_binhthanh, z_phunhuan, z_quan3, z_govap, z_quan1)
+    AND p.operation_manager_id IS NOT NULL
+    AND p.operation_manager_id <> CASE WHEN p.zone_id IN (z_govap, z_quan1) THEN uid_mgr2 ELSE uid_mgr1 END;
+  GET DIAGNOSTICS billed = ROW_COUNT;
+  IF billed > 0 THEN
+    RAISE NOTICE 'Đã chuyển % nhà (ngoài demo) trong 5 khu vực sang manager01/manager02 cho khớp phân công.', billed;
+    UPDATE tenant_contracts tc
+    SET assigned_manager_id = p.operation_manager_id
+    FROM properties p
+    WHERE p.id = tc.property_id
+      AND p.zone_id IN (z_binhthanh, z_phunhuan, z_quan3, z_govap, z_quan1)
+      AND tc.status NOT IN ('EXPIRED', 'TERMINATED', 'CANCELLED')
+      AND tc.assigned_manager_id IS DISTINCT FROM p.operation_manager_id;
+  END IF;
+
+  -- Lương quản lý (trang owner "Lương quản lý" đọc pricing_config.manager_salaries_json)
+  IF NOT EXISTS (SELECT 1 FROM pricing_config WHERE id = 1) THEN
+    RAISE EXCEPTION 'Chưa có pricing_config (id=1). Restart API một lần để DatabaseSchemaMigration tạo rồi chạy lại.';
+  END IF;
+
+  UPDATE pricing_config
+  SET manager_salaries_json = (
+        CASE WHEN manager_salaries_json IS NULL OR btrim(manager_salaries_json) = '' THEN '{}'::jsonb
+             ELSE manager_salaries_json::jsonb END
+        || jsonb_build_object(uid_mgr1::text, 12000000, uid_mgr2::text, 9000000)
+      )::text,
+      updated_at = now(),
+      updated_by = admin_id
+  WHERE id = 1;
 
   -- -------------------------------------------------------------------------
   -- 4) Properties (demo#101..106)
+  --    Mã KH điện PE05150000110..115 / nước 15015000110..115 lần lượt cho #101..#106
   -- -------------------------------------------------------------------------
+  IF EXISTS (
+    SELECT 1 FROM properties
+    WHERE upper(trim(electricity_customer_code)) IN
+            ('PE05150000110', 'PE05150000111', 'PE05150000112', 'PE05150000113', 'PE05150000114', 'PE05150000115')
+       OR trim(water_customer_code) IN
+            ('15015000110', '15015000111', '15015000112', '15015000113', '15015000114', '15015000115')
+  ) THEN
+    RAISE EXCEPTION 'Mã KH điện/nước demo đã gắn cho nhà khác (không phải demo#) — gỡ mã ở nhà đó trước.';
+  END IF;
+
   INSERT INTO properties (
     property_name, property_code, address, zone_id, area_size, length_m, width_m,
     total_floor, is_whole_house, has_renovation, total_rooms, status,
@@ -338,7 +467,7 @@ BEGIN
     'demo#101', '124 Xô Viết Nghệ Tĩnh, Bình Thạnh (DEMO)',
     z_binhthanh, 85, 8.5, 10, 2, true, true, 3, 'RENTED',
     uid_mgr1, 'DEMO — Full nội thất phục vụ bảo vệ capstone.',
-    14000000, 14000000, 3500, 18000, 'DEMO-PE-101', 'DEMO-NW-101',
+    14000000, 14000000, 3500, 18000, 'PE05150000110', '15015000110',
     2, 200000, true, '2024-08-01 09:00:00'
   ) RETURNING id INTO p101;
 
@@ -353,7 +482,7 @@ BEGIN
     'demo#102', '56 Hoàng Văn Thụ, Phú Nhuận (DEMO)',
     z_phunhuan, 55, 7, 8, 1, true, false, 2, 'RENTED',
     uid_mgr1, 'DEMO — NT cơ bản: giường, tủ, quạt, nóng lạnh.',
-    9000000, 9000000, 3500, 18000, 'DEMO-PE-102', 'DEMO-NW-102',
+    9000000, 9000000, 3500, 18000, 'PE05150000111', '15015000111',
     1, 150000, true, '2025-07-01 10:00:00'
   ) RETURNING id INTO p102;
 
@@ -368,7 +497,7 @@ BEGIN
     'demo#103', '18 Nam Kỳ Khởi Nghĩa, Quận 3 (DEMO)',
     z_quan3, 70, 7, 10, 2, true, false, 3, 'RENTED',
     uid_mgr1, 'DEMO — Nhà trống không nội thất.',
-    7500000, 7500000, 3500, 18000, 'DEMO-PE-103', 'DEMO-NW-103',
+    7500000, 7500000, 3500, 18000, 'PE05150000112', '15015000112',
     1, 100000, true, '2026-06-15 09:00:00'
   ) RETURNING id INTO p103;
 
@@ -383,7 +512,7 @@ BEGIN
     'demo#104', '230 Quang Trung, Gò Vấp (DEMO)',
     z_govap, 120, 10, 12, 3, false, true, 3, 'RENTED',
     uid_mgr2, 'DEMO — Theo phòng full NT.',
-    NULL, NULL, 3500, 18000, 'DEMO-PE-104', 'DEMO-NW-104',
+    NULL, NULL, 3500, 18000, 'PE05150000113', '15015000113',
     1, 50000, true, '2025-01-10 08:00:00'
   ) RETURNING id INTO p104;
 
@@ -398,7 +527,7 @@ BEGIN
     'demo#105', '9 Nguyễn Huệ, Quận 1 (DEMO)',
     z_quan1, 90, 9, 10, 2, false, false, 2, 'RENTED',
     uid_mgr2, 'DEMO — Phòng trống không NT.',
-    NULL, NULL, 3500, 18000, 'DEMO-PE-105', 'DEMO-NW-105',
+    NULL, NULL, 3500, 18000, 'PE05150000114', '15015000114',
     1, 80000, true, '2026-05-01 08:00:00'
   ) RETURNING id INTO p105;
 
@@ -413,18 +542,18 @@ BEGIN
     'demo#106', '88 Bạch Đằng, Bình Thạnh (DEMO)',
     z_binhthanh, 95, 9.5, 10, 2, true, true, 3, 'RENTED',
     uid_mgr1, 'DEMO — 3 thế hệ khách thuê (Phương → Em → Huy).',
-    15000000, 15000000, 3500, 18000, 'DEMO-PE-106', 'DEMO-NW-106',
+    15000000, 15000000, 3500, 18000, 'PE05150000115', '15015000115',
     2, 250000, true, '2023-01-05 09:00:00'
   ) RETURNING id INTO p106;
 
-  -- inbound contracts (PnL)
+  -- inbound contracts (thuê từ chủ gốc — còn hiệu lực qua ngày bảo vệ)
   INSERT INTO inbound_contracts (property_id, contract_code, owner_name, total_rent_amount, start_date, end_date, status) VALUES
-    (p101, 'DEMO-IB-101', 'Chủ gốc Demo A', 336000000, '2024-08-01', '2026-07-31', 'ACTIVE'),
-    (p102, 'DEMO-IB-102', 'Chủ gốc Demo B', 162000000, '2025-07-01', '2026-12-31', 'ACTIVE'),
-    (p103, 'DEMO-IB-103', 'Chủ gốc Demo C', 135000000, '2026-06-01', '2027-11-30', 'ACTIVE'),
-    (p104, 'DEMO-IB-104', 'Chủ gốc Demo D', 216000000, '2025-01-01', '2026-12-31', 'ACTIVE'),
-    (p105, 'DEMO-IB-105', 'Chủ gốc Demo E', 132000000, '2026-05-01', '2027-04-30', 'ACTIVE'),
-    (p106, 'DEMO-IB-106', 'Chủ gốc Demo F', 540000000, '2023-01-01', '2026-12-31', 'ACTIVE');
+    (p101, 'DEMO-IB-101', 'Chủ gốc Demo A', 396000000, '2024-08-01', '2027-07-31', 'ACTIVE'), -- 36 th × 11tr
+    (p102, 'DEMO-IB-102', 'Chủ gốc Demo B', 168000000, '2025-07-01', '2027-06-30', 'ACTIVE'), -- 24 th × 7tr
+    (p103, 'DEMO-IB-103', 'Chủ gốc Demo C', 104400000, '2026-06-01', '2027-11-30', 'ACTIVE'), -- 18 th × 5,8tr
+    (p104, 'DEMO-IB-104', 'Chủ gốc Demo D', 324000000, '2025-01-01', '2027-12-31', 'ACTIVE'), -- 36 th × 9tr
+    (p105, 'DEMO-IB-105', 'Chủ gốc Demo E',  96000000, '2026-05-01', '2027-04-30', 'ACTIVE'), -- 12 th × 8tr
+    (p106, 'DEMO-IB-106', 'Chủ gốc Demo F', 690000000, '2023-01-01', '2027-12-31', 'ACTIVE'); -- 60 th × 11,5tr
 
   -- -------------------------------------------------------------------------
   -- 5) Rooms
@@ -482,7 +611,7 @@ BEGIN
                           maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p101, r101, cat_ac, 'BEDROOM', 'INITIAL_HANDOVER', 'GOOD', 12000000, 'Máy lạnh Daikin PN', 'APPLIANCE',
-     '2024-08-01', 24, '2024-08-01', '2026-08-01', 2, '2026-03-10 14:00:00', 'DEMO-EQ-101-AC-01', 500000)
+     '2024-08-01', 24, '2024-08-01', '2026-08-01', 1, '2025-06-05 16:30:00', 'DEMO-EQ-101-AC-01', 500000)
   RETURNING id INTO eq_101_ac;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
@@ -490,7 +619,7 @@ BEGIN
                           maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p101, r101, cat_fridge, 'KITCHEN', 'INITIAL_HANDOVER', 'GOOD', 8000000, 'Tủ lạnh Toshiba', 'APPLIANCE',
-     '2024-08-01', 24, '2024-08-01', '2026-08-01', 1, '2025-11-20 10:00:00', 'DEMO-EQ-101-FR-01', 400000)
+     '2024-08-01', 24, '2024-08-01', '2026-08-01', 1, '2025-11-20 14:30:00', 'DEMO-EQ-101-FR-01', 400000)
   RETURNING id INTO eq_101_fr;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
@@ -513,7 +642,7 @@ BEGIN
                           installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p101, r101, cat_heater, 'BATHROOM', 'INITIAL_HANDOVER', 'GOOD', 2500000, 'Nóng lạnh Ariston', 'APPLIANCE',
-     '2024-08-01', 1, '2026-01-15 09:30:00', 'DEMO-EQ-101-WH-01', 200000)
+     '2024-08-01', 1, '2026-01-15 10:30:00', 'DEMO-EQ-101-WH-01', 200000)
   RETURNING id INTO eq_101_wh;
 
   -- #102 basic
@@ -521,9 +650,14 @@ BEGIN
                           installation_date, qr_code, penalty_fee)
   VALUES
     (p102, r102, cat_bed, 'BEDROOM', 'INITIAL_HANDOVER', 'GOOD', 2800000, 'Giường sắt', 'FURNITURE',
-     '2025-07-01', 'DEMO-EQ-102-BD-01', 150000),
+     '2025-07-01', 'DEMO-EQ-102-BD-01', 150000);
+
+  INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
+                          installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
+  VALUES
     (p102, r102, cat_wardrobe, 'BEDROOM', 'INITIAL_HANDOVER', 'GOOD', 1800000, 'Tủ QA 2 cánh', 'FURNITURE',
-     '2025-07-01', 'DEMO-EQ-102-WD-01', 100000);
+     '2025-07-01', 1, '2026-09-30 14:30:00', 'DEMO-EQ-102-WD-01', 100000)
+  RETURNING id INTO eq_102_wd;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
                           installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
@@ -536,7 +670,7 @@ BEGIN
                           installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p102, r102, cat_heater, 'BATHROOM', 'INITIAL_HANDOVER', 'GOOD', 2200000, 'Nóng lạnh Rossi', 'APPLIANCE',
-     '2025-07-01', 1, '2026-04-18 11:00:00', 'DEMO-EQ-102-WH-01', 200000)
+     '2025-07-01', 1, '2026-04-18 11:30:00', 'DEMO-EQ-102-WH-01', 200000)
   RETURNING id INTO eq_102_wh;
 
   -- #104 rooms
@@ -544,7 +678,7 @@ BEGIN
                           installation_date, maintenance_count, qr_code, penalty_fee)
   VALUES
     (p104, r104_p101, cat_ac, 'BEDROOM', 'INITIAL_HANDOVER', 'GOOD', 8500000, 'Máy lạnh P101', 'APPLIANCE',
-     '2025-01-10', 1, 'DEMO-EQ-104-P101-AC', 400000)
+     '2025-01-10', 0, 'DEMO-EQ-104-P101-AC', 400000)
   RETURNING id INTO eq_104_ac;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
@@ -570,14 +704,14 @@ BEGIN
                           installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p106, r106, cat_ac, 'BEDROOM', 'INITIAL_HANDOVER', 'GOOD', 11000000, 'Máy lạnh #106', 'APPLIANCE',
-     '2023-01-05', 3, '2026-02-01 13:00:00', 'DEMO-EQ-106-AC-01', 500000)
+     '2023-01-05', 1, '2026-08-03 15:30:00', 'DEMO-EQ-106-AC-01', 500000)
   RETURNING id INTO eq_106_ac;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
                           installation_date, maintenance_count, last_maintenance_date, qr_code, penalty_fee)
   VALUES
     (p106, r106, cat_washer, 'OTHER', 'INITIAL_HANDOVER', 'GOOD', 6500000, 'Máy giặt #106', 'APPLIANCE',
-     '2023-01-05', 1, '2024-09-01 15:00:00', 'DEMO-EQ-106-WM-01', 400000)
+     '2023-01-05', 1, '2024-09-03 16:30:00', 'DEMO-EQ-106-WM-01', 400000)
   RETURNING id INTO eq_106_wm;
 
   INSERT INTO equipments (property_id, room_id, catalog_id, house_area, source, status, price, equipment_name, category,
@@ -595,8 +729,9 @@ BEGIN
      '2023-01-05', 'DEMO-EQ-106-WH-01', 200000);
 
   -- -------------------------------------------------------------------------
-  -- 7) Tenant contracts
+  -- 7) Tenant contracts — mốc ngày tính theo ngày bảo vệ 04/10/2026
   -- -------------------------------------------------------------------------
+  -- An: ở 2 năm (10/2024 → nay), HĐ đến 31/03/2027
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -606,12 +741,13 @@ BEGIN
   ) VALUES (
     uid_t01, p101, NULL, 'DEMO-TC-101-AN',
     14000000, 14000000, 'NONE', 28000000, 2,
-    '2024-10-01', '2024-10-01', '2026-10-01',
+    '2024-10-01', '2024-10-01', '2027-03-31',
     'PAID', '2024-09-28 10:00:00', 'CASH', '2024-09-28 10:00:00', '2024-10-01 09:00:00',
     uid_mgr1, uid_mgr1, '2024-10-01 09:00:00', 'ACTIVE',
-    1250, 85, 'DEMO — Full NT, ở ~2 năm'
+    1250, 85, 'DEMO — Full NT, ở 2 năm'
   ) RETURNING id INTO c_an;
 
+  -- Bình: ở ~1 năm (15/09/2025 → nay), HĐ đến 14/03/2027
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -621,12 +757,13 @@ BEGIN
   ) VALUES (
     uid_t02, p102, NULL, 'DEMO-TC-102-BINH',
     9000000, 9000000, 'NONE', 9000000, 1,
-    '2025-09-15', '2025-09-15', '2026-09-15',
+    '2025-09-15', '2025-09-15', '2027-03-14',
     'PAID', '2025-09-12 11:00:00', 'PAYOS', '2025-09-12 11:00:00', '2025-09-15 10:00:00',
     uid_mgr1, uid_mgr1, '2025-09-15 10:00:00', 'ACTIVE',
     320, 40, 'DEMO — NT cơ bản, ở ~1 năm'
   ) RETURNING id INTO c_binh;
 
+  -- Cường: khách mới (20/08/2026)
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -642,6 +779,7 @@ BEGIN
     10, 2, 'DEMO — không NT, khách mới'
   ) RETURNING id INTO c_cuong;
 
+  -- Dung: HĐ 1 năm, sắp hết hạn 31/10/2026 (còn ~27 ngày tính từ ngày bảo vệ)
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -651,12 +789,13 @@ BEGIN
   ) VALUES (
     uid_t04, p104, r104_p101, 'DEMO-TC-104-DUNG',
     4500000, 4500000, 'NONE', 4500000, 1,
-    '2025-10-01', '2025-10-01', '2026-09-25',
-    'PAID', '2025-09-28 16:00:00', 'CASH', '2025-09-28 16:00:00', '2025-10-01 08:00:00',
-    uid_mgr2, uid_mgr2, '2025-10-01 08:00:00', 'ACTIVE',
-    180, 25, 'DEMO — sắp hết HĐ 25/09/2026'
+    '2025-11-01', '2025-11-01', '2026-10-31',
+    'PAID', '2025-10-29 16:00:00', 'CASH', '2025-10-29 16:00:00', '2025-11-01 08:00:00',
+    uid_mgr2, uid_mgr2, '2025-11-01 08:00:00', 'ACTIVE',
+    180, 25, 'DEMO — sắp hết HĐ 31/10/2026'
   ) RETURNING id INTO c_dung;
 
+  -- Em (HĐ cũ #106): 07/2024 → 30/06/2026, đã hết hạn
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -671,9 +810,10 @@ BEGIN
     'PAID', '2024-06-28 10:00:00', 'CASH', '2024-06-28 10:00:00', '2024-07-01 09:00:00',
     uid_mgr1, uid_mgr1, '2024-07-01 09:00:00', 'EXPIRED',
     '2026-06-30 17:00:00', 'OTHER', 'Hết hạn — chuyển thuê nhà khác',
-    900, 60, 'DEMO — HĐ cũ tại #106'
+    NULL, NULL, 'DEMO — HĐ cũ tại #106'
   ) RETURNING id INTO c_em_old;
 
+  -- Em (HĐ mới #105): thuê lại từ 01/07/2026
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -689,6 +829,7 @@ BEGIN
     5, 1, 'DEMO — thuê lại sau khi hết HĐ #106'
   ) RETURNING id INTO c_em_new;
 
+  -- Phương: khách đầu tiên #106, 02/2023 → 30/06/2024
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -706,6 +847,7 @@ BEGIN
     50, 5, 'DEMO — khách đầu tiên #106'
   ) RETURNING id INTO c_phuong;
 
+  -- Huy: khách hiện tại #106 từ 05/07/2026
   INSERT INTO tenant_contracts (
     tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
     rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
@@ -718,267 +860,585 @@ BEGIN
     '2026-07-05', '2026-07-05', '2027-07-04',
     'PAID', '2026-07-02 11:00:00', 'PAYOS', '2026-07-02 11:00:00', '2026-07-05 09:00:00',
     uid_mgr1, uid_mgr1, '2026-07-05 09:00:00', 'ACTIVE',
-    2100, 140, 'DEMO — khách hiện tại #106'
+    NULL, NULL, 'DEMO — khách hiện tại #106'
   ) RETURNING id INTO c_huy;
+
+  -- Giang: #104 P102, ở lâu (01/02/2025 → nay), HĐ 2 năm đến 31/01/2027
+  INSERT INTO tenant_contracts (
+    tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
+    rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
+    payment_status, deposit_paid_at, deposit_method, paid_at, activated_at,
+    assigned_manager_id, onboarded_by_manager_id, onboarded_at, status,
+    initial_electric_reading, initial_water_reading, room_condition_note
+  ) VALUES (
+    uid_t08, p104, r104_p102, 'DEMO-TC-104-GIANG',
+    4200000, 4200000, 'NONE', 4200000, 1,
+    '2025-02-01', '2025-02-01', '2027-01-31',
+    'PAID', '2025-01-29 10:00:00', 'PAYOS', '2025-01-29 10:00:00', '2025-02-01 09:00:00',
+    uid_mgr2, uid_mgr2, '2025-02-01 09:00:00', 'ACTIVE',
+    140, 9, 'DEMO — phòng P102 full NT, ở lâu'
+  ) RETURNING id INTO c_giang;
+
+  -- Khánh: #104 P103, từ 10/06/2025 (~1 năm 4 tháng), HĐ đến 09/06/2027
+  INSERT INTO tenant_contracts (
+    tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
+    rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
+    payment_status, deposit_paid_at, deposit_method, paid_at, activated_at,
+    assigned_manager_id, onboarded_by_manager_id, onboarded_at, status,
+    initial_electric_reading, initial_water_reading, room_condition_note
+  ) VALUES (
+    uid_t09, p104, r104_p103, 'DEMO-TC-104-KHANH',
+    4800000, 4800000, 'NONE', 4800000, 1,
+    '2025-06-10', '2025-06-10', '2027-06-09',
+    'PAID', '2025-06-07 15:00:00', 'PAYOS', '2025-06-07 15:00:00', '2025-06-10 09:00:00',
+    uid_mgr2, uid_mgr2, '2025-06-10 09:00:00', 'ACTIVE',
+    160, 11, 'DEMO — phòng P103 tầng 2'
+  ) RETURNING id INTO c_khanh;
+
+  -- Linh: #105 R202, từ 15/05/2026 (ngay sau khi nhận nhà), HĐ đến 14/05/2027
+  INSERT INTO tenant_contracts (
+    tenant_user_id, property_id, room_id, contract_code, rent_amount, base_rent_amount,
+    rent_escalation_type, deposit, deposit_months, move_in_date, start_date, end_date,
+    payment_status, deposit_paid_at, deposit_method, paid_at, activated_at,
+    assigned_manager_id, onboarded_by_manager_id, onboarded_at, status,
+    initial_electric_reading, initial_water_reading, room_condition_note
+  ) VALUES (
+    uid_t10, p105, r105_202, 'DEMO-TC-105-LINH',
+    5200000, 5200000, 'NONE', 5200000, 1,
+    '2026-05-15', '2026-05-15', '2027-05-14',
+    'PAID', '2026-05-12 10:00:00', 'PAYOS', '2026-05-12 10:00:00', '2026-05-15 09:00:00',
+    uid_mgr2, uid_mgr2, '2026-05-15 09:00:00', 'ACTIVE',
+    150, 10, 'DEMO — phòng R202 không NT'
+  ) RETURNING id INTO c_linh;
+
+  UPDATE rooms SET status = 'RENTED' WHERE id IN (r104_p102, r104_p103, r105_202);
 
   INSERT INTO household_members (tenant_contract_id, full_name, relation, phone) VALUES
     (c_an, 'Nguyễn Thị Hoa', 'Vợ', '0911111101'),
-    (c_binh, 'Trần Văn Nam', 'Chồng', '0911111102');
+    (c_binh, 'Trần Văn Nam', 'Chồng', '0911111102'),
+    (c_khanh, 'Ngô Thị Thu', 'Em gái', '0911111109');
 
   -- -------------------------------------------------------------------------
-  -- 8) Monthly invoices + payments (chỉ cho các HĐ DEMO)
+  -- 8a) Chỉ số công tơ nhà nguyên căn trong các tháng nhà còn trống
+  --     (từ lúc nhận nhà → trước khách đầu tiên). Khách đầu nhận số bàn giao nối tiếp chuỗi này.
   -- -------------------------------------------------------------------------
-  FOR contract_id, tenant_uid, rent, prop_name, room_no, start_d, end_d, contract_status,
-      elec_price, water_price, svc_fee IN
-    SELECT tc.id, tc.tenant_user_id, tc.rent_amount, p.property_name,
-           COALESCE(rm.room_number, 'NGUYEN_CAN'),
-           tc.start_date, tc.end_date, tc.status,
-           p.electricity_unit_price, p.water_unit_price, p.service_fee
-    FROM tenant_contracts tc
-    JOIN properties p ON p.id = tc.property_id
-    LEFT JOIN rooms rm ON rm.id = tc.room_id
-    WHERE tc.contract_code LIKE 'DEMO-TC-%'
+  FOR h_rec IN
+    SELECT p.id AS pid, p.operation_manager_id AS mgr,
+           date_trunc('month', p.manager_accepted_at)::date AS start_m,
+           fc.start_date AS first_start,
+           COALESCE(fc.initial_electric_reading, 0) AS base_e,
+           COALESCE(fc.initial_water_reading, 0) AS base_w
+    FROM properties p
+    JOIN LATERAL (
+      SELECT tc.start_date, tc.initial_electric_reading, tc.initial_water_reading
+      FROM tenant_contracts tc
+      WHERE tc.property_id = p.id AND tc.room_id IS NULL
+      ORDER BY tc.start_date
+      LIMIT 1
+    ) fc ON true
+    WHERE p.property_code LIKE 'demo#%' AND p.is_whole_house
   LOOP
-    ym := date_trunc('month', start_d)::date;
-    end_ym := LEAST(date_trunc('month', COALESCE(end_d, DATE '2026-09-01'))::date, DATE '2026-09-01');
+    prev_e := h_rec.base_e;
+    prev_w := h_rec.base_w;
+    ym := h_rec.start_m;
+    WHILE ym < date_trunc('month', h_rec.first_start)::date LOOP
+      mon := EXTRACT(MONTH FROM ym)::int;
+      month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
+      kwh := 8 + (h_rec.pid % 5) * 2 + mon % 3;
+      m3 := 1;
 
-    WHILE ym <= end_ym LOOP
-      inv_code := 'DEMO-RENT-' || contract_id || '-' || to_char(ym, 'YYYY-MM');
-      IF EXISTS (SELECT 1 FROM tenant_invoices WHERE code = inv_code) THEN
-        ym := (ym + INTERVAL '1 month')::date;
-        CONTINUE;
-      END IF;
+      INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
+                                  recorded_at, recorded_by, utility_invoice_id)
+      VALUES (h_rec.pid, NULL, 'ELECTRIC', to_char(ym, 'YYYY-MM'), prev_e + kwh, prev_e,
+              (month_end + 4) + TIME '08:00', h_rec.mgr, NULL),
+             (h_rec.pid, NULL, 'WATER', to_char(ym, 'YYYY-MM'), prev_w + m3, prev_w,
+              (month_end + 4) + TIME '08:01', h_rec.mgr, NULL);
 
-      due := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
-      created_ts := (ym + INTERVAL '1 day')::timestamp + TIME '08:00';
-      cycle := CASE WHEN ym = date_trunc('month', start_d)::date THEN 'FIRST' ELSE 'REGULAR' END;
-
-      IF ym < DATE '2026-09-01' THEN
-        st := 'PAID';
-        paid_ts := (due + INTERVAL '2 days')::timestamp + TIME '19:30';
-      ELSIF contract_id = c_dung THEN
-        st := 'PENDING';
-        paid_ts := NULL;
-      ELSIF contract_status = 'EXPIRED' THEN
-        st := 'PAID';
-        paid_ts := (due + INTERVAL '1 day')::timestamp + TIME '18:00';
-      ELSE
-        st := 'PENDING';
-        paid_ts := NULL;
-      END IF;
-
-      INSERT INTO tenant_invoices (
-        code, tenant_user_id, tenant_contract_id, invoice_type, cycle_type,
-        property_name, room_number, billing_month, billing_year, billing_period,
-        note, total_amount, late_fee, grand_total, status, due_date,
-        created_at, paid_at, payment_method, transaction_id, auto_issued
-      ) VALUES (
-        inv_code, tenant_uid, contract_id, 'RENT', cycle,
-        prop_name, room_no, EXTRACT(MONTH FROM ym)::int, EXTRACT(YEAR FROM ym)::int,
-        'Tiền nhà tháng ' || EXTRACT(MONTH FROM ym)::int || '/' || EXTRACT(YEAR FROM ym)::int,
-        'DEMO seed', rent, 0, rent, st, due,
-        created_ts, paid_ts,
-        CASE WHEN st = 'PAID' THEN 'PAYOS' END,
-        CASE WHEN st = 'PAID' THEN 'DEMO-TXN-R-' || contract_id || '-' || to_char(ym, 'YYYYMM') END,
-        true
-      ) RETURNING id INTO inv_id;
-
-      IF st = 'PAID' THEN
-        INSERT INTO tenant_payments (
-          tenant_invoice_id, tenant_user_id, invoice_code, invoice_type,
-          amount, method, paid_at, transaction_id, property_name, room_number, collection_mode
-        ) VALUES (
-          inv_id, tenant_uid, inv_code, 'RENT', rent, 'PAYOS', paid_ts,
-          'DEMO-TXN-R-' || contract_id || '-' || to_char(ym, 'YYYYMM'),
-          prop_name, room_no, 'ONLINE'
-        );
-      END IF;
-
-      IF ym < DATE '2026-09-01'
-         AND ym >= (date_trunc('month', start_d)::date + INTERVAL '1 month') THEN
-        elec_used := 80 + (EXTRACT(MONTH FROM ym)::int * 3) % 40;
-        water_used := 8 + (EXTRACT(MONTH FROM ym)::int) % 6;
-        elec_amt := round(elec_used * COALESCE(elec_price, 3500), 0);
-        water_amt := round(water_used * COALESCE(water_price, 18000), 0);
-
-        inv_code := 'DEMO-ELEC-' || contract_id || '-' || to_char(ym, 'YYYY-MM');
-        INSERT INTO tenant_invoices (
-          code, tenant_user_id, tenant_contract_id, invoice_type, cycle_type,
-          property_name, room_number, billing_month, billing_year, billing_period,
-          total_amount, late_fee, grand_total, status, due_date,
-          created_at, paid_at, payment_method, transaction_id,
-          kwh_used, electricity_rate, auto_issued
-        ) VALUES (
-          inv_code, tenant_uid, contract_id, 'ELECTRICITY', 'REGULAR',
-          prop_name, room_no, EXTRACT(MONTH FROM ym)::int, EXTRACT(YEAR FROM ym)::int,
-          'Tiền điện tháng ' || EXTRACT(MONTH FROM ym)::int || '/' || EXTRACT(YEAR FROM ym)::int,
-          elec_amt, 0, elec_amt, 'PAID', due,
-          created_ts + INTERVAL '1 hour', paid_ts + INTERVAL '1 hour', 'PAYOS',
-          'DEMO-TXN-E-' || contract_id || '-' || to_char(ym, 'YYYYMM'),
-          elec_used, COALESCE(elec_price, 3500), true
-        ) RETURNING id INTO inv_id;
-
-        INSERT INTO tenant_payments (
-          tenant_invoice_id, tenant_user_id, invoice_code, invoice_type,
-          amount, method, paid_at, transaction_id, property_name, room_number, collection_mode
-        ) VALUES (
-          inv_id, tenant_uid, inv_code, 'ELECTRICITY', elec_amt, 'PAYOS', paid_ts + INTERVAL '1 hour',
-          'DEMO-TXN-E-' || contract_id || '-' || to_char(ym, 'YYYYMM'), prop_name, room_no, 'ONLINE'
-        );
-
-        inv_code := 'DEMO-WATER-' || contract_id || '-' || to_char(ym, 'YYYY-MM');
-        INSERT INTO tenant_invoices (
-          code, tenant_user_id, tenant_contract_id, invoice_type, cycle_type,
-          property_name, room_number, billing_month, billing_year, billing_period,
-          total_amount, late_fee, grand_total, status, due_date,
-          created_at, paid_at, payment_method, transaction_id,
-          m3_used, water_rate, auto_issued
-        ) VALUES (
-          inv_code, tenant_uid, contract_id, 'WATER', 'REGULAR',
-          prop_name, room_no, EXTRACT(MONTH FROM ym)::int, EXTRACT(YEAR FROM ym)::int,
-          'Tiền nước tháng ' || EXTRACT(MONTH FROM ym)::int || '/' || EXTRACT(YEAR FROM ym)::int,
-          water_amt, 0, water_amt, 'PAID', due,
-          created_ts + INTERVAL '2 hour', paid_ts + INTERVAL '2 hour', 'PAYOS',
-          'DEMO-TXN-W-' || contract_id || '-' || to_char(ym, 'YYYYMM'),
-          water_used, COALESCE(water_price, 18000), true
-        ) RETURNING id INTO inv_id;
-
-        INSERT INTO tenant_payments (
-          tenant_invoice_id, tenant_user_id, invoice_code, invoice_type,
-          amount, method, paid_at, transaction_id, property_name, room_number, collection_mode
-        ) VALUES (
-          inv_id, tenant_uid, inv_code, 'WATER', water_amt, 'PAYOS', paid_ts + INTERVAL '2 hour',
-          'DEMO-TXN-W-' || contract_id || '-' || to_char(ym, 'YYYYMM'), prop_name, room_no, 'ONLINE'
-        );
-
-        IF svc_fee IS NOT NULL AND svc_fee > 0 THEN
-          inv_code := 'DEMO-SVC-' || contract_id || '-' || to_char(ym, 'YYYY-MM');
-          INSERT INTO tenant_invoices (
-            code, tenant_user_id, tenant_contract_id, invoice_type, cycle_type,
-            property_name, room_number, billing_month, billing_year, billing_period,
-            total_amount, late_fee, grand_total, status, due_date,
-            created_at, paid_at, payment_method, transaction_id, auto_issued
-          ) VALUES (
-            inv_code, tenant_uid, contract_id, 'SERVICE', 'REGULAR',
-            prop_name, room_no, EXTRACT(MONTH FROM ym)::int, EXTRACT(YEAR FROM ym)::int,
-            'Phí dịch vụ tháng ' || EXTRACT(MONTH FROM ym)::int || '/' || EXTRACT(YEAR FROM ym)::int,
-            svc_fee, 0, svc_fee, 'PAID', due,
-            created_ts + INTERVAL '3 hour', paid_ts + INTERVAL '3 hour', 'PAYOS',
-            'DEMO-TXN-S-' || contract_id || '-' || to_char(ym, 'YYYYMM'), true
-          ) RETURNING id INTO inv_id;
-
-          INSERT INTO tenant_payments (
-            tenant_invoice_id, tenant_user_id, invoice_code, invoice_type,
-            amount, method, paid_at, transaction_id, property_name, room_number, collection_mode
-          ) VALUES (
-            inv_id, tenant_uid, inv_code, 'SERVICE', svc_fee, 'PAYOS', paid_ts + INTERVAL '3 hour',
-            'DEMO-TXN-S-' || contract_id || '-' || to_char(ym, 'YYYYMM'), prop_name, room_no, 'ONLINE'
-          );
-        END IF;
-      END IF;
-
+      prev_e := prev_e + kwh;
+      prev_w := prev_w + m3;
       ym := (ym + INTERVAL '1 month')::date;
     END LOOP;
   END LOOP;
 
   -- -------------------------------------------------------------------------
-  -- 9) Maintenance
+  -- 8a') Công tơ riêng từng phòng (nhà cho thuê theo phòng): mỗi phòng 1 chuỗi chỉ số cũ → mới
+  --      từ lúc nhận nhà → kỳ 08/2026. Phòng trống cả kỳ: chạy hết; phòng có khách: chạy tới trước
+  --      tháng khách vào, khách nhận số bàn giao nối tiếp (vòng 8 ghi tiếp các tháng có khách).
   -- -------------------------------------------------------------------------
+  FOR h_rec IN
+    SELECT p.id AS pid, rm.id AS rid, p.operation_manager_id AS mgr,
+           date_trunc('month', p.manager_accepted_at)::date AS start_m,
+           COALESCE((SELECT date_trunc('month', MIN(tc.start_date))::date
+                     FROM tenant_contracts tc WHERE tc.room_id = rm.id),
+                    util_month + INTERVAL '1 month')::date AS stop_m
+    FROM properties p
+    JOIN rooms rm ON rm.property_id = p.id
+    WHERE p.property_code LIKE 'demo#%' AND NOT p.is_whole_house
+    ORDER BY rm.id
+  LOOP
+    prev_e := 120 + (h_rec.rid % 9) * 23;
+    prev_w := 8 + (h_rec.rid % 4) * 3;
+    ym := h_rec.start_m;
+    WHILE ym < h_rec.stop_m LOOP
+      mon := EXTRACT(MONTH FROM ym)::int;
+      month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
+      -- phòng trống: chỉ đèn hành lang / dọn phòng / thử máy
+      kwh := 3 + (h_rec.rid % 3) + mon % 2;
+      m3 := (h_rec.rid + mon) % 2;
+
+      INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
+                                  recorded_at, recorded_by, utility_invoice_id)
+      VALUES (h_rec.pid, h_rec.rid, 'ELECTRIC', to_char(ym, 'YYYY-MM'), prev_e + kwh, prev_e,
+              (month_end + 4) + TIME '08:30', h_rec.mgr, NULL),
+             (h_rec.pid, h_rec.rid, 'WATER', to_char(ym, 'YYYY-MM'), prev_w + m3, prev_w,
+              (month_end + 4) + TIME '08:31', h_rec.mgr, NULL);
+
+      prev_e := prev_e + kwh;
+      prev_w := prev_w + m3;
+      ym := (ym + INTERVAL '1 month')::date;
+    END LOOP;
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 8) Hoá đơn hàng tháng — từ lúc vào ở đến hiện tại
+  --    Tiền nhà + phí DV: tháng vào ở (FIRST, tính theo ngày) → 10/2026, hạn ngày 5.
+  --    Điện/nước: kỳ = tháng sử dụng, chốt số cuối tháng, phát hành ngày 1 tháng sau, hạn +5 ngày.
+  --    Chỉ số công tơ nối tiếp giữa các khách cùng nhà (#106: Phương → Em → Huy).
+  -- -------------------------------------------------------------------------
+  FOR c_rec IN
+    SELECT tc.id, tc.tenant_user_id, tc.property_id, tc.room_id, tc.rent_amount,
+           tc.start_date, tc.end_date, tc.status, tc.paid_at AS onboard_paid_at,
+           tc.initial_electric_reading AS init_e, tc.initial_water_reading AS init_w,
+           tc.assigned_manager_id AS mgr,
+           p.property_name,
+           COALESCE(rm.room_number, p.property_name) AS room_label,
+           COALESCE(p.electricity_unit_price, 3500) AS e_price,
+           COALESCE(p.water_unit_price, 18000) AS w_price,
+           COALESCE(p.service_fee, 0) AS svc
+    FROM tenant_contracts tc
+    JOIN properties p ON p.id = tc.property_id
+    LEFT JOIN rooms rm ON rm.id = tc.room_id
+    WHERE tc.contract_code LIKE 'DEMO-TC-%'
+    ORDER BY tc.start_date
+  LOOP
+    first_m     := date_trunc('month', c_rec.start_date)::date;
+    last_rent_m := LEAST(date_trunc('month', c_rec.end_date)::date, demo_month);
+    last_util_m := LEAST(date_trunc('month', c_rec.end_date)::date, util_month);
+    pay_method  := CASE WHEN c_rec.id IN (c_dung, c_phuong, c_khanh) THEN 'CASH' ELSE 'QR' END;
+    pays_now    := c_rec.id IN (c_an, c_em_new, c_giang);
+
+    -- ---- Tiền nhà + phí dịch vụ ----
+    ym := first_m;
+    WHILE ym <= last_rent_m LOOP
+      month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
+      dim := EXTRACT(DAY FROM month_end)::int;
+      mon := EXTRACT(MONTH FROM ym)::int;
+
+      IF ym = first_m THEN
+        cycle := 'FIRST';
+        p_start := c_rec.start_date;
+        p_end := LEAST(month_end, c_rec.end_date);
+        billed := p_end - p_start + 1;
+        amt := CASE WHEN billed < dim THEN round(c_rec.rent_amount * billed / dim, 0) ELSE c_rec.rent_amount END;
+        period_label := CASE WHEN billed < dim
+          THEN 'Tiền nhà ' || to_char(p_start, 'DD/MM') || '–' || to_char(p_end, 'DD/MM/YYYY')
+               || ' (' || billed || '/' || dim || ' ngày)'
+          ELSE 'Tiền nhà tháng ' || to_char(ym, 'MM/YYYY') END;
+        note_txt := 'FIRST_CYCLE|onboardPaid=true|days=' || billed || '|daysInMonth=' || dim
+                    || '|rentAmount=' || round(c_rec.rent_amount, 0)
+                    || '|periodStart=' || p_start || '|periodEnd=' || p_end;
+        created_ts := c_rec.onboard_paid_at;
+        paid_ts := c_rec.onboard_paid_at;
+        due := c_rec.onboard_paid_at::date;
+      ELSE
+        cycle := 'REGULAR';
+        amt := c_rec.rent_amount;
+        period_label := 'Tiền nhà tháng ' || to_char(ym, 'MM/YYYY');
+        note_txt := 'REGULAR|rentAmount=' || round(c_rec.rent_amount, 0);
+        IF ym = date_trunc('month', c_rec.end_date)::date THEN
+          billed := EXTRACT(DAY FROM c_rec.end_date)::int;
+          IF billed <= 3 THEN
+            ym := (ym + INTERVAL '1 month')::date;
+            CONTINUE;
+          END IF;
+          IF billed < dim THEN
+            amt := round(c_rec.rent_amount * billed / dim, 0);
+            period_label := 'Tiền nhà 01/' || to_char(ym, 'MM') || '–' || to_char(c_rec.end_date, 'DD/MM/YYYY')
+                     || ' (' || billed || '/' || dim || ' ngày)';
+          END IF;
+        END IF;
+        created_ts := ym + TIME '00:05';
+        due := ym + 4;
+        IF ym = demo_month THEN
+          paid_ts := CASE WHEN pays_now THEN pay_now_ts END;
+        ELSE
+          paid_ts := (ym + ((c_rec.id + mon) % 4)::int) + TIME '19:30'
+                     + ((c_rec.id % 50)::int * INTERVAL '1 minute');
+        END IF;
+      END IF;
+
+      PERFORM pg_temp.demo_invoice(
+        'DEMO-RENT-' || c_rec.id || '-' || to_char(ym, 'YYYY-MM'),
+        c_rec.tenant_user_id, c_rec.id, 'RENT', cycle,
+        c_rec.property_name, c_rec.room_label, ym, period_label, note_txt,
+        amt, due, created_ts, paid_ts, pay_method, c_rec.mgr);
+
+      IF c_rec.svc > 0 THEN
+        PERFORM pg_temp.demo_invoice(
+          'DEMO-SVC-' || c_rec.id || '-' || to_char(ym, 'YYYY-MM'),
+          c_rec.tenant_user_id, c_rec.id, 'SERVICE', NULL,
+          c_rec.property_name, c_rec.room_label, ym,
+          'Phí dịch vụ tháng ' || mon || '/' || EXTRACT(YEAR FROM ym)::int, NULL,
+          c_rec.svc, due, created_ts + INTERVAL '1 minute', paid_ts + INTERVAL '2 minute',
+          pay_method, c_rec.mgr);
+      END IF;
+
+      ym := (ym + INTERVAL '1 month')::date;
+    END LOOP;
+
+    -- ---- Điện / nước ----
+    SELECT mr.reading INTO prev_e FROM meter_readings mr
+    WHERE mr.property_id = c_rec.property_id AND mr.room_id IS NOT DISTINCT FROM c_rec.room_id
+      AND mr.utility_type = 'ELECTRIC'
+    ORDER BY mr.recorded_at DESC LIMIT 1;
+    SELECT mr.reading INTO prev_w FROM meter_readings mr
+    WHERE mr.property_id = c_rec.property_id AND mr.room_id IS NOT DISTINCT FROM c_rec.room_id
+      AND mr.utility_type = 'WATER'
+    ORDER BY mr.recorded_at DESC LIMIT 1;
+
+    IF prev_e IS NOT NULL THEN
+      -- số bàn giao = chỉ số mới kỳ trước (chuỗi liền: mới tháng này = cũ tháng sau)
+      prev_w := COALESCE(prev_w, 0);
+      UPDATE tenant_contracts
+      SET initial_electric_reading = prev_e, initial_water_reading = prev_w
+      WHERE id = c_rec.id;
+    ELSE
+      prev_e := COALESCE(c_rec.init_e, 0);
+      prev_w := COALESCE(c_rec.init_w, 0);
+    END IF;
+
+    ym := first_m;
+    WHILE ym <= last_util_m LOOP
+      month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
+      dim := EXTRACT(DAY FROM month_end)::int;
+      mon := EXTRACT(MONTH FROM ym)::int;
+      summer := CASE WHEN mon BETWEEN 4 AND 8 THEN 1 ELSE 0 END;
+      p_start := GREATEST(c_rec.start_date, ym);
+      p_end := LEAST(month_end, c_rec.end_date);
+      billed := p_end - p_start + 1;
+
+      IF c_rec.room_id IS NOT NULL THEN
+        kwh := 65 + summer * 35 + (c_rec.id * 5 + mon * 11) % 20;
+        m3  := 3 + (c_rec.id + mon) % 3;
+      ELSE
+        kwh := 170 + summer * 90 + (c_rec.id * 7 + mon * 13) % 45;
+        m3  := 10 + (c_rec.id + mon * 3) % 6;
+      END IF;
+      IF billed < dim THEN
+        kwh := GREATEST(round(kwh * billed / dim), 1);
+        m3  := GREATEST(round(m3 * billed / dim), 1);
+      END IF;
+
+      IF p_end = c_rec.end_date THEN
+        -- kỳ cuối khi trả nhà: chốt số + phát hành ngay ngày trả
+        rec_ts := p_end + TIME '09:00';
+        issue_ts := p_end + TIME '10:00';
+        paid_ts := issue_ts + INTERVAL '2 hour';
+      ELSE
+        -- không chốt cuối tháng: quản lý chụp công tơ ngày 04 tháng sau, admin nhập giấy
+        -- EVN / nước chiều cùng ngày → máy chủ phát hành cho khách theo bản chốt
+        rec_ts := (month_end + 4) + TIME '08:30' + ((c_rec.id % 20)::int * INTERVAL '1 minute');
+        issue_ts := (month_end + 4) + TIME '14:05';
+        paid_ts := (issue_ts::date + (((c_rec.id + mon) % 3)::int + 1)) + TIME '20:00'
+                   + ((c_rec.id % 50)::int * INTERVAL '1 minute');
+      END IF;
+      due := issue_ts::date + 5;
+
+      -- điện
+      INSERT INTO utility_invoices (
+        property_id, room_id, tenant_contract_id, utility_type, billing_period,
+        prev_reading, new_reading, consumption, unit_price, amount,
+        status, sent_at, created_by, created_at, tenant_viewed_at
+      ) VALUES (
+        c_rec.property_id, c_rec.room_id, c_rec.id, 'ELECTRIC', to_char(ym, 'YYYY-MM'),
+        prev_e, prev_e + kwh, kwh, c_rec.e_price, round(kwh * c_rec.e_price, 2),
+        CASE WHEN paid_ts IS NOT NULL THEN 'PAID' ELSE 'SENT' END,
+        issue_ts, c_rec.mgr, issue_ts, issue_ts + INTERVAL '3 hour'
+      ) RETURNING id INTO ui_id;
+
+      INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
+                                  recorded_at, recorded_by, utility_invoice_id)
+      VALUES (c_rec.property_id, c_rec.room_id, 'ELECTRIC', to_char(ym, 'YYYY-MM'), prev_e + kwh, prev_e,
+              rec_ts, c_rec.mgr, ui_id);
+
+      PERFORM pg_temp.demo_invoice(
+        'DEMO-ELEC-' || c_rec.id || '-' || to_char(ym, 'YYYY-MM'),
+        c_rec.tenant_user_id, c_rec.id, 'ELECTRICITY', NULL,
+        c_rec.property_name, c_rec.room_label, ym, to_char(ym, 'YYYY-MM'),
+        'Điện kỳ ' || to_char(ym, 'MM/YYYY') || ': ' || prev_e || ' → ' || (prev_e + kwh) || ' kWh',
+        round(kwh * c_rec.e_price, 0), due, issue_ts, paid_ts, pay_method, c_rec.mgr,
+        ui_id, kwh, c_rec.e_price, NULL, NULL);
+
+      -- nước
+      INSERT INTO utility_invoices (
+        property_id, room_id, tenant_contract_id, utility_type, billing_period,
+        prev_reading, new_reading, consumption, unit_price, amount,
+        status, sent_at, created_by, created_at, tenant_viewed_at
+      ) VALUES (
+        c_rec.property_id, c_rec.room_id, c_rec.id, 'WATER', to_char(ym, 'YYYY-MM'),
+        prev_w, prev_w + m3, m3, c_rec.w_price, round(m3 * c_rec.w_price, 2),
+        CASE WHEN paid_ts IS NOT NULL THEN 'PAID' ELSE 'SENT' END,
+        issue_ts + INTERVAL '1 minute', c_rec.mgr, issue_ts + INTERVAL '1 minute', issue_ts + INTERVAL '3 hour'
+      ) RETURNING id INTO ui_id;
+
+      INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
+                                  recorded_at, recorded_by, utility_invoice_id)
+      VALUES (c_rec.property_id, c_rec.room_id, 'WATER', to_char(ym, 'YYYY-MM'), prev_w + m3, prev_w,
+              rec_ts + INTERVAL '1 minute', c_rec.mgr, ui_id);
+
+      PERFORM pg_temp.demo_invoice(
+        'DEMO-WATER-' || c_rec.id || '-' || to_char(ym, 'YYYY-MM'),
+        c_rec.tenant_user_id, c_rec.id, 'WATER', NULL,
+        c_rec.property_name, c_rec.room_label, ym, to_char(ym, 'YYYY-MM'),
+        'Nước kỳ ' || to_char(ym, 'MM/YYYY') || ': ' || prev_w || ' → ' || (prev_w + m3) || ' m³',
+        round(m3 * c_rec.w_price, 0), due, issue_ts + INTERVAL '1 minute',
+        paid_ts + INTERVAL '1 minute', pay_method, c_rec.mgr,
+        ui_id, NULL, NULL, m3, c_rec.w_price);
+
+      prev_e := prev_e + kwh;
+      prev_w := prev_w + m3;
+      ym := (ym + INTERVAL '1 month')::date;
+    END LOOP;
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 8b) Công tơ tổng nhà cho thuê theo phòng = tổng công tơ các phòng (kể cả phòng trống) + hành lang/cầu thang
+  -- -------------------------------------------------------------------------
+  FOR h_rec IN
+    SELECT p.id AS pid, p.operation_manager_id AS mgr,
+           date_trunc('month', p.manager_accepted_at)::date AS start_m
+    FROM properties p
+    WHERE p.property_code LIKE 'demo#%' AND NOT p.is_whole_house
+  LOOP
+    prev_e := 800 + (h_rec.pid % 7) * 37;
+    prev_w := 60 + (h_rec.pid % 5) * 7;
+    ym := h_rec.start_m;
+    WHILE ym <= util_month LOOP
+      mon := EXTRACT(MONTH FROM ym)::int;
+      month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
+
+      SELECT COALESCE(SUM(mr.reading - mr.prev_reading), 0) INTO kwh
+      FROM meter_readings mr
+      WHERE mr.property_id = h_rec.pid AND mr.room_id IS NOT NULL
+        AND mr.utility_type = 'ELECTRIC' AND mr.period = to_char(ym, 'YYYY-MM');
+      SELECT COALESCE(SUM(mr.reading - mr.prev_reading), 0) INTO m3
+      FROM meter_readings mr
+      WHERE mr.property_id = h_rec.pid AND mr.room_id IS NOT NULL
+        AND mr.utility_type = 'WATER' AND mr.period = to_char(ym, 'YYYY-MM');
+      kwh := kwh + 18 + (mon % 5) * 2;
+      m3 := m3 + 2;
+
+      INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
+                                  recorded_at, recorded_by, utility_invoice_id)
+      VALUES (h_rec.pid, NULL, 'ELECTRIC', to_char(ym, 'YYYY-MM'), prev_e + kwh, prev_e,
+              (month_end + 4) + TIME '08:00', h_rec.mgr, NULL),
+             (h_rec.pid, NULL, 'WATER', to_char(ym, 'YYYY-MM'), prev_w + m3, prev_w,
+              (month_end + 4) + TIME '08:01', h_rec.mgr, NULL);
+
+      prev_e := prev_e + kwh;
+      prev_w := prev_w + m3;
+      ym := (ym + INTERVAL '1 month')::date;
+    END LOOP;
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 8c) Hoá đơn điện / nước của nhà (giấy EVN / cấp nước — utility_bills), mỗi kỳ 1 tờ / loại
+  --     Chỉ số cũ → mới = công tơ tổng của nhà; phần khách chịu = tổng hoá đơn điện nước đã phát cho khách,
+  --     phần còn lại (nhà trống, hành lang, chênh lệch bàn giao) công ty chịu.
+  -- -------------------------------------------------------------------------
+  FOR h_rec IN
+    SELECT p.id AS pid, mr.utility_type, mr.period, mr.reading, mr.prev_reading,
+           LAG(mr.reading) OVER (PARTITION BY p.id, mr.utility_type ORDER BY mr.period) AS prev_month_reading,
+           CASE WHEN mr.utility_type = 'ELECTRIC'
+                THEN COALESCE(p.electricity_unit_price, 3500)
+                ELSE COALESCE(p.water_unit_price, 18000) END AS unit_price
+    FROM properties p
+    JOIN meter_readings mr ON mr.property_id = p.id AND mr.room_id IS NULL
+    WHERE p.property_code LIKE 'demo#%'
+    ORDER BY p.id, mr.utility_type, mr.period
+  LOOP
+    ym := to_date(h_rec.period, 'YYYY-MM');
+    qty := h_rec.reading - COALESCE(h_rec.prev_month_reading, h_rec.prev_reading);
+
+    SELECT COALESCE(SUM(ui.consumption), 0) INTO billed_qty
+    FROM utility_invoices ui
+    WHERE ui.property_id = h_rec.pid AND ui.utility_type = h_rec.utility_type
+      AND ui.billing_period = h_rec.period AND ui.status <> 'CANCELLED';
+
+    INSERT INTO utility_bills (
+      property_id, type, billing_period, month, year, total_quantity, total_amount, unit_price,
+      status, created_by, created_at, reading_deadline, billed_to_tenant_quantity, company_born_quantity
+    ) VALUES (
+      h_rec.pid, h_rec.utility_type, h_rec.period,
+      EXTRACT(MONTH FROM ym)::int, EXTRACT(YEAR FROM ym)::int,
+      qty::int, round(qty * h_rec.unit_price, 0), h_rec.unit_price,
+      'PUBLISHED', admin_id, (ym + INTERVAL '1 month')::date + 3 + TIME '14:00', NULL,
+      billed_qty, GREATEST(qty - billed_qty, 0)
+    );
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 9) Maintenance
+  --    WEAR (hao mòn)            → công ty chịu, không hoá đơn khách.
+  --    TENANT_MISUSE (lỗi khách) → hoá đơn MAINTENANCE cho khách.
+  -- -------------------------------------------------------------------------
+
+  -- 101-001 | An | Máy lạnh hết gas — hao mòn
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-101-001', uid_t01, p101, NULL, c_an, eq_101_ac,
-    'Máy lạnh phòng ngủ không lạnh',
-    'Máy lạnh chạy nhưng không lạnh, có tiếng kêu lạ.',
-    'APPLIANCE', 'HIGH', 'CLOSED',
-    '2025-06-02 09:15:00', '2025-06-05 17:00:00',
-    '2025-06-02 11:00:00', '2025-06-05 16:30:00', '2025-06-05 17:00:00',
-    'Nạp gas + vệ sinh dàn lạnh.', 850000, 'AGREED', false
+    'Máy lạnh phòng ngủ không lạnh', 'Máy lạnh chạy nhưng không lạnh, có tiếng kêu lạ.',
+    'APPLIANCE', 'HIGH', 'CLOSED', 'NORMAL_WEAR', 'WEAR',
+    '2025-06-02 09:15:00', '2025-06-05 17:00:00', '2025-06-02 11:00:00', '2025-06-05 14:00:00',
+    '2025-06-05 16:30:00', '2025-06-05 17:00:00',
+    'Nạp gas + vệ sinh dàn lạnh.', 'Nạp gas R32, vệ sinh dàn lạnh/dàn nóng.',
+    'Điện lạnh Minh Phát', 'MP-2506-018', '2025-06-05', 850000,
+    'NOT_APPLICABLE', false
   ) RETURNING id INTO mr_id;
-
-  IF has_damage_cause THEN
-    EXECUTE 'UPDATE maintenance_requests SET damage_cause = ''WEAR'' WHERE id = $1' USING mr_id;
-  END IF;
-  IF has_flow_type THEN
-    EXECUTE 'UPDATE maintenance_requests SET flow_type = ''NORMAL_WEAR'' WHERE id = $1' USING mr_id;
-  END IF;
-
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
   VALUES (eq_101_ac, mr_id, '2025-06-05 16:30:00', 850000, 'Nạp gas + vệ sinh dàn lạnh');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t01, 'Nguyễn Văn An', '2025-06-02 09:15:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa — hao mòn, công ty chịu', uid_mgr1, 'Nguyễn Văn Hùng', '2025-06-02 11:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, 'Nguyễn Văn Hùng', '2025-06-05 17:00:00');
 
-  INSERT INTO maintenance_history (maintenance_request_id, old_status, new_status, note, changed_by, changed_at) VALUES
-    (mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t01, '2025-06-02 09:15:00'),
-    (mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa', uid_mgr1, '2025-06-02 11:00:00'),
-    (mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, '2025-06-05 17:00:00');
-
+  -- 101-002 | An | Tủ lạnh rách gioăng do cạy đá — LỖI KHÁCH → hoá đơn đã thanh toán
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause, fault_reason, fault_resolution_path,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    estimated_damage_amount, cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-101-002', uid_t01, p101, NULL, c_an, eq_101_fr,
-    'Tủ lạnh đóng tuyết ngăn đá', 'Ngăn đá đóng tuyết dày.',
-    'APPLIANCE', 'MEDIUM', 'CLOSED',
-    '2025-11-18 08:00:00', '2025-11-20 15:00:00',
-    '2025-11-18 10:00:00', '2025-11-20 14:30:00', '2025-11-20 15:00:00',
-    'Thay gioăng cửa + xả tuyết.', 650000, 'AGREED', false
+    'Tủ lạnh đóng tuyết ngăn đá', 'Ngăn đá đóng tuyết dày, cửa tủ đóng không kín.',
+    'APPLIANCE', 'MEDIUM', 'CLOSED', 'TENANT_FAULT', 'TENANT_MISUSE',
+    'Khách dùng dao cạy tuyết làm rách gioăng cửa ngăn đá.', 'MANAGER_REPAIR',
+    '2025-11-18 08:00:00', '2025-11-21 19:00:00', '2025-11-18 10:00:00', '2025-11-20 13:30:00',
+    '2025-11-20 14:30:00', '2025-11-21 19:00:00',
+    'Thay gioăng cửa + xả tuyết. Khách đồng ý bồi thường.', 'Thay gioăng cửa ngăn đá, xả tuyết, test lạnh.',
+    'Điện lạnh Minh Phát', 'MP-2511-042', '2025-11-20', 650000,
+    650000, 'AGREED', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
-  VALUES (eq_101_fr, mr_id, '2025-11-20 14:30:00', 650000, 'Thay gioăng cửa tủ lạnh');
+  VALUES (eq_101_fr, mr_id, '2025-11-20 14:30:00', 650000, 'Thay gioăng cửa tủ lạnh (khách bồi thường)');
+  PERFORM pg_temp.demo_maint_charge(mr_id, 650000, '2025-11-20 14:40:00', '2025-11-21 19:00:00', 'QR');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t01, 'Nguyễn Văn An', '2025-11-18 08:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'REPAIR_SCHEDULED', 'Hẹn kiểm tra 18/11', uid_mgr1, 'Nguyễn Văn Hùng', '2025-11-18 10:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'REPAIR_SCHEDULED', 'TENANT_FAULT', 'Chẩn đoán: lỗi do khách (cạy tuyết rách gioăng) — khách đồng ý trả', uid_mgr1, 'Nguyễn Văn Hùng', '2025-11-19 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'TENANT_FAULT', 'WAITING_PAYMENT', 'Sửa xong — phát hành hoá đơn bồi thường 650.000đ', uid_mgr1, 'Nguyễn Văn Hùng', '2025-11-20 14:40:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'WAITING_PAYMENT', 'CLOSED', 'Khách đã thanh toán hoá đơn bảo trì', uid_t01, 'Nguyễn Văn An', '2025-11-21 19:00:00');
 
+  -- 101-003 | An | Nóng lạnh rò van — hao mòn
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-101-003', uid_t01, p101, NULL, c_an, eq_101_wh,
     'Máy nước nóng rò nước nhẹ', 'Nhỏ giọt dưới bình nóng lạnh.',
-    'PLUMBING', 'MEDIUM', 'CLOSED',
-    '2026-01-12 19:00:00', '2026-01-15 11:00:00',
-    '2026-01-13 09:00:00', '2026-01-15 10:30:00', '2026-01-15 11:00:00',
-    'Thay van một chiều.', 420000, 'AGREED', false
+    'PLUMBING', 'MEDIUM', 'CLOSED', 'NORMAL_WEAR', 'WEAR',
+    '2026-01-12 19:00:00', '2026-01-15 11:00:00', '2026-01-13 09:00:00', '2026-01-15 09:00:00',
+    '2026-01-15 10:30:00', '2026-01-15 11:00:00',
+    'Thay van một chiều.', 'Van một chiều mục theo thời gian — thay mới.',
+    'Điện nước Thành Công', 'TC-2601-007', '2026-01-15', 420000,
+    'NOT_APPLICABLE', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
   VALUES (eq_101_wh, mr_id, '2026-01-15 10:30:00', 420000, 'Thay van một chiều');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t01, 'Nguyễn Văn An', '2026-01-12 19:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa — hao mòn, công ty chịu', uid_mgr1, 'Nguyễn Văn Hùng', '2026-01-13 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, 'Nguyễn Văn Hùng', '2026-01-15 11:00:00');
 
+  -- 102-001 | Bình | Quạt kêu — hao mòn
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-102-001', uid_t02, p102, NULL, c_binh, eq_102_fn,
     'Quạt đứng kêu to khi quay', 'Quạt rung khi tốc độ cao.',
-    'APPLIANCE', 'LOW', 'CLOSED',
-    '2026-06-03 10:00:00', '2026-06-05 16:30:00',
-    '2026-06-03 14:00:00', '2026-06-05 16:00:00', '2026-06-05 16:30:00',
-    'Bôi trơn bạc đạn.', 150000, 'WAIVED', false
+    'APPLIANCE', 'LOW', 'CLOSED', 'NORMAL_WEAR', 'WEAR',
+    '2026-06-03 10:00:00', '2026-06-05 16:30:00', '2026-06-03 14:00:00', '2026-06-05 15:00:00',
+    '2026-06-05 16:00:00', '2026-06-05 16:30:00',
+    'Bôi trơn bạc đạn.', 'Bạc đạn khô dầu — vệ sinh, tra dầu.',
+    'Điện máy Hoà Bình', 'HB-2606-003', '2026-06-05', 150000,
+    'NOT_APPLICABLE', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
   VALUES (eq_102_fn, mr_id, '2026-06-05 16:00:00', 150000, 'Bôi trơn bạc đạn quạt');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t02, 'Trần Thị Bình', '2026-06-03 10:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa — hao mòn, công ty chịu', uid_mgr1, 'Nguyễn Văn Hùng', '2026-06-03 14:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, 'Nguyễn Văn Hùng', '2026-06-05 16:30:00');
 
+  -- 102-002 | Bình | Nóng lạnh hỏng thanh đốt — hao mòn
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-102-002', uid_t02, p102, NULL, c_binh, eq_102_wh,
     'Nóng lạnh không ra nước nóng', 'Bật máy nhưng nước vẫn lạnh.',
-    'ELECTRICAL', 'HIGH', 'CLOSED',
-    '2026-04-16 07:30:00', '2026-04-18 12:00:00',
-    '2026-04-16 09:00:00', '2026-04-18 11:30:00', '2026-04-18 12:00:00',
-    'Thay thanh đốt.', 780000, 'AGREED', false
+    'ELECTRICAL', 'HIGH', 'CLOSED', 'NORMAL_WEAR', 'WEAR',
+    '2026-04-16 07:30:00', '2026-04-18 12:00:00', '2026-04-16 09:00:00', '2026-04-18 10:00:00',
+    '2026-04-18 11:30:00', '2026-04-18 12:00:00',
+    'Thay thanh đốt.', 'Thanh đốt cháy do đóng cặn — thay mới.',
+    'Điện nước Thành Công', 'TC-2604-021', '2026-04-18', 780000,
+    'NOT_APPLICABLE', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
   VALUES (eq_102_wh, mr_id, '2026-04-18 11:30:00', 780000, 'Thay thanh đốt nóng lạnh');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t02, 'Trần Thị Bình', '2026-04-16 07:30:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa — hao mòn, công ty chịu', uid_mgr1, 'Nguyễn Văn Hùng', '2026-04-16 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, 'Nguyễn Văn Hùng', '2026-04-18 12:00:00');
 
-  -- OPEN ticket (Dung)
+  -- 102-003 | Bình | Tủ quần áo gãy bản lề do treo quá tải — LỖI KHÁCH → hoá đơn CHỜ THANH TOÁN (demo trả tiền)
+  INSERT INTO maintenance_requests (
+    request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
+    title, description, category, priority, status, flow_type, damage_cause, fault_reason, fault_resolution_path,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    estimated_damage_amount, cost_agreement_status, is_deleted
+  ) VALUES (
+    'DEMO-MR-102-003', uid_t02, p102, NULL, c_binh, eq_102_wd,
+    'Cánh tủ quần áo bị bung bản lề', 'Cánh trái tủ quần áo bung khỏi bản lề, không đóng được.',
+    'FURNITURE', 'MEDIUM', 'WAITING_PAYMENT', 'TENANT_FAULT', 'TENANT_MISUSE',
+    'Khách đu/treo đồ nặng lên cánh tủ làm gãy 2 bản lề và nứt ván.', 'MANAGER_REPAIR',
+    '2026-09-27 20:00:00', '2026-09-30 14:40:00', '2026-09-28 08:30:00', '2026-09-30 13:00:00',
+    '2026-09-30 14:30:00',
+    'Thay 2 bản lề + nẹp ván cánh tủ. Khách đồng ý bồi thường.', 'Thay bản lề giảm chấn, bắt nẹp gia cố cánh tủ.',
+    'Nội thất Phú Gia', 'PG-2609-115', '2026-09-30', 600000,
+    600000, 'AGREED', false
+  ) RETURNING id INTO mr_id;
+  INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
+  VALUES (eq_102_wd, mr_id, '2026-09-30 14:30:00', 600000, 'Thay bản lề tủ quần áo (khách bồi thường)');
+  PERFORM pg_temp.demo_maint_charge(mr_id, 600000, '2026-09-30 14:40:00', NULL, 'QR');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t02, 'Trần Thị Bình', '2026-09-27 20:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'REPAIR_SCHEDULED', 'Hẹn kiểm tra 28/09', uid_mgr1, 'Nguyễn Văn Hùng', '2026-09-28 08:30:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'REPAIR_SCHEDULED', 'TENANT_FAULT', 'Chẩn đoán: lỗi do khách (treo đồ quá tải) — khách đồng ý trả', uid_mgr1, 'Nguyễn Văn Hùng', '2026-09-28 10:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'TENANT_FAULT', 'WAITING_PAYMENT', 'Sửa xong — phát hành hoá đơn bồi thường 600.000đ (hạn 05/10)', uid_mgr1, 'Nguyễn Văn Hùng', '2026-09-30 14:40:00');
+
+  -- 104-001 | Dung | Máy lạnh chảy nước — OPEN (chưa chẩn đoán)
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
     title, description, category, priority, status,
@@ -988,113 +1448,109 @@ BEGIN
     'Máy lạnh P101 chảy nước vào phòng',
     'Ống thoát nước tắc, nước chảy xuống giường.',
     'APPLIANCE', 'URGENT', 'OPEN',
-    '2026-09-10 21:00:00', '2026-09-10 21:00:00', false
+    '2026-10-01 21:00:00', '2026-10-01 21:00:00', false
   ) RETURNING id INTO mr_id;
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant báo khẩn', uid_t04, 'Phạm Thị Dung', '2026-10-01 21:00:00');
 
-  IF has_assigned_mgr THEN
-    EXECUTE 'UPDATE maintenance_requests SET assigned_manager_id = $1 WHERE id = $2' USING uid_mgr2, mr_id;
-  END IF;
-
-  INSERT INTO maintenance_history (maintenance_request_id, old_status, new_status, note, changed_by, changed_at)
-  VALUES (mr_id, NULL, 'OPEN', 'Tenant báo khẩn', uid_t04, '2026-09-10 21:00:00');
-
+  -- 106-001 | Em (HĐ cũ) | Máy giặt kẹt bơm xả do để đồ trong túi quần — LỖI KHÁCH → hoá đơn đã thanh toán
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause, fault_reason, fault_resolution_path,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    estimated_damage_amount, cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-106-001', uid_t05, p106, NULL, c_em_old, eq_106_wm,
     'Máy giặt không xả nước', 'Chu trình dừng ở bước xả.',
-    'APPLIANCE', 'HIGH', 'CLOSED',
-    '2024-09-01 08:00:00', '2024-09-03 17:00:00',
-    '2024-09-01 10:00:00', '2024-09-03 16:30:00', '2024-09-03 17:00:00',
-    'Thông ống xả + thay phin lọc.', 550000, 'AGREED', false
+    'APPLIANCE', 'HIGH', 'CLOSED', 'TENANT_FAULT', 'TENANT_MISUSE',
+    'Đồng xu + kẹp tóc trong túi quần kẹt cánh bơm xả.', 'MANAGER_REPAIR',
+    '2024-09-01 08:00:00', '2024-09-04 20:00:00', '2024-09-01 10:00:00', '2024-09-03 14:00:00',
+    '2024-09-03 16:30:00', '2024-09-04 20:00:00',
+    'Thông ống xả + thay phin lọc. Khách đồng ý bồi thường.', 'Tháo bơm xả lấy dị vật, thay phin lọc.',
+    'Điện máy Hoà Bình', 'HB-2409-011', '2024-09-03', 550000,
+    550000, 'AGREED', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
-  VALUES (eq_106_wm, mr_id, '2024-09-03 16:30:00', 550000, 'Thông ống xả máy giặt');
+  VALUES (eq_106_wm, mr_id, '2024-09-03 16:30:00', 550000, 'Thông ống xả máy giặt (khách bồi thường)');
+  PERFORM pg_temp.demo_maint_charge(mr_id, 550000, '2024-09-03 16:40:00', '2024-09-04 20:00:00', 'CASH');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t05, 'Hoàng Văn Em', '2024-09-01 08:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'REPAIR_SCHEDULED', 'Hẹn kiểm tra 01/09', uid_mgr1, 'Nguyễn Văn Hùng', '2024-09-01 10:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'REPAIR_SCHEDULED', 'TENANT_FAULT', 'Chẩn đoán: dị vật trong bơm xả — lỗi do khách, khách đồng ý trả', uid_mgr1, 'Nguyễn Văn Hùng', '2024-09-02 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'TENANT_FAULT', 'WAITING_PAYMENT', 'Sửa xong — phát hành hoá đơn bồi thường 550.000đ', uid_mgr1, 'Nguyễn Văn Hùng', '2024-09-03 16:40:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'WAITING_PAYMENT', 'CLOSED', 'Đã thu tiền mặt', uid_mgr1, 'Nguyễn Văn Hùng', '2024-09-04 20:00:00');
 
+  -- 106-002 | Huy | Máy lạnh yếu — hao mòn
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-106-002', uid_t07, p106, NULL, c_huy, eq_106_ac,
     'Máy lạnh yếu hơi lạnh', 'Phòng ngủ lâu mới mát.',
-    'APPLIANCE', 'MEDIUM', 'CLOSED',
-    '2026-08-01 09:00:00', '2026-08-03 16:00:00',
-    '2026-08-01 11:00:00', '2026-08-03 15:30:00', '2026-08-03 16:00:00',
-    'Vệ sinh dàn lạnh.', 400000, 'AGREED', false
+    'APPLIANCE', 'MEDIUM', 'CLOSED', 'NORMAL_WEAR', 'WEAR',
+    '2026-08-01 09:00:00', '2026-08-03 16:00:00', '2026-08-01 11:00:00', '2026-08-03 14:00:00',
+    '2026-08-03 15:30:00', '2026-08-03 16:00:00',
+    'Vệ sinh dàn lạnh.', 'Dàn lạnh bám bụi — vệ sinh định kỳ.',
+    'Điện lạnh Minh Phát', 'MP-2608-009', '2026-08-03', 400000,
+    'NOT_APPLICABLE', false
   ) RETURNING id INTO mr_id;
   INSERT INTO equipment_maintenance_histories (equipment_id, maintenance_request_id, maintenance_date, repair_cost, note)
   VALUES (eq_106_ac, mr_id, '2026-08-03 15:30:00', 400000, 'Vệ sinh dàn lạnh');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t07, 'Đặng Quốc Huy', '2026-08-01 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'IN_REPAIR', 'Manager nhận sửa — hao mòn, công ty chịu', uid_mgr1, 'Nguyễn Văn Hùng', '2026-08-01 11:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'IN_REPAIR', 'CLOSED', 'Hoàn tất', uid_mgr1, 'Nguyễn Văn Hùng', '2026-08-03 16:00:00');
 
+  -- 106-003 | Huy | Vòi lavabo gãy do va đập — LỖI KHÁCH → hoá đơn đã thanh toán
   INSERT INTO maintenance_requests (
     request_code, tenant_id, property_id, room_id, tenant_contract_id, equipment_id,
-    title, description, category, priority, status,
-    created_at, updated_at, acknowledged_at, done_at, resolved_at,
-    resolution_note, repair_cost, cost_agreement_status, is_deleted
+    title, description, category, priority, status, flow_type, damage_cause, fault_reason, fault_resolution_path,
+    created_at, updated_at, acknowledged_at, repair_started_at, done_at, resolved_at,
+    resolution_note, repair_description, invoice_vendor, invoice_number, invoice_date, invoice_amount,
+    estimated_damage_amount, cost_agreement_status, is_deleted
   ) VALUES (
     'DEMO-MR-106-003', uid_t07, p106, NULL, c_huy, NULL,
-    'Vòi lavabo phòng tắm bị rò', 'Khớp nối dưới lavabo nhỏ giọt.',
-    'PLUMBING', 'MEDIUM', 'CLOSED',
-    '2026-08-20 18:00:00', '2026-08-22 12:00:00',
-    '2026-08-21 09:00:00', '2026-08-22 11:30:00', '2026-08-22 12:00:00',
-    'Thay gioăng + siết lại.', 280000, 'AGREED', false
-  );
+    'Vòi lavabo phòng tắm bị gãy', 'Thân vòi lavabo gãy ở khớp nối, nước rò liên tục.',
+    'PLUMBING', 'HIGH', 'CLOSED', 'TENANT_FAULT', 'TENANT_MISUSE',
+    'Khách làm rơi vật nặng vào vòi, gãy thân vòi.', 'MANAGER_REPAIR',
+    '2026-08-20 18:00:00', '2026-08-23 09:00:00', '2026-08-21 09:00:00', '2026-08-22 10:00:00',
+    '2026-08-22 11:30:00', '2026-08-23 09:00:00',
+    'Thay vòi lavabo mới. Khách đồng ý bồi thường.', 'Thay bộ vòi lavabo + dây cấp.',
+    'Điện nước Thành Công', 'TC-2608-033', '2026-08-22', 480000,
+    480000, 'AGREED', false
+  ) RETURNING id INTO mr_id;
+  PERFORM pg_temp.demo_maint_charge(mr_id, 480000, '2026-08-22 11:40:00', '2026-08-23 09:00:00', 'QR');
+  PERFORM pg_temp.demo_mr_step(mr_id, NULL, 'OPEN', 'Tenant tạo yêu cầu', uid_t07, 'Đặng Quốc Huy', '2026-08-20 18:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'OPEN', 'REPAIR_SCHEDULED', 'Hẹn kiểm tra 21/08', uid_mgr1, 'Nguyễn Văn Hùng', '2026-08-21 09:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'REPAIR_SCHEDULED', 'TENANT_FAULT', 'Chẩn đoán: va đập làm gãy vòi — lỗi do khách, khách đồng ý trả', uid_mgr1, 'Nguyễn Văn Hùng', '2026-08-21 10:00:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'TENANT_FAULT', 'WAITING_PAYMENT', 'Sửa xong — phát hành hoá đơn bồi thường 480.000đ', uid_mgr1, 'Nguyễn Văn Hùng', '2026-08-22 11:40:00');
+  PERFORM pg_temp.demo_mr_step(mr_id, 'WAITING_PAYMENT', 'CLOSED', 'Khách đã thanh toán hoá đơn bảo trì', uid_t07, 'Đặng Quốc Huy', '2026-08-23 09:00:00');
 
   -- -------------------------------------------------------------------------
-  -- 10) Host expenses (PnL)
+  -- 10) Host expenses (PnL) — chi phí sửa chữa công ty trả cho thợ + phí quản lý
   -- -------------------------------------------------------------------------
   INSERT INTO host_expenses (property_id, category, amount, month, note, created_at) VALUES
-    (p101, 'MAINTENANCE', 850000,  '2025-06', 'DEMO sửa máy lạnh', now()),
-    (p101, 'MAINTENANCE', 650000,  '2025-11', 'DEMO sửa tủ lạnh', now()),
-    (p101, 'MANAGEMENT',  2000000, '2026-09', 'DEMO phí QL tháng 9', now()),
-    (p102, 'MAINTENANCE', 780000,  '2026-04', 'DEMO sửa nóng lạnh', now()),
-    (p106, 'MAINTENANCE', 550000,  '2024-09', 'DEMO sửa máy giặt', now()),
-    (p106, 'MAINTENANCE', 400000,  '2026-08', 'DEMO vệ sinh máy lạnh', now()),
-    (p106, 'MANAGEMENT',  2500000, '2026-09', 'DEMO phí QL tháng 9', now());
+    (p106, 'MAINTENANCE', 550000,  '2024-09', 'DEMO sửa máy giặt (thu lại từ khách)', '2024-09-03 17:00:00'),
+    (p101, 'MAINTENANCE', 850000,  '2025-06', 'DEMO sửa máy lạnh (hao mòn)',         '2025-06-05 17:00:00'),
+    (p101, 'MAINTENANCE', 650000,  '2025-11', 'DEMO sửa tủ lạnh (thu lại từ khách)', '2025-11-20 15:00:00'),
+    (p101, 'MAINTENANCE', 420000,  '2026-01', 'DEMO thay van nóng lạnh (hao mòn)',   '2026-01-15 11:00:00'),
+    (p102, 'MAINTENANCE', 780000,  '2026-04', 'DEMO thay thanh đốt nóng lạnh (hao mòn)', '2026-04-18 12:00:00'),
+    (p102, 'MAINTENANCE', 150000,  '2026-06', 'DEMO bảo dưỡng quạt (hao mòn)',       '2026-06-05 16:30:00'),
+    (p106, 'MAINTENANCE', 400000,  '2026-08', 'DEMO vệ sinh máy lạnh (hao mòn)',     '2026-08-03 16:00:00'),
+    (p106, 'MAINTENANCE', 480000,  '2026-08', 'DEMO thay vòi lavabo (thu lại từ khách)', '2026-08-22 12:00:00'),
+    (p102, 'MAINTENANCE', 600000,  '2026-09', 'DEMO sửa tủ quần áo (chờ khách trả)', '2026-09-30 15:00:00'),
+    (p101, 'MANAGEMENT',  2000000, '2026-09', 'DEMO phí QL tháng 9',                 '2026-09-30 18:00:00'),
+    (p106, 'MANAGEMENT',  2500000, '2026-09', 'DEMO phí QL tháng 9',                 '2026-09-30 18:00:00');
 
-  RAISE NOTICE '======= DEMO ADDITIVE SEED OK =======';
-  RAISE NOTICE 'Properties: demo#101..106 (không đụng data cũ)';
-  RAISE NOTICE 'Login: demo_owner / demo_tenant01..07 / demo_manager01 — password 123456';
-  RAISE NOTICE 'Highlights: An 2 năm, Bình 1 năm, Cường mới, Dung sắp hết HĐ, Em thuê lại, #106 3 khách';
+  RAISE NOTICE '======= DEMO SEED OK (mốc bảo vệ 04/10/2026) =======';
+  RAISE NOTICE 'Login (123456): owner01 / manager01 / manager02 / demo_tenant01..10';
+  RAISE NOTICE 'Mã KH điện PE05150000110..115 / nước 15015000110..115 → demo#101..106; công tơ + giấy EVN/nước đủ đến kỳ 08/2026 (chụp số 04/09)';
+  RAISE NOTICE 'An 2 năm, Bình 1 năm, Cường mới, Dung hết HĐ 31/10, Em thuê lại, #106 3 khách; #104 P102 Giang, P103 Khánh; #105 R202 Linh';
+  RAISE NOTICE 'Điện nước kỳ 08 đã trả hết. Tiền nhà/DV 10/2026: An, Em, Giang đã trả; Bình/Cường/Dung/Huy/Khánh/Linh PENDING. Bình có HĐ bảo trì chờ trả (DEMO-MAINT-102-003).';
 END $$;
 
 COMMIT;
 
--- =============================================================================
--- (TUỲ CHỌN) Cleanup chỉ data DEMO — bỏ comment khi muốn gỡ sau bảo vệ
--- KHÔNG chạy nhầm nếu chưa backup.
--- =============================================================================
-/*
-BEGIN;
 
-DELETE FROM tenant_payments WHERE invoice_code LIKE 'DEMO-%';
-DELETE FROM tenant_invoices WHERE code LIKE 'DEMO-%';
-DELETE FROM equipment_maintenance_histories
- WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE request_code LIKE 'DEMO-MR-%');
-DELETE FROM maintenance_history
- WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE request_code LIKE 'DEMO-MR-%');
-DELETE FROM maintenance_timelines
- WHERE maintenance_request_id IN (SELECT id FROM maintenance_requests WHERE request_code LIKE 'DEMO-MR-%');
-DELETE FROM maintenance_requests WHERE request_code LIKE 'DEMO-MR-%';
-DELETE FROM host_expenses WHERE note LIKE 'DEMO%';
-DELETE FROM household_members
- WHERE tenant_contract_id IN (SELECT id FROM tenant_contracts WHERE contract_code LIKE 'DEMO-TC-%');
-DELETE FROM tenant_contracts WHERE contract_code LIKE 'DEMO-TC-%';
-DELETE FROM inbound_contracts WHERE contract_code LIKE 'DEMO-IB-%';
-DELETE FROM equipments WHERE qr_code LIKE 'DEMO-EQ-%';
-DELETE FROM rooms WHERE property_id IN (SELECT id FROM properties WHERE property_code LIKE 'demo#%');
-DELETE FROM properties WHERE property_code LIKE 'demo#%';
-
--- gỡ account demo (chỉ khi không còn FK)
--- DELETE FROM tenant WHERE user_id IN (SELECT id FROM "User" WHERE username LIKE 'demo_%');
--- DELETE FROM owner WHERE user_id IN (SELECT id FROM "User" WHERE username LIKE 'demo_%');
--- DELETE FROM operation_management WHERE user_id IN (SELECT id FROM "User" WHERE username LIKE 'demo_%');
--- DELETE FROM manager_zones WHERE manager_id IN (SELECT id FROM "User" WHERE username LIKE 'demo_%');
--- DELETE FROM "User" WHERE username LIKE 'demo_%';
-
-COMMIT;
-*/
+-- Seed lại / gỡ data demo: chạy scripts/capstone-defense-demo-cleanup.sql trước.

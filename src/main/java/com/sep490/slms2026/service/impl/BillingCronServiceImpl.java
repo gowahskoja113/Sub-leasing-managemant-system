@@ -136,7 +136,6 @@ public class BillingCronServiceImpl implements BillingCronService {
         int escalated = unitPriceService.applyDueEscalations();
         int escalationNotices = unitPriceService.notifyUpcomingAnnualEscalations();
         int issued = generateDueRentInvoices(today);
-        int meterReminded = remindPendingMeterReadings(today);
         int issueReminded = remindUpcomingRent(today);
 
         List<TenantInvoiceStatus> statuses = List.of(
@@ -374,7 +373,6 @@ public class BillingCronServiceImpl implements BillingCronService {
         stats.put("rentIssued", issued);
         stats.put("rentEscalated", escalated);
         stats.put("escalationNotices", escalationNotices);
-        stats.put("meterReminded", meterReminded);
         stats.put("issueReminded", issueReminded);
         stats.put("managerUnpaidNotified", managerUnpaidNotified);
         stats.put("managerUtilityUnpaidNotified", managerUtilityUnpaidNotified);
@@ -944,99 +942,5 @@ public class BillingCronServiceImpl implements BillingCronService {
         return reminded;
     }
 
-    int remindPendingMeterReadings(LocalDate today) {
-        YearMonth currentMonth = YearMonth.from(today);
-        LocalDate currentMonthEnd = currentMonth.atEndOfMonth();
-        // Ngày cuối tháng → kỳ hiện tại; các ngày khác → kỳ tháng trước (vừa khép, còn phòng chưa chốt).
-        YearMonth lockPeriod = today.equals(currentMonthEnd)
-                ? currentMonth
-                : currentMonth.minusMonths(1);
-        LocalDate meterDue = lockPeriod.atEndOfMonth();
-        if (today.isBefore(meterDue)) {
-            return 0;
-        }
-        String period = ContractBillingCalendar.normalizePeriod(lockPeriod);
-        List<TenantContract> activeContracts =
-                tenantContractRepository.findByStatusWithPropertyAndTenant(ContractStatus.ACTIVE);
-
-        Map<UUID, List<TenantContract>> managerMissing = new HashMap<>();
-
-        for (TenantContract contract : activeContracts) {
-            if (contract.getProperty() == null || contract.getRoom() == null) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(contract.getProperty().getWholeHouse())) {
-                continue;
-            }
-            if (hasLockedElectricReading(contract.getProperty().getId(), contract.getRoom().getId(), period)) {
-                continue;
-            }
-            UUID managerId = contract.getProperty().getOperationManagerId();
-            if (managerId != null) {
-                managerMissing.computeIfAbsent(managerId, k -> new ArrayList<>()).add(contract);
-            }
-        }
-
-        int reminded = 0;
-        for (Map.Entry<UUID, List<TenantContract>> entry : managerMissing.entrySet()) {
-            UUID managerId = entry.getKey();
-            LocalDateTime startOfDay = today.atStartOfDay();
-            if (notificationRepository.existsByUserIdAndTypeAndCreatedAtGreaterThanEqual(
-                    managerId, "METER_READING_DUE", startOfDay)) {
-                continue;
-            }
-
-            List<TenantContract> contracts = entry.getValue();
-            Map<String, Integer> propertyRoomsCount = new LinkedHashMap<>();
-            for (TenantContract c : contracts) {
-                String propName = c.getProperty().getPropertyName();
-                propertyRoomsCount.put(propName, propertyRoomsCount.getOrDefault(propName, 0) + 1);
-            }
-
-            int totalMissing = contracts.size();
-            StringBuilder summary = new StringBuilder();
-            int i = 0;
-            for (Map.Entry<String, Integer> pEntry : propertyRoomsCount.entrySet()) {
-                if (i > 0) {
-                    summary.append(", ");
-                }
-                summary.append(pEntry.getKey()).append(" (").append(pEntry.getValue()).append(" phòng)");
-                i++;
-            }
-
-            String title = today.equals(meterDue)
-                    ? "📸 Hôm nay phải chốt chỉ số điện"
-                    : String.format("📸 Còn %d phòng chưa chốt chỉ số điện", totalMissing);
-            String content = String.format("%s. Kỳ %s — hạn chốt: %s.",
-                    summary,
-                    period,
-                    meterDue.format(DateTimeFormatter.ofPattern("dd/MM")));
-            String paramsJson = "{\"period\":\"" + period + "\"}";
-
-            notificationRepository.save(Notification.builder()
-                    .userId(managerId)
-                    .title(title)
-                    .content(content)
-                    .type("METER_READING_DUE")
-                    .screen("MeterReadingPending")
-                    .paramsJson(paramsJson)
-                    .read(false)
-                    .build());
-
-            userPushTokenService.sendToUser(managerId, title, content, Map.of(
-                    "type", "METER_READING_DUE",
-                    "screen", "MeterReadingPending",
-                    "period", period));
-            reminded++;
-        }
-        return reminded;
-    }
-
-    private boolean hasLockedElectricReading(Long propertyId, Long roomId, String period) {
-        Optional<MeterReading> reading = meterReadingRepository
-                .findTopByPropertyIdAndRoomIdAndUtilityTypeAndPeriodOrderByRecordedAtDesc(
-                        propertyId, roomId, UtilityType.ELECTRIC, period);
-        return reading.isPresent();
-    }
 }
 
