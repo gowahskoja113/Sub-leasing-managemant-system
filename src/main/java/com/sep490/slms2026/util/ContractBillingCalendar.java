@@ -120,6 +120,18 @@ public final class ContractBillingCalendar {
         return isContractInPeriod(contract.getStartDate(), periodEnd);
     }
 
+    /**
+     * Bản chốt thuộc tháng trước khi hợp đồng hiện tại bắt đầu (tháng phòng trống / khách cũ)
+     * → không thuộc khách này, không được gom vào hoá đơn của khách.
+     */
+    public static boolean isReadingBeforeContract(String readingPeriod, TenantContract contract) {
+        if (contract == null || contract.getStartDate() == null) {
+            return false;
+        }
+        YearMonth startMonth = YearMonth.from(contract.getStartDate());
+        return parsePeriod(readingPeriod).map(p -> p.isBefore(startMonth)).orElse(false);
+    }
+
     public static LocalDate periodEnd(YearMonth month) {
         return month == null ? null : month.atEndOfMonth();
     }

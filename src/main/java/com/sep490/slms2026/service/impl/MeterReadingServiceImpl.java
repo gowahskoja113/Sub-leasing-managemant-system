@@ -434,10 +434,11 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                 continue;
             }
             Long roomId = contract.getRoom().getId();
-            boolean hasUnissued = !meterReadingRepository
+            boolean hasUnissued = meterReadingRepository
                     .findByPropertyIdAndRoomIdAndUtilityTypeAndUtilityInvoiceIdIsNull(
                             property.getId(), roomId, type)
-                    .isEmpty();
+                    .stream()
+                    .anyMatch(r -> !ContractBillingCalendar.isReadingBeforeContract(r.getPeriod(), contract));
             boolean hasInvoice = !utilityInvoiceRepository.findByFilters(
                     property.getId(), bill.getBillingPeriod(), type).stream()
                     .filter(i -> i.getRoom() != null && roomId.equals(i.getRoom().getId()))

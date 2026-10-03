@@ -270,6 +270,9 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
             if (!ContractBillingCalendar.isContractInPeriod(contract, periodEnd)) {
                 continue;
             }
+            if (ContractBillingCalendar.isReadingBeforeContract(reading.getPeriod(), contract)) {
+                continue;
+            }
             BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
             BigDecimal consumption = reading.getReading().subtract(prev);
             if (consumption.compareTo(BigDecimal.ZERO) <= 0) {
@@ -311,6 +314,10 @@ public class UtilityInvoiceServiceImpl implements UtilityInvoiceService {
         if (!ContractBillingCalendar.isContractInPeriod(active, periodEnd)) {
             throw new BusinessException("CONTRACT_NOT_IN_PERIOD",
                     "Hợp đồng bắt đầu sau kỳ hoá đơn — không phát hành.");
+        }
+        if (ContractBillingCalendar.isReadingBeforeContract(reading.getPeriod(), active)) {
+            throw new BusinessException("READING_BEFORE_CONTRACT",
+                    "Bản chốt thuộc tháng trước khi hợp đồng hiện tại bắt đầu — không phát hành.");
         }
         BigDecimal prev = reading.getPrevReading() != null ? reading.getPrevReading() : BigDecimal.ZERO;
         BigDecimal consumption = reading.getReading().subtract(prev);
