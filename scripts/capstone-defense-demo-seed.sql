@@ -15,7 +15,8 @@
 --     0329451680 Trịnh Mỹ Linh
 --
 -- Mốc thời gian: "hôm nay" = đầu tháng 10/2026.
---   - Tiền nhà + phí DV: đủ từng tháng từ lúc vào ở → 10/2026 (tháng đầu tính theo ngày).
+--   - Tiền nhà: đủ từng tháng từ lúc vào ở → 10/2026 (tháng đầu tính theo ngày). Không thu phí dịch vụ
+--     (service_fee = 0 → backend cũng không tự sinh hoá đơn SERVICE).
 --   - Điện / nước: đủ từng kỳ → kỳ 08/2026. Không chốt cuối tháng nữa: kỳ tháng M được quản lý chụp
 --     công tơ ngày 04 tháng M+1, admin nhập giấy EVN / nước cùng ngày → hoá đơn khách phát hành, hạn +5 ngày.
 --     Kỳ 09/2026 để trống — demo chụp số + nhập giấy trực tiếp ngày 04/10.
@@ -23,7 +24,7 @@
 --     kèm hoá đơn điện/nước của nhà (utility_bills) mỗi kỳ. Mã KH điện PE05150000110..115, nước 15015000110..115.
 --     Nhà theo phòng (nhà 4, nhà 5): mỗi phòng 1 chuỗi chỉ số riêng (kể cả phòng trống) + công tơ tổng của nhà.
 --   - Điện nước kỳ 08/2026 (hạn 09/09): mọi khách đã trả.
---   - Tiền nhà + DV 10/2026 (phát hành 00:05 ngày 01/10 như cron, hạn 05/10) cho cả 9 khách đang thuê:
+--   - Tiền nhà 10/2026 (phát hành 00:05 ngày 01/10 như cron, hạn 05/10) cho cả 9 khách đang thuê:
 --     An, Dung, Em, Giang, Khánh, Linh đã trả trong 01–03/10; Bình, Cường, Huy chưa trả (PENDING).
 --   - Ticket lỗi do khách (TENANT_FAULT) đều có hoá đơn MAINTENANCE.
 -- =============================================================================
@@ -534,7 +535,7 @@ BEGIN
     z_binhthanh, 85, 8.5, 10, 2, true, true, 3, 'ACTIVE',
     uid_mgr1, 'Nhà phố 1 trệt 1 lầu, 3 phòng ngủ, full nội thất, hẻm xe hơi, gần chợ Thị Nghè.',
     14000000, 14000000, 3500, 18000, 'PE05150000110', '15015000110',
-    2, 200000, true, '2024-08-01 09:00:00'
+    2, 0, true, '2024-08-01 09:00:00'
   ) RETURNING id INTO p101;
 
   INSERT INTO properties (
@@ -549,7 +550,7 @@ BEGIN
     z_phunhuan, 55, 7, 8, 1, true, false, 2, 'ACTIVE',
     uid_mgr1, 'Nhà cấp 4 gác lửng, 2 phòng ngủ, nội thất cơ bản (giường, tủ, quạt, nóng lạnh), gần sân bay.',
     9000000, 9000000, 3500, 18000, 'PE05150000111', '15015000111',
-    1, 150000, true, '2025-07-01 10:00:00'
+    1, 0, true, '2025-07-01 10:00:00'
   ) RETURNING id INTO p102;
 
   INSERT INTO properties (
@@ -564,7 +565,7 @@ BEGIN
     z_quan3, 70, 7, 10, 2, true, false, 3, 'ACTIVE',
     uid_mgr1, 'Nhà 1 trệt 1 lầu, 3 phòng ngủ, bàn giao nhà trống (không nội thất), hẻm 4m.',
     7500000, 7500000, 3500, 18000, 'PE05150000112', '15015000112',
-    1, 100000, true, '2026-06-15 09:00:00'
+    1, 0, true, '2026-06-15 09:00:00'
   ) RETURNING id INTO p103;
 
   INSERT INTO properties (
@@ -579,7 +580,7 @@ BEGIN
     z_govap, 120, 10, 12, 3, false, true, 3, 'ACTIVE',
     uid_mgr2, 'Nhà 3 tầng cho thuê theo phòng, 3 phòng full nội thất, công tơ điện nước riêng từng phòng.',
     NULL, NULL, 3500, 18000, 'PE05150000113', '15015000113',
-    1, 50000, true, '2025-01-10 08:00:00'
+    1, 0, true, '2025-01-10 08:00:00'
   ) RETURNING id INTO p104;
 
   INSERT INTO properties (
@@ -594,7 +595,7 @@ BEGIN
     z_quan1, 90, 9, 10, 2, false, false, 2, 'ACTIVE',
     uid_mgr2, 'Nhà 2 tầng cho thuê theo phòng, 2 phòng không nội thất, công tơ điện nước riêng từng phòng.',
     NULL, NULL, 3500, 18000, 'PE05150000114', '15015000114',
-    1, 80000, true, '2026-05-01 08:00:00'
+    1, 0, true, '2026-05-01 08:00:00'
   ) RETURNING id INTO p105;
 
   INSERT INTO properties (
@@ -609,7 +610,7 @@ BEGIN
     z_binhthanh, 95, 9.5, 10, 2, true, true, 3, 'ACTIVE',
     uid_mgr1, 'Nhà phố 1 trệt 1 lầu, 3 phòng ngủ, full nội thất, gần cầu Bình Triệu.',
     15000000, 15000000, 3500, 18000, 'PE05150000115', '15015000115',
-    2, 250000, true, '2023-01-05 09:00:00'
+    2, 0, true, '2023-01-05 09:00:00'
   ) RETURNING id INTO p106;
 
   -- inbound contracts (thuê từ chủ gốc — còn hiệu lực qua ngày bảo vệ)
@@ -1067,7 +1068,7 @@ BEGIN
 
   -- -------------------------------------------------------------------------
   -- 8) Hoá đơn hàng tháng — từ lúc vào ở đến hiện tại
-  --    Tiền nhà + phí DV: tháng vào ở (FIRST, tính theo ngày) → 10/2026, hạn ngày 5.
+  --    Tiền nhà: tháng vào ở (FIRST, tính theo ngày) → 10/2026, hạn ngày 5.
   --    Điện/nước: kỳ = tháng sử dụng, chốt số cuối tháng, phát hành ngày 1 tháng sau, hạn +5 ngày.
   --    Chỉ số công tơ nối tiếp giữa các khách cùng nhà (#106: Phương → Em → Huy).
   -- -------------------------------------------------------------------------
@@ -1079,8 +1080,7 @@ BEGIN
            p.property_name,
            COALESCE(rm.room_number, p.property_name) AS room_label,
            COALESCE(p.electricity_unit_price, 3500) AS e_price,
-           COALESCE(p.water_unit_price, 18000) AS w_price,
-           COALESCE(p.service_fee, 0) AS svc
+           COALESCE(p.water_unit_price, 18000) AS w_price
     FROM tenant_contracts tc
     JOIN properties p ON p.id = tc.property_id
     LEFT JOIN rooms rm ON rm.id = tc.room_id
@@ -1094,7 +1094,7 @@ BEGIN
     pay_method  := CASE WHEN c_rec.id IN (c_dung, c_phuong, c_khanh) THEN 'CASH' ELSE 'QR' END;
     pays_now    := c_rec.id NOT IN (c_binh, c_cuong, c_huy);
 
-    -- ---- Tiền nhà + phí dịch vụ ----
+    -- ---- Tiền nhà ----
     ym := first_m;
     WHILE ym <= last_rent_m LOOP
       month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
@@ -1151,16 +1151,6 @@ BEGIN
         c_rec.tenant_user_id, c_rec.id, 'RENT', cycle,
         c_rec.property_name, c_rec.room_label, ym, period_label, note_txt,
         amt, due, created_ts, paid_ts, pay_method, c_rec.mgr);
-
-      IF c_rec.svc > 0 THEN
-        PERFORM pg_temp.demo_invoice(
-          'HD-SVC-' || c_rec.id || '-' || to_char(ym, 'YYYY-MM'),
-          c_rec.tenant_user_id, c_rec.id, 'SERVICE', NULL,
-          c_rec.property_name, c_rec.room_label, ym,
-          'Phí dịch vụ tháng ' || mon || '/' || EXTRACT(YEAR FROM ym)::int, NULL,
-          c_rec.svc, due, created_ts + INTERVAL '1 minute', paid_ts + INTERVAL '2 minute',
-          pay_method, c_rec.mgr);
-      END IF;
 
       ym := (ym + INTERVAL '1 month')::date;
     END LOOP;
@@ -1620,7 +1610,7 @@ BEGIN
   RAISE NOTICE 'Nhà mới: MTX#% .. MTX#% (mã KH điện PE05150000110..115 / nước 15015000110..115); công tơ + giấy EVN/nước đủ đến kỳ 08/2026 (chụp số 04/09)',
     mtx_base + 1, mtx_base + 6;
   RAISE NOTICE 'An 2 năm, Bình 1 năm, Cường mới, Dung hết HĐ 31/10, Em thuê lại, nhà 6 có 3 đời khách; nhà 4 P102 Giang, P103 Khánh; nhà 5 R202 Linh';
-  RAISE NOTICE 'Điện nước kỳ 08 đã trả hết. Tiền nhà/DV 10/2026 (hạn 05/10): Bình/Cường/Huy PENDING, 6 khách còn lại đã trả. Bình có hoá đơn bảo trì chờ trả.';
+  RAISE NOTICE 'Điện nước kỳ 08 đã trả hết. Tiền nhà 10/2026 (hạn 05/10): Bình/Cường/Huy PENDING, 6 khách còn lại đã trả. Bình có hoá đơn bảo trì chờ trả.';
 END $$;
 
 COMMIT;
