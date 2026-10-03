@@ -141,6 +141,14 @@ public class EquipmentServiceImpl implements EquipmentService {
             equipment.setMaintenanceCount(equipment.getMaintenanceCount() + 1);
             recordStatusChangeMaintenance(equipment, previousStatus, status);
         }
+        if (status == EquipmentStatus.DISPOSED) {
+            equipment.setRecommendReplacement(false);
+            if (equipment.getOperationalStatus() != com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED) {
+                equipment.setOperationalStatus(com.sep490.slms2026.enums.EquipmentOperationalStatus.DISABLED);
+                equipment.setDisabledAt(LocalDateTime.now());
+                equipment.setDisabledReason("Thanh lý");
+            }
+        }
 
         return toResponse(equipmentRepository.save(equipment));
     }

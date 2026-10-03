@@ -80,6 +80,25 @@ public interface EquipmentRepository extends JpaRepository<Equipment, Long> {
             @Param("roomId") Long roomId,
             @Param("houseArea") com.sep490.slms2026.enums.HouseArea houseArea);
 
+    /** Ứng viên THAY_THE: thiết bị ACTIVE tại vị trí, PURCHASED hoặc đang BROKEN (chờ thay) — BROKEN xếp trước. */
+    @Query("""
+            SELECT e FROM Equipment e
+            WHERE e.property.id = :propertyId
+              AND e.operationalStatus = 'ACTIVE'
+              AND e.catalog.id = :catalogId
+              AND (e.source = 'PURCHASED' OR e.status = 'BROKEN')
+              AND (
+                (:roomId IS NOT NULL AND e.room.id = :roomId)
+                OR (:houseArea IS NOT NULL AND e.houseArea = :houseArea AND e.room IS NULL)
+              )
+            ORDER BY CASE WHEN e.status = 'BROKEN' THEN 0 ELSE 1 END, e.id ASC
+            """)
+    List<Equipment> findReplaceableAtPlacement(
+            @Param("propertyId") Long propertyId,
+            @Param("catalogId") Long catalogId,
+            @Param("roomId") Long roomId,
+            @Param("houseArea") com.sep490.slms2026.enums.HouseArea houseArea);
+
     @Query("SELECT DISTINCT e.catalog.name FROM Equipment e WHERE e.property.id = :propertyId "
             + "AND e.operationalStatus = 'ACTIVE' ORDER BY e.catalog.name")
     List<String> findDistinctAmenityNamesByPropertyId(@Param("propertyId") Long propertyId);

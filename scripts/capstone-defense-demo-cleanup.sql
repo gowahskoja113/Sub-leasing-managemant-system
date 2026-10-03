@@ -1,7 +1,9 @@
 -- =============================================================================
--- CLEANUP data DEMO (demo#101..106) — chạy trước khi seed lại capstone-defense-demo-seed.sql.
--- Xoá nhà demo + mọi dòng tham chiếu tới nó (phòng, thiết bị, HĐ, hoá đơn, thanh toán,
--- công tơ, bảo trì, ... kể cả dòng app tự sinh thêm). Không đụng account / zone / catalog.
+-- CLEANUP data seed bảo vệ — chạy trước khi seed lại capstone-defense-demo-seed.sql.
+-- Nhận diện 6 nhà seed qua mã KH điện PE05150000110..115 / nước 15015000110..115
+-- (và các nhà demo#… của bản seed cũ). Xoá nhà + mọi dòng tham chiếu tới nó (phòng, thiết bị,
+-- HĐ, hoá đơn, thanh toán, công tơ, bảo trì, ... kể cả dòng app tự sinh thêm).
+-- Không đụng account / zone / catalog.
 -- =============================================================================
 
 BEGIN;
@@ -35,8 +37,20 @@ BEGIN
   EXECUTE format('DELETE FROM %s WHERE %s', p_table, p_where);
 END $f$;
 
-SELECT pg_temp.demo_purge('properties', $$property_code LIKE 'demo#%'$$);
+CREATE TEMP TABLE seed_props ON COMMIT DROP AS
+SELECT id FROM properties
+WHERE property_code LIKE 'demo#%'
+   OR upper(trim(electricity_customer_code)) IN
+        ('PE05150000110', 'PE05150000111', 'PE05150000112', 'PE05150000113', 'PE05150000114', 'PE05150000115')
+   OR trim(water_customer_code) IN
+        ('15015000110', '15015000111', '15015000112', '15015000113', '15015000114', '15015000115');
 
-SELECT 'Còn lại demo properties: ' || count(*) FROM properties WHERE property_code LIKE 'demo#%';
+SELECT 'Sẽ xoá ' || count(*) || ' nhà seed' FROM seed_props;
+
+SELECT pg_temp.demo_purge('properties', $$id IN (SELECT id FROM seed_props)$$);
+
+SELECT 'Còn lại nhà seed: ' || count(*) FROM properties
+WHERE property_code LIKE 'demo#%'
+   OR upper(trim(electricity_customer_code)) LIKE 'PE0515000011_';
 
 COMMIT;

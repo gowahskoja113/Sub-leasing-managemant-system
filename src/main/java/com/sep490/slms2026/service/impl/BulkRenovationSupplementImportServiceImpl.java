@@ -340,7 +340,7 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
             }
         }
 
-        long available = equipmentRepository.findActivePurchasedAtPlacement(
+        long available = equipmentRepository.findReplaceableAtPlacement(
                 propertyId, catalog.getId(), roomId, houseArea).size();
         if (available < row.getQuantity()) {
             errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Hành động",

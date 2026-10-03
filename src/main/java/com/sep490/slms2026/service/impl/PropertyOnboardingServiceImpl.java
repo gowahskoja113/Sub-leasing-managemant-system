@@ -343,7 +343,7 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
                                                    Long roomId,
                                                    HouseArea houseArea,
                                                    int quantity) {
-        List<Equipment> activeAtPlacement = equipmentRepository.findActivePurchasedAtPlacement(
+        List<Equipment> activeAtPlacement = equipmentRepository.findReplaceableAtPlacement(
                 propertyId, catalogId, roomId, houseArea);
         if (activeAtPlacement.size() < quantity) {
             throw new BusinessException(
@@ -356,6 +356,11 @@ public class PropertyOnboardingServiceImpl implements PropertyOnboardingService 
             Equipment existing = activeAtPlacement.get(i);
             existing.setOperationalStatus(EquipmentOperationalStatus.DISABLED);
             existing.setDisabledAt(now);
+            if (existing.getStatus() == EquipmentStatus.BROKEN) {
+                existing.setStatus(EquipmentStatus.DISPOSED);
+                existing.setRecommendReplacement(false);
+                existing.setDisabledReason("Thanh lý — đã nhập thiết bị mới thay thế");
+            }
             replaced.add(equipmentRepository.save(existing));
         }
         return replaced;
