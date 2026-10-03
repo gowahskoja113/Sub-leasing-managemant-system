@@ -8,7 +8,11 @@
 --
 -- 6 nhà mang mã MTX#(n+1)..MTX#(n+6), n = số MTX lớn nhất đang có trong DB (biến p101..p106 = nhà 1..6).
 -- Data seed được nhận diện qua mã KH điện PE05150000110..115 (cleanup xoá theo mã này).
---   demo_tenant01..10             — Khách thuê (mọi nhà / mọi phòng đều có khách đang ở)
+--   Khách thuê (username = SĐT):
+--     0903418257 Nguyễn Văn An    | 0938261504 Trần Thị Bình  | 0976153842 Lê Minh Cường
+--     0912674390 Phạm Thị Dung    | 0886520731 Hoàng Văn Em   | 0907385162 Võ Thị Phương (đã trả nhà)
+--     0965847213 Đặng Quốc Huy    | 0934716085 Bùi Thị Giang  | 0868239574 Ngô Minh Khánh
+--     0329451680 Trịnh Mỹ Linh
 --
 -- Mốc thời gian: "hôm nay" = đầu tháng 10/2026.
 --   - Tiền nhà + phí DV: đủ từng tháng từ lúc vào ở → 10/2026 (tháng đầu tính theo ngày).
@@ -19,7 +23,8 @@
 --     kèm hoá đơn điện/nước của nhà (utility_bills) mỗi kỳ. Mã KH điện PE05150000110..115, nước 15015000110..115.
 --     Nhà theo phòng (nhà 4, nhà 5): mỗi phòng 1 chuỗi chỉ số riêng (kể cả phòng trống) + công tơ tổng của nhà.
 --   - Điện nước kỳ 08/2026 (hạn 09/09): mọi khách đã trả.
---   - Tiền nhà + DV 10/2026 (cron tự phát hành ngày 01/10, hạn 05/10): An, Em, Giang đã trả, còn lại PENDING.
+--   - Tiền nhà + DV 10/2026 (phát hành 00:05 ngày 01/10 như cron, hạn 05/10) cho cả 9 khách đang thuê:
+--     An, Dung, Em, Giang, Khánh, Linh đã trả trong 01–03/10; Bình, Cường, Huy chưa trả (PENDING).
 --   - Ticket lỗi do khách (TENANT_FAULT) đều có hoá đơn MAINTENANCE.
 -- =============================================================================
 
@@ -47,8 +52,8 @@ BEGIN
   -- account demo đời cũ (demo_owner / demo_manager0x) cùng UUID → đổi sang username mới
   EXECUTE format('SELECT id FROM %I WHERE id = $1', p_tbl) INTO v_id USING p_id;
   IF v_id IS NOT NULL THEN
-    EXECUTE format('UPDATE %I SET username = $2, email = $3, full_name = $4 WHERE id = $1', p_tbl)
-    USING p_id, p_username, p_email, p_name;
+    EXECUTE format('UPDATE %I SET username = $2, email = $3, full_name = $4, phone_number = $5 WHERE id = $1', p_tbl)
+    USING p_id, p_username, p_email, p_name, p_phone;
     RETURN p_id;
   END IF;
 
@@ -266,7 +271,7 @@ DECLARE
   -- billing
   demo_month  date      := DATE '2026-10-01';            -- tháng hiện tại (bảo vệ 04/10/2026)
   util_month  date      := DATE '2026-08-01';            -- kỳ điện nước mới nhất (chụp số 04/09, phát hành 04/09)
-  pay_now_ts  timestamp := TIMESTAMP '2026-10-02 20:15'; -- khách trả sớm kỳ hiện tại
+  pay_now_d   date      := DATE '2026-10-01';            -- khách trả kỳ hiện tại trong 01–03/10 (trước hạn 05/10)
 
   c_rec record;
   ck bigint;
@@ -416,16 +421,17 @@ BEGIN
   uid_owner := pg_temp.demo_user(user_tbl, uid_owner, 'owner01',   pw, '0988000001', 'owner01@slms.local',   'Trần Quốc Bảo',   'ROLE_OWNER');
   uid_mgr1  := pg_temp.demo_user(user_tbl, uid_mgr1,  'manager01', pw, '0988000011', 'manager01@slms.local', 'Nguyễn Văn Hùng', 'ROLE_MANAGER');
   uid_mgr2  := pg_temp.demo_user(user_tbl, uid_mgr2,  'manager02', pw, '0988000012', 'manager02@slms.local', 'Lê Thị Mai',      'ROLE_MANAGER');
-  uid_t01 := pg_temp.demo_user(user_tbl, uid_t01, 'demo_tenant01', pw, '0988000101', 'demo_t01@slms.local', 'Nguyễn Văn An',  'ROLE_TENANT');
-  uid_t02 := pg_temp.demo_user(user_tbl, uid_t02, 'demo_tenant02', pw, '0988000102', 'demo_t02@slms.local', 'Trần Thị Bình',  'ROLE_TENANT');
-  uid_t03 := pg_temp.demo_user(user_tbl, uid_t03, 'demo_tenant03', pw, '0988000103', 'demo_t03@slms.local', 'Lê Minh Cường',  'ROLE_TENANT');
-  uid_t04 := pg_temp.demo_user(user_tbl, uid_t04, 'demo_tenant04', pw, '0988000104', 'demo_t04@slms.local', 'Phạm Thị Dung',  'ROLE_TENANT');
-  uid_t05 := pg_temp.demo_user(user_tbl, uid_t05, 'demo_tenant05', pw, '0988000105', 'demo_t05@slms.local', 'Hoàng Văn Em',   'ROLE_TENANT');
-  uid_t06 := pg_temp.demo_user(user_tbl, uid_t06, 'demo_tenant06', pw, '0988000106', 'demo_t06@slms.local', 'Võ Thị Phương',  'ROLE_TENANT');
-  uid_t07 := pg_temp.demo_user(user_tbl, uid_t07, 'demo_tenant07', pw, '0988000107', 'demo_t07@slms.local', 'Đặng Quốc Huy',  'ROLE_TENANT');
-  uid_t08 := pg_temp.demo_user(user_tbl, uid_t08, 'demo_tenant08', pw, '0988000108', 'demo_t08@slms.local', 'Bùi Thị Giang',  'ROLE_TENANT');
-  uid_t09 := pg_temp.demo_user(user_tbl, uid_t09, 'demo_tenant09', pw, '0988000109', 'demo_t09@slms.local', 'Ngô Minh Khánh', 'ROLE_TENANT');
-  uid_t10 := pg_temp.demo_user(user_tbl, uid_t10, 'demo_tenant10', pw, '0988000110', 'demo_t10@slms.local', 'Trịnh Mỹ Linh',  'ROLE_TENANT');
+  -- khách thuê: username = SĐT (giống đăng nhập bằng số điện thoại ngoài thực tế)
+  uid_t01 := pg_temp.demo_user(user_tbl, uid_t01, '0903418257', pw, '0903418257', 'nguyenvanan@slms.local',   'Nguyễn Văn An',  'ROLE_TENANT');
+  uid_t02 := pg_temp.demo_user(user_tbl, uid_t02, '0938261504', pw, '0938261504', 'tranthibinh@slms.local',   'Trần Thị Bình',  'ROLE_TENANT');
+  uid_t03 := pg_temp.demo_user(user_tbl, uid_t03, '0976153842', pw, '0976153842', 'leminhcuong@slms.local',   'Lê Minh Cường',  'ROLE_TENANT');
+  uid_t04 := pg_temp.demo_user(user_tbl, uid_t04, '0912674390', pw, '0912674390', 'phamthidung@slms.local',   'Phạm Thị Dung',  'ROLE_TENANT');
+  uid_t05 := pg_temp.demo_user(user_tbl, uid_t05, '0886520731', pw, '0886520731', 'hoangvanem@slms.local',    'Hoàng Văn Em',   'ROLE_TENANT');
+  uid_t06 := pg_temp.demo_user(user_tbl, uid_t06, '0907385162', pw, '0907385162', 'vothiphuong@slms.local',   'Võ Thị Phương',  'ROLE_TENANT');
+  uid_t07 := pg_temp.demo_user(user_tbl, uid_t07, '0965847213', pw, '0965847213', 'dangquochuy@slms.local',   'Đặng Quốc Huy',  'ROLE_TENANT');
+  uid_t08 := pg_temp.demo_user(user_tbl, uid_t08, '0934716085', pw, '0934716085', 'buithigiang@slms.local',   'Bùi Thị Giang',  'ROLE_TENANT');
+  uid_t09 := pg_temp.demo_user(user_tbl, uid_t09, '0868239574', pw, '0868239574', 'ngominhkhanh@slms.local',  'Ngô Minh Khánh', 'ROLE_TENANT');
+  uid_t10 := pg_temp.demo_user(user_tbl, uid_t10, '0329451680', pw, '0329451680', 'trinhmylinh@slms.local',   'Trịnh Mỹ Linh',  'ROLE_TENANT');
 
   INSERT INTO owner (user_id) VALUES (uid_owner) ON CONFLICT DO NOTHING;
   INSERT INTO operation_management (user_id, start_at) VALUES
@@ -1086,7 +1092,7 @@ BEGIN
     last_rent_m := LEAST(date_trunc('month', c_rec.end_date)::date, demo_month);
     last_util_m := LEAST(date_trunc('month', c_rec.end_date)::date, util_month);
     pay_method  := CASE WHEN c_rec.id IN (c_dung, c_phuong, c_khanh) THEN 'CASH' ELSE 'QR' END;
-    pays_now    := c_rec.id IN (c_an, c_em_new, c_giang);
+    pays_now    := c_rec.id NOT IN (c_binh, c_cuong, c_huy);
 
     -- ---- Tiền nhà + phí dịch vụ ----
     ym := first_m;
@@ -1131,7 +1137,9 @@ BEGIN
         created_ts := ym + TIME '00:05';
         due := ym + 4;
         IF ym = demo_month THEN
-          paid_ts := CASE WHEN pays_now THEN pay_now_ts END;
+          paid_ts := CASE WHEN pays_now
+                       THEN (pay_now_d + (ck % 3)::int) + TIME '08:00' + (((ck * 37) % 600)::int * INTERVAL '1 minute')
+                     END;
         ELSE
           paid_ts := (ym + ((ck + mon) % 4)::int) + TIME '19:30'
                      + ((ck % 50)::int * INTERVAL '1 minute');
@@ -1608,11 +1616,11 @@ BEGIN
     (p106, 'MANAGEMENT',  2500000, '2026-09', 'Phí quản lý tháng 9',                 '2026-09-30 18:00:00');
 
   RAISE NOTICE '======= SEED OK (mốc bảo vệ 04/10/2026) =======';
-  RAISE NOTICE 'Login (123456): owner01 / manager01 / manager02 / demo_tenant01..10';
+  RAISE NOTICE 'Login (123456): owner01 / manager01 / manager02; khách thuê đăng nhập bằng SĐT (vd. Bình 0938261504, Giang 0934716085)';
   RAISE NOTICE 'Nhà mới: MTX#% .. MTX#% (mã KH điện PE05150000110..115 / nước 15015000110..115); công tơ + giấy EVN/nước đủ đến kỳ 08/2026 (chụp số 04/09)',
     mtx_base + 1, mtx_base + 6;
   RAISE NOTICE 'An 2 năm, Bình 1 năm, Cường mới, Dung hết HĐ 31/10, Em thuê lại, nhà 6 có 3 đời khách; nhà 4 P102 Giang, P103 Khánh; nhà 5 R202 Linh';
-  RAISE NOTICE 'Điện nước kỳ 08 đã trả hết. Tiền nhà/DV 10/2026: An, Em, Giang đã trả; Bình/Cường/Dung/Huy/Khánh/Linh PENDING. Bình có hoá đơn bảo trì chờ trả.';
+  RAISE NOTICE 'Điện nước kỳ 08 đã trả hết. Tiền nhà/DV 10/2026 (hạn 05/10): Bình/Cường/Huy PENDING, 6 khách còn lại đã trả. Bình có hoá đơn bảo trì chờ trả.';
 END $$;
 
 COMMIT;

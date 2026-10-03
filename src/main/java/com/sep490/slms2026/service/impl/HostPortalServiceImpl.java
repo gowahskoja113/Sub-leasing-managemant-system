@@ -91,10 +91,12 @@ public class HostPortalServiceImpl implements HostPortalService {
         }
         long expiringLeases = countExpiringMasterLeases();
         long activeManagers = userRepository.findByRoleAndStatus(Role.ROLE_MANAGER, UserStatus.ACTIVE).size();
-        List<HostInvoiceDto> outstanding = buildInvoices(ym, "UNPAID");
-        outstanding.addAll(buildInvoices(ym, "OVERDUE"));
+        List<HostInvoiceDto> outstanding = buildInvoices(null, null).stream()
+                .filter(i -> !"PAID".equals(i.status()))
+                .toList();
         BigDecimal outstandingAmount = outstanding.stream()
                 .map(HostInvoiceDto::amount)
+                .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return HostDashboardSummaryResponse.builder()
@@ -757,20 +759,28 @@ public class HostPortalServiceImpl implements HostPortalService {
         hostNotificationRepository.insertIfAbsent(userId, dedupeKey, type, title, message, priority);
     }
 
+    /**
+     * Hoá đơn thật từ tenant_invoices (mọi loại). {@code ym == null} → mọi kỳ.
+     * Bỏ HD-ONBOARD (cọc + kỳ đầu thu lúc nhận nhà) và hoá đơn đã huỷ.
+     * Trạng thái: PAID | OVERDUE | UNPAID (PENDING/PARTIAL quá hạn mà cron chưa quét vẫn tính OVERDUE).
+     */
     private List<HostInvoiceDto> buildInvoices(YearMonth ym, String statusFilter) {
-        LocalDate dueDate = ym.atEndOfMonth().plusDays(5);
         LocalDate today = LocalDate.now();
         List<HostInvoiceDto> invoices = new ArrayList<>();
-        for (TenantContract contract : tenantContractRepository.findByStatus(ContractStatus.ACTIVE)) {
-            if (!isContractActiveInMonth(contract, ym)) {
+        List<TenantInvoice> dbInvoices = tenantInvoiceRepository.findForManager(
+                null, null, null, null,
+                ym != null ? ym.getYear() : null,
+                ym != null ? ym.getMonthValue() : null);
+        for (TenantInvoice invoice : dbInvoices) {
+            if (invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.CANCELLED
+                    || (invoice.getCode() != null && invoice.getCode().startsWith("HD-ONBOARD-"))) {
                 continue;
             }
             String status;
-            if (contract.getPaymentStatus() == PaymentStatus.PAID
-                    && contract.getPaidAt() != null
-                    && ym.equals(YearMonth.from(contract.getPaidAt()))) {
+            if (invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.PAID) {
                 status = "PAID";
-            } else if (dueDate.isBefore(today)) {
+            } else if (invoice.getStatus() == com.sep490.slms2026.enums.TenantInvoiceStatus.OVERDUE
+                    || (invoice.getDueDate() != null && invoice.getDueDate().isBefore(today))) {
                 status = "OVERDUE";
             } else {
                 status = "UNPAID";
@@ -778,13 +788,23 @@ public class HostPortalServiceImpl implements HostPortalService {
             if (statusFilter != null && !statusFilter.isBlank() && !statusFilter.equalsIgnoreCase(status)) {
                 continue;
             }
+            TenantContract contract = invoice.getTenantContract();
+            String roomCode = invoice.getRoomNumber() != null ? invoice.getRoomNumber()
+                    : contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "NGUYEN_CAN";
             invoices.add(HostInvoiceDto.builder()
-                    .id(contract.getId() + "-" + ym)
+                    .id(String.valueOf(invoice.getId()))
+                    .code(invoice.getCode())
+                    .invoiceType(invoice.getInvoiceType() != null ? invoice.getInvoiceType().name() : null)
+                    .propertyId(contract.getProperty().getId())
                     .tenantName(resolveTenantDisplayName(contract))
-                    .roomCode(contract.getRoom() != null ? contract.getRoom().getRoomNumber() : "NGUYEN_CAN")
-                    .propertyName(contract.getProperty().getPropertyName())
-                    .amount(contract.getRentAmount())
-                    .dueDate(dueDate)
+                    .roomCode(roomCode)
+                    .propertyName(invoice.getPropertyName() != null
+                            ? invoice.getPropertyName() : contract.getProperty().getPropertyName())
+                    .billingPeriod(invoice.getBillingYear() != null && invoice.getBillingMonth() != null
+                            ? YearMonth.of(invoice.getBillingYear(), invoice.getBillingMonth()).toString()
+                            : invoice.getBillingPeriod())
+                    .amount(invoice.getGrandTotal() != null ? invoice.getGrandTotal() : invoice.getTotalAmount())
+                    .dueDate(invoice.getDueDate())
                     .status(status)
                     .build());
         }
