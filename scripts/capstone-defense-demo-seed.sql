@@ -525,7 +525,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 1) || ' Nhà phố Xô Viết Nghệ Tĩnh',
     'mtx#' || (mtx_base + 1), pg_temp.demo_addr('124/7 Xô Viết Nghệ Tĩnh, Phường 21', z_binhthanh),
-    z_binhthanh, 85, 8.5, 10, 2, true, true, 3, 'RENTED',
+    z_binhthanh, 85, 8.5, 10, 2, true, true, 3, 'ACTIVE',
     uid_mgr1, 'Nhà phố 1 trệt 1 lầu, 3 phòng ngủ, full nội thất, hẻm xe hơi, gần chợ Thị Nghè.',
     14000000, 14000000, 3500, 18000, 'PE05150000110', '15015000110',
     2, 200000, true, '2024-08-01 09:00:00'
@@ -540,7 +540,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 2) || ' Nhà nguyên căn Hoàng Văn Thụ',
     'mtx#' || (mtx_base + 2), pg_temp.demo_addr('56/12 Hoàng Văn Thụ, Phường 9', z_phunhuan),
-    z_phunhuan, 55, 7, 8, 1, true, false, 2, 'RENTED',
+    z_phunhuan, 55, 7, 8, 1, true, false, 2, 'ACTIVE',
     uid_mgr1, 'Nhà cấp 4 gác lửng, 2 phòng ngủ, nội thất cơ bản (giường, tủ, quạt, nóng lạnh), gần sân bay.',
     9000000, 9000000, 3500, 18000, 'PE05150000111', '15015000111',
     1, 150000, true, '2025-07-01 10:00:00'
@@ -555,7 +555,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 3) || ' Nhà nguyên căn Kỳ Đồng',
     'mtx#' || (mtx_base + 3), pg_temp.demo_addr('18/3 Kỳ Đồng, Phường 9', z_quan3),
-    z_quan3, 70, 7, 10, 2, true, false, 3, 'RENTED',
+    z_quan3, 70, 7, 10, 2, true, false, 3, 'ACTIVE',
     uid_mgr1, 'Nhà 1 trệt 1 lầu, 3 phòng ngủ, bàn giao nhà trống (không nội thất), hẻm 4m.',
     7500000, 7500000, 3500, 18000, 'PE05150000112', '15015000112',
     1, 100000, true, '2026-06-15 09:00:00'
@@ -570,7 +570,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 4) || ' Nhà trọ Quang Trung',
     'mtx#' || (mtx_base + 4), pg_temp.demo_addr('230/15 Quang Trung, Phường 10', z_govap),
-    z_govap, 120, 10, 12, 3, false, true, 3, 'RENTED',
+    z_govap, 120, 10, 12, 3, false, true, 3, 'ACTIVE',
     uid_mgr2, 'Nhà 3 tầng cho thuê theo phòng, 3 phòng full nội thất, công tơ điện nước riêng từng phòng.',
     NULL, NULL, 3500, 18000, 'PE05150000113', '15015000113',
     1, 50000, true, '2025-01-10 08:00:00'
@@ -585,7 +585,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 5) || ' Nhà trọ Nguyễn Cảnh Chân',
     'mtx#' || (mtx_base + 5), pg_temp.demo_addr('45/6 Nguyễn Cảnh Chân, Phường Cầu Kho', z_quan1),
-    z_quan1, 90, 9, 10, 2, false, false, 2, 'RENTED',
+    z_quan1, 90, 9, 10, 2, false, false, 2, 'ACTIVE',
     uid_mgr2, 'Nhà 2 tầng cho thuê theo phòng, 2 phòng không nội thất, công tơ điện nước riêng từng phòng.',
     NULL, NULL, 3500, 18000, 'PE05150000114', '15015000114',
     1, 80000, true, '2026-05-01 08:00:00'
@@ -600,7 +600,7 @@ BEGIN
   ) VALUES (
     'MTX#' || (mtx_base + 6) || ' Nhà phố Bạch Đằng',
     'mtx#' || (mtx_base + 6), pg_temp.demo_addr('88/21 Bạch Đằng, Phường 24', z_binhthanh),
-    z_binhthanh, 95, 9.5, 10, 2, true, true, 3, 'RENTED',
+    z_binhthanh, 95, 9.5, 10, 2, true, true, 3, 'ACTIVE',
     uid_mgr1, 'Nhà phố 1 trệt 1 lầu, 3 phòng ngủ, full nội thất, gần cầu Bình Triệu.',
     15000000, 15000000, 3500, 18000, 'PE05150000115', '15015000115',
     2, 250000, true, '2023-01-05 09:00:00'

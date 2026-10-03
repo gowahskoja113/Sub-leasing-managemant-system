@@ -79,11 +79,7 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         for (LeaseContractImportRow leaseRow : workbook.getLeaseContracts()) {
             String contractCode = leaseRow.getContractCode();
             if (skippedContracts.containsKey(contractCode)) {
-                BulkImportContractResultResponse codeUpdate =
-                        tryUpdateCustomerCodesOnExisting(leaseRow, skippedContracts.get(contractCode));
-                results.add(codeUpdate != null
-                        ? codeUpdate
-                        : buildSkippedResult(contractCode, skippedContracts.get(contractCode), leaseRow));
+                results.add(buildExistingResult(leaseRow, skippedContracts.get(contractCode), false));
                 continue;
             }
 
@@ -370,7 +366,7 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         for (LeaseContractImportRow row : workbook.getLeaseContracts()) {
             String code = row.getContractCode();
             if (skippedContracts.containsKey(code)) {
-                results.add(buildSkippedResult(code, skippedContracts.get(code), row));
+                results.add(buildExistingResult(row, skippedContracts.get(code), true));
             } else {
                 results.add(BulkImportContractResultResponse.builder()
                         .importStatus(IMPORT_STATUS_IMPORTED)
@@ -383,52 +379,81 @@ public class BulkLeaseImportServiceImpl implements BulkLeaseImportService {
         return results;
     }
 
-    private BulkImportContractResultResponse buildSkippedResult(String contractCode,
-                                                                String message,
-                                                                LeaseContractImportRow row) {
-        return BulkImportContractResultResponse.builder()
-                .importStatus(IMPORT_STATUS_SKIPPED)
+    /**
+     * Nhà đã tồn tại (trùng HĐ / địa chỉ). Mã KH điện/nước trong file khác hồ sơ (sau chuẩn hoá)
+     * → CODES_UPDATED kèm from/to (dry-run chỉ báo, không ghi); y hệt hoặc để trống → SKIPPED.
+     */
+    private BulkImportContractResultResponse buildExistingResult(LeaseContractImportRow row,
+                                                                 String skipReason,
+                                                                 boolean dryRun) {
+        String contractCode = row.getContractCode();
+        Property property = inboundContractRepository.findByContractCode(contractCode)
+                .map(InboundContract::getProperty)
+                .orElse(null);
+        if (property == null) {
+            return BulkImportContractResultResponse.builder()
+                    .importStatus(IMPORT_STATUS_SKIPPED)
+                    .contractCode(contractCode)
+                    .message(skipReason)
+                    .build();
+        }
+
+        String newElec = UtilityCustomerCodeHelper.normalize(row.getElectricityCustomerCode());
+        String newWater = UtilityCustomerCodeHelper.normalize(row.getWaterCustomerCode());
+        String oldElec = UtilityCustomerCodeHelper.normalize(property.getElectricityCustomerCode());
+        String oldWater = UtilityCustomerCodeHelper.normalize(property.getWaterCustomerCode());
+        boolean elecChanged = newElec != null && !newElec.equals(oldElec);
+        boolean waterChanged = newWater != null && !newWater.equals(oldWater);
+
+        var result = BulkImportContractResultResponse.builder()
                 .contractCode(contractCode)
-                .message(message)
+                .propertyId(property.getId())
+                .propertyName(property.getPropertyName())
+                .finalStatus(property.getStatus() != null ? property.getStatus().name() : null);
+
+        if (!elecChanged && !waterChanged) {
+            return result.importStatus(IMPORT_STATUS_SKIPPED)
+                    .message(skipReason)
+                    .build();
+        }
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (elecChanged) {
+            details.put("electricity", codeChange(oldElec, newElec));
+        }
+        if (waterChanged) {
+            details.put("water", codeChange(oldWater, newWater));
+        }
+
+        if (!dryRun) {
+            if (elecChanged) {
+                property.setElectricityCustomerCode(newElec);
+            }
+            if (waterChanged) {
+                property.setWaterCustomerCode(newWater);
+            }
+            propertyRepository.save(property);
+        }
+
+        return result.importStatus(IMPORT_STATUS_CODES_UPDATED)
+                .details(details)
+                .message((dryRun ? "Dry run — sẽ cập nhật mã KH " : "Đã cập nhật mã KH ")
+                        + describeCodeChanges(elecChanged, waterChanged)
+                        + " (nhà đã tồn tại — " + skipReason + ")")
                 .build();
     }
 
-    /**
-     * Nhà đã tồn tại (trùng HĐ): nếu Excel có mã KH thì chỉ ghi đè 2 cột mã, không đụng gì khác.
-     */
-    private BulkImportContractResultResponse tryUpdateCustomerCodesOnExisting(
-            LeaseContractImportRow row, String skipReason) {
-        boolean hasElec = row.getElectricityCustomerCode() != null
-                && !row.getElectricityCustomerCode().isBlank();
-        boolean hasWater = row.getWaterCustomerCode() != null
-                && !row.getWaterCustomerCode().isBlank();
-        if (!hasElec && !hasWater) {
-            return null;
+    private static Map<String, String> codeChange(String from, String to) {
+        Map<String, String> change = new LinkedHashMap<>();
+        change.put("from", from);
+        change.put("to", to);
+        return change;
+    }
+
+    private static String describeCodeChanges(boolean elecChanged, boolean waterChanged) {
+        if (elecChanged && waterChanged) {
+            return "điện và nước";
         }
-        return inboundContractRepository.findByContractCode(row.getContractCode())
-                .map(ic -> {
-                    Property property = ic.getProperty();
-                    if (property == null) {
-                        return null;
-                    }
-                    if (hasElec) {
-                        property.setElectricityCustomerCode(
-                                UtilityCustomerCodeHelper.normalize(row.getElectricityCustomerCode()));
-                    }
-                    if (hasWater) {
-                        property.setWaterCustomerCode(
-                                UtilityCustomerCodeHelper.normalize(row.getWaterCustomerCode()));
-                    }
-                    propertyRepository.save(property);
-                    return BulkImportContractResultResponse.builder()
-                            .importStatus(IMPORT_STATUS_CODES_UPDATED)
-                            .contractCode(row.getContractCode())
-                            .propertyId(property.getId())
-                            .propertyName(property.getPropertyName())
-                            .finalStatus(property.getStatus() != null ? property.getStatus().name() : null)
-                            .message("Đã cập nhật mã KH điện/nước (nhà đã tồn tại — " + skipReason + ")")
-                            .build();
-                })
-                .orElse(null);
+        return elecChanged ? "điện" : "nước";
     }
 }

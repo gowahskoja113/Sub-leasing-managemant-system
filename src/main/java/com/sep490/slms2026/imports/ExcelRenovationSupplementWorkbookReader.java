@@ -103,6 +103,7 @@ public class ExcelRenovationSupplementWorkbookReader {
                     .warrantyMonths(readInteger(row, headers.get("Số tháng bảo hành"), formatter, evaluator))
                     .warrantyStartDate(readDate(row, headers.get("Ngày bắt đầu bảo hành"), formatter, evaluator))
                     .warrantyEndDate(readDate(row, headers.get("Ngày hết bảo hành"), formatter, evaluator))
+                    .penaltyFee(readDecimal(row, headers.get("Giá phạt hết bảo hành (VNĐ)"), formatter, evaluator))
                     .note(readOptionalString(row, headers.get("Ghi chú lắp đặt"), formatter, evaluator))
                     .actionRaw(readOptionalAction(row, headers, formatter, evaluator))
                     .build());

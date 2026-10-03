@@ -34,9 +34,13 @@ import static com.sep490.slms2026.imports.ExcelRenovationImportWorkbookReader.*;
 @RequiredArgsConstructor
 public class BulkRenovationImportServiceImpl implements BulkRenovationImportService {
 
-    private static final String SKIP_REASON_ALREADY_SUBMITTED = "Đã hoàn thành đợt 2 / đã gửi Host — bỏ qua";
-    private static final String SKIP_REASON_HOUSE_NOT_INITIALIZED =
-            "Chưa khởi tạo tòa nhà cho mã HĐ này — bỏ qua";
+    private static final SkipReason SKIP_ALREADY_SUBMITTED = new SkipReason(
+            "ALREADY_SUBMITTED", "Đã hoàn thành đợt 2 / đã gửi Host — bỏ qua");
+    private static final SkipReason SKIP_HOUSE_NOT_INITIALIZED = new SkipReason(
+            "HOUSE_NOT_INITIALIZED", "Chưa khởi tạo tòa nhà cho mã HĐ này — bỏ qua");
+    private static final SkipReason SKIP_IN_SUPPLEMENT_PHASE = new SkipReason(
+            "IN_SUPPLEMENT_PHASE",
+            "Nhà đang cải tạo bổ sung — nhập ở mục \"Cải tạo bổ sung\", bỏ qua");
     private static final Set<String> VALID_EXPLOITATION_TYPES = Set.of(
             "NGUYEN_CAN", "WHOLE_HOUSE", "THEO_PHONG", "INDIVIDUAL_ROOM");
 
@@ -56,7 +60,7 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
     public BulkImportResponse importRenovationWorkbook(MultipartFile file, boolean dryRun) {
         RenovationImportWorkbook workbook = workbookReader.read(file);
         List<ExploitationConfigImportRow> configRows = workbook.getConfigRows();
-        Map<String, String> skippedContracts = resolveSkippedContracts(configRows);
+        Map<String, SkipReason> skippedContracts = resolveSkippedContracts(configRows);
         List<BulkImportErrorResponse> errors = validate(workbook, skippedContracts);
 
         if (!errors.isEmpty()) {
@@ -266,8 +270,8 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         return request;
     }
 
-    private Map<String, String> resolveSkippedContracts(List<ExploitationConfigImportRow> configRows) {
-        Map<String, String> skipped = new LinkedHashMap<>();
+    private Map<String, SkipReason> resolveSkippedContracts(List<ExploitationConfigImportRow> configRows) {
+        Map<String, SkipReason> skipped = new LinkedHashMap<>();
         for (ExploitationConfigImportRow row : configRows) {
             String code = row.getContractCode();
             if (code == null || code.isBlank()) {
@@ -276,23 +280,29 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
             Optional<InboundContract> contractOpt = inboundContractRepository.findByContractCode(code);
             if (contractOpt.isEmpty()) {
                 // Nhà chưa có trong hệ thống (chưa đợt 1) — bỏ qua, tiếp tục import các nhà còn lại
-                skipped.put(code, SKIP_REASON_HOUSE_NOT_INITIALIZED);
+                skipped.put(code, SKIP_HOUSE_NOT_INITIALIZED);
                 continue;
             }
-            PropertyStatus status = contractOpt.get().getProperty().getStatus();
+            Property property = contractOpt.get().getProperty();
+            PropertyStatus status = property.getStatus();
             if (status == PropertyStatus.PENDING_HOST_REVIEW
                     || status == PropertyStatus.PENDING_OPERATION_MANAGER
                     || status == PropertyStatus.ACTIVE
                     || status == PropertyStatus.RENTED
                     || status == PropertyStatus.RENOVATION_COMPLETED) {
-                skipped.put(code, SKIP_REASON_ALREADY_SUBMITTED);
+                skipped.put(code, SKIP_ALREADY_SUBMITTED);
+            } else if (status != PropertyStatus.UNDER_RENOVATION) {
+                skipped.put(code, new SkipReason("NOT_READY_FOR_RENOVATION",
+                        "Nhà chưa tới bước cải tạo (trạng thái hiện tại: " + status + ") — bỏ qua"));
+            } else if (renovationPhaseSupport.isSupplementRenovationPhase(property.getId())) {
+                skipped.put(code, SKIP_IN_SUPPLEMENT_PHASE);
             }
         }
         return skipped;
     }
 
     private List<BulkImportErrorResponse> validate(RenovationImportWorkbook workbook,
-                                                   Map<String, String> skippedContracts) {
+                                                   Map<String, SkipReason> skippedContracts) {
         List<BulkImportErrorResponse> errors = new ArrayList<>();
         List<ExploitationConfigImportRow> configRows = workbook.getConfigRows();
         Set<String> configCodes = new HashSet<>();
@@ -350,16 +360,6 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
                 errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
                         "Chưa khởi tạo tòa nhà cho mã HĐ này"));
                 continue;
-            }
-            Property property = inboundContractRepository.findByContractCode(code)
-                    .orElseThrow().getProperty();
-            if (property.getStatus() != PropertyStatus.UNDER_RENOVATION) {
-                errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
-                        "Tòa nhà phải ở trạng thái UNDER_RENOVATION (chờ đợt 2), hiện tại: "
-                                + property.getStatus()));
-            } else if (renovationPhaseSupport.isSupplementRenovationPhase(property.getId())) {
-                errors.add(error(SHEET_CONFIG, config.getRowNumber(), code, "Mã hợp đồng thuê",
-                        "Nhà đang trong đợt cải tạo bổ sung — dùng POST /import/renovation-supplement-excel"));
             }
 
             if (!config.isWholeHouse()) {
@@ -587,36 +587,43 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
     }
 
     private int countImportable(List<ExploitationConfigImportRow> configRows,
-                                Map<String, String> skippedContracts) {
+                                Map<String, SkipReason> skippedContracts) {
         return (int) configRows.stream()
                 .map(ExploitationConfigImportRow::getContractCode)
                 .filter(code -> !skippedContracts.containsKey(code))
                 .count();
     }
 
-    private int countRenovationForImport(RenovationImportWorkbook workbook, Map<String, String> skippedContracts) {
+    private int countRenovationForImport(RenovationImportWorkbook workbook, Map<String, SkipReason> skippedContracts) {
         return (int) workbook.getRenovationLines().stream()
                 .filter(row -> !skippedContracts.containsKey(row.getContractCode()))
                 .count();
     }
 
-    private int countPurchasedForImport(RenovationImportWorkbook workbook, Map<String, String> skippedContracts) {
+    private int countPurchasedForImport(RenovationImportWorkbook workbook, Map<String, SkipReason> skippedContracts) {
         return (int) workbook.getPurchasedRows().stream()
                 .filter(row -> !skippedContracts.containsKey(row.getContractCode()))
                 .count();
     }
 
     private List<BulkImportContractResultResponse> buildDryRunResults(List<ExploitationConfigImportRow> configRows,
-                                                                      Map<String, String> skippedContracts) {
+                                                                      Map<String, SkipReason> skippedContracts) {
         List<BulkImportContractResultResponse> results = new ArrayList<>();
         for (ExploitationConfigImportRow row : configRows) {
             String code = row.getContractCode();
             if (skippedContracts.containsKey(code)) {
                 results.add(buildSkippedResult(code, skippedContracts.get(code)));
             } else {
+                Property property = inboundContractRepository.findByContractCode(code)
+                        .map(InboundContract::getProperty)
+                        .orElse(null);
                 results.add(BulkImportContractResultResponse.builder()
                         .importStatus(IMPORT_STATUS_IMPORTED)
                         .contractCode(code)
+                        .propertyId(property != null ? property.getId() : null)
+                        .propertyName(property != null ? property.getPropertyName() : null)
+                        .finalStatus(property != null && property.getStatus() != null
+                                ? property.getStatus().name() : null)
                         .message("Dry run — sẽ cập nhật đợt 2 và gửi Host")
                         .build());
             }
@@ -624,23 +631,28 @@ public class BulkRenovationImportServiceImpl implements BulkRenovationImportServ
         return results;
     }
 
-    private BulkImportContractResultResponse buildSkippedResult(String contractCode, String message) {
+    private BulkImportContractResultResponse buildSkippedResult(String contractCode, SkipReason reason) {
         return inboundContractRepository.findByContractCode(contractCode)
                 .map(contract -> {
                     Property property = contract.getProperty();
                     return BulkImportContractResultResponse.builder()
                             .importStatus(IMPORT_STATUS_SKIPPED)
+                            .code(reason.code())
                             .contractCode(contractCode)
                             .propertyId(property.getId())
                             .propertyName(property.getPropertyName())
                             .finalStatus(property.getStatus().name())
-                            .message(message)
+                            .message(reason.message())
                             .build();
                 })
                 .orElseGet(() -> BulkImportContractResultResponse.builder()
                         .importStatus(IMPORT_STATUS_SKIPPED)
+                        .code(reason.code())
                         .contractCode(contractCode)
-                        .message(message)
+                        .message(reason.message())
                         .build());
+    }
+
+    private record SkipReason(String code, String message) {
     }
 }

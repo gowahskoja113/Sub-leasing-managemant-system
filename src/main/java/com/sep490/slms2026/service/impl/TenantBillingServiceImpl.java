@@ -56,6 +56,7 @@ public class TenantBillingServiceImpl implements TenantBillingService {
     private final TenantPaymentRepository tenantPaymentRepository;
     private final TenantContractRepository tenantContractRepository;
     private final UtilityInvoiceRepository utilityInvoiceRepository;
+    private final UtilityBillRepository utilityBillRepository;
     private final PayosService payosService;
     private final PropertyAccessService propertyAccessService;
     private final RealtimeEventService realtimeEventService;
@@ -335,14 +336,15 @@ public class TenantBillingServiceImpl implements TenantBillingService {
         
         java.time.LocalDate issuedOn = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
         java.time.LocalDate dueDate = issuedOn.plusDays(utilityPaymentWindowDays);
-        YearMonth ym = ContractBillingCalendar.parsePeriod(utilityInvoice.getBillingPeriod())
-                .orElse(YearMonth.from(issuedOn));
+        YearMonth ym = resolveUtilityConsumptionMonth(utilityInvoice, issuedOn);
 
         if (existing != null) {
             if (existing.getStatus() == TenantInvoiceStatus.PAID) {
                 throw new com.sep490.slms2026.exception.BusinessException("INVOICE_ALREADY_PAID",
                         "Hoá đơn kỳ này khách đã thanh toán — không sửa lại chỉ số được.");
             }
+            existing.setBillingMonth(ym.getMonthValue());
+            existing.setBillingYear(ym.getYear());
             existing.setTotalAmount(utilityInvoice.getAmount());
             existing.setLateFee(BigDecimal.ZERO);
             existing.setGrandTotal(utilityInvoice.getAmount());
@@ -378,6 +380,22 @@ public class TenantBillingServiceImpl implements TenantBillingService {
                 .build();
 
         return tenantInvoiceRepository.save(invoice);
+    }
+
+    /** Điện/nước TRẢ SAU: ưu tiên tháng/năm admin chọn trên hoá đơn tổng (utility_bills). */
+    private YearMonth resolveUtilityConsumptionMonth(UtilityInvoice utilityInvoice, LocalDate fallbackIssuedOn) {
+        if (utilityInvoice.getProperty() != null && utilityInvoice.getBillingPeriod() != null) {
+            var bill = utilityBillRepository.findFirstByPropertyIdAndTypeAndBillingPeriodAndStatusOrderByCreatedAtDesc(
+                    utilityInvoice.getProperty().getId(), utilityInvoice.getUtilityType(),
+                    utilityInvoice.getBillingPeriod(), UtilityBillStatus.PUBLISHED);
+            if (bill.isPresent() && bill.get().getMonth() != null && bill.get().getYear() != null) {
+                return YearMonth.of(bill.get().getYear(), bill.get().getMonth());
+            }
+        }
+        LocalDate issuedOn = utilityInvoice.getCreatedAt() != null
+                ? utilityInvoice.getCreatedAt().toLocalDate()
+                : fallbackIssuedOn;
+        return ContractBillingCalendar.resolveUtilityConsumptionMonth(utilityInvoice.getBillingPeriod(), issuedOn);
     }
 
     @Override

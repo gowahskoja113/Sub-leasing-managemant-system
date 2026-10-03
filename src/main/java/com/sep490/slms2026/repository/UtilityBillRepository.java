@@ -27,6 +27,9 @@ public interface UtilityBillRepository extends JpaRepository<UtilityBill, Long> 
     Optional<UtilityBill> findByPropertyIdAndMonthAndYearAndTypeAndStatus(
             Long propertyId, Integer month, Integer year, UtilityType type, UtilityBillStatus status);
 
+    Optional<UtilityBill> findFirstByPropertyIdAndTypeAndBillingPeriodAndStatusOrderByCreatedAtDesc(
+            Long propertyId, UtilityType type, String billingPeriod, UtilityBillStatus status);
+
     List<UtilityBill> findByPropertyIdAndTypeAndStatusOrderByCreatedAtDesc(
             Long propertyId, UtilityType type, UtilityBillStatus status);
 

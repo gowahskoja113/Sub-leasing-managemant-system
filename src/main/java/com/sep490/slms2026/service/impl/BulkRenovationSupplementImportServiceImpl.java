@@ -32,6 +32,8 @@ import static com.sep490.slms2026.imports.ExcelRenovationSupplementWorkbookReade
 @RequiredArgsConstructor
 public class BulkRenovationSupplementImportServiceImpl implements BulkRenovationSupplementImportService {
 
+    static final String CODE_NOT_IN_SUPPLEMENT_PHASE = "NOT_IN_SUPPLEMENT_PHASE";
+
     private final ExcelRenovationSupplementWorkbookReader workbookReader;
     private final PropertyOnboardingService propertyOnboardingService;
     private final RenovationCategoryRepository renovationCategoryRepository;
@@ -185,8 +187,10 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
 
             if (!renovationPhaseSupport.isSupplementRenovationPhase(propertyId)) {
                 errors.add(error(SHEET_RENOVATION, 1, code, "Mã hợp đồng thuê",
-                        "Phải gọi start-renovation trước (nhà ACTIVE → UNDER_RENOVATION, session ≥ 2). "
-                                + "Dùng renovation-excel nếu đang onboarding đợt 2."));
+                        "Nhà này hiện không trong đợt cải tạo bổ sung (có thể file đã được nhập rồi). "
+                                + "Muốn cải tạo thêm, bấm \"Bắt đầu cải tạo lại\" cho nhà trước; "
+                                + "nhà đang khởi tạo lần đầu thì nhập ở mục \"Cấu hình khai thác / cải tạo\".",
+                        CODE_NOT_IN_SUPPLEMENT_PHASE));
             }
 
             long renovationCount = workbook.getRenovationLines().stream()
@@ -301,6 +305,14 @@ public class BulkRenovationSupplementImportServiceImpl implements BulkRenovation
                 && !row.getWarrantyEndDate().isAfter(row.getWarrantyStartDate())) {
             errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(), "Ngày hết bảo hành",
                     "Ngày hết bảo hành phải sau ngày bắt đầu"));
+        }
+        if (row.getPenaltyFee() == null) {
+            errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(),
+                    "Giá phạt hết bảo hành (VNĐ)",
+                    "Giá phạt hết bảo hành không được để trống (thiếu cột thì tải lại file mẫu mới)"));
+        } else if (row.getPenaltyFee().compareTo(BigDecimal.ZERO) < 0) {
+            errors.add(error(SHEET_PURCHASED, row.getRowNumber(), row.getContractCode(),
+                    "Giá phạt hết bảo hành (VNĐ)", "Giá phạt hết bảo hành không được âm"));
         }
 
         validateEquipmentImportAction(errors, SHEET_PURCHASED, row);

@@ -7,6 +7,8 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Vòng lặp tiền nhà REGULAR: phát hành ngày 1, hạn chót ngày 5 hàng tháng.
@@ -20,6 +22,8 @@ public final class ContractBillingCalendar {
 
     private static final DateTimeFormatter ISO_MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final DateTimeFormatter VN_MONTH = DateTimeFormatter.ofPattern("MM/yyyy");
+    private static final Pattern DATE_RANGE = Pattern.compile(
+            "(\\d{1,2})/(\\d{1,2})/(\\d{4})\\s*(?:-|–|—|~|đến|to)\\s*\\d{1,2}/\\d{1,2}/\\d{4}");
 
     private ContractBillingCalendar() {
     }
@@ -167,5 +171,31 @@ public final class ContractBillingCalendar {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Kỳ tiêu thụ điện/nước (TRẢ SAU): {@code yyyy-MM} / {@code MM/yyyy} / {@code yyyy/M};
+     * dải ngày {@code dd/MM/yyyy – dd/MM/yyyy} lấy tháng của mốc đầu;
+     * không đọc được thì lấy tháng trước tháng phát hành.
+     */
+    public static YearMonth resolveUtilityConsumptionMonth(String billingPeriod, LocalDate issuedOn) {
+        return parsePeriod(billingPeriod)
+                .or(() -> parseDateRangeStartMonth(billingPeriod))
+                .orElseGet(() -> YearMonth.from(issuedOn != null ? issuedOn : LocalDate.now()).minusMonths(1));
+    }
+
+    public static Optional<YearMonth> parseDateRangeStartMonth(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        Matcher m = DATE_RANGE.matcher(raw.trim());
+        if (!m.matches()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(YearMonth.of(Integer.parseInt(m.group(3)), Integer.parseInt(m.group(2))));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 }

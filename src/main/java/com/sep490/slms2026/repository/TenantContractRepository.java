@@ -84,6 +84,33 @@ public interface TenantContractRepository extends JpaRepository<TenantContract, 
                                                 @Param("newStart") LocalDate newStart,
                                                 @Param("newEnd") LocalDate newEnd);
 
+    @Query("""
+            SELECT c FROM TenantContract c
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.room.id = :roomId
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+              AND c.moveInDate < :newEnd
+              AND (c.endDate IS NULL OR c.endDate > :newStart)
+            """)
+    List<TenantContract> findOverlappingContractsByRoom(@Param("roomId") Long roomId,
+                                                        @Param("newStart") LocalDate newStart,
+                                                        @Param("newEnd") LocalDate newEnd);
+
+    @Query("""
+            SELECT c FROM TenantContract c
+            LEFT JOIN FETCH c.tenant t
+            LEFT JOIN FETCH t.user
+            WHERE c.property.id = :propertyId
+              AND c.room IS NULL
+              AND c.status <> com.sep490.slms2026.enums.ContractStatus.TERMINATED
+              AND c.moveInDate < :newEnd
+              AND (c.endDate IS NULL OR c.endDate > :newStart)
+            """)
+    List<TenantContract> findOverlappingContractsByProperty(@Param("propertyId") Long propertyId,
+                                                            @Param("newStart") LocalDate newStart,
+                                                            @Param("newEnd") LocalDate newEnd);
+
     // Các HĐ nguyên căn đang hiệu lực (room == null) — để biết nhà nào đã có khách
     List<TenantContract> findByRoomIsNullAndStatus(ContractStatus status);
 

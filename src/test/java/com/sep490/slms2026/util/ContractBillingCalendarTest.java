@@ -74,4 +74,19 @@ class ContractBillingCalendarTest {
         assertEquals(YearMonth.of(2026, 8), ContractBillingCalendar.parsePeriod("08/2026").orElseThrow());
         assertEquals(YearMonth.of(2026, 8), ContractBillingCalendar.parsePeriod("2026/8").orElseThrow());
     }
+
+    @Test
+    void utilityConsumptionMonth_isPostpaid() {
+        LocalDate issuedOn = LocalDate.of(2026, 10, 3);
+        assertEquals(YearMonth.of(2026, 9),
+                ContractBillingCalendar.resolveUtilityConsumptionMonth("2026-09", issuedOn));
+        assertEquals(YearMonth.of(2026, 9),
+                ContractBillingCalendar.resolveUtilityConsumptionMonth("04/09/2026 – 04/10/2026", issuedOn));
+        assertEquals(YearMonth.of(2026, 9),
+                ContractBillingCalendar.resolveUtilityConsumptionMonth("4/9/2026 - 4/10/2026", issuedOn));
+        assertEquals(YearMonth.of(2026, 9),
+                ContractBillingCalendar.resolveUtilityConsumptionMonth("không đọc được", issuedOn));
+        assertEquals(YearMonth.of(2025, 12),
+                ContractBillingCalendar.resolveUtilityConsumptionMonth(null, LocalDate.of(2026, 1, 3)));
+    }
 }

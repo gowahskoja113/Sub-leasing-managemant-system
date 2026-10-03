@@ -8,6 +8,7 @@ import com.sep490.slms2026.dto.response.TenantContractResponse;
 import com.sep490.slms2026.entity.InboundContract;
 import com.sep490.slms2026.entity.Property;
 import com.sep490.slms2026.entity.Room;
+import com.sep490.slms2026.entity.TenantContract;
 import com.sep490.slms2026.enums.ContractStatus;
 import com.sep490.slms2026.enums.PropertyStatus;
 import com.sep490.slms2026.enums.RoomStatus;
@@ -40,6 +41,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.sep490.slms2026.imports.BulkImportSupport.IMPORT_STATUS_IMPORTED;
+import static com.sep490.slms2026.imports.BulkImportSupport.IMPORT_STATUS_SKIPPED;
 import static com.sep490.slms2026.imports.BulkImportSupport.error;
 import static com.sep490.slms2026.imports.BulkImportSupport.normalizeOptional;
 import static com.sep490.slms2026.imports.BulkImportSupport.requireText;
@@ -62,6 +64,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
     static final String CODE_ROOM_OCCUPIED = "ROOM_OCCUPIED";
     static final String CODE_DUPLICATE_IN_FILE = "DUPLICATE_IN_FILE";
     static final String CODE_FILE_EMPTY = "FILE_EMPTY";
+    static final String CODE_ALREADY_IMPORTED = "ALREADY_IMPORTED";
 
     private final ExcelTenantDraftContractWorkbookReader workbookReader;
     private final InboundContractRepository inboundContractRepository;
@@ -84,10 +87,11 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
 
         List<BulkImportErrorResponse> errors = new ArrayList<>();
         List<ResolvedDraftRow> resolved = new ArrayList<>();
+        List<BulkImportContractResultResponse> alreadyImported = new ArrayList<>();
         Set<String> occupancyKeysInFile = new HashSet<>();
 
         for (TenantDraftContractImportRow row : workbook.getRows()) {
-            ResolvedDraftRow item = validateAndResolve(row, occupancyKeysInFile, errors);
+            ResolvedDraftRow item = validateAndResolve(row, occupancyKeysInFile, errors, alreadyImported);
             if (item != null) {
                 resolved.add(item);
             }
@@ -96,17 +100,17 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         if (!errors.isEmpty() && !skipInvalidRows) {
             throw new BulkImportValidationException("File Excel có lỗi validation", errors);
         }
-        if (resolved.isEmpty()) {
+        if (resolved.isEmpty() && alreadyImported.isEmpty()) {
             throw new BulkImportValidationException("Không có dòng nào hợp lệ để import", errors);
         }
 
-        int skipped = countSkippedRows(errors);
+        int skipped = countSkippedRows(errors) + alreadyImported.size();
 
         if (dryRun) {
-            List<BulkImportContractResultResponse> dryResults = resolved.stream()
-                    .map(r -> toImportResult(r, IMPORT_STATUS_IMPORTED, "(dry-run)",
-                            ContractStatus.DRAFT.name(), buildPreviewMessage(r)))
-                    .toList();
+            List<BulkImportContractResultResponse> dryResults = new ArrayList<>();
+            resolved.forEach(r -> dryResults.add(toImportResult(r, IMPORT_STATUS_IMPORTED, "(dry-run)",
+                    ContractStatus.DRAFT.name(), buildPreviewMessage(r))));
+            dryResults.addAll(alreadyImported);
             return BulkImportResponse.builder()
                     .dryRun(true)
                     .contractsProcessed(resolved.size())
@@ -129,6 +133,7 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
                     "Đã tạo HĐ nháp cho " + created.getTenantFullName()
                             + (created.getRoomNumber() != null ? " — phòng " + created.getRoomNumber() : " — nguyên căn")));
         }
+        results.addAll(alreadyImported);
 
         return BulkImportResponse.builder()
                 .dryRun(false)
@@ -143,7 +148,8 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
 
     private ResolvedDraftRow validateAndResolve(TenantDraftContractImportRow row,
                                                 Set<String> occupancyKeysInFile,
-                                                List<BulkImportErrorResponse> errors) {
+                                                List<BulkImportErrorResponse> errors,
+                                                List<BulkImportContractResultResponse> alreadyImported) {
         int before = errors.size();
         String rowKey = "row-" + row.getRowNumber();
 
@@ -184,6 +190,14 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
         if (property == null) {
             return null;
         }
+
+        TenantContract previous = findSameTenantOverlap(row, property);
+        if (previous != null) {
+            errors.subList(before, errors.size()).clear();
+            alreadyImported.add(toAlreadyImportedResult(row, property, previous));
+            return null;
+        }
+
         if (property.getStatus() != PropertyStatus.ACTIVE) {
             addError(errors, row, rowKey, "BĐS", CODE_PROPERTY_NOT_ACTIVE,
                     "BĐS '" + property.getPropertyName() + "' chưa ACTIVE (status="
@@ -412,6 +426,84 @@ public class BulkTenantDraftContractImportServiceImpl implements BulkTenantDraft
                                  String code,
                                  String message) {
         errors.add(error(SHEET_DRAFT, row.getRowNumber(), rowKey, field, message, code));
+    }
+
+    /**
+     * HĐ chồng lấn cùng phòng/căn của CÙNG khách (trùng SĐT hoặc CCCD) → dòng này đã nhập lần trước.
+     */
+    private TenantContract findSameTenantOverlap(TenantDraftContractImportRow row, Property property) {
+        if (row.getMoveInDate() == null || row.getEndDate() == null) {
+            return null;
+        }
+        String phone = digitsOnly(row.getPhoneNumber());
+        String cccd = digitsOnly(row.getCccd());
+        if (phone == null && cccd == null) {
+            return null;
+        }
+
+        List<TenantContract> overlapping;
+        if (isRoomRental(row, property)) {
+            String roomNumber = normalizeOptional(row.getRoomNumber());
+            if (roomNumber.isBlank()) {
+                return null;
+            }
+            Room room = roomRepository.findByPropertyIdAndRoomNumberAndDeletedIsFalse(property.getId(), roomNumber)
+                    .orElse(null);
+            if (room == null) {
+                return null;
+            }
+            overlapping = tenantContractRepository.findOverlappingContractsByRoom(
+                    room.getId(), row.getMoveInDate(), row.getEndDate());
+        } else {
+            overlapping = tenantContractRepository.findOverlappingContractsByProperty(
+                    property.getId(), row.getMoveInDate(), row.getEndDate());
+        }
+
+        for (TenantContract contract : overlapping) {
+            String contractPhone = digitsOnly(contract.getDraftTenantPhone());
+            String contractCccd = digitsOnly(contract.getDraftTenantCccd());
+            if (contract.getTenant() != null) {
+                if (contractCccd == null) {
+                    contractCccd = digitsOnly(contract.getTenant().getCccd());
+                }
+                if (contractPhone == null && contract.getTenant().getUser() != null) {
+                    contractPhone = digitsOnly(contract.getTenant().getUser().getPhoneNumber());
+                }
+            }
+            if ((phone != null && phone.equals(contractPhone)) || (cccd != null && cccd.equals(contractCccd))) {
+                return contract;
+            }
+        }
+        return null;
+    }
+
+    private BulkImportContractResultResponse toAlreadyImportedResult(TenantDraftContractImportRow row,
+                                                                     Property property,
+                                                                     TenantContract previous) {
+        Room room = previous.getRoom();
+        String unit = room != null ? "phòng " + room.getRoomNumber() : "nguyên căn";
+        return BulkImportContractResultResponse.builder()
+                .importStatus(IMPORT_STATUS_SKIPPED)
+                .code(CODE_ALREADY_IMPORTED)
+                .contractCode(previous.getContractCode())
+                .propertyId(property.getId())
+                .propertyName(property.getPropertyName())
+                .finalStatus(previous.getStatus() != null ? previous.getStatus().name() : null)
+                .message("Đã nhập trước đó — hồ sơ " + previous.getContractCode()
+                        + " của " + row.getFullName() + " (" + unit + "), bỏ qua")
+                .roomId(room != null ? room.getId() : null)
+                .roomNumber(room != null ? room.getRoomNumber() : null)
+                .tenantName(row.getFullName())
+                .rentAmount(previous.getRentAmount())
+                .build();
+    }
+
+    private static String digitsOnly(String value) {
+        if (value == null) {
+            return null;
+        }
+        String digits = value.replaceAll("\\D", "");
+        return digits.isEmpty() ? null : digits;
     }
 
     private static int countSkippedRows(List<BulkImportErrorResponse> errors) {
