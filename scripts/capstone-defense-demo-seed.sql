@@ -163,6 +163,50 @@ RETURNS text LANGUAGE sql AS $f$
   WHERE z.id = p_zone
 $f$;
 
+-- Khoá cố định cho các công thức chỉ số điện nước / ngày giờ trả tiền, để drop DB chạy lại vẫn ra đúng số cũ.
+-- k = ID của nhà / phòng / HĐ ở lần seed đã chốt số. NULL = dùng ID thật của lần chạy này.
+-- Lấy lại giá trị: chạy query ở cuối file (phần "FREEZE KEYS").
+CREATE TEMP TABLE IF NOT EXISTS demo_key (kind char(1), code text, k bigint, PRIMARY KEY (kind, code));
+TRUNCATE pg_temp.demo_key;
+INSERT INTO pg_temp.demo_key (kind, code, k) VALUES
+  -- nhà: mã KH điện
+  ('P', 'PE05150000110', 43),
+  ('P', 'PE05150000111', 44),
+  ('P', 'PE05150000112', 45),
+  ('P', 'PE05150000113', 46),
+  ('P', 'PE05150000114', 47),
+  ('P', 'PE05150000115', 48),
+  -- phòng: mã công tơ điện
+  ('R', 'CTD-104-P101', 60),
+  ('R', 'CTD-104-P102', 61),
+  ('R', 'CTD-104-P103', 62),
+  ('R', 'CTD-105-R201', 63),
+  ('R', 'CTD-105-R202', 64),
+  -- hợp đồng khách: mã HĐ
+  ('C', 'HDT-2023-0107', 58),
+  ('C', 'HDT-2024-0101', 52),
+  ('C', 'HDT-2024-0105', 56),
+  ('C', 'HDT-2025-0102', 53),
+  ('C', 'HDT-2025-0104', 55),
+  ('C', 'HDT-2025-0109', 60),
+  ('C', 'HDT-2025-0110', 61),
+  ('C', 'HDT-2026-0103', 54),
+  ('C', 'HDT-2026-0106', 57),
+  ('C', 'HDT-2026-0108', 59),
+  ('C', 'HDT-2026-0111', 62);
+
+CREATE OR REPLACE FUNCTION pg_temp.demo_k(p_kind char, p_id bigint)
+RETURNS bigint LANGUAGE sql STABLE AS $f$
+  SELECT COALESCE((
+    SELECT d.k FROM pg_temp.demo_key d
+    WHERE d.kind = p_kind AND d.code = CASE p_kind
+      WHEN 'P' THEN (SELECT upper(trim(electricity_customer_code)) FROM properties WHERE id = p_id)
+      WHEN 'R' THEN (SELECT electric_meter_code FROM rooms WHERE id = p_id)
+      WHEN 'C' THEN (SELECT contract_code FROM tenant_contracts WHERE id = p_id)
+    END
+  ), p_id)
+$f$;
+
 DO $$
 DECLARE
   mtx_base int;
@@ -225,6 +269,7 @@ DECLARE
   pay_now_ts  timestamp := TIMESTAMP '2026-10-02 20:15'; -- khách trả sớm kỳ hiện tại
 
   c_rec record;
+  ck bigint;
   ym date;
   month_end date;
   first_m date;
@@ -959,7 +1004,7 @@ BEGIN
     WHILE ym < date_trunc('month', h_rec.first_start)::date LOOP
       mon := EXTRACT(MONTH FROM ym)::int;
       month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
-      kwh := 8 + (h_rec.pid % 5) * 2 + mon % 3;
+      kwh := 8 + (pg_temp.demo_k('P', h_rec.pid) % 5) * 2 + mon % 3;
       m3 := 1;
 
       INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
@@ -991,15 +1036,15 @@ BEGIN
     WHERE p.id IN (p101, p102, p103, p104, p105, p106) AND NOT p.is_whole_house
     ORDER BY rm.id
   LOOP
-    prev_e := 120 + (h_rec.rid % 9) * 23;
-    prev_w := 8 + (h_rec.rid % 4) * 3;
+    prev_e := 120 + (pg_temp.demo_k('R', h_rec.rid) % 9) * 23;
+    prev_w := 8 + (pg_temp.demo_k('R', h_rec.rid) % 4) * 3;
     ym := h_rec.start_m;
     WHILE ym < h_rec.stop_m LOOP
       mon := EXTRACT(MONTH FROM ym)::int;
       month_end := (ym + INTERVAL '1 month' - INTERVAL '1 day')::date;
       -- phòng trống: chỉ đèn hành lang / dọn phòng / thử máy
-      kwh := 3 + (h_rec.rid % 3) + mon % 2;
-      m3 := (h_rec.rid + mon) % 2;
+      kwh := 3 + (pg_temp.demo_k('R', h_rec.rid) % 3) + mon % 2;
+      m3 := (pg_temp.demo_k('R', h_rec.rid) + mon) % 2;
 
       INSERT INTO meter_readings (property_id, room_id, utility_type, period, reading, prev_reading,
                                   recorded_at, recorded_by, utility_invoice_id)
@@ -1036,6 +1081,7 @@ BEGIN
     WHERE tc.property_id IN (p101, p102, p103, p104, p105, p106)
     ORDER BY tc.start_date
   LOOP
+    ck          := pg_temp.demo_k('C', c_rec.id);
     first_m     := date_trunc('month', c_rec.start_date)::date;
     last_rent_m := LEAST(date_trunc('month', c_rec.end_date)::date, demo_month);
     last_util_m := LEAST(date_trunc('month', c_rec.end_date)::date, util_month);
@@ -1087,8 +1133,8 @@ BEGIN
         IF ym = demo_month THEN
           paid_ts := CASE WHEN pays_now THEN pay_now_ts END;
         ELSE
-          paid_ts := (ym + ((c_rec.id + mon) % 4)::int) + TIME '19:30'
-                     + ((c_rec.id % 50)::int * INTERVAL '1 minute');
+          paid_ts := (ym + ((ck + mon) % 4)::int) + TIME '19:30'
+                     + ((ck % 50)::int * INTERVAL '1 minute');
         END IF;
       END IF;
 
@@ -1143,11 +1189,11 @@ BEGIN
       billed := p_end - p_start + 1;
 
       IF c_rec.room_id IS NOT NULL THEN
-        kwh := 65 + summer * 35 + (c_rec.id * 5 + mon * 11) % 20;
-        m3  := 3 + (c_rec.id + mon) % 3;
+        kwh := 65 + summer * 35 + (ck * 5 + mon * 11) % 20;
+        m3  := 3 + (ck + mon) % 3;
       ELSE
-        kwh := 170 + summer * 90 + (c_rec.id * 7 + mon * 13) % 45;
-        m3  := 10 + (c_rec.id + mon * 3) % 6;
+        kwh := 170 + summer * 90 + (ck * 7 + mon * 13) % 45;
+        m3  := 10 + (ck + mon * 3) % 6;
       END IF;
       IF billed < dim THEN
         kwh := GREATEST(round(kwh * billed / dim), 1);
@@ -1162,10 +1208,10 @@ BEGIN
       ELSE
         -- không chốt cuối tháng: quản lý chụp công tơ ngày 04 tháng sau, admin nhập giấy
         -- EVN / nước chiều cùng ngày → máy chủ phát hành cho khách theo bản chốt
-        rec_ts := (month_end + 4) + TIME '08:30' + ((c_rec.id % 20)::int * INTERVAL '1 minute');
+        rec_ts := (month_end + 4) + TIME '08:30' + ((ck % 20)::int * INTERVAL '1 minute');
         issue_ts := (month_end + 4) + TIME '14:05';
-        paid_ts := (issue_ts::date + (((c_rec.id + mon) % 3)::int + 1)) + TIME '20:00'
-                   + ((c_rec.id % 50)::int * INTERVAL '1 minute');
+        paid_ts := (issue_ts::date + (((ck + mon) % 3)::int + 1)) + TIME '20:00'
+                   + ((ck % 50)::int * INTERVAL '1 minute');
       END IF;
       due := issue_ts::date + 5;
 
@@ -1235,8 +1281,8 @@ BEGIN
     FROM properties p
     WHERE p.id IN (p101, p102, p103, p104, p105, p106) AND NOT p.is_whole_house
   LOOP
-    prev_e := 800 + (h_rec.pid % 7) * 37;
-    prev_w := 60 + (h_rec.pid % 5) * 7;
+    prev_e := 800 + (pg_temp.demo_k('P', h_rec.pid) % 7) * 37;
+    prev_w := 60 + (pg_temp.demo_k('P', h_rec.pid) % 5) * 7;
     ym := h_rec.start_m;
     WHILE ym <= util_month LOOP
       mon := EXTRACT(MONTH FROM ym)::int;
@@ -1573,3 +1619,21 @@ COMMIT;
 
 
 -- Seed lại / gỡ data demo: chạy scripts/capstone-defense-demo-cleanup.sql trước.
+
+-- -----------------------------------------------------------------------------
+-- FREEZE KEYS — chạy trên DB đang có số muốn giữ, dán kết quả đè lên khối
+-- INSERT INTO pg_temp.demo_key ở đầu file.
+-- -----------------------------------------------------------------------------
+-- SELECT string_agg(format('  (%L, %L, %s)', kind, code, id), E',\n' ORDER BY ord, code) || ';'
+-- FROM (
+--   SELECT 1 AS ord, 'P' AS kind, upper(trim(electricity_customer_code)) AS code, id FROM properties
+--   WHERE upper(trim(electricity_customer_code)) BETWEEN 'PE05150000110' AND 'PE05150000115'
+--   UNION ALL
+--   SELECT 2, 'R', electric_meter_code, id FROM rooms
+--   WHERE electric_meter_code IN ('CTD-104-P101', 'CTD-104-P102', 'CTD-104-P103', 'CTD-105-R201', 'CTD-105-R202')
+--   UNION ALL
+--   SELECT 3, 'C', contract_code, id FROM tenant_contracts
+--   WHERE contract_code IN ('HDT-2024-0101', 'HDT-2025-0102', 'HDT-2026-0103', 'HDT-2025-0104', 'HDT-2024-0105',
+--                           'HDT-2026-0106', 'HDT-2023-0107', 'HDT-2026-0108', 'HDT-2025-0109', 'HDT-2025-0110',
+--                           'HDT-2026-0111')
+-- ) s;
