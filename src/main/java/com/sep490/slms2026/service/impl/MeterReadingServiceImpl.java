@@ -40,6 +40,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -48,6 +49,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -55,6 +58,8 @@ public class MeterReadingServiceImpl implements MeterReadingService {
 
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter ISO_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final Pattern ISO_PERIOD_IN_TEXT = Pattern.compile("(\\d{4})-(\\d{1,2})");
+    private static final Pattern VN_PERIOD_IN_TEXT = Pattern.compile("(\\d{1,2})/(\\d{4})");
 
     private final PropertyRepository propertyRepository;
     private final RoomRepository roomRepository;
@@ -540,41 +545,100 @@ public class MeterReadingServiceImpl implements MeterReadingService {
                 .build();
     }
 
+    /**
+     * Chỉ số cũ = mốc gần nhất trước {@code month} thuộc hợp đồng hiện tại (không chỉ đúng tháng liền trước):
+     * hoá đơn / bản chốt có kỳ mới nhất trong [tháng bắt đầu HĐ, month); cùng kỳ thì ưu tiên hoá đơn.
+     * Không có gì thì về mốc đón khách trên HĐ.
+     */
     private PrevSnapshot resolvePrevSnapshot(
             Long propertyId, Long roomId, UtilityType type, YearMonth month, TenantContract contract) {
-        YearMonth prevMonth = month.minusMonths(1);
-        String prevNormalized = ContractBillingCalendar.normalizePeriod(prevMonth);
+        YearMonth startMonth = contract != null && contract.getStartDate() != null
+                ? YearMonth.from(contract.getStartDate())
+                : null;
 
-        Optional<UtilityInvoice> prevInvoice = findInvoiceForMonth(propertyId, roomId, type, prevMonth);
-        if (prevInvoice.isPresent()) {
-            return new PrevSnapshot(prevInvoice.get().getNewReading(), "LAST_INVOICE");
+        UtilityInvoice latestInvoice = null;
+        YearMonth latestInvoicePeriod = null;
+        List<UtilityInvoice> invoices = roomId == null
+                ? utilityInvoiceRepository.findByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
+                        propertyId, type)
+                : utilityInvoiceRepository.findByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
+                        propertyId, roomId, type);
+        for (UtilityInvoice inv : invoices) {
+            if (inv.getStatus() == UtilityInvoiceStatus.CANCELLED || inv.getNewReading() == null) {
+                continue;
+            }
+            if (contract != null && inv.getTenantContract() != null
+                    && !contract.getId().equals(inv.getTenantContract().getId())) {
+                continue;
+            }
+            YearMonth period = extractPeriod(inv.getBillingPeriod()).orElse(null);
+            if (!isPrevCandidate(period, startMonth, month)) {
+                continue;
+            }
+            if (latestInvoicePeriod == null || period.isAfter(latestInvoicePeriod)) {
+                latestInvoice = inv;
+                latestInvoicePeriod = period;
+            }
         }
 
-        Optional<MeterReading> prevReading = findReading(propertyId, roomId, type, prevNormalized);
-        if (prevReading.isPresent()) {
-            String source = prevReading.get().getUtilityInvoiceId() != null ? "LAST_INVOICE" : "LAST_READING";
-            return new PrevSnapshot(prevReading.get().getReading(), source);
+        MeterReading latestReading = null;
+        YearMonth latestReadingPeriod = null;
+        List<MeterReading> readings = roomId == null
+                ? meterReadingRepository.findByPropertyIdAndRoomIsNullAndUtilityTypeOrderByRecordedAtDesc(
+                        propertyId, type)
+                : meterReadingRepository.findByPropertyIdAndRoomIdAndUtilityTypeOrderByRecordedAtDesc(
+                        propertyId, roomId, type);
+        for (MeterReading r : readings) {
+            if (r.getReading() == null) {
+                continue;
+            }
+            YearMonth period = extractPeriod(r.getPeriod()).orElse(null);
+            if (!isPrevCandidate(period, startMonth, month)) {
+                continue;
+            }
+            if (latestReadingPeriod == null || period.isAfter(latestReadingPeriod)) {
+                latestReading = r;
+                latestReadingPeriod = period;
+            }
+        }
+
+        if (latestInvoice != null
+                && (latestReading == null || !latestReadingPeriod.isAfter(latestInvoicePeriod))) {
+            return new PrevSnapshot(latestInvoice.getNewReading(), "LAST_INVOICE");
+        }
+        if (latestReading != null) {
+            String source = latestReading.getUtilityInvoiceId() != null ? "LAST_INVOICE" : "LAST_READING";
+            return new PrevSnapshot(latestReading.getReading(), source);
         }
 
         BigDecimal handover = readingFromContract(contract, type);
         return new PrevSnapshot(handover, "HANDOVER");
     }
 
-    private Optional<UtilityInvoice> findInvoiceForMonth(
-            Long propertyId, Long roomId, UtilityType type, YearMonth month) {
-        for (String alias : periodAliases(ContractBillingCalendar.normalizePeriod(month))) {
-            List<UtilityInvoice> found = utilityInvoiceRepository.findByFilters(propertyId, alias, type);
-            for (UtilityInvoice inv : found) {
-                Long invRoomId = inv.getRoom() != null ? inv.getRoom().getId() : null;
-                boolean roomMatch = roomId == null ? invRoomId == null : roomId.equals(invRoomId);
-                if (!roomMatch) {
-                    continue;
-                }
-                if (inv.getStatus() == com.sep490.slms2026.enums.UtilityInvoiceStatus.CANCELLED) {
-                    continue;
-                }
-                return Optional.of(inv);
+    private static boolean isPrevCandidate(YearMonth period, YearMonth startMonth, YearMonth month) {
+        if (period == null || !period.isBefore(month)) {
+            return false;
+        }
+        return startMonth == null || !period.isBefore(startMonth);
+    }
+
+    /** Kỳ trong nhãn tự do, vd "2026-08", "08/2026", "08/2026 (01/08–10/08, chốt trả phòng)". */
+    private static Optional<YearMonth> extractPeriod(String raw) {
+        Optional<YearMonth> parsed = ContractBillingCalendar.parsePeriod(raw);
+        if (parsed.isPresent() || raw == null) {
+            return parsed;
+        }
+        try {
+            Matcher iso = ISO_PERIOD_IN_TEXT.matcher(raw);
+            if (iso.find()) {
+                return Optional.of(YearMonth.of(Integer.parseInt(iso.group(1)), Integer.parseInt(iso.group(2))));
             }
+            Matcher vn = VN_PERIOD_IN_TEXT.matcher(raw);
+            if (vn.find()) {
+                return Optional.of(YearMonth.of(Integer.parseInt(vn.group(2)), Integer.parseInt(vn.group(1))));
+            }
+        } catch (DateTimeException ignored) {
+            // nhãn không hợp lệ
         }
         return Optional.empty();
     }

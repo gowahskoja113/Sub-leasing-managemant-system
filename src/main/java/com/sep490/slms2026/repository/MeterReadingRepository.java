@@ -31,4 +31,10 @@ public interface MeterReadingRepository extends JpaRepository<MeterReading, Long
 
     List<MeterReading> findByPropertyIdAndRoomIdAndUtilityTypeAndUtilityInvoiceIdIsNull(
             Long propertyId, Long roomId, UtilityType utilityType);
+
+    List<MeterReading> findByPropertyIdAndRoomIdAndUtilityTypeOrderByRecordedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType);
+
+    List<MeterReading> findByPropertyIdAndRoomIsNullAndUtilityTypeOrderByRecordedAtDesc(
+            Long propertyId, UtilityType utilityType);
 }

@@ -30,6 +30,12 @@ public interface UtilityInvoiceRepository extends JpaRepository<UtilityInvoice, 
             @Param("period") String period,
             @Param("utilityType") UtilityType utilityType);
 
+    List<UtilityInvoice> findByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
+            Long propertyId, Long roomId, UtilityType utilityType);
+
+    List<UtilityInvoice> findByPropertyIdAndRoomIsNullAndUtilityTypeOrderByCreatedAtDesc(
+            Long propertyId, UtilityType utilityType);
+
     Optional<UtilityInvoice> findTopByPropertyIdAndRoomIdAndUtilityTypeOrderByCreatedAtDesc(
             Long propertyId, Long roomId, UtilityType utilityType);
 
