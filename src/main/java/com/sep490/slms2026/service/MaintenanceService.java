@@ -49,7 +49,7 @@ public interface MaintenanceService {
     /** Manager verify tenant đã tự sửa. */
     MaintenanceRequestResponse verifyRepair(Long id, MaintenanceVerifyRepairRequest request);
 
-    /** Manager hoàn tất sửa — CLOSED nếu không thu tenant / đã PAID; WAITING_PAYMENT nếu còn nợ.
+    /** Manager hoàn tất sửa — phiếu luôn CLOSED; khoản thu tenant (nếu có) sống ở hoá đơn.
      *  Lập hoá đơn MAINTENANCE tại đây (1 lần chi phí) khi thu tenant và chưa có chargeInvoiceId. */
     MaintenanceRequestResponse complete(Long id, MaintenanceCompleteRequest request);
 
@@ -62,11 +62,11 @@ public interface MaintenanceService {
     /**
      * Bàn giao thiết bị sau kiểm tra/sửa ngoài.
      * Khi thu tenant và chưa có hoá đơn: nhận invoice* giống complete rồi lập MAINTENANCE.
-     * CLOSED nếu đã PAID / không thu; WAITING_PAYMENT nếu còn nợ.
+     * Phiếu luôn CLOSED; khoản thu tenant (nếu có) sống ở hoá đơn.
      */
     MaintenanceRequestResponse handover(Long id, MaintenanceHandoverRequest request);
 
-    /** Sau khi hoá đơn MAINTENANCE PAID: WAITING_PAYMENT → CLOSED. */
+    /** Sau khi hoá đơn MAINTENANCE PAID: WAITING_PAYMENT (phiếu cũ) → CLOSED. */
     void closeWaitingPaymentAfterInvoicePaid(Long invoiceId);
 
     MaintenanceRequestResponse cancel(Long id, String reason);

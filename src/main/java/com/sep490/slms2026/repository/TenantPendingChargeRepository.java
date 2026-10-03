@@ -37,6 +37,8 @@ public interface TenantPendingChargeRepository extends JpaRepository<TenantPendi
 
     List<TenantPendingCharge> findByMaintenanceRequestIdOrderByCreatedAtDesc(Long maintenanceRequestId);
 
+    List<TenantPendingCharge> findByInvoice_IdIn(java.util.Collection<Long> invoiceIds);
+
     @Query("""
             SELECT tpc FROM TenantPendingCharge tpc
             LEFT JOIN FETCH tpc.invoice

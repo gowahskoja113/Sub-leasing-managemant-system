@@ -83,6 +83,7 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
         migrateMaintenanceStatusesToRedesignFlow();
         ensureMaintenanceRequestsStatusConstraint();
         ensureMaintenanceTimelineStatusConstraints();
+        closeLegacyWaitingPaymentMaintenance();
         ensureMaintenanceImagesTypeConstraint();
         ensureOutstandingDamageTables();
         addColumnIfNotExists("checkout_damage_items", "maintenance_request_id", "BIGINT");
@@ -426,6 +427,41 @@ public class DatabaseSchemaMigration implements ApplicationRunner {
                 "maintenance_history_old_status_check", true);
         ensureMaintenanceStatusCheck("maintenance_history", "new_status",
                 "maintenance_history_new_status_check", true);
+    }
+
+    /**
+     * Bảo trì 2026-10-03: sửa xong là phiếu CLOSED, khoản thu khách sống ở hoá đơn MAINTENANCE.
+     * Đóng các phiếu WAITING_PAYMENT còn sót (kể cả phiếu kẹt do khách đã trả mà listener không ghi được).
+     * Idempotent — chạy lại không còn dòng nào khớp.
+     */
+    private void closeLegacyWaitingPaymentMaintenance() {
+        try {
+            int closed = jdbcTemplate.update("""
+                    WITH moved AS (
+                        UPDATE maintenance_requests
+                        SET status = 'CLOSED',
+                            resolved_at = COALESCE(resolved_at, NOW()),
+                            done_at = COALESCE(done_at, NOW())
+                        WHERE status = 'WAITING_PAYMENT'
+                        RETURNING id, charge_invoice_id
+                    )
+                    INSERT INTO maintenance_timelines
+                        (maintenance_request_id, old_status, new_status, note, changed_by_name, changed_at)
+                    SELECT m.id, 'WAITING_PAYMENT', 'CLOSED',
+                           CASE WHEN i.status = 'PAID'
+                                THEN 'Tenant đã thanh toán hoá đơn — đóng phiếu bảo trì'
+                                ELSE 'Đóng phiếu — khoản thu khách theo dõi ở hoá đơn ' || COALESCE(i.code, '')
+                           END,
+                           'System', NOW()
+                    FROM moved m
+                    LEFT JOIN tenant_invoices i ON i.id = m.charge_invoice_id
+                    """);
+            if (closed > 0) {
+                log.info("Closed {} legacy WAITING_PAYMENT maintenance requests", closed);
+            }
+        } catch (Exception e) {
+            log.warn("Could not close legacy WAITING_PAYMENT maintenance requests: {}", e.getMessage());
+        }
     }
 
     private void ensureMaintenanceStatusCheck(String table, String column, String constraintName, boolean allowNull) {

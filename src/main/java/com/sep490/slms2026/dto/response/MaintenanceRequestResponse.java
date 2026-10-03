@@ -80,6 +80,11 @@ public class MaintenanceRequestResponse {
     private TenantInvoiceResponse issuedInvoice;
     private Long chargeInvoiceId;
 
+    /** NONE = không có khoản thu khách; UNPAID / OVERDUE = còn nợ (có issuedInvoice); PAID = đã trả. */
+    private MaintenanceTenantChargeStatus tenantChargeStatus;
+    /** Thời điểm khách trả xong khoản thu (khi tenantChargeStatus = PAID). */
+    private LocalDateTime tenantChargePaidAt;
+
     /** true = lỗi khách, khách từ chối trả, công ty đã/đang trả hộ. */
     private Boolean companyAbsorbedFault;
     private String companyAbsorbedNote;

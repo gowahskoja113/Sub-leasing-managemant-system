@@ -3,7 +3,7 @@ package com.sep490.slms2026.enums;
 /**
  * Redesigned maintenance flow (2026-09):
  * OPEN → [REPAIR_SCHEDULED] → IN_REPAIR → CLOSED (Luồng A — hao mòn)
- * OPEN → … → TENANT_FAULT → (sửa/bàn giao) → WAITING_PAYMENT → CLOSED khi PAID
+ * OPEN → … → TENANT_FAULT → (sửa/bàn giao) → CLOSED; khoản thu khách sống ở hoá đơn MAINTENANCE
  * OPEN → TENANT_FAULT → PENDING_TENANT_REPAIR → … (Luồng B tự sửa)
  */
 public enum MaintenanceStatus {
@@ -19,12 +19,9 @@ public enum MaintenanceStatus {
     PENDING_TENANT_REPAIR,
     /** Tenant không sửa / quá hạn — chờ checkout trừ cọc */
     OUTSTANDING_DAMAGE,
-    /**
-     * Đã sửa/bàn giao xong nhưng tenant chưa thanh toán hoá đơn bồi thường.
-     * Chỉ chuyển CLOSED khi hoá đơn PAID.
-     */
+    /** Legacy (trước 2026-10-03): sửa xong chờ tenant trả. Phiếu mới không vào trạng thái này nữa. */
     WAITING_PAYMENT,
-    /** Hoàn tất (và đã thanh toán nếu có thu tenant) */
+    /** Hoàn tất sửa/thay; trạng thái tiền xem tenantChargeStatus */
     CLOSED,
     CANCELLED
 }

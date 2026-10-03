@@ -41,6 +41,8 @@ public class CheckoutSettlementResponse {
         private String code;
         private String type;
         private BigDecimal amount;
+        /** Hoá đơn MAINTENANCE: phiếu bảo trì sinh ra khoản phí sửa chữa này. */
+        private Long maintenanceRequestId;
     }
 
     @Data

@@ -59,6 +59,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
     private final com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
     private final com.sep490.slms2026.service.TwilioService twilioService;
     private final com.sep490.slms2026.service.MaintenanceService maintenanceService;
+    private final com.sep490.slms2026.repository.TenantPendingChargeRepository tenantPendingChargeRepository;
 
     private static final List<CheckoutRequestStatus> INSPECTION_EDITABLE_STATUSES = List.of(
             CheckoutRequestStatus.APPROVED,
@@ -294,6 +295,9 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
         Optional<CheckoutSettlement> savedOpt = checkoutSettlementRepository.findByCheckoutRequestId(checkoutRequestId);
         if (savedOpt.isPresent()) {
             CheckoutSettlement saved = savedOpt.get();
+            Map<Long, Long> savedMaintenanceIds = maintenanceRequestIdsByInvoice(saved.getSettlementInvoices().stream()
+                    .map(CheckoutSettlementInvoice::getInvoiceId)
+                    .collect(Collectors.toList()));
             return CheckoutSettlementResponse.builder()
                     .depositAmount(saved.getDepositAmount())
                     .finalCharges(saved.getSettlementInvoices().stream().map(inv -> CheckoutSettlementResponse.InvoiceResponse.builder()
@@ -301,6 +305,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                             .code(inv.getInvoiceCode())
                             .type(inv.getInvoiceType())
                             .amount(inv.getAmount())
+                            .maintenanceRequestId(savedMaintenanceIds.get(inv.getInvoiceId()))
                             .build()).collect(Collectors.toList()))
                     .chargesTotal(chargesTotal)
                     .chargesPaid(chargesPaid)
@@ -315,6 +320,9 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                     .build();
         }
 
+        Map<Long, Long> maintenanceIds = maintenanceRequestIdsByInvoice(relevantInvoices.stream()
+                .map(com.sep490.slms2026.entity.TenantInvoice::getId)
+                .collect(Collectors.toList()));
         List<CheckoutSettlementResponse.InvoiceResponse> finalChargeResponses = new ArrayList<>();
         for (var inv : relevantInvoices) {
             finalChargeResponses.add(CheckoutSettlementResponse.InvoiceResponse.builder()
@@ -322,6 +330,7 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                     .code(inv.getCode() != null ? inv.getCode() : "INVOICE")
                     .type(inv.getInvoiceType() != null ? inv.getInvoiceType().name() : "OTHER")
                     .amount(inv.getGrandTotal())
+                    .maintenanceRequestId(maintenanceIds.get(inv.getId()))
                     .build());
         }
 
@@ -632,6 +641,21 @@ public class CheckoutProcessServiceImpl implements CheckoutProcessService {
                 .method(settlement.getRefundMethod())
                 .proofUrl(settlement.getRefundProofUrl())
                 .build();
+    }
+
+    /** invoiceId → maintenanceRequestId cho các hoá đơn MAINTENANCE (phí sửa chữa) trong quyết toán. */
+    private Map<Long, Long> maintenanceRequestIdsByInvoice(List<Long> invoiceIds) {
+        List<Long> ids = invoiceIds.stream().filter(java.util.Objects::nonNull).distinct().collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Long> result = new HashMap<>();
+        for (var charge : tenantPendingChargeRepository.findByInvoice_IdIn(ids)) {
+            if (charge.getInvoice() != null && charge.getMaintenanceRequestId() != null) {
+                result.putIfAbsent(charge.getInvoice().getId(), charge.getMaintenanceRequestId());
+            }
+        }
+        return result;
     }
 
     private void sendNotification(UUID targetUserId, String type, String title, String content, Map<String, Object> data) {

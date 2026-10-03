@@ -31,6 +31,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -39,6 +40,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -776,24 +778,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         }
 
         MaintenanceStatus old = req.getStatus();
-        MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
-        req.setStatus(next);
-        req.setDoneAt(LocalDateTime.now());
-        if (next == MaintenanceStatus.CLOSED) {
-            req.setResolvedAt(LocalDateTime.now());
-        }
-        repository.save(req);
-        restoreRoomStatus(req);
-        recordEquipmentMaintenanceHistory(req);
-        restoreEquipmentAfterMaintenance(req);
+        closeAfterWorkDone(req);
+        TenantInvoice unpaidCharge = findUnpaidChargeInvoice(req);
 
-        String handoverNote = "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra";
-        if (next == MaintenanceStatus.WAITING_PAYMENT) {
-            handoverNote += " — chờ tenant thanh toán (hạn "
-                    + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày)";
-        }
-        addTimeline(req, old, next, handoverNote);
-        notifyAfterWorkDone(req, next, chargeToTenant);
+        String handoverNote = "Manager bàn giao thiết bị sau khi bảo trì/kiểm tra"
+                + chargeTimelineSuffix(unpaidCharge);
+        addTimeline(req, old, MaintenanceStatus.CLOSED, handoverNote);
+        notifyAfterWorkDone(req, unpaidCharge);
 
         MaintenanceRequestResponse response = convertToResponse(req);
         if (issuedInvoice != null) {
@@ -870,16 +861,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setChargeInvoiceId(issuedInvoice.getId());
         }
 
-        MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
-        req.setStatus(next);
-        req.setDoneAt(LocalDateTime.now());
-        if (next == MaintenanceStatus.CLOSED) {
-            req.setResolvedAt(LocalDateTime.now());
-        }
-        repository.save(req);
-        restoreRoomStatus(req);
-        recordEquipmentMaintenanceHistory(req);
-        restoreEquipmentAfterMaintenance(req);
+        closeAfterWorkDone(req);
+        TenantInvoice unpaidCharge = findUnpaidChargeInvoice(req);
 
         String note = request.getRepairDescription() != null
                 ? "Manager hoàn tất sửa chữa: " + request.getRepairDescription()
@@ -887,14 +870,13 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (Boolean.TRUE.equals(request.getChargeToTenant()) && normalFlow) {
             note += " — thu phí tenant (Luồng A)";
         }
-        if (next == MaintenanceStatus.WAITING_PAYMENT) {
-            note += " — chờ tenant thanh toán (hạn "
-                    + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày)";
+        if (unpaidCharge != null) {
+            note += chargeTimelineSuffix(unpaidCharge);
         } else if (req.getChargeInvoiceId() != null) {
             note += " — hoá đơn đã thanh toán";
         }
-        addTimeline(req, old, next, note);
-        notifyAfterWorkDone(req, next, chargeToTenant);
+        addTimeline(req, old, MaintenanceStatus.CLOSED, note);
+        notifyAfterWorkDone(req, unpaidCharge);
 
         MaintenanceRequestResponse response = convertToResponse(req);
         if (issuedInvoice != null) {
@@ -903,8 +885,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return response;
     }
 
+    /** Gọi từ listener AFTER_COMMIT — phải TX riêng, REQUIRED sẽ dính vào TX đã commit và không ghi được. */
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void closeWaitingPaymentAfterInvoicePaid(Long invoiceId) {
         if (invoiceId == null) {
             return;
@@ -951,6 +934,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             }
         }
 
+        List<String> cancelledInvoiceCodes = cancelUnpaidChargeInvoices(req);
+
         MaintenanceStatus old = req.getStatus();
         req.setStatus(MaintenanceStatus.CANCELLED);
         repository.save(req);
@@ -959,6 +944,9 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         String timelineNote = tenantSelfCancel
                 ? (isBlank(reason) ? "Khách thuê tự hủy yêu cầu" : reason.trim())
                 : (isBlank(reason) ? "Manager hủy yêu cầu" : reason.trim());
+        if (!cancelledInvoiceCodes.isEmpty()) {
+            timelineNote += " — huỷ hoá đơn " + String.join(", ", cancelledInvoiceCodes);
+        }
         addTimeline(req, old, MaintenanceStatus.CANCELLED, timelineNote);
         if (!tenantSelfCancel) {
             notifyTenant(req,
@@ -978,6 +966,53 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     RealtimeEventService.EVT_MAINTENANCE_CANCELLED_BY_TENANT);
         }
         return convertToResponse(req);
+    }
+
+    /**
+     * Huỷ phiếu → huỷ hoá đơn MAINTENANCE chưa thu (PENDING / OVERDUE) + charge liên quan, để cron quá hạn
+     * không đề nghị chấm dứt HĐ vì phiếu đã huỷ. Hoá đơn đã thu tiền (PAID / PARTIAL) → chặn huỷ phiếu.
+     */
+    private List<String> cancelUnpaidChargeInvoices(MaintenanceRequest req) {
+        List<TenantPendingCharge> charges =
+                tenantPendingChargeRepository.findByMaintenanceRequestIdWithInvoice(req.getId());
+        Map<Long, TenantInvoice> invoices = new LinkedHashMap<>();
+        for (TenantPendingCharge charge : charges) {
+            if (charge.getInvoice() != null) {
+                invoices.putIfAbsent(charge.getInvoice().getId(), charge.getInvoice());
+            }
+        }
+        if (req.getChargeInvoiceId() != null && !invoices.containsKey(req.getChargeInvoiceId())) {
+            tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                    .ifPresent(inv -> invoices.put(inv.getId(), inv));
+        }
+
+        for (TenantInvoice invoice : invoices.values()) {
+            if (invoice.getStatus() == TenantInvoiceStatus.PAID
+                    || invoice.getStatus() == TenantInvoiceStatus.PARTIAL) {
+                throw new BusinessException(
+                        "MAINTENANCE_CHARGE_ALREADY_PAID",
+                        "Phiếu đã có hoá đơn " + invoice.getCode()
+                                + " khách đã thanh toán — không thể huỷ phiếu. Liên hệ admin để hoàn tiền thủ công.",
+                        Map.of("invoiceId", invoice.getId(), "invoiceCode", invoice.getCode()));
+            }
+        }
+
+        List<String> cancelledCodes = new ArrayList<>();
+        for (TenantInvoice invoice : invoices.values()) {
+            if (invoice.getStatus() == TenantInvoiceStatus.CANCELLED) {
+                continue;
+            }
+            invoice.setStatus(TenantInvoiceStatus.CANCELLED);
+            tenantInvoiceRepository.save(invoice);
+            cancelledCodes.add(invoice.getCode());
+        }
+        for (TenantPendingCharge charge : charges) {
+            if (!"CANCELLED".equalsIgnoreCase(charge.getStatus())) {
+                charge.setStatus("CANCELLED");
+                tenantPendingChargeRepository.save(charge);
+            }
+        }
+        return cancelledCodes;
     }
 
     @Override
@@ -1495,9 +1530,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     }
 
     /**
-     * Thiết bị cần thay mới → không sửa, kết thúc phiếu ngay.
-     * Khách trả: lập hoá đơn MAINTENANCE (số đã tính) → WAITING_PAYMENT, trả xong tự CLOSED.
-     * Công ty chịu: CLOSED. Thiết bị cũ giữ BROKEN.
+     * Thiết bị cần thay mới → không sửa, phiếu CLOSED ngay.
+     * Khách trả: lập hoá đơn MAINTENANCE (số đã tính), khoản thu sống ở hoá đơn. Thiết bị cũ giữ BROKEN.
      */
     private MaintenanceRequestResponse finishWithoutRepairForReplacement(
             MaintenanceRequest req, MaintenanceStatus old, boolean chargeToTenant, String notePrefix) {
@@ -1510,37 +1544,20 @@ public class MaintenanceServiceImpl implements MaintenanceService {
             req.setRepairDescription("Thiết bị hỏng hoàn toàn — không sửa, báo admin nhập thiết bị mới thay thế");
         }
 
-        LocalDateTime now = LocalDateTime.now(VN_ZONE);
-        MaintenanceStatus next = resolveStatusAfterWorkDone(req, chargeToTenant);
-        req.setStatus(next);
-        req.setDoneAt(now);
-        if (next == MaintenanceStatus.CLOSED) {
-            req.setResolvedAt(now);
-        }
-        repository.save(req);
-        restoreRoomStatus(req);
-        recordEquipmentMaintenanceHistory(req);
-        restoreEquipmentAfterMaintenance(req);
+        closeAfterWorkDone(req);
+        TenantInvoice unpaidCharge = findUnpaidChargeInvoice(req);
 
-        String note = notePrefix + " — không sửa, báo admin nhập thiết bị mới";
-        if (next == MaintenanceStatus.WAITING_PAYMENT) {
-            note += " — đã lập hoá đơn " + req.getEstimatedDamageAmount() + "đ, hạn "
-                    + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày";
-        }
-        addTimeline(req, old, next, note);
+        addTimeline(req, old, MaintenanceStatus.CLOSED,
+                notePrefix + " — không sửa, báo admin nhập thiết bị mới" + chargeTimelineSuffix(unpaidCharge));
 
         String titleSuffix = req.getTitle() != null ? " \"" + req.getTitle() + "\"" : "";
-        if (next == MaintenanceStatus.WAITING_PAYMENT) {
-            String dueText = issuedInvoice != null && issuedInvoice.getDueDate() != null
-                    ? " (hạn " + issuedInvoice.getDueDate() + ")"
-                    : " trong " + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày";
+        if (unpaidCharge != null) {
             notifyTenant(req,
-                    "Thiết bị cần thay mới — chờ thanh toán",
+                    "Thiết bị cần thay mới — vui lòng thanh toán",
                     "Yêu cầu #" + req.getId() + titleSuffix
                             + ": thiết bị hỏng không sửa được, cần thay mới. Vui lòng thanh toán khoản bồi thường "
-                            + req.getEstimatedDamageAmount() + "đ" + dueText + ".",
-                    "MAINTENANCE_WAITING_PAYMENT");
-            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_WAITING_PAYMENT);
+                            + formatVnd(unpaidCharge.getGrandTotal()) + "đ" + dueDateText(unpaidCharge) + ".",
+                    "MAINTENANCE_COMPLETED");
         } else {
             notifyTenant(req,
                     "Bảo trì đã kết thúc — " + req.getTitle(),
@@ -1548,8 +1565,8 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                             + ": thiết bị hỏng không sửa được, công ty chịu chi phí thay mới. "
                             + "Thiết bị mới sẽ được bố trí sau.",
                     "MAINTENANCE_COMPLETED");
-            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
         }
+        realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
 
         MaintenanceRequestResponse response = convertToResponse(req);
         if (issuedInvoice != null) {
@@ -1807,14 +1824,19 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         return s;
     }
 
-    private MaintenanceStatus resolveStatusAfterWorkDone(MaintenanceRequest req, boolean chargeToTenant) {
-        if (!chargeToTenant) {
-            return MaintenanceStatus.CLOSED;
-        }
-        if (isTenantChargeInvoicePaid(req)) {
-            return MaintenanceStatus.CLOSED;
-        }
-        return MaintenanceStatus.WAITING_PAYMENT;
+    /**
+     * Sửa xong / thay mới xong → phiếu luôn CLOSED. Khoản khách phải trả (nếu có) sống ở hoá đơn MAINTENANCE;
+     * trạng thái tiền tính lúc đọc (billingHint / tenantChargeStatus / issuedInvoice).
+     */
+    private void closeAfterWorkDone(MaintenanceRequest req) {
+        LocalDateTime now = LocalDateTime.now(VN_ZONE);
+        req.setStatus(MaintenanceStatus.CLOSED);
+        req.setDoneAt(now);
+        req.setResolvedAt(now);
+        repository.save(req);
+        restoreRoomStatus(req);
+        recordEquipmentMaintenanceHistory(req);
+        restoreEquipmentAfterMaintenance(req);
     }
 
     private boolean isTenantChargeInvoicePaid(MaintenanceRequest req) {
@@ -1826,22 +1848,52 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                 .orElse(false);
     }
 
-    private void notifyAfterWorkDone(MaintenanceRequest req, MaintenanceStatus next, boolean chargeToTenant) {
-        if (next == MaintenanceStatus.WAITING_PAYMENT) {
+    /** Hoá đơn thu khách của phiếu còn nợ (PENDING / OVERDUE / PARTIAL); null nếu không có, đã PAID hoặc CANCELLED. */
+    private TenantInvoice findUnpaidChargeInvoice(MaintenanceRequest req) {
+        if (req.getChargeInvoiceId() == null) {
+            return null;
+        }
+        return tenantInvoiceRepository.findById(req.getChargeInvoiceId())
+                .filter(inv -> inv.getStatus() != TenantInvoiceStatus.PAID
+                        && inv.getStatus() != TenantInvoiceStatus.CANCELLED)
+                .orElse(null);
+    }
+
+    private static String chargeTimelineSuffix(TenantInvoice unpaidCharge) {
+        if (unpaidCharge == null) {
+            return "";
+        }
+        return " — đã lập hoá đơn " + unpaidCharge.getCode() + " " + formatVnd(unpaidCharge.getGrandTotal())
+                + "đ, khách thanh toán" + dueDateText(unpaidCharge);
+    }
+
+    private static String dueDateText(TenantInvoice invoice) {
+        if (invoice.getDueDate() != null) {
+            return " trước ngày " + invoice.getDueDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        }
+        return " trong " + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày";
+    }
+
+    private static String formatVnd(BigDecimal amount) {
+        if (amount == null) {
+            return "0";
+        }
+        return String.format(Locale.ROOT, "%,d", amount.longValue()).replace(',', '.');
+    }
+
+    /** Một tin duy nhất khi đóng phiếu: có nợ → "sửa xong, vui lòng thanh toán X đ trước ngày D". */
+    private void notifyAfterWorkDone(MaintenanceRequest req, TenantInvoice unpaidCharge) {
+        if (unpaidCharge != null) {
+            String titleSuffix = req.getTitle() != null ? " \"" + req.getTitle() + "\"" : "";
             notifyTenant(req,
-                    "Sửa chữa xong — chờ thanh toán",
-                    "Yêu cầu #" + req.getId() + " đã sửa/bàn giao. Vui lòng thanh toán hoá đơn trong "
-                            + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS
-                            + " ngày kể từ lúc tạo hoá đơn.",
-                    "MAINTENANCE_WAITING_PAYMENT");
-            realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_WAITING_PAYMENT);
-            return;
+                    "Sửa chữa xong — vui lòng thanh toán",
+                    "Yêu cầu #" + req.getId() + titleSuffix + " đã sửa xong. Vui lòng thanh toán "
+                            + formatVnd(unpaidCharge.getGrandTotal()) + "đ" + dueDateText(unpaidCharge) + ".",
+                    "MAINTENANCE_COMPLETED");
+        } else {
+            notifyTenantOnComplete(req);
         }
-        notifyTenantOnComplete(req, false);
         realtimeEventService.publishMaintenanceEvent(req, RealtimeEventService.EVT_MAINTENANCE_COMPLETED);
-        if (chargeToTenant) {
-            // already paid path — no extra charge notice
-        }
     }
 
     private static MaintenanceCompleteRequest toCompleteInvoiceContext(MaintenanceHandoverRequest request) {
@@ -2331,7 +2383,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         timelineRepository.save(timeline);
     }
 
-    private void notifyTenantOnComplete(MaintenanceRequest req, boolean tenantCharge) {
+    private void notifyTenantOnComplete(MaintenanceRequest req) {
         StringBuilder body = new StringBuilder();
         body.append("Yêu cầu #").append(req.getId());
         if (req.getTitle() != null && !req.getTitle().isBlank()) {
@@ -2341,23 +2393,12 @@ public class MaintenanceServiceImpl implements MaintenanceService {
         if (req.getRepairDescription() != null) {
             body.append(" Mô tả: ").append(req.getRepairDescription()).append('.');
         }
-        BigDecimal chargeDisplay = req.getEstimatedDamageAmount() != null
-                ? req.getEstimatedDamageAmount()
-                : req.getInvoiceAmount();
-        if (tenantCharge && chargeDisplay != null) {
-            body.append(" Có khoản thanh toán ").append(chargeDisplay).append("đ cần thanh toán.");
-        } else if (req.getInvoiceAmount() != null) {
-            body.append(" Chi phí tham khảo: ").append(req.getInvoiceAmount()).append("đ (chủ nhà chi trả).");
+        if (req.getChargeInvoiceId() == null && req.getInvoiceAmount() != null) {
+            body.append(" Chi phí tham khảo: ").append(formatVnd(req.getInvoiceAmount()))
+                    .append("đ (chủ nhà chi trả).");
         }
         body.append(" Nếu chưa hài lòng, tạo yêu cầu mới trong app.");
         notifyTenant(req, "Bảo trì đã hoàn tất — " + req.getTitle(), body.toString(), "MAINTENANCE_COMPLETED");
-        if (tenantCharge && chargeDisplay != null) {
-            notifyTenant(req,
-                    "Đã phát hành hóa đơn sửa chữa",
-                    "Yêu cầu #" + req.getId() + " — khoản " + chargeDisplay + "đ cần thanh toán trong "
-                            + TenantPendingChargeService.MAINTENANCE_CHARGE_DUE_DAYS + " ngày.",
-                    "MAINTENANCE_CHARGE_ISSUED");
-        }
     }
 
     private void notifyTenant(MaintenanceRequest req, String title, String body, String type) {
@@ -2807,6 +2848,7 @@ public class MaintenanceServiceImpl implements MaintenanceService {
     private void attachIssuedInvoiceIfPending(MaintenanceRequest req, MaintenanceRequestResponse res) {
         List<TenantPendingCharge> charges =
                 tenantPendingChargeRepository.findByMaintenanceRequestIdWithInvoice(req.getId());
+        applyTenantChargeStatus(charges, res);
         for (TenantPendingCharge charge : charges) {
             TenantInvoice invoice = charge.getInvoice();
             if (invoice == null) {
@@ -2837,6 +2879,45 @@ public class MaintenanceServiceImpl implements MaintenanceService {
                     .payosOrderCode(invoice.getPayosOrderCode())
                     .build());
             return;
+        }
+    }
+
+    /** Gộp các hoá đơn MAINTENANCE (bỏ CANCELLED) của phiếu: còn nợ → UNPAID/OVERDUE, trả hết → PAID. */
+    private static void applyTenantChargeStatus(List<TenantPendingCharge> charges, MaintenanceRequestResponse res) {
+        LocalDate today = LocalDate.now(VN_ZONE);
+        boolean any = false;
+        boolean unpaid = false;
+        boolean overdue = false;
+        LocalDateTime lastPaidAt = null;
+        Set<Long> seen = new HashSet<>();
+        for (TenantPendingCharge charge : charges) {
+            TenantInvoice invoice = charge.getInvoice();
+            if (invoice == null || !seen.add(invoice.getId())
+                    || invoice.getStatus() == TenantInvoiceStatus.CANCELLED) {
+                continue;
+            }
+            any = true;
+            if (invoice.getStatus() == TenantInvoiceStatus.PAID) {
+                if (invoice.getPaidAt() != null && (lastPaidAt == null || invoice.getPaidAt().isAfter(lastPaidAt))) {
+                    lastPaidAt = invoice.getPaidAt();
+                }
+                continue;
+            }
+            unpaid = true;
+            if (invoice.getStatus() == TenantInvoiceStatus.OVERDUE
+                    || (invoice.getDueDate() != null && invoice.getDueDate().isBefore(today))) {
+                overdue = true;
+            }
+        }
+        if (!any) {
+            res.setTenantChargeStatus(MaintenanceTenantChargeStatus.NONE);
+        } else if (overdue) {
+            res.setTenantChargeStatus(MaintenanceTenantChargeStatus.OVERDUE);
+        } else if (unpaid) {
+            res.setTenantChargeStatus(MaintenanceTenantChargeStatus.UNPAID);
+        } else {
+            res.setTenantChargeStatus(MaintenanceTenantChargeStatus.PAID);
+            res.setTenantChargePaidAt(lastPaidAt);
         }
     }
 
