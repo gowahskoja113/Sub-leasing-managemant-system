@@ -38,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +51,17 @@ class CheckoutProcessServiceImplTest {
     @Mock private CheckoutSettlementRepository checkoutSettlementRepository;
     @Mock private NotificationRepository notificationRepository;
     @Mock private UserRepository userRepository;
+    @Mock private com.sep490.slms2026.repository.CheckoutInspectionRepository checkoutInspectionRepository;
+    @Mock private com.sep490.slms2026.repository.InvoiceRepository invoiceRepository;
+    @Mock private com.sep490.slms2026.repository.TenantInvoiceRepository tenantInvoiceRepository;
+    @Mock private com.sep490.slms2026.repository.UtilityInvoiceRepository utilityInvoiceRepository;
+    @Mock private com.sep490.slms2026.service.PushNotificationService pushNotificationService;
+    @Mock private com.sep490.slms2026.repository.MeterReadingRepository meterReadingRepository;
+    @Mock private com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+    @Mock private com.sep490.slms2026.repository.DepositAuditLogRepository depositAuditLogRepository;
+    @Mock private com.sep490.slms2026.service.TwilioService twilioService;
+    @Mock private com.sep490.slms2026.service.MaintenanceService maintenanceService;
+    @Mock private com.sep490.slms2026.repository.TenantPendingChargeRepository tenantPendingChargeRepository;
 
     @InjectMocks private CheckoutProcessServiceImpl service;
 
@@ -114,7 +126,7 @@ class CheckoutProcessServiceImplTest {
         assertEquals("BANK_TRANSFER", settlement.getRefundMethod());
         assertEquals("https://cdn/proof.jpg", settlement.getRefundProofUrl());
         assertNotNull(settlement.getRefundPaidAt());
-        verify(notificationRepository).save(any());
+        verify(notificationRepository, atLeastOnce()).save(any());
     }
 
     @Test

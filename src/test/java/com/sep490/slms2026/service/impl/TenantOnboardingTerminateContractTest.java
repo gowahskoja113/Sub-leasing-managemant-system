@@ -50,6 +50,15 @@ class TenantOnboardingTerminateContractTest {
   @Mock private com.sep490.slms2026.service.UserPushTokenService userPushTokenService;
   @Mock private com.sep490.slms2026.service.MeterOverrideService meterOverrideService;
 
+  @Mock private jakarta.persistence.EntityManager entityManager;
+  @Mock private com.sep490.slms2026.repository.CheckoutSettlementRepository checkoutSettlementRepository;
+  @Mock private com.sep490.slms2026.repository.TenantPaymentClaimRepository tenantPaymentClaimRepository;
+  @Mock private com.sep490.slms2026.service.TenantBillingService tenantBillingService;
+  @Mock private org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
+  @Mock private com.sep490.slms2026.service.UnitPriceService unitPriceService;
+  @Mock private com.sep490.slms2026.repository.InboundContractRepository inboundContractRepository;
+  @Mock private com.sep490.slms2026.service.PricingConfigService pricingConfigService;
+  @Mock private com.sep490.slms2026.service.RealtimeEventService realtimeEventService;
   @InjectMocks private TenantOnboardingServiceImpl service;
 
   private TenantContract contract;
@@ -84,6 +93,8 @@ class TenantOnboardingTerminateContractTest {
     when(contractEquipmentService.getSelectedIds(any())).thenReturn(java.util.List.of());
     when(contractEquipmentService.getSelectedExistingIds(any())).thenReturn(java.util.List.of());
     when(contractEquipmentService.getSelectedAddedIds(any())).thenReturn(java.util.List.of());
+    when(pricingConfigService.current()).thenReturn(
+        com.sep490.slms2026.entity.PricingConfig.builder().escalationGraceMonths(6).build());
   }
 
   @Test

@@ -82,25 +82,7 @@ class DepositLedgerStatusResolverTest {
     }
 
     @Test
-    void completedSettlementWithDamageMarksForfeited() {
-        TenantContract contract = TenantContract.builder()
-                .status(ContractStatus.TERMINATED)
-                .paymentStatus(PaymentStatus.PAID)
-                .build();
-        CheckoutSettlement settlement = CheckoutSettlement.builder()
-                .depositAmount(new BigDecimal("9500000"))
-                .refundAmount(BigDecimal.ZERO)
-                .extraChargeAmount(BigDecimal.ZERO)
-                .damageTotal(new BigDecimal("2000000"))
-                .unpaidTotal(BigDecimal.ZERO)
-                .build();
-
-        assertEquals(DepositStatus.FORFEITED,
-                DepositLedgerStatusResolver.resolve(contract, settlement, CheckoutRequestStatus.COMPLETED));
-    }
-
-    @Test
-    void completedSettlementWithExtraChargeMarksForfeited() {
+    void completedSettlementWithNothingToRefundIsSettled() {
         TenantContract contract = TenantContract.builder()
                 .status(ContractStatus.TERMINATED)
                 .paymentStatus(PaymentStatus.PAID)
@@ -111,6 +93,43 @@ class DepositLedgerStatusResolverTest {
                 .extraChargeAmount(new BigDecimal("1500000"))
                 .damageTotal(new BigDecimal("9500000"))
                 .unpaidTotal(BigDecimal.ZERO)
+                .build();
+
+        assertEquals(DepositStatus.REFUNDED,
+                DepositLedgerStatusResolver.resolve(contract, settlement, CheckoutRequestStatus.COMPLETED));
+    }
+
+    @Test
+    void completedSettlementWithPendingRefundStaysHeld() {
+        TenantContract contract = TenantContract.builder()
+                .status(ContractStatus.TERMINATED)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        CheckoutSettlement settlement = CheckoutSettlement.builder()
+                .depositAmount(new BigDecimal("9500000"))
+                .refundAmount(new BigDecimal("7500000"))
+                .extraChargeAmount(BigDecimal.ZERO)
+                .damageTotal(new BigDecimal("2000000"))
+                .unpaidTotal(BigDecimal.ZERO)
+                .build();
+
+        assertEquals(DepositStatus.HELD,
+                DepositLedgerStatusResolver.resolve(contract, settlement, CheckoutRequestStatus.COMPLETED));
+    }
+
+    @Test
+    void forceSettledWithoutRefundMarksForfeited() {
+        TenantContract contract = TenantContract.builder()
+                .status(ContractStatus.TERMINATED)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        CheckoutSettlement settlement = CheckoutSettlement.builder()
+                .depositAmount(new BigDecimal("9500000"))
+                .refundAmount(BigDecimal.ZERO)
+                .extraChargeAmount(BigDecimal.ZERO)
+                .damageTotal(new BigDecimal("2000000"))
+                .unpaidTotal(BigDecimal.ZERO)
+                .forceSettledAt(LocalDateTime.now())
                 .build();
 
         assertEquals(DepositStatus.FORFEITED,

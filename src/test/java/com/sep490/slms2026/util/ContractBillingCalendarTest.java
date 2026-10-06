@@ -11,12 +11,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class ContractBillingCalendarTest {
 
     @Test
-    void billingDay_fromStartDate() {
+    void billingDay_isAlwaysRegularDueDay() {
         TenantContract c = TenantContract.builder()
                 .startDate(LocalDate.of(2026, 4, 15))
                 .moveInDate(LocalDate.of(2026, 4, 15))
                 .build();
-        assertEquals(15, ContractBillingCalendar.billingDayOfMonth(c));
+        assertEquals(5, ContractBillingCalendar.billingDayOfMonth(c));
     }
 
     @Test
