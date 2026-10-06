@@ -347,17 +347,6 @@ Tài khoản khách thuê (Tenant) được tạo khi Manager onboard khách và
 - **Postman**: import file `postman/Sub-leasing managemant system.postman_collection.json`
 - **WebSocket**: endpoint STOMP `/ws`, gửi JWT khi CONNECT
 
-## Tài liệu thiết kế
-
-| Đường dẫn | Nội dung |
-|---|---|
-| `docs/uml/erd/` | ERD tổng và theo module (PlantUML) |
-| `docs/uml/main-flows/` | Class, sequence, state diagram cho các luồng chính (F1–F6) |
-| `docs/uml/SLMS-class-diagram-flows-uml/` | Sơ đồ luồng dạng ảnh PNG |
-| `docs/sequence/` | Sequence diagram chi tiết cho chỉ số và hoá đơn |
-| `docs/*-spec.md` | Đặc tả bảo trì, mã nhà, realtime socket... |
-| `docs/SLMS2026_import_*.xlsx` | File Excel mẫu để import hàng loạt |
-
 ---
 
 ## Xử lý sự cố thường gặp
